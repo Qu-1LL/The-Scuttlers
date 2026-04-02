@@ -1,0 +1,204 @@
+
+#----------------------------- Global Properties ----------------------------#
+
+/outputDir:bin/$(Platform)
+/intermediateDir:obj/$(Platform)
+/platform:DesktopGL
+/config:
+/profile:Reach
+/compress:False
+
+#-------------------------------- References --------------------------------#
+
+
+#---------------------------------- Content ---------------------------------#
+
+#begin Fonts/UiFont.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/build:Fonts/UiFont.spritefont
+
+#begin Fonts/SmallFont.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/build:Fonts/SmallFont.spritefont
+
+#begin Fonts/DebugFont.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/build:Fonts/DebugFont.spritefont
+
+#begin Textures/AlgaeFarm.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/AlgaeFarm.png
+
+#begin Textures/AlgaeTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/AlgaeTile.png
+
+#begin Textures/BackArrow.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/BackArrow.png
+
+#begin Textures/Barracks.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Barracks.png
+
+#begin Textures/CaveWall.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/CaveWall.png
+
+#begin Textures/CochiniumTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/CochiniumTile.png
+
+#begin Textures/EmptyTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile.png
+
+#begin Textures/Enemy.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Enemy.png
+
+#begin Textures/HowDoIGetHimOff.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HowDoIGetHimOff.png
+
+#begin Textures/IlmeniteTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/IlmeniteTile.png
+
+#begin Textures/MagnetiteTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/MagnetiteTile.png
+
+#begin Textures/MalachiteTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/MalachiteTile.png
+
+#begin Textures/MenuBlock.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/MenuBlock.png
+
+#begin Textures/MiningPost.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/MiningPost.png
+
+#begin Textures/OrePath.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/OrePath.png
+
+#begin Textures/Path.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Path.png
+
+#begin Textures/PeroteneTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/PeroteneTile.png
+
+#begin Textures/Queen.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Queen.png
+
+#begin Textures/Radar.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Radar.png
+
+#begin Textures/SandTile.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SandTile.png
+
+#begin Textures/Scaffold.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Scaffold.png
+
+#begin Textures/Selected.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Selected.png
+
+#begin Textures/SelectedEdge.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SelectedEdge.png
+
+#begin Textures/Smith.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Smith.png
+
+#begin Textures/Storage.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Storage.png
+
+#begin Textures/Trilobite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Trilobite.png
+
+#begin Textures/window_3x1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/window_3x1.png
+
+#begin Textures/window_4x1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/window_4x1.png
+
+#begin Textures/window_5x4.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/window_5x4.png
+
+#begin Audio/BuildingFinished.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/BuildingFinished.wav
+
+#begin Audio/BuildingPlace.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/BuildingPlace.mp3
+
+#begin Audio/TrilobiteBirth.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/TrilobiteBirth.wav
+
+#begin Audio/TrilobiteSelected.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/TrilobiteSelected.wav
+
+#begin Audio/UiSelect.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/UiSelect.wav
+
+#begin Audio/VolumeSound.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/VolumeSound.wav
