@@ -3,12 +3,19 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Rendering;
+using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.ViewModels;
 
 namespace TriloGame.Game.UI.Menu;
 
 public sealed partial class MenuController
 {
+    private enum DrawPass
+    {
+        Background,
+        Foreground
+    }
+
     private const string TabBuildings = "buildings";
     private const string TabAssignments = "assignments";
     private const string TabSelected = "selected";
@@ -16,6 +23,8 @@ public sealed partial class MenuController
     private const int AssignmentRowGap = 10;
 
     private Point _pointerPoint;
+    private DrawPass _drawPass = DrawPass.Foreground;
+    private GumShapePool? _gumShapes;
 
     public object? SelectedObject { get; private set; }
 
@@ -240,7 +249,21 @@ public sealed partial class MenuController
         return layout.PanelBounds.Contains(point);
     }
 
+    public void SyncGumBackgrounds(RenderingContext context, Point viewport, GameApp game, GameSession session, GumShapePool gumShapes)
+    {
+        _gumShapes = gumShapes;
+        _drawPass = DrawPass.Background;
+        DrawInternal(context, viewport, game, session);
+    }
+
     public void Draw(RenderingContext context, Point viewport, GameApp game, GameSession session)
+    {
+        _gumShapes = null;
+        _drawPass = DrawPass.Foreground;
+        DrawInternal(context, viewport, game, session);
+    }
+
+    private void DrawInternal(RenderingContext context, Point viewport, GameApp game, GameSession session)
     {
         var layout = GetLayout(viewport, session);
         if (!PanelOpen)
@@ -299,6 +322,10 @@ public sealed partial class MenuController
             DrawBuildingsTab(context, layout, session);
         }
     }
+
+    private bool IsBackgroundPass => _drawPass == DrawPass.Background;
+
+    private bool IsForegroundPass => _drawPass == DrawPass.Foreground;
 
     private IReadOnlyList<Factory> GetBuildableOptions(GameSession session)
     {

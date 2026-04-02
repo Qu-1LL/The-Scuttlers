@@ -25,6 +25,8 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Gum.MonoGame" Version="2026.3.28.2" />
+    <PackageReference Include="Gum.Shapes.MonoGame" Version="2026.3.28.2" />
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.*" />
     <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.*" />
   </ItemGroup>

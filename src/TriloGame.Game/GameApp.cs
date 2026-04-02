@@ -1,8 +1,13 @@
 using System.Text;
+using Gum.Forms;
+using Gum.Forms.Controls;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using MonoGameGum;
+using MonoGameGum.GueDeriving;
+using RenderingLibrary.Graphics;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
@@ -12,6 +17,7 @@ using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.UI.Debug;
+using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Input;
 using TriloGame.Game.UI.Menu;
 using TriloGame.Game.UI.Selection;
@@ -21,6 +27,13 @@ namespace TriloGame.Game;
 
 public sealed partial class GameApp : Microsoft.Xna.Framework.Game
 {
+    private enum ScreenUiPass
+    {
+        Background,
+        Foreground
+    }
+
+    private GumService GumUi => GumService.Default;
     private readonly GraphicsDeviceManager _graphics;
     private readonly AudioService _audio = new();
     private readonly InputController _input = new();
@@ -32,7 +45,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
     private Trilobite[] _pendingManualMoveTargets = [];
 
     private SpriteBatch _spriteBatch = null!;
+    private GumBatch _gumBatch = null!;
     private RenderingContext _rendering = null!;
+    private readonly GumShapePool _gumShapes = new();
     private object? _selectedObject;
     private string? _activeBfsDebugField;
     private bool _gamePaused = true;
@@ -48,6 +63,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
     private Scaffolding? _floatingBuilding;
     private Rectangle? _selectionBoxBounds;
     private RoleRadialMenuState? _roleRadialMenu;
+    private ScreenUiPass _screenUiPass = ScreenUiPass.Foreground;
+    private CheckBox _roleLabelsCheckBox = null!;
+    private bool _syncingRoleLabelsCheckBox;
 
     public GameApp()
     {
@@ -120,6 +138,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         _graphics.PreferredBackBufferWidth = 1440;
         _graphics.PreferredBackBufferHeight = 900;
         _graphics.ApplyChanges();
+        GumUi.Initialize(this, DefaultVisualsVersion.V2);
+        MonoGameAndGum.Renderables.ShapeRenderer.Self.Initialize(GraphicsDevice, Content);
+        InitializeGumControls();
         _camera.SetViewport(Window.ClientBounds.Width, Window.ClientBounds.Height);
         StartNewGame();
         base.Initialize();
@@ -128,6 +149,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
     protected override void LoadContent()
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
+        _gumBatch = new GumBatch();
         var whitePixel = new Texture2D(GraphicsDevice, 1, 1);
         whitePixel.SetData([Color.White]);
 
@@ -195,6 +217,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         if (_isGameOver)
         {
             HandleGameOverInput();
+            SyncGumControls();
+            GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
         }
@@ -203,6 +227,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         {
             HandleDebugMenuInput();
             AdvanceSimulation(gameTime);
+            SyncGumControls();
+            GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
         }
@@ -341,6 +367,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         }
 
         AdvanceSimulation(gameTime);
+        SyncGumControls();
+        GumUi.Update(gameTime);
 
         base.Update(gameTime);
     }
@@ -362,6 +390,32 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
             DrawDebugOverlay(_session.Cave);
         }
 
+        _spriteBatch.End();
+
+        _gumShapes.Container.Width = Window.ClientBounds.Width;
+        _gumShapes.Container.Height = Window.ClientBounds.Height;
+        _gumShapes.BeginFrame();
+        _screenUiPass = ScreenUiPass.Background;
+        if (_isGameOver)
+        {
+            DrawGameOverOverlay();
+        }
+        else
+        {
+            _menu.SyncGumBackgrounds(_rendering, Window.ClientBounds.Size, this, _session, _gumShapes);
+            DrawSettingsMenu();
+            DrawRoleRadialMenu();
+            DrawFocusHint();
+        }
+
+        _gumShapes.EndFrame();
+        _gumBatch.Begin();
+        _gumBatch.Draw(_gumShapes.Container);
+        _gumBatch.End();
+
+        _screenUiPass = ScreenUiPass.Foreground;
+        _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
+
         if (_isGameOver)
         {
             DrawGameOverOverlay();
@@ -379,6 +433,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         }
 
         _spriteBatch.End();
+        GumUi.Draw();
         base.Draw(gameTime);
     }
 
@@ -538,6 +593,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         var focusPoint = GetFocusWorldPosition(selectedObject);
         _camera.SetOrigin(focusPoint + new Vector2(menuOffset * (1f / _camera.CurrentScale), 0f));
     }
+
+    private bool IsScreenUiBackgroundPass => _screenUiPass == ScreenUiPass.Background;
+
+    private bool IsScreenUiForegroundPass => _screenUiPass == ScreenUiPass.Foreground;
 }
 
 public sealed partial class GameApp
@@ -545,6 +604,56 @@ public sealed partial class GameApp
     private void HandleAudioCueRequested(GameAudioCue cue)
     {
         _audio.Play(cue);
+    }
+
+    private void InitializeGumControls()
+    {
+        _roleLabelsCheckBox = new CheckBox();
+        _roleLabelsCheckBox.AddToRoot();
+        _roleLabelsCheckBox.Visual.Visible = false;
+        _roleLabelsCheckBox.Text = "Show Role Labels";
+        _roleLabelsCheckBox.Checked += HandleRoleLabelsCheckboxChanged;
+        _roleLabelsCheckBox.Unchecked += HandleRoleLabelsCheckboxChanged;
+    }
+
+    private void HandleRoleLabelsCheckboxChanged(object? sender, EventArgs args)
+    {
+        if (_syncingRoleLabelsCheckBox)
+        {
+            return;
+        }
+
+        _showRoleLabels = _roleLabelsCheckBox.IsChecked == true;
+        PlayUiSelectSound();
+    }
+
+    private void SyncGumControls()
+    {
+        if (_roleLabelsCheckBox is null)
+        {
+            return;
+        }
+
+        if (!_debugMenuOpen)
+        {
+            _roleLabelsCheckBox.Visual.Visible = false;
+            return;
+        }
+
+        var bounds = DebugMenuLayout.Build(Window.ClientBounds.Size).VisualRowBounds;
+        _roleLabelsCheckBox.Visual.Visible = true;
+        _roleLabelsCheckBox.X = bounds.X;
+        _roleLabelsCheckBox.Y = bounds.Y;
+        _roleLabelsCheckBox.Width = bounds.Width;
+        _roleLabelsCheckBox.Height = bounds.Height;
+        _roleLabelsCheckBox.Text = "Show Role Labels";
+
+        if (_roleLabelsCheckBox.IsChecked != _showRoleLabels)
+        {
+            _syncingRoleLabelsCheckBox = true;
+            _roleLabelsCheckBox.IsChecked = _showRoleLabels;
+            _syncingRoleLabelsCheckBox = false;
+        }
     }
 
     private bool HasLostQueen()
@@ -1526,7 +1635,7 @@ public sealed partial class GameApp
         var buttonBounds = GetPlayAgainButtonBounds(viewport);
         var buttonHovered = buttonBounds.Contains(_input.MousePoint);
 
-        _spriteBatch.Draw(_rendering.WhitePixel, overlayBounds, new Color(7, 11, 16) * 0.82f);
+        DrawRoundedScreenRect(overlayBounds, new Color(7, 11, 16) * 0.82f, 0);
         DrawRoundedScreenFrame(cardBounds, new Color(18, 31, 42), new Color(196, 172, 121), 2, 18);
 
         var title = "Game Over";
@@ -1895,6 +2004,11 @@ public sealed partial class GameApp
 
     private void DrawGearIcon(Rectangle bounds, Color color)
     {
+        if (!IsScreenUiForegroundPass)
+        {
+            return;
+        }
+
         var iconSize = Math.Min(bounds.Width, bounds.Height);
         if (iconSize <= 0)
         {
@@ -1909,7 +2023,7 @@ public sealed partial class GameApp
             bounds.Center.Y - (centerSize / 2),
             centerSize,
             centerSize);
-        DrawRoundedScreenRect(centerBounds, color, Math.Max(3, centerSize / 4));
+        _spriteBatch.Draw(_rendering.WhitePixel, centerBounds, color);
 
         _spriteBatch.Draw(_rendering.WhitePixel, new Rectangle(centerBounds.Center.X - (toothThickness / 2), bounds.Y, toothThickness, toothLength), color);
         _spriteBatch.Draw(_rendering.WhitePixel, new Rectangle(centerBounds.Center.X - (toothThickness / 2), bounds.Bottom - toothLength, toothThickness, toothLength), color);
@@ -1925,13 +2039,18 @@ public sealed partial class GameApp
 
     private void DrawRoundedScreenFrame(Rectangle bounds, Color fill, Color border, int thickness, int radius)
     {
+        if (!IsScreenUiForegroundPass)
+        {
+            return;
+        }
+
         if (bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
         var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        DrawRoundedScreenRect(bounds, border, clampedRadius);
+        FillRoundedScreenRect(bounds, border, clampedRadius);
         if (thickness <= 0)
         {
             return;
@@ -1947,12 +2066,23 @@ public sealed partial class GameApp
             return;
         }
 
-        DrawRoundedScreenRect(innerBounds, fill, Math.Max(0, clampedRadius - thickness));
+        FillRoundedScreenRect(innerBounds, fill, Math.Max(0, clampedRadius - thickness));
     }
 
     private void DrawRoundedScreenRect(Rectangle bounds, Color color, int radius)
     {
-        if (bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsScreenUiForegroundPass || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
+        FillRoundedScreenRect(bounds, color, clampedRadius);
+    }
+
+    private void FillRoundedScreenRect(Rectangle bounds, Color color, int radius)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0 || color.A == 0)
         {
             return;
         }
@@ -1967,13 +2097,13 @@ public sealed partial class GameApp
         for (var row = 0; row < bounds.Height; row++)
         {
             var inset = GetRoundedInset(clampedRadius, row, bounds.Height);
-            var width = bounds.Width - (inset * 2);
-            if (width <= 0)
+            var rowWidth = bounds.Width - (inset * 2);
+            if (rowWidth <= 0)
             {
                 continue;
             }
 
-            _spriteBatch.Draw(_rendering.WhitePixel, new Rectangle(bounds.X + inset, bounds.Y + row, width, 1), color);
+            _spriteBatch.Draw(_rendering.WhitePixel, new Rectangle(bounds.X + inset, bounds.Y + row, rowWidth, 1), color);
         }
     }
 
@@ -2002,7 +2132,7 @@ public sealed partial class GameApp
 
     private void DrawScreenTextFittedCentered(string text, Rectangle bounds, Color color, SpriteFont font, float minScale = 0.72f)
     {
-        if (string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsScreenUiForegroundPass || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
@@ -2041,7 +2171,7 @@ public sealed partial class GameApp
 
     private void DrawWrappedScreenText(IEnumerable<string> paragraphs, Rectangle bounds, Color color, SpriteFont font, int lineGap = 2)
     {
-        if (bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsScreenUiForegroundPass || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
@@ -2063,7 +2193,7 @@ public sealed partial class GameApp
 
     private void DrawScreenTextFittedLeft(string text, Rectangle bounds, Color color, SpriteFont font, float minScale = 0.72f)
     {
-        if (string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsScreenUiForegroundPass || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
@@ -2348,12 +2478,6 @@ public sealed partial class GameApp
                 bfsBottomButtons[1],
                 true,
                 _activeBfsDebugField is null),
-            new DebugMenuButton(
-                DebugMenuAction.ToggleRoleLabels,
-                _showRoleLabels ? "Hide Role Labels" : "Show Role Labels",
-                layout.VisualRowBounds,
-                true,
-                _showRoleLabels),
             new DebugMenuButton(
                 DebugMenuAction.SpawnEnemy,
                 "Spawn Debug Enemy",

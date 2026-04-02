@@ -222,6 +222,11 @@ public sealed partial class MenuController
 
     private void DrawScrollbar(RenderingContext context, Rectangle? trackBounds, Rectangle? thumbBounds)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         if (trackBounds is null || thumbBounds is null)
         {
             return;
@@ -233,18 +238,28 @@ public sealed partial class MenuController
 
     private void DrawRect(RenderingContext context, Rectangle bounds, Color color)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         context.SpriteBatch.Draw(context.WhitePixel, bounds, color);
     }
 
     private void DrawRoundedFrame(RenderingContext context, Rectangle bounds, Color fill, Color border, int thickness, int radius)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         if (bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
         var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        DrawRoundedRect(context, bounds, border, clampedRadius);
+        FillRoundedRect(context, bounds, border, clampedRadius);
         if (thickness <= 0)
         {
             return;
@@ -256,12 +271,37 @@ public sealed partial class MenuController
             return;
         }
 
-        DrawRoundedRect(context, innerBounds, fill, Math.Max(0, clampedRadius - thickness));
+        FillRoundedRect(context, innerBounds, fill, Math.Max(0, clampedRadius - thickness));
     }
 
     private void DrawRoundedRect(RenderingContext context, Rectangle bounds, Color color, int radius)
     {
-        if (bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsForegroundPass || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
+        FillRoundedRect(context, bounds, color, clampedRadius);
+    }
+
+    private void DrawShadow(RenderingContext context, Rectangle bounds, int offset, int radius, Color color)
+    {
+        if (!IsForegroundPass || color.A == 0)
+        {
+            return;
+        }
+
+        DrawRoundedRect(
+            context,
+            new Rectangle(bounds.X, bounds.Y + offset, bounds.Width, bounds.Height),
+            color,
+            radius);
+    }
+
+    private void FillRoundedRect(RenderingContext context, Rectangle bounds, Color color, int radius)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0 || color.A == 0)
         {
             return;
         }
@@ -276,28 +316,14 @@ public sealed partial class MenuController
         for (var row = 0; row < bounds.Height; row++)
         {
             var inset = GetRoundedInset(clampedRadius, row, bounds.Height);
-            var width = bounds.Width - (inset * 2);
-            if (width <= 0)
+            var rowWidth = bounds.Width - (inset * 2);
+            if (rowWidth <= 0)
             {
                 continue;
             }
 
-            DrawRect(context, new Rectangle(bounds.X + inset, bounds.Y + row, width, 1), color);
+            DrawRect(context, new Rectangle(bounds.X + inset, bounds.Y + row, rowWidth, 1), color);
         }
-    }
-
-    private void DrawShadow(RenderingContext context, Rectangle bounds, int offset, int radius, Color color)
-    {
-        if (color.A == 0)
-        {
-            return;
-        }
-
-        DrawRoundedRect(
-            context,
-            new Rectangle(bounds.X, bounds.Y + offset, bounds.Width, bounds.Height),
-            color,
-            radius);
     }
 
     private static int GetRoundedInset(int radius, int row, int height)
@@ -336,7 +362,10 @@ public sealed partial class MenuController
         var radius = Math.Clamp(Math.Min(bounds.Width, bounds.Height) / 4, 8, 14);
         DrawShadow(context, bounds, 2, radius, new Color(0, 0, 0, 44));
         DrawRoundedFrame(context, bounds, fill, border, 2, radius);
-        DrawTextCentered(context, label, bounds, text, minScale: 0.66f);
+        if (IsForegroundPass)
+        {
+            DrawTextCentered(context, label, bounds, text, minScale: 0.66f);
+        }
     }
 
     private void DrawIconButton(
@@ -350,8 +379,11 @@ public sealed partial class MenuController
         var radius = Math.Clamp(Math.Min(bounds.Width, bounds.Height) / 4, 10, 16);
         DrawShadow(context, bounds, 2, radius, new Color(0, 0, 0, 44));
         DrawRoundedFrame(context, bounds, fill, border, 2, radius);
-        var iconInset = Math.Max(8, Math.Min(bounds.Width, bounds.Height) / 5);
-        iconDrawer(context, Inset(bounds, iconInset), iconColor);
+        if (IsForegroundPass)
+        {
+            var iconInset = Math.Max(8, Math.Min(bounds.Width, bounds.Height) / 5);
+            iconDrawer(context, Inset(bounds, iconInset), iconColor);
+        }
     }
 
     private void DrawTabButton(RenderingContext context, Rectangle bounds, string label, bool active, bool hovered)
@@ -368,6 +400,11 @@ public sealed partial class MenuController
 
     private void DrawBackArrowIcon(RenderingContext context, Rectangle bounds, Color color)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         if (context.Sprites.TryGet("BackArrow", out var texture))
         {
             var scale = MathF.Min(bounds.Width / (float)texture.Width, bounds.Height / (float)texture.Height);
@@ -400,6 +437,11 @@ public sealed partial class MenuController
 
     private void DrawGearIcon(RenderingContext context, Rectangle bounds, Color color)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         var iconSize = Math.Min(bounds.Width, bounds.Height);
         if (iconSize <= 0)
         {
@@ -414,7 +456,7 @@ public sealed partial class MenuController
             bounds.Center.Y - (centerSize / 2),
             centerSize,
             centerSize);
-        DrawRoundedRect(context, centerBounds, color, Math.Max(3, centerSize / 4));
+        DrawRect(context, centerBounds, color);
 
         DrawRect(context, new Rectangle(centerBounds.Center.X - (toothThickness / 2), bounds.Y, toothThickness, toothLength), color);
         DrawRect(context, new Rectangle(centerBounds.Center.X - (toothThickness / 2), bounds.Bottom - toothLength, toothThickness, toothLength), color);
@@ -430,12 +472,17 @@ public sealed partial class MenuController
 
     private void DrawText(RenderingContext context, string text, Vector2 position, Color color, bool large = false)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         context.SpriteBatch.DrawString(large ? context.UiFont : context.SmallFont, text, position, color);
     }
 
     private void DrawTextFitted(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
     {
-        if (string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsForegroundPass || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
@@ -475,6 +522,11 @@ public sealed partial class MenuController
 
     private void DrawWrappedText(RenderingContext context, string text, Rectangle bounds, Color color)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         var lines = WrapText(context.SmallFont, text, bounds.Width, Math.Max(1, bounds.Height / context.SmallFont.LineSpacing));
         var y = bounds.Y;
         foreach (var line in lines)
@@ -491,7 +543,7 @@ public sealed partial class MenuController
 
     private void DrawTextCentered(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
     {
-        if (string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!IsForegroundPass || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
@@ -533,6 +585,11 @@ public sealed partial class MenuController
 
     private void DrawPreviewTexture(RenderingContext context, string textureKey, Rectangle bounds)
     {
+        if (!IsForegroundPass)
+        {
+            return;
+        }
+
         if (!context.Sprites.TryGet(textureKey, out var texture))
         {
             return;
