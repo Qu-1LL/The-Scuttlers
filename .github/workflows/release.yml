@@ -1,0 +1,73 @@
+name: Build Release Package
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Publish self-contained Windows build
+        shell: pwsh
+        run: ./tools/publish-game.ps1 -Runtime win-x64 -Configuration Release
+
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          $workspace = (Resolve-Path ".").Path
+          $publishDir = Join-Path $workspace "artifacts/publish/win-x64"
+          $stagingRoot = Join-Path $workspace "artifacts/release"
+          $stagingDir = Join-Path $stagingRoot "The-Scuttlers-win-x64"
+
+          if (Test-Path -LiteralPath $stagingDir) {
+              Remove-Item -LiteralPath $stagingDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+
+          Get-ChildItem -LiteralPath $publishDir -Force |
+              ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stagingDir -Recurse -Force }
+
+      - name: Create release zip
+        shell: pwsh
+        run: |
+          $workspace = (Resolve-Path ".").Path
+          $stagingDir = Join-Path $workspace "artifacts/release/The-Scuttlers-win-x64"
+          $zipPath = Join-Path $workspace "artifacts/release/The-Scuttlers-win-x64.zip"
+
+          if (Test-Path -LiteralPath $zipPath) {
+              Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          Compress-Archive -LiteralPath $stagingDir -DestinationPath $zipPath
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: The-Scuttlers-win-x64
+          path: artifacts/release/The-Scuttlers-win-x64.zip
+
+      - name: Attach zip to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/release/The-Scuttlers-win-x64.zip
+          fail_on_unmatched_files: true
+          overwrite_files: true

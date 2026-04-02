@@ -462,6 +462,15 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         }
     }
 
+    public void RestartGame()
+    {
+        _session.AudioCueRequested -= HandleAudioCueRequested;
+        CleanActive(true);
+        _tickAccumulatorMs = 0d;
+        _input.EndDrag();
+        StartNewGame();
+    }
+
     private void StartNewGame()
     {
         _session = new GameSession();
@@ -667,7 +676,7 @@ public sealed partial class GameApp
         if (_input.LeftReleased && GetPlayAgainButtonBounds(Window.ClientBounds.Size).Contains(_input.MousePoint))
         {
             PlayUiSelectSound();
-            StartNewGame();
+            RestartGame();
         }
     }
 
@@ -825,6 +834,9 @@ public sealed partial class GameApp
                 return;
             case DebugMenuAction.ToggleRoleLabels:
                 _showRoleLabels = !_showRoleLabels;
+                return;
+            case DebugMenuAction.RestartGame:
+                RestartGame();
                 return;
             case DebugMenuAction.SpawnEnemy:
                 SpawnDebugEnemy();
@@ -2409,6 +2421,7 @@ public sealed partial class GameApp
         var speedButtons = DebugMenuLayout.SplitRow(layout.SpeedRowBounds, 4, layout.ButtonGap);
         var bfsTopButtons = DebugMenuLayout.SplitRow(layout.BfsTopRowBounds, 2, layout.ButtonGap);
         var bfsBottomButtons = DebugMenuLayout.SplitRow(layout.BfsBottomRowBounds, 2, layout.ButtonGap);
+        var actionButtons = DebugMenuLayout.SplitRow(layout.ActionsRowBounds, 2, layout.ButtonGap);
 
         return
         [
@@ -2479,9 +2492,15 @@ public sealed partial class GameApp
                 true,
                 _activeBfsDebugField is null),
             new DebugMenuButton(
+                DebugMenuAction.RestartGame,
+                "Restart Game",
+                actionButtons[0],
+                true,
+                false),
+            new DebugMenuButton(
                 DebugMenuAction.SpawnEnemy,
                 "Spawn Debug Enemy",
-                layout.ActionsRowBounds,
+                actionButtons[1],
                 true,
                 false)
         ];
@@ -2977,6 +2996,7 @@ public sealed partial class GameApp
         ShowColonyField,
         ClearField,
         ToggleRoleLabels,
+        RestartGame,
         SpawnEnemy,
         Close
     }

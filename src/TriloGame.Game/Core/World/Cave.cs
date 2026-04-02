@@ -72,59 +72,75 @@ public sealed partial class Cave : Graph
         FillCircle(0, 0, Radius);
 
         var origins = new List<GridPoint> { GridPoint.Zero };
-        for (var index = 0; index < CavernCount; index++)
+        var successfulCaverns = 0;
+        while (successfulCaverns < CavernCount)
         {
-            var randNum = RandomUtil.NextInt(origins.Count);
-            var offsetFactor = RandomUtil.NextDouble();
-            var xOffset = Radius * 2d * offsetFactor + Radius * RandomUtil.NextDouble();
-            var yOffset = Radius * 2d * (1d - offsetFactor) + Radius * RandomUtil.NextDouble();
+            var parent = origins[RandomUtil.NextInt(origins.Count)];
+            var t = RandomUtil.NextDouble();
+            var xOffset = (Radius * 2d * t) + (Radius * RandomUtil.NextDouble());
+            var yOffset = (Radius * 2d * (1d - t)) + (Radius * RandomUtil.NextDouble());
 
-            var origin = new GridPoint(
-                (int)System.Math.Floor(origins[randNum].X + xOffset),
-                (int)System.Math.Floor(origins[randNum].Y + yOffset));
+            var candidateX = (int)System.Math.Floor(parent.X + xOffset);
+            var candidateY = (int)System.Math.Floor(parent.Y + yOffset);
 
             if (RandomUtil.NextDouble() > 0.5d)
             {
-                origin = origin with { X = -origin.X };
+                candidateX = -candidateX;
             }
 
             if (RandomUtil.NextDouble() > 0.5d)
             {
-                origin = origin with { Y = -origin.Y };
+                candidateY = -candidateY;
             }
 
-            if (origins.Any(existing => IsInCircle(origin.X, origin.Y, existing.X, existing.Y, Radius)))
+            var tooClose = false;
+            foreach (var o in origins)
             {
-                index--;
+                var dx = candidateX - o.X;
+                var dy = candidateY - o.Y;
+                if ((dx * dx) + (dy * dy) <= Radius * Radius)
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (tooClose)
+            {
                 continue;
             }
 
+            var origin = new GridPoint(candidateX, candidateY);
             origins.Add(origin);
             var newRadius = (int)System.Math.Floor((0.5d + RandomUtil.NextDouble()) * Radius);
             FillCircle(origin.X, origin.Y, newRadius);
+            successfulCaverns++;
         }
 
-        var values = RandomUtil.Shuffle(Tiles.Keys);
-        var count = 0;
-        foreach (var value in values)
+        var protectedCenterRadius = Radius / 2;
+        var holeBreakThreshold = (Radius * HoleLimit) + (CavernCount * HoleLimit);
+        var tileKeys = RandomUtil.Shuffle(Tiles.Keys);
+        var removedHoleCount = 0;
+        foreach (var tileKey in tileKeys)
         {
-            var tile = GetTile(value)!;
-            var coords = GridPoint.Parse(value);
-            if (tile.Neighbors.Count == 4 && !IsInCircle(coords.X, coords.Y, 0, 0, Radius / 2))
+            var tile = GetTile(tileKey)!;
+            var coords = GridPoint.Parse(tileKey);
+            if (tile.Neighbors.Count == 4 &&
+                ((coords.X * coords.X) + (coords.Y * coords.Y) > protectedCenterRadius * protectedCenterRadius))
             {
-                RemoveTile(value);
-                count++;
+                RemoveTile(tileKey);
+                removedHoleCount++;
             }
 
-            if (count > (Radius * HoleLimit) + (CavernCount * HoleLimit))
+            if (removedHoleCount > holeBreakThreshold)
             {
                 break;
             }
         }
 
-        for (var index = 0; index < 2 + (Radius / SizeMult) + (Radius / CavernCount); index++)
+        for (var index = 0; index < 2d + ((double)Radius / SizeMult) + ((double)Radius / CavernCount); index++)
         {
-            DegradeCave();
+            DegradeCaveOnce();
         }
 
         foreach (var value in Tiles.Keys.ToArray())
@@ -163,15 +179,17 @@ public sealed partial class Cave : Graph
         FillOres();
     }
 
-    private void DegradeCave()
+    private void DegradeCaveOnce()
     {
-        foreach (var value in RandomUtil.Shuffle(Tiles.Keys))
+        var tileKeys = RandomUtil.Shuffle(Tiles.Keys);
+        foreach (var tileKey in tileKeys)
         {
-            var tile = GetTile(value)!;
-            var randNum = RandomUtil.NextNormal(tile.Neighbors.Count, DegradeDeviation);
-            if (randNum < DegradeLimit && tile.Neighbors.Count < 4)
+            var tile = GetTile(tileKey)!;
+            var neighborCount = tile.Neighbors.Count;
+            var sample = RandomUtil.NextNormal(neighborCount, DegradeDeviation);
+            if (neighborCount < 4 && sample < DegradeLimit)
             {
-                RemoveTile(value);
+                RemoveTile(tileKey);
             }
         }
     }

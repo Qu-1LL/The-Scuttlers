@@ -701,6 +701,7 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
    - tick speed selection (`500` / `250` / `100` / `50` ms)
    - BFS debug field selection (`queen`, `enemy`, `colony`, or clear)
    - toggle live trilobite role labels that stay attached to moving trilobites on screen
+   - restart the current run by rebuilding a fresh session/cave/initial colony
    - debug enemy spawn
    - last-tick and rolling-average performance timing for BFS, trilobites, enemies, and
      building ticks, plus allocation/GC counters, live entity counts, and a dominant
@@ -933,8 +934,8 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 2. Each play uses one of three slight randomized pitch variants to soften repeated clicks.
 - `UI Select`:
 1. Plays whenever the player clicks a normal UI element such as menu tabs, build cards,
-   assignment transfers, delete buttons, settings controls, debug buttons, or the game
-   over restart button.
+   assignment transfers, delete buttons, settings controls, debug buttons including the
+   debug-menu restart button, or the game over restart button.
 2. Each play uses one of three slight randomized pitch variants.
 - `Volume Sound`:
 1. Plays after the player lands on a new volume increment in the settings panel.
@@ -970,4 +971,12 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
    the selection clears.
 - `Escape` is the explicit path that both clears active state and closes the shared menu
   panel; the panel can also be collapsed with its header arrow button.
+- `RestartGame()` is the central full-run reset for debug/game-over restart flow:
+1. Detaches the old session audio hook.
+2. Calls `CleanActive(closeMenu: true)` equivalent.
+3. Clears drag/tick-accumulator state.
+4. Creates a fresh `GameSession`, a new `Cave`, and a new initial colony through the
+   normal startup path.
+5. Resets camera, pause/debug/settings state, selection state, and menu state the same
+   way as first boot.
 - Several workflows call `CleanActive()` to prevent mode overlap and stale UI.
