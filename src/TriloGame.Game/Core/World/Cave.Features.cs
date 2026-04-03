@@ -13,10 +13,15 @@ public sealed partial class Cave
     private readonly Dictionary<string, AntHole> _antHolesByTileKey = new(StringComparer.Ordinal);
     private readonly Dictionary<Enemy, AntHole> _antHoleByEnemy = [];
 
-    public OpalNode? GetOpalNode() => _opalNode;
+    public OpalNode? GetOpalNode() => GameConstants.EnableOpal ? _opalNode : null;
 
     public OpalNode? GetOpalNode(Tile tile)
     {
+        if (!GameConstants.EnableOpal)
+        {
+            return null;
+        }
+
         return _opalNode is not null && string.Equals(_opalNode.TileKey, tile.Key, StringComparison.Ordinal)
             ? _opalNode
             : null;
@@ -42,6 +47,12 @@ public sealed partial class Cave
 
     public bool TrySpawnQueenOpal()
     {
+        if (!GameConstants.EnableOpal)
+        {
+            _opalNode = null;
+            return false;
+        }
+
         if (_opalNode is not null)
         {
             return true;
@@ -156,22 +167,42 @@ public sealed partial class Cave
 
     public void TickSurfaceFeatures()
     {
+        if (!GameConstants.EnableOpal)
+        {
+            _opalNode = null;
+            return;
+        }
+
         _opalNode?.Tick();
     }
 
     public int GetAntHoleSpawnChanceDenominator()
     {
+        if (!GameConstants.EnableOpal)
+        {
+            return GameConstants.AntHoleBaseSpawnChanceDenominator;
+        }
+
         return _opalNode?.GetAntHoleSpawnChanceDenominator() ?? GameConstants.AntHoleBaseSpawnChanceDenominator;
     }
 
     public bool AllowsNaturalEnemySpawns()
     {
-        return !Session.Runtime.DisableEnemySpawns &&
-               _opalNode?.BlocksNaturalAntHoleSpawns() != true;
+        if (Session.Runtime.DisableEnemySpawns)
+        {
+            return false;
+        }
+
+        return !GameConstants.EnableOpal || _opalNode?.BlocksNaturalAntHoleSpawns() != true;
     }
 
     public MineTileResult MineOpal(Tile tile)
     {
+        if (!GameConstants.EnableOpal)
+        {
+            return MineTileResult.NotApplied;
+        }
+
         var opal = GetOpalNode(tile);
         if (opal is null || !opal.ApplyMineHit())
         {

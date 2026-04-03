@@ -2,6 +2,8 @@ namespace TriloGame.Game.Core.Constants;
 
 public static class GameConstants
 {
+    public static readonly bool EnableOpal = false;
+
     public const double TickSpeedSlow = 500d;
     public const double TickSpeedNormal = 250d;
     public const double TickSpeedFast = 100d;

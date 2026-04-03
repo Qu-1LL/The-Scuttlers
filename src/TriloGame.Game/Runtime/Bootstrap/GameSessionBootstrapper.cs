@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
@@ -42,7 +43,10 @@ public sealed class GameSessionBootstrapper
         cave.Spawn(sigma, cave.GetTile(new GridPoint(spawnX, spawnY + 2))!);
 
         cave.RevealCave();
-        cave.TrySpawnQueenOpal();
+        if (GameConstants.EnableOpal)
+        {
+            cave.TrySpawnQueenOpal();
+        }
 
         return new GameBootstrapResult(session, initialColony.QueenLocation, initialColony.MiningPostLocation);
     }

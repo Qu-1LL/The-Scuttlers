@@ -138,7 +138,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"TickSpeedMs: {_tickSpeedMs}");
         builder.AppendLine($"TickAccumulatorMs: {_tickAccumulatorMs:0.###}");
         builder.AppendLine($"ActiveBfsDebugField: {_activeBfsDebugField ?? "none"}");
-        builder.AppendLine($"FreezeOpalProgression: {_session.Runtime.FreezeOpalProgression}");
+        if (GameConstants.EnableOpal)
+        {
+            builder.AppendLine($"FreezeOpalProgression: {_session.Runtime.FreezeOpalProgression}");
+        }
+
         builder.AppendLine($"DisableEnemySpawns: {_session.Runtime.DisableEnemySpawns}");
         builder.AppendLine($"TickTiming: {FormatTickProfile(_session.Runtime.TickProfiler.Last, "last")}");
         builder.AppendLine($"TickTimingAverage: {FormatTickProfile(_session.Runtime.TickProfiler.Average, "avg")}");
@@ -201,7 +205,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Sandstone", "Textures/SandTile");
         RegisterTexture(sprites, "Malachite", "Textures/MalachiteTile");
         RegisterTexture(sprites, "Magnetite", "Textures/MagnetiteTile");
-        RegisterTexture(sprites, "Opal", "Textures/Opal");
+        if (GameConstants.EnableOpal)
+        {
+            RegisterTexture(sprites, "Opal", "Textures/Opal");
+        }
         RegisterTexture(sprites, "Perotene", "Textures/PeroteneTile");
         RegisterTexture(sprites, "Ilmenite", "Textures/IlmeniteTile");
         RegisterTexture(sprites, "Cochinium", "Textures/CochiniumTile");
@@ -235,9 +242,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.BuildingPlace, Content.Load<SoundEffect>("Audio/BuildingPlace"));
         _audio.Register(GameAudioCue.BuildingFinished, Content.Load<SoundEffect>("Audio/BuildingFinished"));
         _audio.Register(GameAudioCue.AntHoleSpawn, Content.Load<SoundEffect>("Audio/AntHoleSpawn"));
-        _audio.Register(GameAudioCue.OpalChangeStart, Content.Load<SoundEffect>("Audio/OpalChangeStart"));
-        _audio.Register(GameAudioCue.OpalAlarm, Content.Load<SoundEffect>("Audio/OpalAlarm"));
-        _audio.Register(GameAudioCue.OpalRestore, Content.Load<SoundEffect>("Audio/OpalRestore"));
+        if (GameConstants.EnableOpal)
+        {
+            _audio.Register(GameAudioCue.OpalChangeStart, Content.Load<SoundEffect>("Audio/OpalChangeStart"));
+            _audio.Register(GameAudioCue.OpalAlarm, Content.Load<SoundEffect>("Audio/OpalAlarm"));
+            _audio.Register(GameAudioCue.OpalRestore, Content.Load<SoundEffect>("Audio/OpalRestore"));
+        }
         _audio.Register(GameAudioCue.TrilobiteBirth, Content.Load<SoundEffect>("Audio/TrilobiteBirth"));
         _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/TrilobiteSelected"));
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/UiSelect"));
@@ -753,11 +763,21 @@ public sealed partial class GameApp
 {
     private void SyncOpalAudioState(GameTime gameTime)
     {
+        if (!GameConstants.EnableOpal)
+        {
+            return;
+        }
+
         _opalAudioSystem.Update(_session, gameTime.ElapsedGameTime.TotalMilliseconds);
     }
 
     private void ResetOpalAudioState()
     {
+        if (!GameConstants.EnableOpal)
+        {
+            return;
+        }
+
         _opalAudioSystem.Reset();
     }
 
@@ -2330,13 +2350,20 @@ public sealed partial class GameApp
 
     private IReadOnlyList<string> BuildDebugSummaryLines()
     {
-        return
-        [
+        var lines = new List<string>
+        {
             $"Paused: {(_gamePaused ? "Yes" : "No")}    Danger: {(_session.Danger ? "Yes" : "No")}    Tick: {_session.TickCount}",
             $"Tick Speed: {(int)_tickSpeedMs} ms",
             $"BFS View: {(_activeBfsDebugField ?? "none")} (visible while paused)",
-            $"Role Labels: {(_showRoleLabels ? "On" : "Off")}    Opal Frozen: {(_session.Runtime.FreezeOpalProgression ? "On" : "Off")}"
-        ];
+            $"Role Labels: {(_showRoleLabels ? "On" : "Off")}"
+        };
+
+        if (GameConstants.EnableOpal)
+        {
+            lines[3] += $"    Opal Frozen: {(_session.Runtime.FreezeOpalProgression ? "On" : "Off")}";
+        }
+
+        return lines;
     }
 
     private IReadOnlyList<RoleRadialButton> BuildRoleRadialButtons(RoleRadialMenuState radialMenu)

@@ -13,18 +13,13 @@ public sealed class GameSessionBootstrapperTests
         var queen = Assert.IsType<Queen>(cave.GetQueenBuilding());
 
         Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
-        Assert.NotNull(cave.GetOpalNode());
+        Assert.Null(cave.GetOpalNode());
 
         var assignments = cave.GetTrilobiteList().ToDictionary(trilobite => trilobite.Name, trilobite => trilobite.Assignment, StringComparer.Ordinal);
         Assert.Equal("miner", assignments["Jeffery"]);
         Assert.Equal("builder", assignments["Quinton"]);
         Assert.Equal("farmer", assignments["Yeetmuncher"]);
         Assert.Equal("fighter", assignments["Sigma"]);
-
-        var opalTile = cave.GetTile(cave.GetOpalNode()!.TileKey);
-        Assert.NotNull(opalTile);
-        Assert.Contains(
-            queen.TileArray.SelectMany(tile => tile.Neighbors).Distinct(),
-            neighbor => neighbor.Key == opalTile!.Key);
+        Assert.NotNull(queen);
     }
 }

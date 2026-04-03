@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using RenderingLibrary.Graphics;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Game.UI.Debug;
@@ -44,14 +45,15 @@ public sealed class DebugToggleControls
             return true;
         }
 
-        if (rows[1].Contains(point))
+        if (GameConstants.EnableOpal && rows[1].Contains(point))
         {
             _setFreezeOpal(!freezeOpalProgression);
             _playUiSelectSound();
             return true;
         }
 
-        if (rows[2].Contains(point))
+        var disableEnemyIndex = GameConstants.EnableOpal ? 2 : 1;
+        if (rows[disableEnemyIndex].Contains(point))
         {
             _setDisableEnemySpawns(!disableEnemySpawns);
             _playUiSelectSound();
@@ -77,14 +79,19 @@ public sealed class DebugToggleControls
 
         var rows = GetToggleRows(viewport);
         DrawToggle(gumUi, rows[0], "Show Role Labels", showRoleLabels, rows[0].Contains(pointer));
-        DrawToggle(gumUi, rows[1], "Freeze Opal", freezeOpalProgression, rows[1].Contains(pointer));
-        DrawToggle(gumUi, rows[2], "Disable Enemy Spawns", disableEnemySpawns, rows[2].Contains(pointer));
+        if (GameConstants.EnableOpal)
+        {
+            DrawToggle(gumUi, rows[1], "Freeze Opal", freezeOpalProgression, rows[1].Contains(pointer));
+        }
+
+        var disableEnemyIndex = GameConstants.EnableOpal ? 2 : 1;
+        DrawToggle(gumUi, rows[disableEnemyIndex], "Disable Enemy Spawns", disableEnemySpawns, rows[disableEnemyIndex].Contains(pointer));
     }
 
     private static IReadOnlyList<Rectangle> GetToggleRows(Point viewport)
     {
         var layout = DebugMenuLayout.Build(viewport);
-        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, 3, layout.ButtonGap);
+        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, GameConstants.EnableOpal ? 3 : 2, layout.ButtonGap);
     }
 
     private static void DrawToggle(GumUiRenderer gumUi, Rectangle bounds, string text, bool isChecked, bool hovered)
