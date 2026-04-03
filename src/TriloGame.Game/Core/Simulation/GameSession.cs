@@ -4,6 +4,7 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Pathfinding;
+using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -27,6 +28,8 @@ public sealed class GameSession
         };
         BfsFields = new Dictionary<string, BfsField>(StringComparer.Ordinal);
         UnlockedBuildings = [];
+        ProgressionDex = TriloDex.Global;
+        SkillTree = new SkillTree(ProgressionDex);
         Danger = false;
         TickCount = 0;
         DebugEnemyCount = 1;
@@ -42,6 +45,12 @@ public sealed class GameSession
     public Dictionary<string, BfsField> BfsFields { get; set; }
 
     public List<Factory> UnlockedBuildings { get; }
+
+    public TriloDex ProgressionDex { get; }
+
+    public IReadOnlyList<FeatureTree> FeatureTrees => ProgressionDex.FeatureTrees;
+
+    public SkillTree SkillTree { get; }
 
     public Cave? Cave { get; set; }
 
@@ -68,6 +77,11 @@ public sealed class GameSession
     public void RequestAudioCue(GameAudioCue cue)
     {
         AudioCueRequested?.Invoke(cue);
+    }
+
+    public FeatureTree? GetFeatureTree(string name)
+    {
+        return ProgressionDex.FindFeatureTree(name);
     }
 
     public bool IsOreTileType(string tileType)

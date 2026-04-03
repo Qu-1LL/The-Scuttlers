@@ -150,6 +150,16 @@ This section maps to [[Pathfinding and BFS]].
 - `Core/Pathfinding/BfsField.cs` - BFS field engine
 - `Core/Pathfinding/PathBuilder.cs` - path reconstruction helpers
 
+## Core - Progression
+
+This section maps to [[Progression and Feature Trees]].
+
+- `Core/Progression/BinarySkillNode.cs` - binary per-run skill-tree node copied from a feature-tree skill
+- `Core/Progression/FeatureTree.cs` - feature-tree metadata and traversal helpers
+- `Core/Progression/SkillTree.cs` - session-local binary skill tree built from feature-tree node copies
+- `Core/Progression/SkillNode.cs` - upgrade-node model with prerequisite and one-shot effect behavior
+- `Core/Progression/TriloDex.cs` - global hard-coded feature-tree catalog accessor
+
 ## Core - Simulation
 
 This section maps to [[Simulation and Ticks]].
