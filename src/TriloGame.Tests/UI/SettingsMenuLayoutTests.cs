@@ -27,4 +27,17 @@ public sealed class SettingsMenuLayoutTests
         Assert.Equal(65, SettingsMenuLayout.GetSnappedVolumeFromBar(barBounds, barBounds.Left + 129));
         Assert.Equal(100, SettingsMenuLayout.GetSnappedVolumeFromBar(barBounds, barBounds.Right));
     }
+
+    [Fact]
+    public void GetReturnToMainMenuButtonBounds_StaysInsidePanelAboveDismissHint()
+    {
+        var viewport = new Point(1440, 900);
+        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport);
+
+        var returnBounds = SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds);
+        var hintBounds = SettingsMenuLayout.GetDismissHintBounds(panelBounds);
+
+        Assert.True(panelBounds.Contains(returnBounds));
+        Assert.True(returnBounds.Bottom < hintBounds.Y);
+    }
 }

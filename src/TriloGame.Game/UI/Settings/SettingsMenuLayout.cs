@@ -14,7 +14,7 @@ public static class SettingsMenuLayout
     public static Rectangle GetPanelBounds(Point viewport)
     {
         var width = Math.Min(348, Math.Max(280, viewport.X - 36));
-        var height = 184;
+        var height = 238;
         var button = GetSettingsButtonBounds(viewport);
         return new Rectangle(button.X, button.Bottom + 12, width, height);
     }
@@ -39,6 +39,11 @@ public static class SettingsMenuLayout
     {
         var bar = GetVolumeBarBounds(panelBounds);
         return new Rectangle(panelBounds.Right - 62, bar.Y - 11, 40, 40);
+    }
+
+    public static Rectangle GetReturnToMainMenuButtonBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.X + 22, panelBounds.Y + 144, panelBounds.Width - 44, 38);
     }
 
     public static Rectangle GetDismissHintBounds(Rectangle panelBounds)

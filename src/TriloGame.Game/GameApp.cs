@@ -19,6 +19,7 @@ using TriloGame.Game.Shared.Math;
 using TriloGame.Game.UI.Debug;
 using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Input;
+using TriloGame.Game.UI.MainMenu;
 using TriloGame.Game.UI.Menu;
 using TriloGame.Game.UI.Selection;
 using TriloGame.Game.UI.Settings;
@@ -27,6 +28,12 @@ namespace TriloGame.Game;
 
 public sealed partial class GameApp : Microsoft.Xna.Framework.Game
 {
+    private enum AppScreen
+    {
+        MainMenu,
+        Gameplay
+    }
+
     private enum ScreenUiPass
     {
         Background,
@@ -60,6 +67,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
     private double _tickSpeedMs = GameConstants.TickSpeedNormal;
     private double _tickAccumulatorMs;
     private double _uiClockMs;
+    private AppScreen _appScreen = AppScreen.MainMenu;
     private Scaffolding? _floatingBuilding;
     private Rectangle? _selectionBoxBounds;
     private RoleRadialMenuState? _roleRadialMenu;
@@ -92,6 +100,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         var builder = new StringBuilder();
 
         builder.AppendLine("[Game]");
+        builder.AppendLine($"AppScreen: {_appScreen}");
         builder.AppendLine($"Paused: {_gamePaused}");
         builder.AppendLine($"GameOver: {_isGameOver}");
         builder.AppendLine($"DebugMenuOpen: {_debugMenuOpen}");
@@ -142,7 +151,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         MonoGameAndGum.Renderables.ShapeRenderer.Self.Initialize(GraphicsDevice, Content);
         InitializeGumControls();
         _camera.SetViewport(Window.ClientBounds.Width, Window.ClientBounds.Height);
-        StartNewGame();
+        EnterMainMenu();
         base.Initialize();
     }
 
@@ -201,6 +210,16 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
     {
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
+
+        if (IsMainMenuActive)
+        {
+            HandleMainMenuInput();
+            SyncGumControls();
+            GumUi.Update(gameTime);
+            base.Update(gameTime);
+            return;
+        }
+
         ExpirePendingManualMove();
         SyncSelectionIfRemoved();
 
@@ -396,7 +415,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         _gumShapes.Container.Height = Window.ClientBounds.Height;
         _gumShapes.BeginFrame();
         _screenUiPass = ScreenUiPass.Background;
-        if (_isGameOver)
+        if (IsMainMenuActive)
+        {
+            DrawMainMenu();
+        }
+        else if (_isGameOver)
         {
             DrawGameOverOverlay();
         }
@@ -416,7 +439,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         _screenUiPass = ScreenUiPass.Foreground;
         _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
 
-        if (_isGameOver)
+        if (IsMainMenuActive)
+        {
+            DrawMainMenu();
+        }
+        else if (_isGameOver)
         {
             DrawGameOverOverlay();
         }
@@ -464,6 +491,33 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
 
     public void RestartGame()
     {
+        StartGameplaySession();
+    }
+
+    private void EnterMainMenu()
+    {
+        _session.AudioCueRequested -= HandleAudioCueRequested;
+        CleanActive(true);
+        _session = new GameSession();
+        _appScreen = AppScreen.MainMenu;
+        _tickAccumulatorMs = 0d;
+        _uiClockMs = 0d;
+        _gamePaused = true;
+        _isGameOver = false;
+        _debugMenuOpen = false;
+        _settingsMenuOpen = false;
+        _showRoleLabels = false;
+        _tickSpeedMs = GameConstants.TickSpeedNormal;
+        _activeBfsDebugField = null;
+        _camera.CurrentScale = 1f;
+        _input.EndDrag();
+        ClearPendingManualMove();
+        _menu.ResetState();
+        _menu.ClosePanel();
+    }
+
+    private void StartGameplaySession()
+    {
         _session.AudioCueRequested -= HandleAudioCueRequested;
         CleanActive(true);
         _tickAccumulatorMs = 0d;
@@ -475,6 +529,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
     {
         _session = new GameSession();
         _session.AudioCueRequested += HandleAudioCueRequested;
+        _appScreen = AppScreen.Gameplay;
         PopulateUnlockedBuildings();
 
         var cave = new Cave(_session);
@@ -603,6 +658,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game
         _camera.SetOrigin(focusPoint + new Vector2(menuOffset * (1f / _camera.CurrentScale), 0f));
     }
 
+    private bool IsMainMenuActive => _appScreen == AppScreen.MainMenu;
+
     private bool IsScreenUiBackgroundPass => _screenUiPass == ScreenUiPass.Background;
 
     private bool IsScreenUiForegroundPass => _screenUiPass == ScreenUiPass.Foreground;
@@ -662,6 +719,30 @@ public sealed partial class GameApp
             _syncingRoleLabelsCheckBox = true;
             _roleLabelsCheckBox.IsChecked = _showRoleLabels;
             _syncingRoleLabelsCheckBox = false;
+        }
+    }
+
+    private void HandleMainMenuInput()
+    {
+        if (!_input.LeftReleased)
+        {
+            return;
+        }
+
+        var cardBounds = MainMenuLayout.GetCardBounds(Window.ClientBounds.Size);
+        var startBounds = MainMenuLayout.GetStartGameButtonBounds(cardBounds);
+        if (startBounds.Contains(_input.MousePoint))
+        {
+            PlayUiSelectSound();
+            StartGameplaySession();
+            return;
+        }
+
+        var quitBounds = MainMenuLayout.GetQuitGameButtonBounds(cardBounds);
+        if (quitBounds.Contains(_input.MousePoint))
+        {
+            PlayUiSelectSound();
+            Exit();
         }
     }
 
@@ -775,6 +856,14 @@ public sealed partial class GameApp
         if (barBounds.Contains(point))
         {
             SetVolumeSetting(SettingsMenuLayout.GetSnappedVolumeFromBar(barBounds, point.X));
+            return true;
+        }
+
+        var returnBounds = SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds);
+        if (returnBounds.Contains(point))
+        {
+            PlayUiSelectSound();
+            EnterMainMenu();
             return true;
         }
 
@@ -1511,6 +1600,69 @@ public sealed partial class GameApp
         DrawScreenTextFittedCentered(label, hintBounds, new Color(239, 247, 252), _rendering.SmallFont, minScale: 0.72f);
     }
 
+    private void DrawMainMenu()
+    {
+        var viewport = Window.ClientBounds.Size;
+        var overlayBounds = new Rectangle(0, 0, viewport.X, viewport.Y);
+        var cardBounds = MainMenuLayout.GetCardBounds(viewport);
+        var titleBounds = MainMenuLayout.GetTitleBounds(cardBounds);
+        var startBounds = MainMenuLayout.GetStartGameButtonBounds(cardBounds);
+        var quitBounds = MainMenuLayout.GetQuitGameButtonBounds(cardBounds);
+        var comingSoonBounds = MainMenuLayout.GetComingSoonBounds(cardBounds);
+
+        if (IsScreenUiBackgroundPass)
+        {
+            DrawRoundedScreenRect(overlayBounds, new Color(6, 11, 16) * 0.94f, 0);
+            DrawRoundedScreenFrame(cardBounds, new Color(16, 30, 42, 244), new Color(141, 199, 219), 3, 22);
+            return;
+        }
+
+        if (!IsScreenUiForegroundPass)
+        {
+            return;
+        }
+
+        DrawScreenTextFittedCentered(
+            "Welcome to The Scuttlers",
+            titleBounds,
+            Color.White,
+            _rendering.UiFont,
+            minScale: 0.66f);
+
+        DrawMainMenuButton(
+            startBounds,
+            "Start Game",
+            startBounds.Contains(_input.MousePoint),
+            new Color(32, 90, 112),
+            new Color(173, 229, 242));
+        DrawMainMenuButton(
+            quitBounds,
+            "Quit Game",
+            quitBounds.Contains(_input.MousePoint),
+            new Color(86, 54, 42),
+            new Color(231, 196, 174));
+
+        DrawScreenTextFittedCentered(
+            "Trilo-dex coming soon!",
+            comingSoonBounds,
+            new Color(181, 206, 217),
+            _rendering.SmallFont,
+            minScale: 0.7f);
+    }
+
+    private void DrawMainMenuButton(Rectangle bounds, string label, bool hovered, Color fill, Color border)
+    {
+        var buttonFill = hovered
+            ? Color.Lerp(fill, Color.White, 0.14f)
+            : fill;
+        var buttonBorder = hovered
+            ? Color.Lerp(border, Color.White, 0.22f)
+            : border;
+
+        DrawRoundedScreenFrame(bounds, buttonFill, buttonBorder, 2, 16);
+        DrawScreenTextFittedCentered(label, bounds, new Color(246, 251, 253), _rendering.SmallFont, minScale: 0.72f);
+    }
+
     private void DrawSettingsMenu()
     {
         var viewport = Window.ClientBounds.Size;
@@ -1544,10 +1696,12 @@ public sealed partial class GameApp
         var barBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
         var downBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
         var upBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
+        var returnBounds = SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds);
         var hintBounds = SettingsMenuLayout.GetDismissHintBounds(panelBounds);
         var downHovered = downBounds.Contains(_input.MousePoint);
         var upHovered = upBounds.Contains(_input.MousePoint);
         var barHovered = barBounds.Contains(_input.MousePoint);
+        var returnHovered = returnBounds.Contains(_input.MousePoint);
 
         DrawRoundedScreenFrame(panelBounds, new Color(8, 19, 29, 247), new Color(77, 122, 140), 3, 16);
         DrawScreenTextFittedCentered("Settings", titleBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
@@ -1581,6 +1735,19 @@ public sealed partial class GameApp
             2,
             12);
         DrawScreenTextFittedCentered("+", upBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
+
+        DrawRoundedScreenFrame(
+            returnBounds,
+            returnHovered ? new Color(70, 52, 34) : new Color(50, 37, 24),
+            returnHovered ? new Color(232, 210, 170) : new Color(174, 147, 110),
+            2,
+            12);
+        DrawScreenTextFittedCentered(
+            "Return to Main Menu",
+            returnBounds,
+            new Color(247, 241, 230),
+            _rendering.SmallFont,
+            minScale: 0.62f);
 
         DrawScreenTextFittedCentered(
             "Click outside to close",

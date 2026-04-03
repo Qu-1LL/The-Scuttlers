@@ -57,6 +57,8 @@ If you need the official framework details for `Game`, MonoGame startup, or Gum 
 
 ### Session bootstrap
 
+- `EnterMainMenu()`
+- `StartGameplaySession()`
 - `StartNewGame()`
 - `PopulateUnlockedBuildings()`
 - `BuildInitialColony(Cave)`
@@ -80,6 +82,12 @@ If you need the official framework details for `Game`, MonoGame startup, or Gum 
 - `BuildCrashDiagnostics()`
 - `RefreshBfsFieldDebug()`
 - `SpawnDebugEnemy()`
+
+## Root flow
+
+- `Initialize()` now enters a top-level main menu state instead of creating a colony immediately
+- `EnterMainMenu()` clears the current run, resets transient UI/input state, and leaves the app waiting for `Start Game`
+- `StartGameplaySession()` exits the main menu and then calls `StartNewGame()` to build a fresh colony
 
 ## Startup state reset in `StartNewGame()`
 

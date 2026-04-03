@@ -581,6 +581,9 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   and field/path accessors for building/combat BFS.
 
 ## Initial colony setup (`Program.cs` / `GameApp.cs` bootstrap flow)
+- Trigger:
+1. Press `Start Game` on the startup main menu.
+2. Or trigger an in-game restart flow such as `Play Again`.
 - Startup placement workflow:
 1. The game places the queen first.
 2. Startup also places one finished mining post through normal `Cave.Build` logic instead
@@ -767,6 +770,12 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 - Hover exit forwards pointer-out behavior to underlying footprint tile.
 
 ### Menu / button events
+- Startup main menu:
+1. On app launch, the player is shown a centered main menu instead of entering a colony immediately.
+2. The menu shows the title `Welcome to The Scuttlers`.
+3. A `Start Game` button closes the menu and creates a fresh game using the normal colony bootstrap flow.
+4. A `Quit Game` button closes the game window.
+5. The line `Trilo-dex coming soon!` is rendered below those buttons.
 - Top-left settings button:
 1. A rounded settings button is always rendered at the top-left of the screen.
 2. Left-click release toggles a rounded settings panel below it without changing the
@@ -774,7 +783,9 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 3. The settings panel contains a `Volume` control from `0` to `100`.
 4. Volume changes snap to fixed `5`-point increments whether the player uses `-`, `+`,
    or clicks the volume bar directly.
-5. Left-click release outside the open settings panel closes it without triggering world
+5. The settings panel also contains a `Return to Main Menu` button that discards the
+   current colony and returns to the startup main menu.
+6. Left-click release outside the open settings panel closes it without triggering world
    interaction underneath.
 - Top-right gear button:
 1. Left-click release: open the shared main menu panel after it has been collapsed.

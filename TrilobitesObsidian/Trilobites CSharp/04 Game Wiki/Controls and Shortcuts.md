@@ -31,6 +31,14 @@ This note describes the current playable controls in the C# build. For the lower
 
 These controls are the main entry into [[Trilobite Roles]] and [[Buildings and Placement]].
 
+## Main menu
+
+- On launch, the game opens on a main menu instead of starting a colony immediately
+- `Start Game`: create a fresh colony using the normal startup generation flow
+- `Quit Game`: close the game window
+- The title reads `Welcome to The Scuttlers`
+- The line `Trilo-dex coming soon!` appears below the two buttons
+
 ## Orders and world interaction
 
 - Left click a wall: mine it
@@ -81,6 +89,7 @@ The settings menu currently exposes:
 - `Volume` from `0` to `100`
 - `-` and `+` buttons
 - clickable volume bar changes in `5`-point increments
+- `Return to Main Menu`, which closes the current colony and goes back to the startup menu
 
 ## Related notes
 
