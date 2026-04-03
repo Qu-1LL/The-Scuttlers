@@ -16,6 +16,7 @@ public sealed class Factory
         Size = sample.Size;
         Description = sample.Description;
         HasStation = sample.HasStation;
+        ConstructionCost = sample.GetConstructionCost();
     }
 
     public string Name { get; }
@@ -29,6 +30,8 @@ public sealed class Factory
     public string Description { get; }
 
     public bool HasStation { get; }
+
+    public Dictionary<string, int>? ConstructionCost { get; }
 
     public Building Build(GameSession session)
     {

@@ -1,8 +1,11 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using RenderingLibrary.Graphics;
+using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Rendering;
+using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Game.UI.Menu;
 
@@ -126,18 +129,40 @@ public sealed partial class MenuController
 
         var title = SelectedObject is Creature creature ? creature.Name : (SelectedObject as Core.Buildings.Building)?.Name ?? "No Selection";
         var objectType = SelectedObject is Creature ? "Trilobite" : "Building";
-        var assignmentText = SelectedObject is Creature selectedCreature
-            ? $"Assignment: {selectedCreature.Assignment}"
-            : $"Type: {title}";
+        var healthText = SelectedObject is Creature selectedHealthCreature
+            ? $"Health: {selectedHealthCreature.Health}/{selectedHealthCreature.MaxHealth}"
+            : null;
+        var assignmentText = SelectedObject switch
+        {
+            Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
+            MiningPost miningPost => $"Stored: {miningPost.GetInventoryTotal()}/{miningPost.Capacity}",
+            _ => $"Type: {title}"
+        };
+        var canRename = SelectedObject is Trilobite;
         var bodyText = SelectedObject is Creature
             ? "Delete this trilobite from the colony immediately."
             : "Delete this building from the cave immediately.";
+        var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
+        var healthBounds = healthText is null
+            ? Rectangle.Empty
+            : new Rectangle(headerBounds.Right - Math.Min(156, headerBounds.Width / 2), headerBounds.Y, Math.Min(156, headerBounds.Width / 2), headerBounds.Height);
+        var titleHeaderBounds = healthText is null
+            ? headerBounds
+            : new Rectangle(headerBounds.X, headerBounds.Y, Math.Max(80, healthBounds.X - headerBounds.X - 8), headerBounds.Height);
 
         DrawTextFitted(
             context,
             "SELECTED OBJECT",
-            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22),
+            titleHeaderBounds,
             new Color(159, 195, 210));
+        if (healthText is not null)
+        {
+            DrawTextFittedRight(
+                context,
+                healthText,
+                healthBounds,
+                new Color(210, 228, 236));
+        }
         DrawTextFitted(
             context,
             title,
@@ -155,11 +180,101 @@ public sealed partial class MenuController
             new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
             new Color(135, 173, 187));
 
-        DrawWrappedText(
-            context,
-            $"{bodyText} This uses the normal in-game removal flow and clears the current selection afterward.",
-            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 132, layout.SelectedBounds.Width - 32, Math.Max(60, layout.SelectedBounds.Height - 220)),
-            new Color(226, 238, 244));
+        if (canRename)
+        {
+            DrawTextFitted(
+                context,
+                "NAME",
+                new Rectangle(layout.SelectedRenameFieldBounds.X, layout.SelectedRenameFieldBounds.Y - 20, layout.SelectedRenameFieldBounds.Width, 18),
+                new Color(159, 195, 210));
+            DrawFrame(
+                context,
+                layout.SelectedRenameFieldBounds,
+                _renamingSelectedTrilobite ? new Color(21, 49, 67) : new Color(12, 28, 40),
+                _renamingSelectedTrilobite ? new Color(158, 214, 229) : new Color(66, 105, 124));
+            DrawTextFitted(
+                context,
+                _renamingSelectedTrilobite ? $"{_renameBuffer}|" : title,
+                Inset(layout.SelectedRenameFieldBounds, 10),
+                Color.White,
+                minScale: 0.6f);
+
+            if (_renamingSelectedTrilobite)
+            {
+                if (layout.SelectedRenamePrimaryButtonBounds is { } saveBounds)
+                {
+                    DrawButton(
+                        context,
+                        saveBounds,
+                        "Save",
+                        saveBounds.Contains(_pointerPoint) ? new Color(52, 107, 89) : new Color(39, 88, 72),
+                        saveBounds.Contains(_pointerPoint) ? new Color(176, 233, 214) : new Color(126, 189, 169),
+                        Color.White);
+                }
+
+                if (layout.SelectedRenameSecondaryButtonBounds is { } cancelBounds)
+                {
+                    DrawButton(
+                        context,
+                        cancelBounds,
+                        "Cancel",
+                        cancelBounds.Contains(_pointerPoint) ? new Color(74, 82, 94) : new Color(58, 66, 77),
+                        cancelBounds.Contains(_pointerPoint) ? new Color(197, 209, 220) : new Color(153, 167, 181),
+                        Color.White);
+                }
+            }
+            else if (layout.SelectedRenamePrimaryButtonBounds is { } renameBounds)
+            {
+                DrawButton(
+                    context,
+                    renameBounds,
+                    "Rename",
+                    renameBounds.Contains(_pointerPoint) ? new Color(39, 86, 109) : new Color(33, 75, 95),
+                    renameBounds.Contains(_pointerPoint) ? new Color(160, 221, 237) : new Color(140, 207, 224),
+                    Color.White);
+            }
+        }
+
+        if (SelectedObject is MiningPost miningPostSelected && layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
+        {
+            DrawFrame(context, inventoryFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+            DrawTextFitted(
+                context,
+                "STORAGE",
+                new Rectangle(inventoryFrameBounds.X + 12, inventoryFrameBounds.Y + 8, inventoryFrameBounds.Width / 2, 20),
+                new Color(159, 195, 210));
+            DrawTextFittedRight(
+                context,
+                $"{miningPostSelected.GetInventoryTotal()}/{miningPostSelected.Capacity}",
+                new Rectangle(inventoryFrameBounds.Right - 120, inventoryFrameBounds.Y + 8, 108, 20),
+                new Color(210, 228, 236));
+
+            if (layout.SelectedInventoryEntries.Count == 0)
+            {
+                DrawWrappedText(
+                    context,
+                    "No resources are stored here yet.",
+                    Inset(layout.SelectedInventoryViewportBounds ?? inventoryFrameBounds, 10),
+                    new Color(210, 228, 236));
+            }
+            else
+            {
+                foreach (var entry in layout.SelectedInventoryEntries)
+                {
+                    DrawInventoryEntry(context, entry);
+                }
+            }
+
+            DrawScrollbar(context, layout.SelectedInventoryScrollbarTrackBounds, layout.SelectedInventoryScrollbarThumbBounds);
+        }
+        else
+        {
+            DrawWrappedText(
+                context,
+                $"{bodyText} This uses the normal in-game removal flow and clears the current selection afterward.",
+                layout.SelectedDescriptionBounds,
+                new Color(226, 238, 244));
+        }
 
         var hovered = layout.DeleteSelectedBounds.Contains(_pointerPoint);
         DrawButton(
@@ -220,13 +335,33 @@ public sealed partial class MenuController
             true);
     }
 
+    private void DrawInventoryEntry(RenderingContext context, InventoryEntryRect entry)
+    {
+        var hovered = entry.Bounds.Contains(_pointerPoint);
+        DrawFrame(
+            context,
+            entry.Bounds,
+            hovered ? new Color(22, 50, 71) : new Color(16, 38, 54),
+            hovered ? new Color(125, 179, 196) : new Color(54, 88, 107));
+
+        var quantityBadgeBounds = new Rectangle(entry.Bounds.Right - 60, entry.Bounds.Y + 8, 50, 22);
+        DrawFrame(context, quantityBadgeBounds, new Color(10, 22, 32), new Color(80, 122, 141));
+        DrawTextFittedRight(context, entry.Quantity.ToString(), Inset(quantityBadgeBounds, 5), Color.White, minScale: 0.62f);
+
+        var iconBounds = new Rectangle(entry.Bounds.X + 10, entry.Bounds.Y + 34, entry.Bounds.Width - 20, Math.Max(24, entry.Bounds.Height - 72));
+        DrawFrame(context, iconBounds, new Color(11, 23, 33), new Color(63, 98, 117));
+        DrawPreviewTexture(context, entry.TextureKey, Inset(iconBounds, 6));
+
+        DrawTextCentered(
+            context,
+            entry.ResourceType,
+            new Rectangle(entry.Bounds.X + 6, entry.Bounds.Bottom - 28, entry.Bounds.Width - 12, 20),
+            Color.White,
+            minScale: 0.56f);
+    }
+
     private void DrawScrollbar(RenderingContext context, Rectangle? trackBounds, Rectangle? thumbBounds)
     {
-        if (!IsForegroundPass)
-        {
-            return;
-        }
-
         if (trackBounds is null || thumbBounds is null)
         {
             return;
@@ -238,56 +373,37 @@ public sealed partial class MenuController
 
     private void DrawRect(RenderingContext context, Rectangle bounds, Color color)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer)
         {
             return;
         }
 
-        context.SpriteBatch.Draw(context.WhitePixel, bounds, color);
+        _gumUi!.AddFilledRectangle(bounds, color);
     }
 
     private void DrawRoundedFrame(RenderingContext context, Rectangle bounds, Color fill, Color border, int thickness, int radius)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
-        if (bounds.Width <= 0 || bounds.Height <= 0)
-        {
-            return;
-        }
-
-        var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        FillRoundedRect(context, bounds, border, clampedRadius);
-        if (thickness <= 0)
-        {
-            return;
-        }
-
-        var innerBounds = Inset(bounds, thickness);
-        if (innerBounds.Width <= 0 || innerBounds.Height <= 0)
-        {
-            return;
-        }
-
-        FillRoundedRect(context, innerBounds, fill, Math.Max(0, clampedRadius - thickness));
+        _gumUi!.AddRoundedFrame(bounds, fill, border, thickness, radius);
     }
 
     private void DrawRoundedRect(RenderingContext context, Rectangle bounds, Color color, int radius)
     {
-        if (!IsForegroundPass || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!HasRenderer || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
-        var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        FillRoundedRect(context, bounds, color, clampedRadius);
+        _gumUi!.AddRoundedRectangle(bounds, color, radius);
     }
 
     private void DrawShadow(RenderingContext context, Rectangle bounds, int offset, int radius, Color color)
     {
-        if (!IsForegroundPass || color.A == 0)
+        if (!HasRenderer || color.A == 0)
         {
             return;
         }
@@ -297,56 +413,6 @@ public sealed partial class MenuController
             new Rectangle(bounds.X, bounds.Y + offset, bounds.Width, bounds.Height),
             color,
             radius);
-    }
-
-    private void FillRoundedRect(RenderingContext context, Rectangle bounds, Color color, int radius)
-    {
-        if (bounds.Width <= 0 || bounds.Height <= 0 || color.A == 0)
-        {
-            return;
-        }
-
-        var clampedRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        if (clampedRadius <= 1)
-        {
-            DrawRect(context, bounds, color);
-            return;
-        }
-
-        for (var row = 0; row < bounds.Height; row++)
-        {
-            var inset = GetRoundedInset(clampedRadius, row, bounds.Height);
-            var rowWidth = bounds.Width - (inset * 2);
-            if (rowWidth <= 0)
-            {
-                continue;
-            }
-
-            DrawRect(context, new Rectangle(bounds.X + inset, bounds.Y + row, rowWidth, 1), color);
-        }
-    }
-
-    private static int GetRoundedInset(int radius, int row, int height)
-    {
-        if (radius <= 1)
-        {
-            return 0;
-        }
-
-        if (row < radius)
-        {
-            return GetCircleInset(radius, row);
-        }
-
-        var inverseRow = height - row - 1;
-        return inverseRow < radius ? GetCircleInset(radius, inverseRow) : 0;
-    }
-
-    private static int GetCircleInset(int radius, int rowFromEdge)
-    {
-        var dy = radius - rowFromEdge - 0.5f;
-        var chordHalfWidth = MathF.Sqrt(MathF.Max(0f, (radius * radius) - (dy * dy)));
-        return Math.Max(0, radius - (int)MathF.Ceiling(chordHalfWidth));
     }
 
     private void DrawOutline(RenderingContext context, Rectangle bounds, Color color, int thickness)
@@ -362,7 +428,7 @@ public sealed partial class MenuController
         var radius = Math.Clamp(Math.Min(bounds.Width, bounds.Height) / 4, 8, 14);
         DrawShadow(context, bounds, 2, radius, new Color(0, 0, 0, 44));
         DrawRoundedFrame(context, bounds, fill, border, 2, radius);
-        if (IsForegroundPass)
+        if (HasRenderer)
         {
             DrawTextCentered(context, label, bounds, text, minScale: 0.66f);
         }
@@ -379,7 +445,7 @@ public sealed partial class MenuController
         var radius = Math.Clamp(Math.Min(bounds.Width, bounds.Height) / 4, 10, 16);
         DrawShadow(context, bounds, 2, radius, new Color(0, 0, 0, 44));
         DrawRoundedFrame(context, bounds, fill, border, 2, radius);
-        if (IsForegroundPass)
+        if (HasRenderer)
         {
             var iconInset = Math.Max(8, Math.Min(bounds.Width, bounds.Height) / 5);
             iconDrawer(context, Inset(bounds, iconInset), iconColor);
@@ -400,7 +466,7 @@ public sealed partial class MenuController
 
     private void DrawBackArrowIcon(RenderingContext context, Rectangle bounds, Color color)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer)
         {
             return;
         }
@@ -415,7 +481,7 @@ public sealed partial class MenuController
                 bounds.Y + ((bounds.Height - height) / 2),
                 width,
                 height);
-            context.SpriteBatch.Draw(texture, destination, color);
+            _gumUi!.AddSprite(destination, texture, color);
             return;
         }
 
@@ -437,7 +503,7 @@ public sealed partial class MenuController
 
     private void DrawGearIcon(RenderingContext context, Rectangle bounds, Color color)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer)
         {
             return;
         }
@@ -472,120 +538,97 @@ public sealed partial class MenuController
 
     private void DrawText(RenderingContext context, string text, Vector2 position, Color color, bool large = false)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer || string.IsNullOrWhiteSpace(text))
         {
             return;
         }
 
-        context.SpriteBatch.DrawString(large ? context.UiFont : context.SmallFont, text, position, color);
+        var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
+        var size = GumTextLayout.Measure(text, style);
+        var bounds = new Rectangle(
+            (int)MathF.Round(position.X),
+            (int)MathF.Round(position.Y),
+            Math.Max(1, size.X),
+            Math.Max(1, size.Y));
+        _gumUi!.AddText(bounds, text, color, verticalAlignment: VerticalAlignment.Top, fontSize: GumTextLayout.GetMetrics(style).FontSize);
     }
 
     private void DrawTextFitted(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
     {
-        if (!IsForegroundPass || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!HasRenderer || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
-        var font = large ? context.UiFont : context.SmallFont;
-        var scale = 1f;
-        var textToDraw = text;
-        var measure = font.MeasureString(textToDraw);
-        if (measure.Y <= 0f)
-        {
-            return;
-        }
-
-        var heightScale = bounds.Height / measure.Y;
-        scale = MathF.Min(scale, heightScale);
-
-        if (measure.X > bounds.Width)
-        {
-            var widthScale = bounds.Width / measure.X;
-            if (widthScale >= minScale)
-            {
-                scale = MathF.Min(scale, widthScale);
-            }
-            else
-            {
-                scale = MathF.Min(scale, minScale);
-                textToDraw = FitTextToWidth(font, textToDraw, bounds.Width / scale);
-                measure = font.MeasureString(textToDraw);
-            }
-        }
-
-        scale = MathF.Min(scale, 1f);
-        var scaledSize = measure * scale;
-        var position = new Vector2(bounds.X, bounds.Y + MathF.Max(0f, (bounds.Height - scaledSize.Y) / 2f));
-        context.SpriteBatch.DrawString(font, textToDraw, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
+        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
+        var metrics = GumTextLayout.GetMetrics(style);
+        _gumUi!.AddText(
+            bounds,
+            textToDraw,
+            color,
+            HorizontalAlignment.Left,
+            VerticalAlignment.Center,
+            metrics.FontSize,
+            maxLines: 1);
     }
 
     private void DrawWrappedText(RenderingContext context, string text, Rectangle bounds, Color color)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer)
         {
             return;
         }
 
-        var lines = WrapText(context.SmallFont, text, bounds.Width, Math.Max(1, bounds.Height / context.SmallFont.LineSpacing));
-        var y = bounds.Y;
-        foreach (var line in lines)
-        {
-            if (y > bounds.Bottom - context.SmallFont.LineSpacing)
-            {
-                break;
-            }
-
-            context.SpriteBatch.DrawString(context.SmallFont, line, new Vector2(bounds.X, y), color);
-            y += context.SmallFont.LineSpacing;
-        }
+        var style = GumTextStyle.Small;
+        var metrics = GumTextLayout.GetMetrics(style);
+        var lines = GumTextLayout.Wrap([text], bounds.Width, Math.Max(1, bounds.Height / metrics.LineHeight), style);
+        _gumUi!.AddText(bounds, string.Join('\n', lines), color, verticalAlignment: VerticalAlignment.Top, fontSize: metrics.FontSize, maxLines: lines.Count);
     }
 
     private void DrawTextCentered(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
     {
-        if (!IsForegroundPass || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
+        if (!HasRenderer || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
-        var font = large ? context.UiFont : context.SmallFont;
-        var scale = 1f;
-        var textToDraw = text;
-        var measure = font.MeasureString(textToDraw);
-        if (measure.Y <= 0f)
+        var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
+        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
+        var metrics = GumTextLayout.GetMetrics(style);
+        _gumUi!.AddText(
+            bounds,
+            textToDraw,
+            color,
+            HorizontalAlignment.Center,
+            VerticalAlignment.Center,
+            metrics.FontSize,
+            maxLines: 1);
+    }
+
+    private void DrawTextFittedRight(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
+    {
+        if (!HasRenderer || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
-        var heightScale = bounds.Height / measure.Y;
-        scale = MathF.Min(scale, heightScale);
-
-        if (measure.X > bounds.Width)
-        {
-            var widthScale = bounds.Width / measure.X;
-            if (widthScale >= minScale)
-            {
-                scale = MathF.Min(scale, widthScale);
-            }
-            else
-            {
-                scale = MathF.Min(scale, minScale);
-                textToDraw = FitTextToWidth(font, textToDraw, bounds.Width / scale);
-                measure = font.MeasureString(textToDraw);
-            }
-        }
-
-        scale = MathF.Min(scale, 1f);
-        var scaledSize = measure * scale;
-        var position = new Vector2(
-            bounds.X + ((bounds.Width - scaledSize.X) / 2f),
-            bounds.Y + MathF.Max(0f, (bounds.Height - scaledSize.Y) / 2f));
-        context.SpriteBatch.DrawString(font, textToDraw, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
+        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
+        var metrics = GumTextLayout.GetMetrics(style);
+        _gumUi!.AddText(
+            bounds,
+            textToDraw,
+            color,
+            HorizontalAlignment.Right,
+            VerticalAlignment.Center,
+            metrics.FontSize,
+            maxLines: 1);
     }
 
     private void DrawPreviewTexture(RenderingContext context, string textureKey, Rectangle bounds)
     {
-        if (!IsForegroundPass)
+        if (!HasRenderer)
         {
             return;
         }
@@ -603,39 +646,6 @@ public sealed partial class MenuController
             bounds.Y + ((bounds.Height - height) / 2),
             width,
             height);
-        context.SpriteBatch.Draw(texture, destination, Color.White);
-    }
-
-    private static string FitTextToWidth(SpriteFont font, string text, float maxWidth)
-    {
-        if (string.IsNullOrEmpty(text) || maxWidth <= 0f)
-        {
-            return string.Empty;
-        }
-
-        if (font.MeasureString(text).X <= maxWidth)
-        {
-            return text;
-        }
-
-        const string ellipsis = "...";
-        if (font.MeasureString(ellipsis).X > maxWidth)
-        {
-            return string.Empty;
-        }
-
-        var endIndex = text.Length;
-        while (endIndex > 0)
-        {
-            var candidate = $"{text[..endIndex].TrimEnd()}{ellipsis}";
-            if (font.MeasureString(candidate).X <= maxWidth)
-            {
-                return candidate;
-            }
-
-            endIndex--;
-        }
-
-        return ellipsis;
+        _gumUi!.AddSprite(destination, texture);
     }
 }

@@ -13,20 +13,34 @@ public static class SettingsMenuLayout
 
     public static Rectangle GetPanelBounds(Point viewport)
     {
-        var width = Math.Min(348, Math.Max(280, viewport.X - 36));
-        var height = 184;
-        var button = GetSettingsButtonBounds(viewport);
-        return new Rectangle(button.X, button.Bottom + 12, width, height);
+        return GetPanelBounds(viewport, includeQuitToMainMenu: true);
+    }
+
+    public static Rectangle GetPanelBounds(Point viewport, bool includeQuitToMainMenu)
+    {
+        var width = Math.Min(420, Math.Max(320, viewport.X - 56));
+        var height = includeQuitToMainMenu ? 286 : 236;
+        return new Rectangle((viewport.X - width) / 2, (viewport.Y - height) / 2, width, height);
+    }
+
+    public static Rectangle GetCloseButtonBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.Right - 50, panelBounds.Y + 14, 34, 34);
+    }
+
+    public static Rectangle GetBackButtonBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.Right - 58, panelBounds.Bottom - 54, 42, 32);
     }
 
     public static Rectangle GetVolumeValueBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 22, panelBounds.Y + 52, panelBounds.Width - 44, 30);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 62, panelBounds.Width - 48, 30);
     }
 
     public static Rectangle GetVolumeBarBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 74, panelBounds.Y + 102, panelBounds.Width - 148, 18);
+        return new Rectangle(panelBounds.X + 88, panelBounds.Y + 112, panelBounds.Width - 176, 18);
     }
 
     public static Rectangle GetVolumeDownButtonBounds(Rectangle panelBounds)
@@ -41,9 +55,9 @@ public static class SettingsMenuLayout
         return new Rectangle(panelBounds.Right - 62, bar.Y - 11, 40, 40);
     }
 
-    public static Rectangle GetDismissHintBounds(Rectangle panelBounds)
+    public static Rectangle GetQuitToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 22, panelBounds.Bottom - 34, panelBounds.Width - 44, 20);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 156, panelBounds.Width - 48, 42);
     }
 
     public static int GetSnappedVolumeFromBar(Rectangle barBounds, int pointerX)

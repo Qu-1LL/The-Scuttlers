@@ -1,4 +1,4 @@
-using Microsoft.Xna.Framework;
+using System.Numerics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -26,7 +26,7 @@ public class Creature
         PathPreview = [];
     }
 
-    public string Name { get; }
+    public string Name { get; private set; }
 
     public List<GridPoint> PathPreview { get; }
 
@@ -72,6 +72,18 @@ public class Creature
     }
 
     public virtual Action? GetBehavior() => null;
+
+    public bool Rename(string name)
+    {
+        var trimmed = name.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) || string.Equals(Name, trimmed, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        Name = trimmed;
+        return true;
+    }
 
     public int RestoreHealth()
     {
@@ -121,6 +133,8 @@ public class Creature
         _queue.Enqueue(action);
         return true;
     }
+
+    protected int QueuedActionCount => _queue.Count;
 
     public virtual Action? GetNavigationFallback()
     {
@@ -291,6 +305,11 @@ public class Creature
             GetBehavior()?.Invoke();
         }
 
+        if (TryInterruptQueuedAction())
+        {
+            return true;
+        }
+
         if (_queue.Count == 0)
         {
             return null;
@@ -299,6 +318,11 @@ public class Creature
         var action = _queue.Dequeue();
         action();
         return true;
+    }
+
+    protected virtual bool TryInterruptQueuedAction()
+    {
+        return false;
     }
 
     public void UpdateMovementOffset(bool randomize)
@@ -315,7 +339,7 @@ public class Creature
 
     public HashSet<Building> GetActions()
     {
-        var currentTile = Cave?.GetTile(Location.ToString());
+        var currentTile = Cave?.GetTile(Location);
         if (currentTile is null)
         {
             return [];

@@ -1,4 +1,4 @@
-namespace TriloGame.Game.Core.Simulation;
+namespace TriloGame.Game.Shared.Diagnostics;
 
 public readonly record struct TickTimingSnapshot(
     double TotalMs,
@@ -34,7 +34,7 @@ public readonly record struct TickTimingSnapshot(
 
     public double MeasuredPhaseMs => EnemyBfsMs + TrilobiteMoveMs + ColonyBfsMs + EnemyMoveMs + BuildingTickMs;
 
-    public double OtherMs => Math.Max(0d, TotalMs - MeasuredPhaseMs);
+    public double OtherMs => System.Math.Max(0d, TotalMs - MeasuredPhaseMs);
 
     public string DescribeDominantWork()
     {
@@ -44,7 +44,7 @@ public readonly record struct TickTimingSnapshot(
             return "No measurable tick work yet";
         }
 
-        var share = TotalMs <= 0d ? 0d : Math.Clamp((dominantMs / TotalMs) * 100d, 0d, 100d);
+        var share = TotalMs <= 0d ? 0d : System.Math.Clamp((dominantMs / TotalMs) * 100d, 0d, 100d);
         var prefix = TotalMs >= 100d ? "Slow tick cause" : "Dominant tick work";
         return $"{prefix}: {detail} ({dominantMs:0.00} ms, {share:0}% of tick)";
     }
@@ -57,7 +57,7 @@ public readonly record struct TickTimingSnapshot(
             return "Work: idle";
         }
 
-        var share = TotalMs <= 0d ? 0d : Math.Clamp((dominantMs / TotalMs) * 100d, 0d, 100d);
+        var share = TotalMs <= 0d ? 0d : System.Math.Clamp((dominantMs / TotalMs) * 100d, 0d, 100d);
         var prefix = TotalMs >= 100d ? "Slow" : "Work";
         return $"{prefix}: {shortLabel}  {dominantMs:0.00} ms  {share:0}%";
     }

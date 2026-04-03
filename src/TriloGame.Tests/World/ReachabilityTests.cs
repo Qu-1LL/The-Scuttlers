@@ -17,9 +17,16 @@ public sealed class ReachabilityTests
         session.On(GameEvents.TileMined, _ => tileMinedCount++);
         session.On(GameEvents.WallMined, _ => wallMinedCount++);
 
-        var mined = session.MineTile(cave, wallTile.Key, "manual");
+        var firstHit = session.MineTile(cave, wallTile.Key, source: "manual");
+        var secondHit = session.MineTile(cave, wallTile.Key, source: "manual");
+        var thirdHit = session.MineTile(cave, wallTile.Key, source: "manual");
 
-        Assert.True(mined);
+        Assert.True(firstHit.HitApplied);
+        Assert.False(firstHit.TileDepleted);
+        Assert.True(secondHit.HitApplied);
+        Assert.False(secondHit.TileDepleted);
+        Assert.True(thirdHit.HitApplied);
+        Assert.True(thirdHit.TileDepleted);
         Assert.Equal("empty", cave.GetTile(wallTile.Key)?.Base);
         Assert.Equal(1, tileMinedCount);
         Assert.Equal(1, wallMinedCount);

@@ -1,4 +1,6 @@
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Runtime.Systems;
+using TriloGame.Game.Shared.Diagnostics;
 
 namespace TriloGame.Tests.Simulation;
 
@@ -8,14 +10,15 @@ public sealed class TickProfilerTests
     public void RunTick_RecordsPhaseTimingAndEntityCounts()
     {
         var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var clock = new GameSimulationClockSystem();
 
-        TickRunner.RunTick(session);
+        clock.RunSingleTick(session);
 
-        Assert.Equal(1, session.TickProfiler.SampleCount);
-        Assert.True(session.TickProfiler.Last.TotalMs >= 0d);
-        Assert.True(session.TickProfiler.Last.BuildingCount >= 1);
-        Assert.Equal(0, session.TickProfiler.Last.EnemyCount);
-        Assert.Equal(session.TickProfiler.Last.BuildingCount, session.TickProfiler.Average.BuildingCount);
+        Assert.Equal(1, session.Runtime.TickProfiler.SampleCount);
+        Assert.True(session.Runtime.TickProfiler.Last.TotalMs >= 0d);
+        Assert.True(session.Runtime.TickProfiler.Last.BuildingCount >= 1);
+        Assert.Equal(0, session.Runtime.TickProfiler.Last.EnemyCount);
+        Assert.Equal(session.Runtime.TickProfiler.Last.BuildingCount, session.Runtime.TickProfiler.Average.BuildingCount);
     }
 
     [Fact]

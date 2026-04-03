@@ -15,6 +15,7 @@ public sealed class MiningPost : Building
     private readonly Dictionary<string, int> _mineableQueueHeads = new(StringComparer.Ordinal);
     private readonly List<string> _mineableTypes = [];
     private readonly HashSet<string> _dirtyMineableTileKeys = new(StringComparer.Ordinal);
+    private int _inventoryTotal;
 
     public MiningPost(GameSession session)
         : base("Mining Post", new GridPoint(3, 3), [[1, 1, 1], [1, 0, 1], [1, 1, 1]], session, true)
@@ -41,7 +42,7 @@ public sealed class MiningPost : Building
 
     public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
 
-    public int GetInventoryTotal() => _inventory.Values.Sum();
+    public int GetInventoryTotal() => _inventoryTotal;
 
     public int GetInventorySpace() => System.Math.Max(0, Capacity - GetInventoryTotal());
 
@@ -72,6 +73,7 @@ public sealed class MiningPost : Building
         _inventory.TryAdd(resourceType, 0);
         var accepted = System.Math.Min(GetInventorySpace(), amount);
         _inventory[resourceType] += accepted;
+        _inventoryTotal += accepted;
         return accepted;
     }
 
@@ -85,6 +87,7 @@ public sealed class MiningPost : Building
         _inventory.TryAdd(resourceType, 0);
         var taken = System.Math.Min(_inventory[resourceType], amount);
         _inventory[resourceType] -= taken;
+        _inventoryTotal -= taken;
         return taken;
     }
 
@@ -139,6 +142,7 @@ public sealed class MiningPost : Building
         }
 
         _inventory[reservation.ResourceType] -= taken;
+        _inventoryTotal -= taken;
         var remaining = reservation.Amount - taken;
         if (remaining <= 0)
         {
@@ -174,7 +178,15 @@ public sealed class MiningPost : Building
 
     public bool IsTileAssignedToOther(Creature creature, string tileKey)
     {
-        return _assignments.Any(pair => pair.Key != creature && string.Equals(pair.Value, tileKey, StringComparison.Ordinal));
+        foreach (var pair in _assignments)
+        {
+            if (pair.Key != creature && string.Equals(pair.Value, tileKey, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public HashSet<string> GetAssignedTileKeys(Creature? excludeCreature = null)
@@ -371,7 +383,15 @@ public sealed class MiningPost : Building
     public bool HasQueuedMineableTiles(World.Cave cave)
     {
         EnsureMineableQueues(cave);
-        return _mineableTypes.Any(type => GetTypeQueueLength(type) > 0);
+        for (var index = 0; index < _mineableTypes.Count; index++)
+        {
+            if (GetTypeQueueLength(_mineableTypes[index]) > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public int GetTypeQueueLength(string type)
@@ -425,11 +445,17 @@ public sealed class MiningPost : Building
             return;
         }
 
-        _mineableQueues[type] = queue.Skip(head).ToList();
+        var compacted = new List<string>(queue.Count - head);
+        for (var index = head; index < queue.Count; index++)
+        {
+            compacted.Add(queue[index]);
+        }
+
+        _mineableQueues[type] = compacted;
         _mineableQueueHeads[type] = 0;
     }
 
-    private World.Tile? PullQueuedMineableTile(World.Cave cave, string type, HashSet<string> reservedTiles)
+    private World.Tile? PullQueuedMineableTile(World.Cave cave, string type, Creature? creature)
     {
         var center = GetCenter();
         var radiusSq = Radius * Radius;
@@ -460,7 +486,7 @@ public sealed class MiningPost : Building
                 continue;
             }
 
-            if (reservedTiles.Contains(tileKey))
+            if (creature is not null && IsTileAssignedToOther(creature, tileKey))
             {
                 PushTypeQueueKey(type, tileKey);
                 continue;
@@ -479,7 +505,15 @@ public sealed class MiningPost : Building
 
     public bool IsLocationOnPost(GridPoint location)
     {
-        return TileArray.Any(tile => tile.Key == location.ToString());
+        foreach (var tile in TileArray)
+        {
+            if (tile.Coordinates == location)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public GridPoint? GetNavigationTarget(World.Cave cave, World.Tile tile)
@@ -537,17 +571,21 @@ public sealed class MiningPost : Building
     public World.Tile? GrabMineableTile(World.Cave cave, Creature? creature = null)
     {
         EnsureMineableQueues(cave);
-        var mineableTypes = _mineableTypes.Where(type => GetTypeQueueLength(type) > 0).ToArray();
-        if (mineableTypes.Length == 0)
+        if (_mineableTypes.Count == 0)
         {
             return null;
         }
 
-        var shuffledTypes = RandomUtil.Shuffle(mineableTypes);
-        var reservedTiles = GetAssignedTileKeys(creature);
-        foreach (var type in shuffledTypes)
+        var startIndex = RandomUtil.NextInt(_mineableTypes.Count);
+        for (var offset = 0; offset < _mineableTypes.Count; offset++)
         {
-            var queuedTile = PullQueuedMineableTile(cave, type, reservedTiles);
+            var type = _mineableTypes[(startIndex + offset) % _mineableTypes.Count];
+            if (GetTypeQueueLength(type) <= 0)
+            {
+                continue;
+            }
+
+            var queuedTile = PullQueuedMineableTile(cave, type, creature);
             if (queuedTile is null)
             {
                 continue;

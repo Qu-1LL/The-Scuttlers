@@ -37,6 +37,36 @@ dotnet build src/TriloGame.Game/TriloGame.Game.csproj -c Debug
 dotnet run --project src/TriloGame.Game/TriloGame.Game.csproj -c Debug
 ```
 
+## Runtime Automation API
+
+The live MonoGame host now exposes an in-process play/test API through
+`src/TriloGame.Game/Runtime/Automation/GamePlayApi.cs`.
+
+That API is intended for:
+
+- scripted scenario setup
+- runtime inspection
+- automation-oriented tests
+- future external tooling adapters
+
+See [docs/playtest-api.md](docs/playtest-api.md) for the current surface area.
+
+## UI Rendering
+
+For the current C# / MonoGame build, all screen-space UI should render through Gum,
+including UI text.
+
+That means:
+
+- panels, frames, cards, and overlays use Gum-backed rendering
+- buttons, toggles, and other controls use Gum-backed rendering
+- fitted and wrapped screen UI text should go through the Gum-backed text helpers
+- prefer fixed integer Gum `FontSize` values over fractional `FontScale` for routine UI text sizing
+
+Raw `SpriteBatch.DrawString` should not be used for new screen-space UI text.
+The only acceptable exception is world-space debug text that belongs to the game world
+overlay rather than the UI layer.
+
 ## Release Packaging
 
 To publish the self-contained Windows build and push only those compiled files to the `dist` branch, run:

@@ -33,6 +33,11 @@
 /processor:TextureProcessor
 /build:Textures/AlgaeFarm.png
 
+#begin Textures/AntHole.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/AntHole.png
+
 #begin Textures/AlgaeTile.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -102,6 +107,11 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/OrePath.png
+
+#begin Textures/Opal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Opal.png
 
 #begin Textures/Path.png
 /importer:TextureImporter
@@ -177,6 +187,26 @@
 /importer:WavImporter
 /processor:SoundEffectProcessor
 /build:Audio/BuildingFinished.wav
+
+#begin Audio/AntHoleSpawn.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/AntHoleSpawn.wav
+
+#begin Audio/OpalChangeStart.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/OpalChangeStart.wav
+
+#begin Audio/OpalAlarm.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/OpalAlarm.wav
+
+#begin Audio/OpalRestore.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/OpalRestore.wav
 
 #begin Audio/BuildingPlace.mp3
 /importer:Mp3Importer
