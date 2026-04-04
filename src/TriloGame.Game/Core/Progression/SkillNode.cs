@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Research;
 
 namespace TriloGame.Game.Core.Progression;
 
@@ -8,11 +9,11 @@ public sealed class SkillNode
 {
     private readonly List<SkillNode> _children = [];
 
-    public SkillNode(string name, string description, Action<GameSession> effect)
+    public SkillNode(string name, string description, IEnumerable<ResearchEffectDescriptor>? effectDescriptors = null)
     {
         Name = RequireText(name, nameof(name));
         Description = RequireText(description, nameof(description));
-        Effect = effect ?? throw new ArgumentNullException(nameof(effect));
+        EffectDescriptors = (effectDescriptors ?? []).ToArray();
     }
 
     public string Name { get; }
@@ -25,7 +26,7 @@ public sealed class SkillNode
 
     public IReadOnlyList<SkillNode> Children => _children;
 
-    public Action<GameSession> Effect { get; }
+    public IReadOnlyList<ResearchEffectDescriptor> EffectDescriptors { get; }
 
     public bool IsAcquired { get; private set; }
 
@@ -89,14 +90,14 @@ public sealed class SkillNode
             return false;
         }
 
-        Effect(session);
+        session.GlobalResearch.Intake(this);
         IsAcquired = true;
         return true;
     }
 
     public SkillNode CreateDetachedCopy()
     {
-        return new SkillNode(Name, Description, Effect);
+        return new SkillNode(Name, Description, EffectDescriptors);
     }
 
     public IEnumerable<SkillNode> TraverseDepthFirst()

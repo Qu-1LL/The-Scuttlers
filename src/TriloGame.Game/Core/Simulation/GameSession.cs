@@ -5,6 +5,7 @@ using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Progression;
+using TriloGame.Game.Core.Research;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -30,6 +31,7 @@ public sealed class GameSession
         UnlockedBuildings = [];
         ProgressionDex = TriloDex.Global;
         SkillTree = new SkillTree(ProgressionDex);
+        GlobalResearch = new GlobalResearch();
         Danger = false;
         TickCount = 0;
         DebugEnemyCount = 1;
@@ -51,6 +53,8 @@ public sealed class GameSession
     public IReadOnlyList<FeatureTree> FeatureTrees => ProgressionDex.FeatureTrees;
 
     public SkillTree SkillTree { get; }
+
+    public GlobalResearch GlobalResearch { get; }
 
     public Cave? Cave { get; set; }
 

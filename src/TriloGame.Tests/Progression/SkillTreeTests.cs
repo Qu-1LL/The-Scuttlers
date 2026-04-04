@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Progression;
+using TriloGame.Game.Core.Research;
 using TriloGame.Game.Core.Simulation;
 
 namespace TriloGame.Tests.Progression;
@@ -8,7 +9,8 @@ public sealed class SkillTreeTests
     [Fact]
     public void IntakeSkillNode_CreatesDetachedBinaryCopy()
     {
-        var template = new SkillNode("Dig Sprint", "Move faster while mining.", _ => { });
+        var descriptor = new ResearchEffectDescriptor("Trilobite.MoveSpeed", ResearchOperation.AddPercent, 0.1);
+        var template = new SkillNode("Dig Sprint", "Move faster while mining.", [descriptor]);
         var skillTree = new SkillTree();
 
         var binaryNode = skillTree.IntakeSkillNode(template, "Mobility");
@@ -20,14 +22,25 @@ public sealed class SkillTreeTests
         Assert.Null(binaryNode.Parent);
         Assert.Null(binaryNode.Left);
         Assert.Null(binaryNode.Right);
+        Assert.Single(binaryNode.EffectDescriptors);
+        Assert.Equal(descriptor, binaryNode.EffectDescriptors[0]);
     }
 
     [Fact]
     public void ImportingSkills_CreatesBinaryChildrenFromDifferentFeatureTrees()
     {
-        var mobilityTemplate = new SkillNode("Dig Sprint", "Move faster while mining.", _ => { });
-        var economyTemplate = new SkillNode("Packed Haul", "Carry more resources.", _ => { });
-        var surveyTemplate = new SkillNode("Stone Sense", "Reveal useful stone seams.", _ => { });
+        var mobilityTemplate = new SkillNode(
+            "Dig Sprint",
+            "Move faster while mining.",
+            [new ResearchEffectDescriptor("Trilobite.MoveSpeed", ResearchOperation.AddPercent, 0.1)]);
+        var economyTemplate = new SkillNode(
+            "Packed Haul",
+            "Carry more resources.",
+            [new ResearchEffectDescriptor("Trilobite.InventoryCapacity", ResearchOperation.AddFlat, 2)]);
+        var surveyTemplate = new SkillNode(
+            "Stone Sense",
+            "Reveal useful stone seams.",
+            [new ResearchEffectDescriptor("Cave.RevealRadius", ResearchOperation.AddFlat, 1)]);
 
         var dex = new TriloDex(
         [
@@ -62,7 +75,10 @@ public sealed class SkillTreeTests
     [Fact]
     public void ImportedSkillAcquisition_DoesNotMutateTheFeatureTreeTemplate()
     {
-        var template = new SkillNode("Stone Sense", "Reveal useful stone seams.", _ => { });
+        var template = new SkillNode(
+            "Stone Sense",
+            "Reveal useful stone seams.",
+            [new ResearchEffectDescriptor("Cave.RevealRadius", ResearchOperation.AddFlat, 1)]);
         var dex = new TriloDex(
         [
             new FeatureTree("Survey", "Reveal upgrades.", ["reveal"], 1, template)
@@ -76,6 +92,8 @@ public sealed class SkillTreeTests
         Assert.True(localNode!.TryAcquire(session));
         Assert.True(localNode.IsAcquired);
         Assert.False(template.IsAcquired);
+        Assert.Single(session.GlobalResearch.Descriptors);
+        Assert.Equal("Cave.RevealRadius", session.GlobalResearch.Descriptors[0].StatKey);
     }
 
     [Fact]

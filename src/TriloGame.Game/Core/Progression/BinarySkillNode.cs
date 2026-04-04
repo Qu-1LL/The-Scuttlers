@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Research;
 
 namespace TriloGame.Game.Core.Progression;
 
@@ -14,7 +15,7 @@ public sealed class BinarySkillNode
             : sourceFeatureTreeName.Trim();
         Name = sourceSkillNode.Name;
         Description = sourceSkillNode.Description;
-        Effect = sourceSkillNode.Effect;
+        EffectDescriptors = sourceSkillNode.EffectDescriptors.ToArray();
     }
 
     public SkillNode SourceSkillNode { get; }
@@ -25,7 +26,7 @@ public sealed class BinarySkillNode
 
     public string Description { get; }
 
-    public Action<GameSession> Effect { get; }
+    public IReadOnlyList<ResearchEffectDescriptor> EffectDescriptors { get; }
 
     public BinarySkillNode? Parent { get; private set; }
 
@@ -57,7 +58,7 @@ public sealed class BinarySkillNode
             return false;
         }
 
-        Effect(session);
+        session.GlobalResearch.Intake(this);
         IsAcquired = true;
         return true;
     }
