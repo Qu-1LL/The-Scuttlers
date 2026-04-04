@@ -16,8 +16,9 @@ public sealed class AlgaeFarm : Building
         Period = 30;
         Growth = 0;
         HarvestYield = 5;
+        MaxTrilobites = 2;
         Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
-        Description = $"A passable algae farm. Worker trilobites harvest {HarvestYield} algae when random < growth/period.";
+        Description = $"A passable algae farm. Up to {MaxTrilobites} worker trilobites harvest {HarvestYield} algae when random < growth/period.";
     }
 
     public int Period { get; }
@@ -26,9 +27,34 @@ public sealed class AlgaeFarm : Building
 
     public int HarvestYield { get; }
 
-    public void Assign(Creature creature) => _assignments.Add(creature);
+    public int MaxTrilobites { get; }
 
-    public void RemoveAssignment(Creature creature) => _assignments.Remove(creature);
+    public IReadOnlyCollection<Creature> Assignments => _assignments;
+
+    public bool HasAssignmentSlot(Creature? creature = null)
+    {
+        return (creature is not null && _assignments.Contains(creature)) || _assignments.Count < MaxTrilobites;
+    }
+
+    public bool Assign(Creature creature)
+    {
+        if (!HasAssignmentSlot(creature))
+        {
+            Cave?.RefreshOpenAlgaeFarmAvailability();
+            return false;
+        }
+
+        var added = _assignments.Add(creature);
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+        return added || _assignments.Contains(creature);
+    }
+
+    public bool RemoveAssignment(Creature creature)
+    {
+        var removed = _assignments.Remove(creature);
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+        return removed;
+    }
 
     public int GetVolume() => _assignments.Count;
 

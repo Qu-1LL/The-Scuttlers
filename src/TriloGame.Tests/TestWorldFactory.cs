@@ -68,6 +68,28 @@ internal static class TestWorldFactory
         return post;
     }
 
+    public static AlgaeFarm BuildAlgaeFarm(Cave cave, GameSession session, GridPoint location)
+    {
+        var farm = new AlgaeFarm(session);
+        if (!cave.Build(farm, location))
+        {
+            throw new InvalidOperationException($"Failed to build an algae farm at {location}.");
+        }
+
+        return farm;
+    }
+
+    public static Barracks BuildBarracks(Cave cave, GameSession session, GridPoint location)
+    {
+        var barracks = new Barracks(session);
+        if (!cave.Build(barracks, location))
+        {
+            throw new InvalidOperationException($"Failed to build barracks at {location}.");
+        }
+
+        return barracks;
+    }
+
     public static Trilobite SpawnTrilobite(Cave cave, GameSession session, GridPoint location, string name = "Tester", string assignment = "unassigned")
     {
         var tile = cave.GetTile(location.ToString())
@@ -126,7 +148,7 @@ internal static class TestWorldFactory
         }
 
         cave.ResetBfsFields();
-        cave.RebuildMiningPostOwnershipField();
+        cave.RebuildAllBuildingOwnershipFields();
     }
 
     public static GridPoint FindBuildLocation(Cave cave, Building building, bool preserveReachability = false)

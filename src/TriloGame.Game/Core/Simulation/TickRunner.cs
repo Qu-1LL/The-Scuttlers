@@ -10,7 +10,7 @@ public static class TickRunner
     private static readonly List<Enemy> EnemyBuffer = [];
     private static readonly List<Building> BuildingBuffer = [];
 
-    public static void RunTick(GameSession session)
+    public static void RunTick(GameSession session, bool captureRoleTimings = false)
     {
         var cave = session.Cave;
         if (cave is null)
@@ -31,6 +31,14 @@ public static class TickRunner
         var colonyBfsMs = 0d;
         var enemyMoveMs = 0d;
         var buildingTickMs = 0d;
+        var minerRoleTotalMs = 0d;
+        var builderRoleTotalMs = 0d;
+        var farmerRoleTotalMs = 0d;
+        var fighterRoleTotalMs = 0d;
+        var minerRoleCount = 0;
+        var builderRoleCount = 0;
+        var farmerRoleCount = 0;
+        var fighterRoleCount = 0;
 
         if (session.Danger)
         {
@@ -39,11 +47,39 @@ public static class TickRunner
         }
 
         CopySnapshot(TrilobiteBuffer, cave.GetTrilobiteList());
-        foreach (var creature in TrilobiteBuffer)
+        if (captureRoleTimings)
         {
-            creature.Move();
+            foreach (var creature in TrilobiteBuffer)
+            {
+                var assignment = creature.Assignment;
+                var creatureStart = Stopwatch.GetTimestamp();
+                creature.Move();
+                var creatureElapsedMs = Stopwatch.GetElapsedTime(creatureStart).TotalMilliseconds;
+                trilobiteMoveMs += creatureElapsedMs;
+                TrackRoleTiming(
+                    assignment,
+                    creatureElapsedMs,
+                    ref minerRoleTotalMs,
+                    ref minerRoleCount,
+                    ref builderRoleTotalMs,
+                    ref builderRoleCount,
+                    ref farmerRoleTotalMs,
+                    ref farmerRoleCount,
+                    ref fighterRoleTotalMs,
+                    ref fighterRoleCount);
+            }
+
+            phaseStart = Stopwatch.GetTimestamp();
         }
-        trilobiteMoveMs = ConsumeElapsedMs(ref phaseStart);
+        else
+        {
+            foreach (var creature in TrilobiteBuffer)
+            {
+                creature.Move();
+            }
+
+            trilobiteMoveMs = ConsumeElapsedMs(ref phaseStart);
+        }
 
         if (session.Danger)
         {
@@ -65,13 +101,22 @@ public static class TickRunner
         }
         buildingTickMs = ConsumeElapsedMs(ref phaseStart);
 
+        var displayedTotalMs = captureRoleTimings
+            ? enemyBfsMs + trilobiteMoveMs + colonyBfsMs + enemyMoveMs + buildingTickMs
+            : Stopwatch.GetElapsedTime(tickStart).TotalMilliseconds;
+
         session.TickProfiler.Record(new TickTimingSnapshot(
-            Stopwatch.GetElapsedTime(tickStart).TotalMilliseconds,
+            displayedTotalMs,
             enemyBfsMs,
             trilobiteMoveMs,
             colonyBfsMs,
             enemyMoveMs,
             buildingTickMs,
+            new RoleTimingSnapshot(minerRoleTotalMs, minerRoleCount),
+            new RoleTimingSnapshot(builderRoleTotalMs, builderRoleCount),
+            new RoleTimingSnapshot(farmerRoleTotalMs, farmerRoleCount),
+            new RoleTimingSnapshot(fighterRoleTotalMs, fighterRoleCount),
+            captureRoleTimings,
             GC.GetTotalAllocatedBytes(false) - allocatedStart,
             GC.CollectionCount(0) - gen0Start,
             GC.CollectionCount(1) - gen1Start,
@@ -100,6 +145,39 @@ public static class TickRunner
         for (var index = 0; index < source.Count; index++)
         {
             buffer.Add(source[index]);
+        }
+    }
+
+    private static void TrackRoleTiming(
+        string assignment,
+        double elapsedMs,
+        ref double minerRoleTotalMs,
+        ref int minerRoleCount,
+        ref double builderRoleTotalMs,
+        ref int builderRoleCount,
+        ref double farmerRoleTotalMs,
+        ref int farmerRoleCount,
+        ref double fighterRoleTotalMs,
+        ref int fighterRoleCount)
+    {
+        switch (assignment)
+        {
+            case "miner":
+                minerRoleTotalMs += elapsedMs;
+                minerRoleCount++;
+                break;
+            case "builder":
+                builderRoleTotalMs += elapsedMs;
+                builderRoleCount++;
+                break;
+            case "farmer":
+                farmerRoleTotalMs += elapsedMs;
+                farmerRoleCount++;
+                break;
+            case "fighter":
+                fighterRoleTotalMs += elapsedMs;
+                fighterRoleCount++;
+                break;
         }
     }
 }

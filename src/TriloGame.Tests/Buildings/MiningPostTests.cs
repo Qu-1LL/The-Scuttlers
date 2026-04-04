@@ -60,4 +60,52 @@ public sealed class MiningPostTests
 
         Assert.NotNull(recoveredTile);
     }
+
+    [Fact]
+    public void AssignmentsAvailable_DefaultsFalse_WhenPostHasNoMineablesInRadius()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
+
+        Assert.False(post.AssignmentsAvailable);
+        Assert.False(cave.HasAvailableMiningPostAssignments);
+    }
+
+    [Fact]
+    public void AssignmentsAvailable_TracksReservedTilesAcrossPostsAndAssignments()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
+        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
+        var availablePost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+        var emptyPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
+        var reservingMiner = new Trilobite("Miner", GridPoint.Zero, session);
+
+        Assert.True(availablePost.AssignmentsAvailable);
+        Assert.False(emptyPost.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+
+        var reservedTile = availablePost.GrabMineableTile(cave, reservingMiner);
+
+        Assert.NotNull(reservedTile);
+        Assert.False(availablePost.AssignmentsAvailable);
+        Assert.False(emptyPost.AssignmentsAvailable);
+        Assert.False(cave.HasAvailableMiningPostAssignments);
+        Assert.Equal(1, cave.GetMiningPostAssignmentCounts()[availablePost]);
+        Assert.Equal(availablePost.GetVolume(), cave.GetMiningPostAssignmentCounts()[availablePost]);
+        Assert.Equal(0, cave.GetMiningPostAssignmentCounts()[emptyPost]);
+
+        availablePost.RemoveAssignment(reservingMiner);
+
+        Assert.True(availablePost.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+        Assert.Equal(0, cave.GetMiningPostAssignmentCounts()[availablePost]);
+        Assert.Equal(availablePost.GetVolume(), cave.GetMiningPostAssignmentCounts()[availablePost]);
+    }
+
+    private static void SetTileBase(TriloGame.Game.Core.World.Cave cave, GridPoint location, string tileBase)
+    {
+        var tile = cave.GetTile(location.ToString())
+            ?? throw new InvalidOperationException($"No tile exists at {location}.");
+        tile.SetBase(tileBase);
+    }
 }

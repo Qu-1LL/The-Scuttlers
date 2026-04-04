@@ -1302,7 +1302,7 @@ public sealed partial class GameApp
 
     private void RunSingleTick()
     {
-        TickRunner.RunTick(_session);
+        TickRunner.RunTick(_session, _debugMenuOpen);
         RefreshBfsFieldDebug();
     }
 
@@ -1316,7 +1316,7 @@ public sealed partial class GameApp
         _tickAccumulatorMs += gameTime.ElapsedGameTime.TotalMilliseconds;
         while (_tickAccumulatorMs >= _tickSpeedMs)
         {
-            TickRunner.RunTick(_session);
+            TickRunner.RunTick(_session, _debugMenuOpen);
             _tickAccumulatorMs -= _tickSpeedMs;
             if (HasLostQueen())
             {
@@ -1966,13 +1966,22 @@ public sealed partial class GameApp
             workBounds.Bottom + 6,
             contentBounds.Width,
             Math.Max(0, contentBounds.Bottom - workBounds.Bottom - 6));
-        var rowCount = 5;
+        var rowCount = 9;
         var rowHeight = Math.Max(18, metricsBounds.Height / rowCount);
-        var gap = 12;
-        var leftWidth = Math.Max(0, (metricsBounds.Width - gap) / 2);
-        var rightWidth = Math.Max(0, metricsBounds.Width - leftWidth - gap);
         var average = _session.TickProfiler.Average;
         var last = _session.TickProfiler.Last;
+        var rows = new (string Label, string Value)[]
+        {
+            ("Avg miner", FormatRoleTimingMetric(_session.TickProfiler.AverageMinerMsPerTrilobite, last.MinerTiming)),
+            ("Avg builder", FormatRoleTimingMetric(_session.TickProfiler.AverageBuilderMsPerTrilobite, last.BuilderTiming)),
+            ("Avg farmer", FormatRoleTimingMetric(_session.TickProfiler.AverageFarmerMsPerTrilobite, last.FarmerTiming)),
+            ("Avg fighter", FormatRoleTimingMetric(_session.TickProfiler.AverageFighterMsPerTrilobite, last.FighterTiming)),
+            ("Avg ene", $"{average.EnemyMoveMs:0.00} ms"),
+            ("Avg bld", $"{average.BuildingTickMs:0.00} ms"),
+            ("Avg total", $"{average.TotalMs:0.00} ms"),
+            ("Stats", $"Alloc {FormatByteCount(last.AllocatedBytes)}   GC {last.Gen0Collections}/{last.Gen1Collections}/{last.Gen2Collections}"),
+            ("Counts", $"{last.TrilobiteCount} tri  {last.EnemyCount} ene  {last.BuildingCount} bld")
+        };
 
         for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
@@ -1983,28 +1992,7 @@ public sealed partial class GameApp
                 metricsBounds.Width,
                 Math.Max(1, rowIndex == rowCount - 1 ? metricsBounds.Bottom - rowY : rowHeight));
 
-            switch (rowIndex)
-            {
-                case 0:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Avg total", $"{average.TotalMs:0.00} ms");
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "Avg BFS", $"{average.TotalBfsMs:0.00} ms");
-                    break;
-                case 1:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Avg tri", $"{average.TrilobiteMoveMs:0.00} ms");
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "Avg ene", $"{average.EnemyMoveMs:0.00} ms");
-                    break;
-                case 2:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Avg bld", $"{average.BuildingTickMs:0.00} ms");
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "Last total", $"{last.TotalMs:0.00} ms");
-                    break;
-                case 3:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Alloc", FormatByteCount(last.AllocatedBytes));
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "GC", $"{last.Gen0Collections}/{last.Gen1Collections}/{last.Gen2Collections}");
-                    break;
-                default:
-                    DrawDebugMetricCell(rowBounds, "Counts", $"{last.TrilobiteCount} tri  {last.EnemyCount} ene  {last.BuildingCount} bld");
-                    break;
-            }
+            DrawDebugMetricCell(rowBounds, rows[rowIndex].Label, rows[rowIndex].Value);
         }
     }
 
@@ -2801,7 +2789,17 @@ public sealed partial class GameApp
 
     private static string FormatTickProfile(TickTimingSnapshot snapshot, string label)
     {
-        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobites {snapshot.TrilobiteMoveMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
+        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobites {snapshot.TrilobiteMoveMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, miner {FormatRoleTimingSnapshot(snapshot.MinerTiming)}, builder {FormatRoleTimingSnapshot(snapshot.BuilderTiming)}, farmer {FormatRoleTimingSnapshot(snapshot.FarmerTiming)}, fighter {FormatRoleTimingSnapshot(snapshot.FighterTiming)}, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
+    }
+
+    private static string FormatRoleTimingMetric(double averageMsPerTrilobite, RoleTimingSnapshot lastTiming)
+    {
+        return $"{averageMsPerTrilobite:0.00} ms   X{lastTiming.Count} = {lastTiming.TotalMs:0.00} ms";
+    }
+
+    private static string FormatRoleTimingSnapshot(RoleTimingSnapshot timing)
+    {
+        return $"{timing.AverageMsPerTrilobite:0.00} ms/trilo (X{timing.Count} = {timing.TotalMs:0.00} ms)";
     }
 
     private string DescribeSelectedObject()

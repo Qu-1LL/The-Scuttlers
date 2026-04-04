@@ -264,10 +264,10 @@ public sealed class GameSession
         var reachability = cave.RefreshReachableTiles();
         var ownershipDirtyKeys = changedKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
         cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
-        cave.MarkMiningPostOwnershipFieldDirty(ownershipDirtyKeys, []);
+        cave.MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, []);
         cave.NotifyMineableTilesChanged(changedKeys.ToArray());
         cave.RebalanceAllBfsFields(changedKeys.ToArray(), [], []);
-        cave.RebalanceMiningPostOwnershipField(changedKeys.ToArray(), []);
+        cave.RebalanceAllBuildingOwnershipFields(changedKeys.ToArray(), []);
         EmitMineEvents("wall", cave, emptyCoords, source);
         return true;
     }

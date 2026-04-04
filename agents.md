@@ -73,21 +73,27 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 2. Open creature menu.
 3. Press `Mine`.
 - Workflow (`Trilobite` step chain):
-1. Find viable mining posts: post must have inventory space and queued mineable tiles.
-2. Prioritize posts by current assignment load, then approach distance.
-3. Navigate to selected post area via the mining post's cached BFS field.
-4. If carrying resources, deposit to post inventory first.
-5. Request and reserve a mineable tile from the post queue.
-6. Validate reservation is still valid.
-7. Navigate to mining target:
+1. If no mining post currently has `AssignmentsAvailable`, wait and retry later without
+   scanning the mining-post candidate list.
+2. When picking a fresh mining-post assignment, choose among viable posts by lowest
+   mining-post assignment count first, then use the tile's nearest-owner field and
+   same-type adjacency graph as the deterministic tie-break order.
+3. If a new viable mining post enters the colony and the cave-level
+   `MiningPostBuildingsAdded` flag is set, already-assigned miners on overfull posts may
+   release and rebalance onto lower-count posts until the counts differ by at most 1.
+4. Navigate to selected post area via the mining post's cached BFS field.
+5. If carrying resources, deposit to post inventory first.
+6. Request and reserve a mineable tile from the post queue.
+7. Validate reservation is still valid.
+8. Navigate to mining target:
    - Ore tiles: stand on tile.
    - Wall tiles: stand on an adjacent passable tile.
-8. Mine tile:
+9. Mine tile:
    - `wall` becomes `empty`, new wall perimeter may be generated, trilobite gains
      `Sandstone`.
    - Ore tile becomes `empty`, trilobite gains that ore type.
-9. Notify nearby mining posts that mineable tile queues are stale.
-10. Loop back to step 1.
+10. Notify nearby mining posts that mineable tile queues are stale.
+11. Loop back to step 1.
 - Failure handling:
 1. Navigation/mine failure clears queued actions.
 2. Reservation is reset/requeued when needed.
@@ -101,8 +107,11 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 - Workflow (`Trilobite` step chain):
 1. If carrying non-`Algae`, clear inventory.
 2. If carrying `Algae`, skip to queen delivery.
-3. Find viable algae farms (must have an approach tile).
-4. Prioritize farms by current assignment load, then approach distance.
+3. If every algae farm is at `MaxTrilobites`, wait and retry later without scanning the
+   farm list.
+4. Otherwise prefer the currently assigned farm when it still has capacity for this
+   trilobite; if not, start from the tile's nearest algae farm ownership and breadth-first
+   search the algae-farm adjacency graph until an open reachable farm is found.
 5. Store the target farm in `AssignedBuilding` and navigate to farm via that farm's
    cached BFS field.
 6. Build a route that visits passable farm tiles and returns to origin.
@@ -167,19 +176,23 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 - Workflow (`Trilobite` step chain):
 1. If `Game.Danger` is `false`, clear the fighter target and prefer returning to an
    assigned barracks.
-2. If no barracks is assigned, pick a barracks by lowest assignment load, then approach
-   distance, and store it in `AssignedBuilding`.
-3. If already on a passable barracks tile, idle there until danger rises.
-4. If `Game.Danger` is `true` and the stored target tile is adjacent, attack the enemy
+2. When picking a fresh barracks assignment, choose among reachable barracks by lowest
+   barracks assignment count first, then use the tile's nearest-owner field and
+   same-type adjacency graph as the deterministic tie-break order.
+3. If a new barracks is added and `BarracksBuildingsAdded` is set, idle fighters on
+   overfull barracks can retarget lower-count barracks until the assignment counts are
+   even again.
+4. If already on a passable barracks tile, idle there until danger rises.
+5. If `Game.Danger` is `true` and the stored target tile is adjacent, attack the enemy
    on that tile.
-5. If a neighboring tile contains an enemy, set that tile as the fighter target and
+6. If a neighboring tile contains an enemy, set that tile as the fighter target and
    attack.
-6. Otherwise, read the current `enemy` BFS field and move one tile to a neighboring
+7. Otherwise, read the current `enemy` BFS field and move one tile to a neighboring
    passable tile with a lower value.
-7. Fighters recompute their adjacent-enemy checks before and after each combat move so
+8. Fighters recompute their adjacent-enemy checks before and after each combat move so
    movement can still be interrupted for attacks.
-8. If no reachable enemy exists while danger is active, navigate back to the least-loaded
-   barracks using its cached BFS field and rejoin its assignment set.
+9. If no reachable enemy exists while danger is active, navigate back to the current or
+   nearest reachable barracks using its cached BFS field and rejoin its assignment set.
 - Failure handling:
 1. Losing the target enemy clears the fighter target and triggers a fresh enemy search.
 2. Failed combat movement clears queued fighter steps and restarts from step 1.
@@ -377,6 +390,8 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - `Recipe: { Sandstone: 20 }`
   - `Capacity: int` (1000)
   - `Radius: int` (10)
+  - `AssignmentsAvailable: bool`
+  - cave-global assignment-count dictionary entry keyed by this mining post
   - `Inventory: Dictionary<string, int>`
   - `Assignments: Dictionary<Creature, string | null>`
   - `MaterialReservations: Dictionary<Creature, ReservedMaterial>`
@@ -385,13 +400,17 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - queue state flags
 - Workflow:
 1. `OnBuilt` initializes mineable queues for in-radius wall/ore tiles.
-2. Miners are assigned to post and optionally to reserved tile keys.
-3. Post provides filtered, non-conflicting mining targets.
-4. Miner deposits resources via `Deposit`.
-5. Builders compare post inventory against `MaterialReservations`, reserve material on a
+2. `AssignmentsAvailable` is `true` when the post still has at least one in-radius
+   mineable tile that is reachable and not already reserved by another miner.
+3. The cave stores the current miner-assignment count for each active mining post and
+   keeps it in sync with `Assignments`.
+4. Miners are assigned to post and optionally to reserved tile keys.
+5. Post provides filtered, non-conflicting mining targets.
+6. Miner deposits resources via `Deposit`.
+7. Builders compare post inventory against `MaterialReservations`, reserve material on a
    chosen post without decrementing inventory immediately, and only reduce inventory when
    they call `WithdrawReservedMaterial`.
-6. Tile changes invalidate queues; queues lazily rebuild on next use.
+8. Tile changes invalidate queues and refresh `AssignmentsAvailable`.
 
 ### `AlgaeFarm`
 - Type:
@@ -404,8 +423,10 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - `Growth: int`
   - `HarvestYield: int` (5)
   - `Assignments: HashSet<Creature>`
+  - `MaxTrilobites: int` (2)
 - Workflow:
-1. Farmers assign to farm.
+1. Farmers assign to farm only while `Assignments.Count < MaxTrilobites`, unless the
+   farmer is already in that assignment set.
 2. Farm exposes passable tile graph/path for traversal.
 3. `Growth` increments on each harvest attempt.
 4. Harvest succeeds probabilistically based on `Growth / Period`.
@@ -419,9 +440,12 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 - Runtime data:
   - `Recipe: { Sandstone: 20 }`
   - `Assignments: HashSet<Creature>`
+  - cave-global assignment-count dictionary entry keyed by this barracks
 - Workflow:
 1. Placeable via build menu.
-2. Fighters sort barracks by assignment count, then approach distance.
+2. Fighters use the cave-global barracks assignment counts plus the shared nearest-owner
+   field and same-type adjacency graph to select a return barracks, preferring a
+   still-valid assigned barracks unless `BarracksBuildingsAdded` is forcing a rebalance.
 3. A fighter stores its selected barracks in `AssignedBuilding`.
 4. When danger is low or no reachable enemies exist, fighters return to a passable
    barracks tile and idle there.
@@ -497,6 +521,10 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - temporary destination-seeded distance-field generation for manual movement and
     non-building targets
   - per-building lazy `BfsField` objects over reachable tiles only
+  - shared per-type nearest-building ownership fields for mining posts, algae farms, and
+    barracks, plus same-type adjacency graphs where ownership regions touch
+  - aggregate per-tile nearest-building lookup APIs that expose the nearest relevant
+    building keyed by building name
   - game-held `BfsField` objects for `enemy` and `colony`, computed only over revealed
     tiles
   - dirty tile/building/creature tracking on every `BfsField`
@@ -506,6 +534,16 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
     tile/building/reveal changes
   - reachable-tile recomputation when buildings are placed/removed or wall mining changes
     passable connectivity
+  - `MiningPostAssignmentCounts` / `BarracksAssignmentCounts`, cave-global dictionaries
+    keyed by assignable building instance and kept in sync with each building's internal
+    assignment collection
+  - `MiningPostBuildingsAdded` / `BarracksBuildingsAdded`, cave-global rebalance flags
+    that stay `true` while a newly added or newly viable building still needs assignment
+    counts to be evened out
+  - `HasAvailableMiningPostAssignments`, a cave-global flag that tracks whether any
+    mining post still has an unreserved mineable target available
+  - `HasOpenAlgaeFarms`, a cave-global flag that tracks whether any algae farm still has
+    spare assignment capacity
   - creature deaths mark shared combat fields dirty, remove that creature from every
     building assignment/material-reservation collection, and are applied on the next field
     refresh/access

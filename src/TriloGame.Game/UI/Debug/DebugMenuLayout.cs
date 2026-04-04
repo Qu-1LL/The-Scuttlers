@@ -12,14 +12,14 @@ public static class DebugMenuLayout
         const float baseContentPadding = 18f;
         const float baseHeaderHeight = 30f;
         const float baseSummaryHeight = 108f;
-        const float basePerformanceHeight = 176f;
+        const float basePerformanceHeight = 272f;
         const float baseSectionGap = 8f;
         const float baseSectionLabelHeight = 18f;
         const float baseRowGap = 6f;
         const float baseButtonHeight = 40f;
         const float baseFooterHeight = 20f;
         const float baseButtonGap = 10f;
-        const float baseRequiredHeight = 744f;
+        const float baseRequiredHeight = 840f;
 
         var outerMargin = (int)MathF.Round(baseOuterMargin);
         var availableWidth = Math.Max(280, viewport.X - (outerMargin * 2));

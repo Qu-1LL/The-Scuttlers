@@ -340,47 +340,110 @@ public sealed partial class Trilobite : Creature
         return GetBarracksBuildings().FirstOrDefault(barracks => IsOnPassableBuildingTile(barracks, checkLocation));
     }
 
+    private static string GetOwnedBuildingSelectionKey(Building? building)
+    {
+        return building?.Location?.ToString() ?? building?.Name ?? string.Empty;
+    }
+
+    private bool IsSelectableBarracks(Barracks? barracks, ISet<Barracks>? excludedBarracks = null)
+    {
+        return barracks is not null &&
+               barracks.Location is not null &&
+               barracks.TileArray.Count > 0 &&
+               excludedBarracks?.Contains(barracks) != true;
+    }
+
+    private bool CanReachBarracks(Barracks barracks)
+    {
+        return Cave is not null &&
+               (IsOnPassableBuildingTile(barracks) || Cave.GetBuildingBfsFieldValue(barracks, Location) != int.MaxValue);
+    }
+
+    private bool ShouldBalanceBarracksAssignments(Barracks? preferredBarracks)
+    {
+        return preferredBarracks is null || (Cave?.ShouldRebalanceBarracksAssignments(preferredBarracks) ?? false);
+    }
+
+    private IEnumerable<Barracks> EnumerateBarracksCandidates(Barracks? preferredBarracks = null, ISet<Barracks>? excludedBarracks = null)
+    {
+        if (Cave is null)
+        {
+            yield break;
+        }
+
+        excludedBarracks ??= new HashSet<Barracks>();
+        var visited = new HashSet<Barracks>();
+
+        if (IsSelectableBarracks(preferredBarracks, excludedBarracks) && visited.Add(preferredBarracks!))
+        {
+            yield return preferredBarracks!;
+        }
+
+        var nearestBarracks = Cave.GetNearestBarracks(Location);
+        var queue = new Queue<Barracks>();
+        if (IsSelectableBarracks(nearestBarracks, excludedBarracks) && visited.Add(nearestBarracks!))
+        {
+            queue.Enqueue(nearestBarracks!);
+        }
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            yield return current;
+
+            foreach (var neighbor in Cave.GetAdjacentBarracks(current))
+            {
+                if (IsSelectableBarracks(neighbor, excludedBarracks) && visited.Add(neighbor))
+                {
+                    queue.Enqueue(neighbor);
+                }
+            }
+        }
+
+        if (visited.Count > 0)
+        {
+            yield break;
+        }
+
+        foreach (var barracks in GetBarracksBuildings()
+                     .Where(barracks => IsSelectableBarracks(barracks, excludedBarracks))
+                     .OrderBy(barracks => GetOwnedBuildingSelectionKey(barracks), StringComparer.Ordinal))
+        {
+            if (visited.Add(barracks))
+            {
+                yield return barracks;
+            }
+        }
+    }
+
     public List<Barracks> GetBarracksPriorityList()
     {
-        return GetBarracksBuildings()
-            .Where(barracks => GetClosestPassableBuildingTile(barracks) is not null)
-            .OrderBy(barracks => barracks.GetVolume())
-            .ThenBy(barracks => GridPoint.SquaredDistance(Location, GetClosestPassableBuildingTile(barracks) ?? Location))
+        return EnumerateBarracksCandidates(GetAssignedBarracks())
+            .Where(CanReachBarracks)
             .ToList();
     }
 
-    private Barracks? GetBestBarracks(ISet<Barracks>? excluded = null)
+    internal Barracks? SelectBarracks(Barracks? preferredBarracks = null, ISet<Barracks>? excludedBarracks = null)
     {
+        var shouldBalanceAssignments = ShouldBalanceBarracksAssignments(preferredBarracks);
         Barracks? bestBarracks = null;
-        var bestVolume = int.MaxValue;
-        var bestDistance = int.MaxValue;
-        string? bestKey = null;
+        var bestCount = int.MaxValue;
 
-        foreach (var barracks in GetBarracksBuildings())
+        foreach (var barracks in EnumerateBarracksCandidates(shouldBalanceAssignments ? null : preferredBarracks, excludedBarracks))
         {
-            if (excluded?.Contains(barracks) == true)
+            if (CanReachBarracks(barracks))
             {
-                continue;
-            }
+                if (!shouldBalanceAssignments)
+                {
+                    return barracks;
+                }
 
-            var closestTile = GetClosestPassableBuildingTile(barracks);
-            if (closestTile is null)
-            {
-                continue;
-            }
-
-            var volume = barracks.GetVolume();
-            var distance = GridPoint.SquaredDistance(Location, closestTile.Value);
-            var tieKey = barracks.Location?.ToString() ?? barracks.Name;
-            if (bestBarracks is null ||
-                volume < bestVolume ||
-                (volume == bestVolume && distance < bestDistance) ||
-                (volume == bestVolume && distance == bestDistance && string.CompareOrdinal(tieKey, bestKey) < 0))
-            {
-                bestBarracks = barracks;
-                bestVolume = volume;
-                bestDistance = distance;
-                bestKey = tieKey;
+                var assignmentCount = Cave?.GetBarracksAssignmentCount(barracks) ?? int.MaxValue;
+                if (bestBarracks is null || assignmentCount < bestCount)
+                {
+                    bestBarracks = barracks;
+                    bestCount = assignmentCount;
+                }
             }
         }
 
@@ -438,7 +501,7 @@ public sealed partial class Trilobite : Creature
         return true;
     }
 
-    public bool TryNavigateBarracks(ISet<Barracks>? excludedBarracks = null)
+    public bool TryNavigateBarracks(ISet<Barracks>? excludedBarracks = null, bool preferAssignedBarracks = true)
     {
         if (!EnsureFighterState())
         {
@@ -446,7 +509,8 @@ public sealed partial class Trilobite : Creature
         }
 
         excludedBarracks ??= new HashSet<Barracks>();
-        var barracks = GetBestBarracks(excludedBarracks);
+        var preferredBarracks = preferAssignedBarracks ? GetAssignedBarracks() : null;
+        var barracks = SelectBarracks(preferredBarracks, excludedBarracks);
         if (barracks is null)
         {
             return false;
@@ -465,7 +529,7 @@ public sealed partial class Trilobite : Creature
         {
             ReleaseAssignedBuilding();
             excludedBarracks.Add(barracks);
-            return TryNavigateBarracks(excludedBarracks);
+            return TryNavigateBarracks(excludedBarracks, preferAssignedBarracks: false);
         }
 
         return QueueFighterPath(path, "barracks");
@@ -479,16 +543,14 @@ public sealed partial class Trilobite : Creature
         }
 
         var assignedBarracks = GetAssignedBarracks();
+        var shouldRebalanceAssignedBarracks = ShouldBalanceBarracksAssignments(assignedBarracks);
         if (preferAssignedBarracks && assignedBarracks is not null)
         {
             assignedBarracks.Assign(this);
-            if (IsOnPassableBuildingTile(assignedBarracks))
+            if (!shouldRebalanceAssignedBarracks && IsOnPassableBuildingTile(assignedBarracks))
             {
                 return false;
             }
-
-            var excludedBarracks = new HashSet<Barracks> { assignedBarracks };
-            return TryNavigateBarracks(excludedBarracks);
         }
 
         if (preferAssignedBarracks)
@@ -498,11 +560,14 @@ public sealed partial class Trilobite : Creature
             {
                 SetAssignedBuilding(currentBarracks);
                 currentBarracks.Assign(this);
-                return false;
+                if (!ShouldBalanceBarracksAssignments(currentBarracks))
+                {
+                    return false;
+                }
             }
         }
 
-        if (GetBestBarracks() is null)
+        if (SelectBarracks(preferAssignedBarracks ? assignedBarracks : null) is null)
         {
             if (!preferAssignedBarracks)
             {
@@ -512,7 +577,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        return TryNavigateBarracks();
+        return TryNavigateBarracks(preferAssignedBarracks: preferAssignedBarracks);
     }
 
     public bool FighterStep1()
@@ -712,49 +777,100 @@ public sealed partial class Trilobite : Creature
 
     public List<AlgaeFarm> GetAlgaeFarmPriorityList()
     {
-        return GetAlgaeFarms()
-            .Where(farm => farm.GetApproachTile(Location) is not null)
-            .OrderBy(farm => farm.GetVolume())
-            .ThenBy(farm => GridPoint.SquaredDistance(Location, farm.GetApproachTile(Location) ?? Location))
+        return EnumerateAlgaeFarmCandidates(GetAssignedAlgaeFarm())
+            .Where(CanReachAlgaeFarm)
             .ToList();
     }
 
-    private AlgaeFarm? GetBestAlgaeFarm(ISet<AlgaeFarm>? excluded = null)
+    private bool CanSearchForAlgaeFarm(AlgaeFarm? preferredFarm = null)
     {
-        AlgaeFarm? bestFarm = null;
-        var bestVolume = int.MaxValue;
-        var bestDistance = int.MaxValue;
-        string? bestKey = null;
+        return Cave is not null &&
+               ((preferredFarm is not null && preferredFarm.HasAssignmentSlot(this)) || Cave.HasOpenAlgaeFarms);
+    }
 
-        foreach (var farm in GetAlgaeFarms())
+    private bool IsSelectableAlgaeFarm(AlgaeFarm? farm, ISet<AlgaeFarm>? excludedFarms = null)
+    {
+        return farm is not null &&
+               farm.Location is not null &&
+               farm.TileArray.Count > 0 &&
+               farm.HasAssignmentSlot(this) &&
+               excludedFarms?.Contains(farm) != true;
+    }
+
+    private bool CanReachAlgaeFarm(AlgaeFarm farm)
+    {
+        return Cave is not null &&
+               (farm.IsLocationOnFarm(Location) || Cave.GetBuildingBfsFieldValue(farm, Location) != int.MaxValue);
+    }
+
+    private IEnumerable<AlgaeFarm> EnumerateAlgaeFarmCandidates(AlgaeFarm? preferredFarm = null, ISet<AlgaeFarm>? excludedFarms = null)
+    {
+        if (Cave is null)
         {
-            if (excluded?.Contains(farm) == true)
-            {
-                continue;
-            }
+            yield break;
+        }
 
-            var approachTile = farm.GetApproachTile(Location);
-            if (approachTile is null)
-            {
-                continue;
-            }
+        excludedFarms ??= new HashSet<AlgaeFarm>();
+        var visited = new HashSet<AlgaeFarm>();
 
-            var volume = farm.GetVolume();
-            var distance = GridPoint.SquaredDistance(Location, approachTile.Value);
-            var tieKey = farm.Location?.ToString() ?? farm.Name;
-            if (bestFarm is null ||
-                volume < bestVolume ||
-                (volume == bestVolume && distance < bestDistance) ||
-                (volume == bestVolume && distance == bestDistance && string.CompareOrdinal(tieKey, bestKey) < 0))
+        if (IsSelectableAlgaeFarm(preferredFarm, excludedFarms) && visited.Add(preferredFarm!))
+        {
+            yield return preferredFarm!;
+        }
+
+        if (!CanSearchForAlgaeFarm(preferredFarm))
+        {
+            yield break;
+        }
+
+        var nearestFarm = Cave.GetNearestAlgaeFarm(Location);
+        var queue = new Queue<AlgaeFarm>();
+        if (IsSelectableAlgaeFarm(nearestFarm, excludedFarms) && visited.Add(nearestFarm!))
+        {
+            queue.Enqueue(nearestFarm!);
+        }
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            yield return current;
+
+            foreach (var neighbor in Cave.GetAdjacentAlgaeFarms(current))
             {
-                bestFarm = farm;
-                bestVolume = volume;
-                bestDistance = distance;
-                bestKey = tieKey;
+                if (IsSelectableAlgaeFarm(neighbor, excludedFarms) && visited.Add(neighbor))
+                {
+                    queue.Enqueue(neighbor);
+                }
             }
         }
 
-        return bestFarm;
+        if (visited.Count > 0)
+        {
+            yield break;
+        }
+
+        foreach (var farm in GetAlgaeFarms()
+                     .Where(farm => IsSelectableAlgaeFarm(farm, excludedFarms))
+                     .OrderBy(farm => GetOwnedBuildingSelectionKey(farm), StringComparer.Ordinal))
+        {
+            if (visited.Add(farm))
+            {
+                yield return farm;
+            }
+        }
+    }
+
+    internal AlgaeFarm? SelectAlgaeFarm(AlgaeFarm? preferredFarm = null, ISet<AlgaeFarm>? excludedFarms = null)
+    {
+        foreach (var farm in EnumerateAlgaeFarmCandidates(preferredFarm, excludedFarms))
+        {
+            if (CanReachAlgaeFarm(farm))
+            {
+                return farm;
+            }
+        }
+
+        return null;
     }
 
     public bool TryNavigateAlgaeFarms(ISet<AlgaeFarm>? excludedFarms = null)
@@ -765,7 +881,7 @@ public sealed partial class Trilobite : Creature
         }
 
         excludedFarms ??= new HashSet<AlgaeFarm>();
-        var farm = GetBestAlgaeFarm(excludedFarms);
+        var farm = SelectAlgaeFarm(GetAssignedAlgaeFarm(), excludedFarms);
         if (farm is null)
         {
             ReleaseAssignedBuilding();
@@ -774,7 +890,13 @@ public sealed partial class Trilobite : Creature
         }
 
         SetAssignedBuilding(farm);
-        farm.Assign(this);
+        if (!farm.Assign(this))
+        {
+            ReleaseAssignedBuilding();
+            excludedFarms.Add(farm);
+            EnqueueAction(() => { FarmerStep1(); });
+            return false;
+        }
 
         if (farm.IsLocationOnFarm(Location))
         {
@@ -816,7 +938,7 @@ public sealed partial class Trilobite : Creature
             ClearInventory();
         }
 
-        if (GetBestAlgaeFarm() is null)
+        if (SelectAlgaeFarm(GetAssignedAlgaeFarm()) is null)
         {
             ReleaseAssignedBuilding();
             EnqueueAction(() => { FarmerStep1(); });
@@ -1028,6 +1150,17 @@ public sealed partial class Trilobite : Creature
                excludedPosts?.Contains(post) != true;
     }
 
+    private bool CanSearchForMiningPost(MiningPost? preferredPost = null)
+    {
+        return Cave is not null &&
+               ((preferredPost is not null && preferredPost.AssignmentsAvailable) || Cave.HasAvailableMiningPostAssignments);
+    }
+
+    private bool ShouldBalanceMiningPostAssignments(MiningPost? preferredPost)
+    {
+        return preferredPost is null || (Cave?.ShouldRebalanceMiningPostAssignments(preferredPost) ?? false);
+    }
+
     private bool CanReachMiningPostArea(MiningPost post)
     {
         return Cave is not null &&
@@ -1062,6 +1195,11 @@ public sealed partial class Trilobite : Creature
             metrics.ReusedPreferredPost = true;
             metrics.CandidateCount++;
             yield return preferredPost!;
+        }
+
+        if (purpose.StartsWith("miner", StringComparison.Ordinal) && !CanSearchForMiningPost(preferredPost))
+        {
+            yield break;
         }
 
         var nearestOwner = Cave.GetNearestMiningPost(Location);
@@ -1125,17 +1263,32 @@ public sealed partial class Trilobite : Creature
             return null;
         }
 
-        foreach (var post in EnumerateMiningPostCandidates("miner", GetAssignedMiningPost(), excludedPosts))
+        var preferredPost = GetAssignedMiningPost();
+        var shouldBalanceAssignments = ShouldBalanceMiningPostAssignments(preferredPost);
+        MiningPost? bestPost = null;
+        var bestCount = int.MaxValue;
+
+        foreach (var post in EnumerateMiningPostCandidates("miner", shouldBalanceAssignments ? null : preferredPost, excludedPosts))
         {
-            if (!CanReachMiningPostArea(post) || post.GetInventorySpace() <= 0 || !post.HasQueuedMineableTiles(Cave))
+            if (!CanReachMiningPostArea(post) || post.GetInventorySpace() <= 0 || !post.AssignmentsAvailable)
             {
                 continue;
             }
 
-            return post;
+            if (!shouldBalanceAssignments)
+            {
+                return post;
+            }
+
+            var assignmentCount = Cave.GetMiningPostAssignmentCount(post);
+            if (bestPost is null || assignmentCount < bestCount)
+            {
+                bestPost = post;
+                bestCount = assignmentCount;
+            }
         }
 
-        return null;
+        return bestPost;
     }
 
     internal MiningPost? SelectMiningPostForInventoryDeposit(ISet<MiningPost>? excludedPosts = null)
@@ -1156,7 +1309,7 @@ public sealed partial class Trilobite : Creature
     public List<MiningPost> GetMiningPostPriorityList()
     {
         return EnumerateMiningPostCandidates("miner-priority", GetAssignedMiningPost())
-            .Where(post => Cave is not null && CanReachMiningPostArea(post) && post.GetInventorySpace() > 0 && post.HasQueuedMineableTiles(Cave))
+            .Where(post => Cave is not null && CanReachMiningPostArea(post) && post.GetInventorySpace() > 0 && post.AssignmentsAvailable)
             .ToList();
     }
 
@@ -1164,6 +1317,13 @@ public sealed partial class Trilobite : Creature
     {
         if (!EnsureMinerState())
         {
+            return false;
+        }
+
+        if (GetAssignedMiningPost() is null && Cave is not null && !Cave.HasAvailableMiningPostAssignments)
+        {
+            ReleaseAssignedBuilding();
+            EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
