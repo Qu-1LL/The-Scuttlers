@@ -68,6 +68,23 @@ internal static class TestWorldFactory
         return post;
     }
 
+    public static Trilobite SpawnTrilobite(Cave cave, GameSession session, GridPoint location, string name = "Tester", string assignment = "unassigned")
+    {
+        var tile = cave.GetTile(location.ToString())
+            ?? throw new InvalidOperationException($"No tile exists at {location}.");
+        var trilobite = new Trilobite(name, location, session)
+        {
+            Assignment = assignment
+        };
+
+        if (!cave.Spawn(trilobite, tile))
+        {
+            throw new InvalidOperationException($"Failed to spawn trilobite at {location}.");
+        }
+
+        return trilobite;
+    }
+
     public static void ResetToRectangularMap(Cave cave, int width, int height, GridPoint? origin = null)
     {
         foreach (var building in cave.GetBuildingList().ToArray())
