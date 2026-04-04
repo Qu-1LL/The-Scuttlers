@@ -153,6 +153,11 @@ public class Creature
 
     public List<GridPoint>? BuildNavigationPathToBuilding(Building building)
     {
+        if (building is MiningPost miningPost)
+        {
+            return Cave?.BuildPathToMiningPost(miningPost, Location);
+        }
+
         return Cave?.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
     }
 
@@ -174,7 +179,7 @@ public class Creature
         return reroute is not null && reroute.Count == 1 || RunNavigationFallback(fallbackFn);
     }
 
-    protected bool RecoverBuildingNavigation(Building? building, Action? fallbackFn)
+    protected bool RecoverBuildingNavigation(Building? building, Action? fallbackFn, GridPoint? failedStep = null)
     {
         ClearActionQueue();
         if (building is null)
@@ -182,10 +187,17 @@ public class Creature
             return RunNavigationFallback(fallbackFn);
         }
 
+        if (building is MiningPost miningPost &&
+            failedStep.HasValue &&
+            Cave?.ShouldInvalidateMiningPostMovementCacheOnFailure(miningPost, Location, failedStep.Value) == true)
+        {
+            Cave.InvalidateMiningPostMovementCache(miningPost, staleFailure: true);
+        }
+
         var reroute = BuildNavigationPathToBuilding(building);
         if (reroute is not null && reroute.Count > 1)
         {
-            EnqueueResolvedPath(reroute, () => RecoverBuildingNavigation(building, fallbackFn), false);
+            EnqueueResolvedBuildingPath(building, reroute, fallbackFn, false);
             return false;
         }
 
@@ -231,6 +243,28 @@ public class Creature
         return true;
     }
 
+    protected bool EnqueueResolvedBuildingPath(Building building, IReadOnlyList<GridPoint> path, Action? fallbackFn, bool clearExisting)
+    {
+        if (clearExisting)
+        {
+            ClearActionQueue();
+        }
+
+        if (path.Count < 2)
+        {
+            return false;
+        }
+
+        foreach (var step in path.Skip(1))
+        {
+            var next = step;
+            PathPreview.Add(next);
+            EnqueueAction(() => ExecuteNavigationStep(next, () => RecoverBuildingNavigation(building, fallbackFn, next)));
+        }
+
+        return true;
+    }
+
     public bool NavigateTo(GridPoint destination, Action? fallbackFn = null, bool clearExisting = true)
     {
         fallbackFn ??= GetNavigationFallback();
@@ -252,7 +286,7 @@ public class Creature
             return RunNavigationFallback(fallbackFn);
         }
 
-        return path.Count < 2 || EnqueueResolvedPath(path, () => RecoverBuildingNavigation(building, fallbackFn), clearExisting);
+        return path.Count < 2 || EnqueueResolvedBuildingPath(building, path, fallbackFn, clearExisting);
     }
 
     public bool QueueMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)

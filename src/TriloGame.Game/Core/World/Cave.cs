@@ -26,6 +26,7 @@ public sealed partial class Cave : Graph
     private readonly List<Barracks> _barracks = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
+    private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
     private readonly MiningPostOwnershipField _miningPostOwnershipField;
     private Queen? _queenBuilding;
 
@@ -54,6 +55,10 @@ public sealed partial class Cave : Graph
     public HashSet<Tile> RevealedTiles { get; private set; }
 
     public HashSet<Tile> ReachableTiles { get; private set; }
+
+    public long TopologyVersion { get; private set; }
+
+    public long ReachabilityVersion { get; private set; }
 
     public IReadOnlyList<Trilobite> GetTrilobiteList() => _trilobiteList;
 
@@ -322,6 +327,7 @@ public sealed partial class Cave : Graph
                 break;
             case MiningPost post:
                 _miningPosts.Remove(post);
+                ForgetMiningPostMovementCache(post);
                 break;
             case AlgaeFarm farm:
                 _algaeFarms.Remove(farm);
@@ -333,6 +339,26 @@ public sealed partial class Cave : Graph
                 _scaffolds.Remove(scaffolding);
                 break;
         }
+    }
+
+    private void AdvanceTopologyVersion()
+    {
+        TopologyVersion++;
+    }
+
+    private void AdvanceReachabilityVersion()
+    {
+        ReachabilityVersion++;
+    }
+
+    internal void AdvanceTopologyVersionForCache()
+    {
+        AdvanceTopologyVersion();
+    }
+
+    private void ForgetMiningPostMovementCache(MiningPost post)
+    {
+        _miningPostMovementCache.Remove(post);
     }
 
     public bool CanBuild(Building building, GridPoint location, bool preserveReachability = false)
@@ -519,6 +545,7 @@ public sealed partial class Cave : Graph
 
         building.OnBuilt(this);
         RegisterBuilding(building);
+        AdvanceTopologyVersion();
 
         var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
         var reachability = RefreshReachableTiles();
@@ -594,6 +621,7 @@ public sealed partial class Cave : Graph
         }
 
         building.CleanupBeforeRemoval(source);
+        AdvanceTopologyVersion();
         var reachability = RefreshReachableTiles();
         var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
         MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
@@ -651,7 +679,13 @@ public sealed partial class Cave : Graph
         if (queenBuilding is null || queenBuilding.TileArray.Count == 0)
         {
             ReachableTiles = nextReachableTiles;
-            return new ReachabilityRefreshResult(0, GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles));
+            var changedKeys = GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles);
+            if (changedKeys.Count > 0)
+            {
+                AdvanceReachabilityVersion();
+            }
+
+            return new ReachabilityRefreshResult(0, changedKeys);
         }
 
         var queue = new Queue<Tile>();
@@ -683,7 +717,13 @@ public sealed partial class Cave : Graph
         }
 
         ReachableTiles = nextReachableTiles;
-        return new ReachabilityRefreshResult(ReachableTiles.Count, GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles));
+        var finalChangedKeys = GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles);
+        if (finalChangedKeys.Count > 0)
+        {
+            AdvanceReachabilityVersion();
+        }
+
+        return new ReachabilityRefreshResult(ReachableTiles.Count, finalChangedKeys);
     }
 }
 
@@ -738,6 +778,94 @@ public sealed partial class Cave
     public IReadOnlyDictionary<MiningPost, IReadOnlyCollection<MiningPost>> GetMiningPostAdjacencyGraph()
     {
         return GetMiningPostOwnershipFieldObject().GetAdjacencyGraph();
+    }
+
+    internal MiningPostMovementCacheEntry GetMiningPostMovementCacheEntry(MiningPost post)
+    {
+        if (!_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
+        {
+            cacheEntry = new MiningPostMovementCacheEntry(post, this);
+            _miningPostMovementCache[post] = cacheEntry;
+        }
+
+        return cacheEntry;
+    }
+
+    public bool InvalidateMiningPostMovementCache(MiningPost post, bool staleFailure = false)
+    {
+        if (!_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
+        {
+            return false;
+        }
+
+        cacheEntry.ForceRebuild = true;
+        if (staleFailure)
+        {
+            Session.MiningPostMovementTelemetry.RecordStalePathInvalidation();
+        }
+
+        return true;
+    }
+
+    public BfsField GetMiningPostMovementFieldObject(MiningPost post)
+    {
+        var cacheEntry = GetMiningPostMovementCacheEntry(post);
+        var telemetry = Session.MiningPostMovementTelemetry;
+        var needsRebuild = cacheEntry.ForceRebuild ||
+                           cacheEntry.TopologyVersion != TopologyVersion ||
+                           cacheEntry.ReachabilityVersion != ReachabilityVersion;
+
+        cacheEntry.Field.SetOwnerBuilding(post);
+        cacheEntry.Field.SetCave(post.Cave ?? this);
+
+        if (needsRebuild)
+        {
+            telemetry.RecordCacheMiss();
+            cacheEntry.Field.Rebuild();
+            cacheEntry.TopologyVersion = TopologyVersion;
+            cacheEntry.ReachabilityVersion = ReachabilityVersion;
+            cacheEntry.ForceRebuild = false;
+            telemetry.RecordCacheRebuild();
+        }
+        else
+        {
+            telemetry.RecordCacheHit();
+        }
+
+        return cacheEntry.Field;
+    }
+
+    public List<GridPoint>? BuildPathToMiningPost(MiningPost post, GridPoint startLocation)
+    {
+        if (post.Location is null || post.TileArray.Count == 0)
+        {
+            return null;
+        }
+
+        return GetMiningPostMovementFieldObject(post).BuildPathFrom(startLocation, refresh: false);
+    }
+
+    public bool ShouldInvalidateMiningPostMovementCacheOnFailure(MiningPost post, GridPoint currentLocation, GridPoint attemptedLocation)
+    {
+        if (GridPoint.ManhattanDistance(currentLocation, attemptedLocation) != 1)
+        {
+            return true;
+        }
+
+        var tile = GetTile(attemptedLocation.ToString());
+        if (tile is null || !tile.CreatureFits() || !IsTileReachable(tile))
+        {
+            return true;
+        }
+
+        if (_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
+        {
+            return cacheEntry.TopologyVersion != TopologyVersion ||
+                   cacheEntry.ReachabilityVersion != ReachabilityVersion ||
+                   cacheEntry.ForceRebuild;
+        }
+
+        return false;
     }
 
     public BfsField GetBuildingBfsFieldObject(Building building)

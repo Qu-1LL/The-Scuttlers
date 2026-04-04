@@ -31,6 +31,7 @@ public sealed class GameSession
         TickCount = 0;
         DebugEnemyCount = 1;
         TickProfiler = new TickProfiler();
+        MiningPostMovementTelemetry = new MiningPostMovementTelemetry();
     }
 
     public GameEventBus EventBus { get; }
@@ -52,6 +53,8 @@ public sealed class GameSession
     public int DebugEnemyCount { get; set; }
 
     public TickProfiler TickProfiler { get; }
+
+    public MiningPostMovementTelemetry MiningPostMovementTelemetry { get; }
 
     public event Action<GameAudioCue>? AudioCueRequested;
 
@@ -257,6 +260,7 @@ public sealed class GameSession
             cave.RevealCave();
         }
 
+        cave.AdvanceTopologyVersionForCache();
         var reachability = cave.RefreshReachableTiles();
         var ownershipDirtyKeys = changedKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
         cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);

@@ -1073,6 +1073,11 @@ public sealed partial class Trilobite : Creature
             queue.Enqueue(nearestOwner!);
         }
 
+        if (queue.Count > 0)
+        {
+            Session.MiningPostMovementTelemetry.RecordSelectionGraphBfs();
+        }
+
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
