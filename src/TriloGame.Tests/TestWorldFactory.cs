@@ -8,6 +8,27 @@ namespace TriloGame.Tests;
 
 internal static class TestWorldFactory
 {
+    public static (GameSession Session, Cave Cave) CreateRectangularSession(int width, int height, GridPoint? origin = null)
+    {
+        var session = new GameSession();
+        var cave = new Cave(session);
+        ResetToRectangularMap(cave, width, height, origin);
+        return (session, cave);
+    }
+
+    public static (GameSession Session, Cave Cave, Queen Queen) CreateRectangularSessionWithQueen(int width, int height, GridPoint queenLocation, GridPoint? origin = null)
+    {
+        var (session, cave) = CreateRectangularSession(width, height, origin);
+        var queen = new Queen(session);
+        if (!cave.Build(queen, queenLocation))
+        {
+            throw new InvalidOperationException("Failed to build the queen in the rectangular test cave.");
+        }
+
+        cave.RevealTiles(cave.GetTiles());
+        return (session, cave, queen);
+    }
+
     public static (GameSession Session, Cave Cave, Queen Queen) CreateSessionWithQueen()
     {
         var session = new GameSession();
@@ -34,6 +55,61 @@ internal static class TestWorldFactory
         }
 
         return (session, cave, queen, trilobite);
+    }
+
+    public static MiningPost BuildMiningPost(Cave cave, GameSession session, GridPoint location)
+    {
+        var post = new MiningPost(session);
+        if (!cave.Build(post, location))
+        {
+            throw new InvalidOperationException($"Failed to build a mining post at {location}.");
+        }
+
+        return post;
+    }
+
+    public static void ResetToRectangularMap(Cave cave, int width, int height, GridPoint? origin = null)
+    {
+        foreach (var building in cave.GetBuildingList().ToArray())
+        {
+            cave.RemoveBuilding(building);
+        }
+
+        foreach (var tileKey in cave.GetTiles().Select(tile => tile.Key).ToArray())
+        {
+            cave.RemoveTile(tileKey);
+        }
+
+        cave.RevealedTiles.Clear();
+        cave.ReachableTiles.Clear();
+
+        var start = origin ?? GridPoint.Zero;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var location = new GridPoint(start.X + x, start.Y + y);
+                var key = location.ToString();
+                var tile = cave.AddTile(key);
+                tile.SetBase("empty");
+                tile.SetBuilt(null);
+                tile.SetEnemyOccupant(null);
+                tile.CreatureCanFit = true;
+
+                if (x > 0)
+                {
+                    cave.AddEdge(key, new GridPoint(location.X - 1, location.Y).ToString());
+                }
+
+                if (y > 0)
+                {
+                    cave.AddEdge(key, new GridPoint(location.X, location.Y - 1).ToString());
+                }
+            }
+        }
+
+        cave.ResetBfsFields();
+        cave.RebuildMiningPostOwnershipField();
     }
 
     public static GridPoint FindBuildLocation(Cave cave, Building building, bool preserveReachability = false)

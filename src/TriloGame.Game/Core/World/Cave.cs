@@ -26,6 +26,7 @@ public sealed partial class Cave : Graph
     private readonly List<Barracks> _barracks = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
+    private readonly MiningPostOwnershipField _miningPostOwnershipField;
     private Queen? _queenBuilding;
 
     public Cave(GameSession session)
@@ -37,6 +38,7 @@ public sealed partial class Cave : Graph
         Buildings = [];
         RevealedTiles = [];
         ReachableTiles = [];
+        _miningPostOwnershipField = new MiningPostOwnershipField(this);
         session.Cave = this;
         ResetBfsFields();
     }
@@ -520,8 +522,11 @@ public sealed partial class Cave : Graph
 
         var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
         var reachability = RefreshReachableTiles();
-        MarkAllBuildingFieldsDirty(dirtyKeys.Concat(reachability.ChangedKeys), [building], []);
+        var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
+        MarkMiningPostOwnershipFieldDirty(ownershipDirtyKeys, [building]);
         RebalanceAllBfsFields(dirtyKeys, [building], []);
+        RebalanceMiningPostOwnershipField(dirtyKeys, [building]);
         return true;
     }
 
@@ -590,12 +595,15 @@ public sealed partial class Cave : Graph
 
         building.CleanupBeforeRemoval(source);
         var reachability = RefreshReachableTiles();
-        MarkAllBuildingFieldsDirty(dirtyKeys.Concat(reachability.ChangedKeys), [building], []);
+        var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
+        MarkMiningPostOwnershipFieldDirty(ownershipDirtyKeys, [building]);
         building.TileArray = [];
         building.Location = null;
         building.Cave = null;
         building.BfsField.SetCave(null);
         RebalanceAllBfsFields(dirtyKeys, [building], []);
+        RebalanceMiningPostOwnershipField(dirtyKeys, [building]);
         return true;
     }
 
@@ -683,6 +691,55 @@ public readonly record struct ReachabilityRefreshResult(int Count, IReadOnlyList
 
 public sealed partial class Cave
 {
+    public MiningPostOwnershipField GetMiningPostOwnershipFieldObject()
+    {
+        _miningPostOwnershipField.SetCave(this);
+        return _miningPostOwnershipField;
+    }
+
+    public MiningPostOwnershipField MarkMiningPostOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetMiningPostOwnershipFieldObject();
+        field.MarkDirty(tileKeys, dirtyBuildings);
+        return field;
+    }
+
+    public MiningPostOwnershipField RefreshMiningPostOwnershipField() => GetMiningPostOwnershipFieldObject().Refresh();
+
+    public MiningPostOwnershipField RebuildMiningPostOwnershipField() => GetMiningPostOwnershipFieldObject().Rebuild();
+
+    public MiningPostOwnershipField RebalanceMiningPostOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetMiningPostOwnershipFieldObject();
+        field.MarkDirty(dirtyKeys, dirtyBuildings);
+        return field.Refresh();
+    }
+
+    public MiningPostOwnership GetMiningPostOwnership(GridPoint location)
+    {
+        return GetMiningPostOwnershipFieldObject().GetOwnership(location);
+    }
+
+    public MiningPost? GetNearestMiningPost(GridPoint location)
+    {
+        return GetMiningPostOwnershipFieldObject().GetOwner(location);
+    }
+
+    public int GetNearestMiningPostDistance(GridPoint location)
+    {
+        return GetMiningPostOwnershipFieldObject().GetDistance(location);
+    }
+
+    public IReadOnlyCollection<MiningPost> GetAdjacentMiningPosts(MiningPost post)
+    {
+        return GetMiningPostOwnershipFieldObject().GetAdjacentPosts(post);
+    }
+
+    public IReadOnlyDictionary<MiningPost, IReadOnlyCollection<MiningPost>> GetMiningPostAdjacencyGraph()
+    {
+        return GetMiningPostOwnershipFieldObject().GetAdjacencyGraph();
+    }
+
     public BfsField GetBuildingBfsFieldObject(Building building)
     {
         building.BfsField ??= new BfsField(building.Name, "building", this, building);
