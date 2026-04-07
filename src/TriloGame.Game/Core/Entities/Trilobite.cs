@@ -20,7 +20,11 @@ public sealed partial class Trilobite : Creature
 
     public Building? AssignedBuilding { get; private set; }
 
+    public string? PendingMineType { get; private set; }
+
     public string? PendingMineTileKey { get; private set; }
+
+    private List<GridPoint>? PendingMinePath { get; set; }
 
     public string? FighterTargetTileKey { get; private set; }
 
@@ -48,6 +52,9 @@ public sealed partial class Trilobite : Creature
         ClearFighterTarget();
         FighterPathMode = null;
         ReleaseAssignedBuilding();
+        PendingMineType = null;
+        PendingMineTileKey = null;
+        PendingMinePath = null;
         ClearInventory();
     }
 
@@ -356,7 +363,9 @@ public sealed partial class Trilobite : Creature
     private bool CanReachBarracks(Barracks barracks)
     {
         return Cave is not null &&
-               (IsOnPassableBuildingTile(barracks) || Cave.GetBuildingBfsFieldValue(barracks, Location) != int.MaxValue);
+               (IsOnPassableBuildingTile(barracks) ||
+                ReferenceEquals(Cave.GetNearestBarracks(Location), barracks) ||
+                Cave.GetBuildingBfsFieldValue(barracks, Location) != int.MaxValue);
     }
 
     private bool ShouldBalanceBarracksAssignments(Barracks? preferredBarracks)
@@ -667,16 +676,45 @@ public sealed partial class Trilobite : Creature
             ClearFighterTarget();
         }
 
-        var nextLocation = Cave?.GetBfsFieldNextStep("enemy", Location);
-        if (nextLocation is null)
+        var cave = Cave;
+        var field = cave?.GetBfsFieldObject("enemy");
+        if (field is null || cave is null)
         {
             ClearFighterTarget();
             return FighterReturnToBarracks(false);
         }
 
         ClearActionQueue();
-        PathPreview.Add(nextLocation.Value);
-        return FighterStepMove(nextLocation.Value);
+        var resolvedField = field;
+        var resolvedNext = field.GetNextStep(Location, refresh: false);
+        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        {
+            var refreshedField = cave.GetBfsFieldObject("enemy");
+            refreshedField?.Rebuild();
+            if (refreshedField is null)
+            {
+                ClearFighterTarget();
+                return FighterReturnToBarracks(false);
+            }
+
+            resolvedField = refreshedField;
+            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
+            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
+            {
+                ClearActionQueue();
+                return false;
+            }
+        }
+
+        if (resolvedNext is null)
+        {
+            ClearFighterTarget();
+            return FighterReturnToBarracks(false);
+        }
+
+        ArmBfsTraversal(resolvedField, sharedFieldName: "enemy");
+        PathPreview.Add(resolvedNext.Value);
+        return FighterStepMove(resolvedNext.Value);
     }
 
     public bool FighterStepMove(GridPoint nextLocation)
@@ -728,7 +766,8 @@ public sealed partial class Trilobite : Creature
         }
 
         var wasBarracksMove = FighterPathMode == "barracks";
-        var moved = PerformMove(nextLocation);
+        ClearBfsTraversal();
+        var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
         if (!moved)
         {
             if (wasBarracksMove)
@@ -800,7 +839,9 @@ public sealed partial class Trilobite : Creature
     private bool CanReachAlgaeFarm(AlgaeFarm farm)
     {
         return Cave is not null &&
-               (farm.IsLocationOnFarm(Location) || Cave.GetBuildingBfsFieldValue(farm, Location) != int.MaxValue);
+               (farm.IsLocationOnFarm(Location) ||
+                ReferenceEquals(Cave.GetNearestAlgaeFarm(Location), farm) ||
+                Cave.GetBuildingBfsFieldValue(farm, Location) != int.MaxValue);
     }
 
     private IEnumerable<AlgaeFarm> EnumerateAlgaeFarmCandidates(AlgaeFarm? preferredFarm = null, ISet<AlgaeFarm>? excludedFarms = null)
@@ -979,29 +1020,19 @@ public sealed partial class Trilobite : Creature
             return true;
         }
 
-        var farmPath = farm.GetPath(Location);
-        if (farmPath.Count < 2)
+        var nextLocation = farm.GetNextTraversalLocation(Location);
+        if (nextLocation is null)
         {
-            if (farm.TryHarvest(this))
-            {
-                return FarmerStep4();
-            }
-
-            EnqueueAction(() => { FarmerStep2(); });
+            ReleaseAssignedBuilding();
+            EnqueueAction(() => { FarmerStep1(); });
             return false;
         }
 
-        for (var index = 1; index < farmPath.Count; index++)
-        {
-            var next = farmPath[index];
-            var isLastStep = index == farmPath.Count - 1;
-            EnqueueAction(() => { FarmerStep3(next, isLastStep); });
-        }
-
+        EnqueueAction(() => { FarmerStep3(nextLocation.Value); });
         return true;
     }
 
-    public bool FarmerStep3(GridPoint nextLocation, bool isLastStep = false)
+    public bool FarmerStep3(GridPoint nextLocation)
     {
         if (!EnsureFarmerState())
         {
@@ -1015,7 +1046,8 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        var moved = PerformMove(nextLocation);
+        ClearBfsTraversal();
+        var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
         if (!moved)
         {
             ClearActionQueue();
@@ -1025,7 +1057,7 @@ public sealed partial class Trilobite : Creature
 
         if (!farm.TryHarvest(this))
         {
-            return isLastStep ? FarmerStep2() : true;
+            return FarmerStep2();
         }
 
         ClearActionQueue();
@@ -1057,16 +1089,44 @@ public sealed partial class Trilobite : Creature
             return FarmerStep5();
         }
 
-        var nextLocation = Cave?.GetBuildingBfsFieldNextStep(queen, Location);
-        if (nextLocation is null)
+        var field = GetBuildingNavigationField(queen);
+        if (field is null)
         {
             EnqueueAction(() => { FarmerStep1(); });
             return false;
         }
 
         ClearActionQueue();
-        PathPreview.Add(nextLocation.Value);
-        return FarmerStepMoveToQueen(nextLocation.Value);
+        var resolvedField = field;
+        var resolvedNext = field.GetNextStep(Location, refresh: false);
+        if (resolvedNext is null || (Cave is not null && Cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        {
+            var refreshedField = GetBuildingNavigationField(queen);
+            refreshedField?.Rebuild();
+            if (refreshedField is null)
+            {
+                EnqueueAction(() => { FarmerStep1(); });
+                return false;
+            }
+
+            resolvedField = refreshedField;
+            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
+            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
+            {
+                ClearActionQueue();
+                return FarmerStep5();
+            }
+        }
+
+        if (resolvedNext is null)
+        {
+            EnqueueAction(() => { FarmerStep1(); });
+            return false;
+        }
+
+        ArmBfsTraversal(resolvedField, building: queen);
+        PathPreview.Add(resolvedNext.Value);
+        return FarmerStepMoveToQueen(resolvedNext.Value);
     }
 
     public bool FarmerStepMoveToQueen(GridPoint nextLocation)
@@ -1134,7 +1194,18 @@ public sealed partial class Trilobite : Creature
         }
 
         miningPost?.Assign(this, null);
+        PendingMineType = null;
         PendingMineTileKey = null;
+        PendingMinePath = null;
+    }
+
+    private bool RetargetStalePendingMineTarget(MiningPost miningPost, string tileKey)
+    {
+        miningPost.InvalidateMineableQueuesForKeys([tileKey]);
+        miningPost.Assign(this, null);
+        PendingMineTileKey = null;
+        PendingMinePath = null;
+        return string.IsNullOrWhiteSpace(PendingMineType) ? MinerStep3() : MinerStep4();
     }
 
     private static string? GetMiningPostSelectionKey(MiningPost? post)
@@ -1154,6 +1225,19 @@ public sealed partial class Trilobite : Creature
     {
         return Cave is not null &&
                ((preferredPost is not null && preferredPost.AssignmentsAvailable) || Cave.HasAvailableMiningPostAssignments);
+    }
+
+    private bool WaitForMiningAssignmentAvailability(MiningPost? currentPost = null)
+    {
+        if (Cave is null ||
+            Cave.HasAvailableMiningPostAssignments ||
+            currentPost?.AssignmentsAvailable == true)
+        {
+            return false;
+        }
+
+        EnqueueAction(() => { MinerStep1(); });
+        return true;
     }
 
     private bool ShouldBalanceMiningPostAssignments(MiningPost? preferredPost)
@@ -1320,6 +1404,17 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        var assignedPost = GetAssignedMiningPost();
+        if (WaitForMiningAssignmentAvailability(assignedPost))
+        {
+            return false;
+        }
+
+        if (assignedPost is not null && !assignedPost.AssignmentsAvailable)
+        {
+            ReleaseAssignedBuilding();
+        }
+
         if (GetAssignedMiningPost() is null && Cave is not null && !Cave.HasAvailableMiningPostAssignments)
         {
             ReleaseAssignedBuilding();
@@ -1414,6 +1509,18 @@ public sealed partial class Trilobite : Creature
             }
         }
 
+        if (WaitForMiningAssignmentAvailability(miningPost))
+        {
+            return false;
+        }
+
+        if (!miningPost.AssignmentsAvailable)
+        {
+            ReleaseAssignedBuilding();
+            EnqueueAction(() => { MinerStep1(); });
+            return false;
+        }
+
         return MinerStep3();
     }
 
@@ -1431,15 +1538,29 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        var targetTile = miningPost.GrabMineableTile(Cave!, this);
-        if (targetTile is null)
+        if (WaitForMiningAssignmentAvailability(miningPost))
+        {
+            return false;
+        }
+
+        if (!miningPost.AssignmentsAvailable)
+        {
+            ReleaseAssignedBuilding();
+            EnqueueAction(() => { MinerStep1(); });
+            return false;
+        }
+
+        var targetType = miningPost.GrabMineableType(Cave!, this);
+        if (targetType is null)
         {
             miningPost.Assign(this, null);
             EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
-        PendingMineTileKey = targetTile.Key;
+        PendingMineType = targetType;
+        PendingMineTileKey = null;
+        PendingMinePath = null;
         return MinerStep4();
     }
 
@@ -1451,19 +1572,24 @@ public sealed partial class Trilobite : Creature
         }
 
         var miningPost = GetAssignedMiningPost();
-        if (miningPost is null || PendingMineTileKey is null)
+        if (miningPost is null || PendingMineType is null)
         {
             EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
-        if (miningPost.GetAssignment(this) != PendingMineTileKey)
+        var reservedTiles = miningPost.GetAssignedTileKeys(this);
+        var targetResult = Cave?.BuildPathToNearestMineableType(Location, miningPost, PendingMineType, reservedTiles);
+        if (targetResult is null)
         {
-            ResetPendingMineTarget(true);
+            ResetPendingMineTarget(false);
             EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
+        PendingMineTileKey = targetResult.Value.TileKey;
+        PendingMinePath = targetResult.Value.Path;
+        miningPost.Assign(this, PendingMineTileKey);
         return MinerStep5();
     }
 
@@ -1484,9 +1610,12 @@ public sealed partial class Trilobite : Creature
         var targetTile = Cave?.GetTile(PendingMineTileKey);
         if (targetTile is null)
         {
-            ResetPendingMineTarget(true);
-            EnqueueAction(() => { MinerStep1(); });
-            return false;
+            return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
+        }
+
+        if (!Building.IsMineableType(targetTile.Base))
+        {
+            return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
 
         var navTarget = miningPost.GetNavigationTarget(Cave!, targetTile);
@@ -1497,20 +1626,40 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        if (miningPost.GetAssignment(this) != PendingMineTileKey)
+        {
+            ResetPendingMineTarget(true);
+            EnqueueAction(() => { MinerStep1(); });
+            return false;
+        }
+
+        var path = PendingMinePath;
+        PendingMinePath = null;
+        if (path is null || path.Count == 0 || path[0] != Location || path[^1] != navTarget.Value)
+        {
+            path = Cave?.BuildDirectPathToPoint(Location, navTarget.Value);
+            if (path is null)
+            {
+                ResetPendingMineTarget(true);
+                EnqueueAction(() => { MinerStep1(); });
+                return false;
+            }
+        }
+
         var navFallback = new Action(() =>
         {
             ResetPendingMineTarget(true);
             MinerStep1();
         });
 
-        if (!NavigateTo(navTarget.Value, navFallback))
-        {
-            return false;
-        }
-
-        if (Location == navTarget.Value)
+        if (path.Count < 2)
         {
             return MinerStep6();
+        }
+
+        if (!EnqueueResolvedPath(path, navFallback, clearExisting: true))
+        {
+            return false;
         }
 
         EnqueueAction(() => { MinerStep6(); });
@@ -1569,10 +1718,17 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (GetAssignedMiningPost() is null || PendingMineTileKey is null)
+        var miningPost = GetAssignedMiningPost();
+        if (miningPost is null || PendingMineTileKey is null)
         {
             EnqueueAction(() => { MinerStep1(); });
             return false;
+        }
+
+        var targetTile = Cave?.GetTile(PendingMineTileKey);
+        if (targetTile is null || !Building.IsMineableType(targetTile.Base))
+        {
+            return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
 
         var success = MineTile(PendingMineTileKey);

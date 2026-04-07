@@ -15,6 +15,7 @@ public sealed class MiningPost : Building
     private readonly Dictionary<string, int> _mineableQueueHeads = new(StringComparer.Ordinal);
     private readonly List<string> _mineableTypes = [];
     private readonly HashSet<string> _dirtyMineableTileKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _revealedWallTileKeys = new(StringComparer.Ordinal);
 
     public MiningPost(GameSession session)
         : base("Mining Post", new GridPoint(3, 3), [[1, 1, 1], [1, 0, 1], [1, 1, 1]], session, true)
@@ -228,21 +229,44 @@ public sealed class MiningPost : Building
 
     public override void OnBuilt(World.Cave cave)
     {
-        RebuildMineableQueues(cave);
+        RefreshPossibleAssignmentsOnBuilt(cave);
     }
 
     public void InvalidateMineableQueues()
     {
-        MineableQueuesDirty = true;
+        MineableQueuesDirty = false;
         _dirtyMineableTileKeys.Clear();
-        if (Cave is not null)
+        var cave = Cave;
+        if (cave is null)
         {
-            RefreshAssignmentsAvailable(Cave);
+            return;
+        }
+
+        if (!MineableQueuesReady)
+        {
+            RebuildMineableQueues(cave);
+            return;
+        }
+
+        if (AssignmentsAvailable)
+        {
+            SetAssignmentsAvailable(HasAvailableMineableTile(cave));
         }
     }
 
     public void InvalidateMineableQueuesForKeys(IEnumerable<string> tileKeys)
     {
+        var cave = Cave;
+        if (cave is null)
+        {
+            return;
+        }
+
+        if (!MineableQueuesReady)
+        {
+            RebuildMineableQueues(cave);
+        }
+
         foreach (var tileKey in tileKeys)
         {
             if (string.IsNullOrWhiteSpace(tileKey))
@@ -250,7 +274,7 @@ public sealed class MiningPost : Building
                 continue;
             }
 
-            var tile = Cave?.GetTile(tileKey);
+            var tile = cave.GetTile(tileKey);
             var location = tile?.Coordinates ?? GridPoint.Parse(tileKey);
             if (IsLocationInArea(location))
             {
@@ -259,14 +283,19 @@ public sealed class MiningPost : Building
             }
         }
 
-        if (MineableQueuesDirty && Cave is not null)
+        if (MineableQueuesDirty)
         {
-            RefreshAssignmentsAvailable(Cave);
+            ApplyDirtyMineableQueueUpdates(cave);
         }
     }
 
     public void EnsureMineableQueues(World.Cave cave)
     {
+        if (MineableQueuesReady && !AssignmentsAvailable)
+        {
+            return;
+        }
+
         if (!MineableQueuesReady)
         {
             RebuildMineableQueues(cave);
@@ -281,18 +310,34 @@ public sealed class MiningPost : Building
 
     public void RebuildMineableQueues(World.Cave cave)
     {
-        var center = GetCenter();
-        var radiusSq = Radius * Radius;
+        PopulateMineableQueues(cave, cave.GetRevealedTiles(), requireReveal: true);
+    }
+
+    private void RefreshPossibleAssignmentsOnBuilt(World.Cave cave)
+    {
+        // The starter mining post is built before the initial cave reveal runs, so it
+        // needs one construction-time seed pass over in-radius mineables. Runtime upkeep
+        // stays incremental after this initial population.
+        PopulateMineableQueues(cave, cave.GetTiles(), requireReveal: false);
+    }
+
+    private void PopulateMineableQueues(World.Cave cave, IEnumerable<World.Tile> tiles, bool requireReveal)
+    {
         var grouped = new Dictionary<string, List<(string Key, int Dist)>>(StringComparer.Ordinal);
 
-        foreach (var tile in cave.GetTiles())
+        _mineableQueues.Clear();
+        _mineableQueueHeads.Clear();
+        _mineableTypes.Clear();
+        _revealedWallTileKeys.Clear();
+
+        foreach (var tile in tiles)
         {
-            var distance = GridPoint.SquaredDistance(tile.Coordinates, center);
-            if (distance > radiusSq || !Building.IsMineableType(tile.Base))
+            if (!ShouldTrackMineableTile(cave, tile, requireReveal))
             {
                 continue;
             }
 
+            var distance = GridPoint.SquaredDistance(tile.Coordinates, GetCenter());
             if (!grouped.TryGetValue(tile.Base, out var queue))
             {
                 queue = [];
@@ -300,11 +345,11 @@ public sealed class MiningPost : Building
             }
 
             queue.Add((tile.Key, distance));
+            if (string.Equals(tile.Base, "wall", StringComparison.Ordinal))
+            {
+                _revealedWallTileKeys.Add(tile.Key);
+            }
         }
-
-        _mineableQueues.Clear();
-        _mineableQueueHeads.Clear();
-        _mineableTypes.Clear();
 
         foreach (var pair in grouped)
         {
@@ -326,29 +371,22 @@ public sealed class MiningPost : Building
 
     private void ApplyDirtyMineableQueueUpdates(World.Cave cave)
     {
-        if (_dirtyMineableTileKeys.Count == 0)
+        if (!MineableQueuesReady)
         {
             RebuildMineableQueues(cave);
             return;
         }
 
-        if (_dirtyMineableTileKeys.Count > 24)
+        if (_dirtyMineableTileKeys.Count == 0)
         {
-            RebuildMineableQueues(cave);
+            MineableQueuesDirty = false;
+            SetAssignmentsAvailable(HasAvailableMineableTile(cave));
             return;
         }
 
         foreach (var tileKey in _dirtyMineableTileKeys)
         {
-            RemoveTileFromQueues(tileKey);
-
-            var tile = cave.GetTile(tileKey);
-            if (tile is null || !Building.IsMineableType(tile.Base) || !IsLocationInArea(tile.Coordinates))
-            {
-                continue;
-            }
-
-            InsertTileIntoQueue(tile.Base, tile.Key, GridPoint.SquaredDistance(tile.Coordinates, GetCenter()));
+            ApplyMineableTileChange(cave, tileKey);
         }
 
         MineableQueuesDirty = false;
@@ -356,9 +394,48 @@ public sealed class MiningPost : Building
         SetAssignmentsAvailable(HasAvailableMineableTile(cave));
     }
 
+    private void ApplyMineableTileChange(World.Cave cave, string tileKey)
+    {
+        RemoveTileFromQueues(tileKey);
+        _revealedWallTileKeys.Remove(tileKey);
+
+        var tile = cave.GetTile(tileKey);
+        if (!ShouldTrackMineableTile(cave, tile))
+        {
+            return;
+        }
+
+        var trackedTile = tile!;
+
+        if (string.Equals(trackedTile.Base, "wall", StringComparison.Ordinal))
+        {
+            _revealedWallTileKeys.Add(trackedTile.Key);
+        }
+
+        InsertTileIntoQueue(trackedTile.Base, trackedTile.Key, GridPoint.SquaredDistance(trackedTile.Coordinates, GetCenter()));
+    }
+
+    private bool ShouldTrackMineableTile(World.Cave cave, World.Tile? tile)
+    {
+        return ShouldTrackMineableTile(cave, tile, requireReveal: true);
+    }
+
+    private bool ShouldTrackMineableTile(World.Cave cave, World.Tile? tile, bool requireReveal)
+    {
+        return tile is not null &&
+               (!requireReveal || cave.IsTileRevealed(tile)) &&
+               Building.IsMineableType(tile.Base) &&
+               IsLocationInArea(tile.Coordinates);
+    }
+
     private void SetAssignmentsAvailable(bool assignmentsAvailable)
     {
         var previousValue = AssignmentsAvailable;
+        if (previousValue == assignmentsAvailable)
+        {
+            return;
+        }
+
         AssignmentsAvailable = assignmentsAvailable;
         Cave?.OnMiningPostAssignmentsAvailableChanged(this, previousValue, assignmentsAvailable);
     }
@@ -405,6 +482,11 @@ public sealed class MiningPost : Building
 
     public bool RefreshAssignmentsAvailable(World.Cave cave)
     {
+        if (!AssignmentsAvailable)
+        {
+            return false;
+        }
+
         EnsureMineableQueues(cave);
         SetAssignmentsAvailable(HasAvailableMineableTile(cave));
         return AssignmentsAvailable;
@@ -474,6 +556,11 @@ public sealed class MiningPost : Building
 
     public bool HasQueuedMineableTiles(World.Cave cave)
     {
+        if (!AssignmentsAvailable)
+        {
+            return false;
+        }
+
         EnsureMineableQueues(cave);
         return _mineableTypes.Any(type => GetTypeQueueLength(type) > 0);
     }
@@ -483,6 +570,41 @@ public sealed class MiningPost : Building
         return _mineableQueues.TryGetValue(type, out var queue)
             ? System.Math.Max(0, queue.Count - _mineableQueueHeads.GetValueOrDefault(type, 0))
             : 0;
+    }
+
+    private bool HasAvailableMineableTileOfType(World.Cave cave, string type, HashSet<string> reservedTiles)
+    {
+        if (!_mineableQueues.TryGetValue(type, out var queue))
+        {
+            return false;
+        }
+
+        var center = GetCenter();
+        var radiusSq = Radius * Radius;
+        var head = _mineableQueueHeads.GetValueOrDefault(type, 0);
+        for (var index = head; index < queue.Count; index++)
+        {
+            var tileKey = queue[index];
+            var tile = cave.GetTile(tileKey);
+            if (tile is null || tile.Base != type)
+            {
+                continue;
+            }
+
+            if (GridPoint.SquaredDistance(tile.Coordinates, center) > radiusSq)
+            {
+                continue;
+            }
+
+            if (GetNavigationTarget(cave, tile) is null || reservedTiles.Contains(tileKey))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     private string? PopTypeQueueKey(string type)
@@ -640,10 +762,16 @@ public sealed class MiningPost : Building
 
     public World.Tile? GrabMineableTile(World.Cave cave, Creature? creature = null)
     {
+        if (!AssignmentsAvailable)
+        {
+            return null;
+        }
+
         EnsureMineableQueues(cave);
         var mineableTypes = _mineableTypes.Where(type => GetTypeQueueLength(type) > 0).ToArray();
         if (mineableTypes.Length == 0)
         {
+            SetAssignmentsAvailable(false);
             return null;
         }
 
@@ -665,6 +793,35 @@ public sealed class MiningPost : Building
             return queuedTile;
         }
 
+        SetAssignmentsAvailable(false);
+        return null;
+    }
+
+    public string? GrabMineableType(World.Cave cave, Creature? creature = null)
+    {
+        if (!AssignmentsAvailable)
+        {
+            return null;
+        }
+
+        EnsureMineableQueues(cave);
+        var mineableTypes = _mineableTypes.Where(type => GetTypeQueueLength(type) > 0).ToArray();
+        if (mineableTypes.Length == 0)
+        {
+            SetAssignmentsAvailable(false);
+            return null;
+        }
+
+        var reservedTiles = GetAssignedTileKeys(creature);
+        foreach (var type in RandomUtil.Shuffle(mineableTypes))
+        {
+            if (HasAvailableMineableTileOfType(cave, type, reservedTiles))
+            {
+                return type;
+            }
+        }
+
+        SetAssignmentsAvailable(false);
         return null;
     }
 }

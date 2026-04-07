@@ -19,41 +19,40 @@ public sealed class MiningPostNavigationCacheTests
         var initialPath = first.BuildNavigationPathToBuilding(post);
         Assert.NotNull(initialPath);
         Assert.True(first.NavigateToBuilding(post));
-        first.Move();
         var reusedPath = second.BuildNavigationPathToBuilding(post);
 
         Assert.NotNull(reusedPath);
         Assert.Equal(1, session.MiningPostMovementTelemetry.CacheMisses);
         Assert.Equal(1, session.MiningPostMovementTelemetry.CacheRebuildCount);
         Assert.Equal(2, session.MiningPostMovementTelemetry.CacheHits);
+        Assert.Empty(first.GetQueuedPathPreview());
     }
 
     [Fact]
-    public void MovementCache_InvalidatesOnStructuralChange()
+    public void MovementCache_DoesNotRebuildOnStructuralChangeUntilMoveFailure()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 14, new GridPoint(12, 0));
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
         var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 10), "Tester", "miner");
 
-        session.MiningPostMovementTelemetry.Reset();
-
         var initialPath = trilobite.BuildNavigationPathToBuilding(post);
         Assert.NotNull(initialPath);
+        session.MiningPostMovementTelemetry.Reset();
 
         var storage = new Storage(session);
-        Assert.True(cave.Build(storage, new GridPoint(9, 8)));
+        Assert.True(cave.Build(storage, new GridPoint(24, 11)));
 
-        var rebuiltPath = trilobite.BuildNavigationPathToBuilding(post);
+        var stalePath = trilobite.BuildNavigationPathToBuilding(post);
 
-        Assert.NotNull(rebuiltPath);
-        Assert.Equal(2, session.MiningPostMovementTelemetry.CacheMisses);
-        Assert.Equal(2, session.MiningPostMovementTelemetry.CacheRebuildCount);
-        Assert.Equal(0, session.MiningPostMovementTelemetry.CacheHits);
+        Assert.NotNull(stalePath);
+        Assert.Equal(0, session.MiningPostMovementTelemetry.CacheMisses);
+        Assert.Equal(0, session.MiningPostMovementTelemetry.CacheRebuildCount);
+        Assert.Equal(1, session.MiningPostMovementTelemetry.CacheHits);
         Assert.True(cave.TopologyVersion > 0);
     }
 
     [Fact]
-    public void MovementCache_StalePathFailureInvalidatesAndReroutes()
+    public void NavigateToBuilding_UsesSingleBfsStepWithoutQueuedPreview()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 14, new GridPoint(12, 0));
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
@@ -61,24 +60,13 @@ public sealed class MiningPostNavigationCacheTests
 
         session.MiningPostMovementTelemetry.Reset();
 
-        Assert.True(trilobite.NavigateToBuilding(post));
-        var queuedPath = trilobite.GetQueuedPathPreview();
-        Assert.True(queuedPath.Count > 1);
-
-        var blockedStep = queuedPath[1];
-        var blockerLocation = GetBlockingStorageTopLeft(trilobite.Location, blockedStep);
-        Assert.True(cave.Build(new Storage(session), blockerLocation));
-
         var startingLocation = trilobite.Location;
-        trilobite.Move();
-        var reroutedPreview = trilobite.GetQueuedPathPreview();
+        Assert.True(trilobite.NavigateToBuilding(post));
 
-        Assert.Equal(startingLocation, trilobite.Location);
-        Assert.Equal(1, session.MiningPostMovementTelemetry.StalePathInvalidationCount);
-        Assert.Equal(2, session.MiningPostMovementTelemetry.CacheMisses);
-        Assert.Equal(2, session.MiningPostMovementTelemetry.CacheRebuildCount);
-        Assert.NotEmpty(reroutedPreview);
-        Assert.DoesNotContain(blockedStep, reroutedPreview.Skip(1).Take(1));
+        Assert.NotEqual(startingLocation, trilobite.Location);
+        Assert.Empty(trilobite.GetQueuedPathPreview());
+        Assert.Equal(1, session.MiningPostMovementTelemetry.CacheMisses);
+        Assert.Equal(1, session.MiningPostMovementTelemetry.CacheRebuildCount);
     }
 
     [Fact]
@@ -98,30 +86,5 @@ public sealed class MiningPostNavigationCacheTests
         Assert.Same(rightPost, firstSelection);
         Assert.Same(firstSelection, secondSelection);
         Assert.Equal(2, session.MiningPostMovementTelemetry.SelectionGraphBfsCount);
-    }
-
-    private static GridPoint GetBlockingStorageTopLeft(GridPoint current, GridPoint next)
-    {
-        if (next.X == current.X + 1 && next.Y == current.Y)
-        {
-            return next;
-        }
-
-        if (next.X == current.X - 1 && next.Y == current.Y)
-        {
-            return new GridPoint(next.X - 1, next.Y);
-        }
-
-        if (next.X == current.X && next.Y == current.Y + 1)
-        {
-            return next;
-        }
-
-        if (next.X == current.X && next.Y == current.Y - 1)
-        {
-            return new GridPoint(next.X, next.Y - 1);
-        }
-
-        throw new InvalidOperationException($"Cannot derive a blocking storage location from {current} -> {next}.");
     }
 }

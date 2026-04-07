@@ -83,21 +83,30 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
    release and rebalance onto lower-count posts until the counts differ by at most 1.
 4. Navigate to selected post area via the mining post's cached BFS field.
 5. If carrying resources, deposit to post inventory first.
-6. Request and reserve a mineable tile from the post queue.
-7. Validate reservation is still valid.
-8. Navigate to mining target:
+6. If the currently assigned mining post has `AssignmentsAvailable = false`, only check
+   the cave-global `HasAvailableMiningPostAssignments` flag; keep waiting on the current
+   post while that global flag is `false`, and only release/reselect when it flips back
+   to `true`.
+7. Request a mineable tile type from the post's available work set.
+8. Run a direct BFS from the miner's current tile to the nearest matching tile of that
+   type, then reserve that exact tile on the mining post.
+9. Validate reservation is still valid and navigate to the reserved mining target using
+   the same BFS search result:
    - Ore tiles: stand on tile.
    - Wall tiles: stand on an adjacent passable tile.
-9. Mine tile:
+10. Mine tile:
    - `wall` becomes `empty`, new wall perimeter may be generated, trilobite gains
      `Sandstone`.
    - Ore tile becomes `empty`, trilobite gains that ore type.
-10. Notify nearby mining posts that mineable tile queues are stale.
-11. Loop back to step 1.
+11. Notify nearby mining posts that mineable tile queues are stale.
+12. Loop back to step 1.
 - Failure handling:
 1. Navigation/mine failure clears queued actions.
-2. Reservation is reset/requeued when needed.
-3. Behavior restarts from step 1.
+2. If a reserved target was already mined by someone else, that tile is removed from the
+   current mining post's possible assignments and the miner immediately requests a new
+   target from the same post when possible.
+3. Reservation is reset/requeued when needed.
+4. Behavior restarts from step 1.
 
 ### Role: `farmer`
 - Trigger:
@@ -114,8 +123,10 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
    search the algae-farm adjacency graph until an open reachable farm is found.
 5. Store the target farm in `AssignedBuilding` and navigate to farm via that farm's
    cached BFS field.
-6. Build a route that visits passable farm tiles and returns to origin.
-7. Move along farm route and attempt harvest at each step.
+6. Use the farm's prebuilt circular traversal ring, generated from its numbered traversal
+   map when the building is placed.
+7. Move one tile at a time to the next farm tile in that ring and attempt harvest after
+   each move.
 8. Harvest succeeds when `Random < growth / period`; success gives fixed `HarvestYield`.
 9. After harvest, follow the queen building's cached BFS field one tile at a time until
    standing on a passable queen tile.
@@ -399,18 +410,27 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - per-type queue-head or queue state
   - queue state flags
 - Workflow:
-1. `OnBuilt` initializes mineable queues for in-radius wall/ore tiles.
+1. `OnBuilt` performs a one-time full seed of in-radius wall/ore assignments so newly
+   constructed posts, including the starter post built before the initial cave reveal,
+   begin with valid mine targets; later tile changes update that assignment set
+   incrementally.
 2. `AssignmentsAvailable` is `true` when the post still has at least one in-radius
    mineable tile that is reachable and not already reserved by another miner.
-3. The cave stores the current miner-assignment count for each active mining post and
+3. Once `AssignmentsAvailable` flips to `false`, the post treats that state as exhausted
+   and stops rescanning its radius during normal assignment churn; a newly built mining
+   post with confirmed work is what can raise the cave-global mining availability flag
+   again.
+4. The cave stores the current miner-assignment count for each active mining post and
    keeps it in sync with `Assignments`.
-4. Miners are assigned to post and optionally to reserved tile keys.
-5. Post provides filtered, non-conflicting mining targets.
-6. Miner deposits resources via `Deposit`.
-7. Builders compare post inventory against `MaterialReservations`, reserve material on a
+5. Miners are assigned to post and optionally to reserved tile keys.
+6. Post provides filtered, non-conflicting mining targets.
+7. Miner deposits resources via `Deposit`.
+8. Builders compare post inventory against `MaterialReservations`, reserve material on a
    chosen post without decrementing inventory immediately, and only reduce inventory when
    they call `WithdrawReservedMaterial`.
-8. Tile changes invalidate queues and refresh `AssignmentsAvailable`.
+9. Tile changes update the post's known assignment pool incrementally: mined tiles are
+   removed immediately, and wall mining adds any newly revealed in-radius wall/ore tiles
+   without forcing a full-cave rescan.
 
 ### `AlgaeFarm`
 - Type:
@@ -424,10 +444,12 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - `HarvestYield: int` (5)
   - `Assignments: HashSet<Creature>`
   - `MaxTrilobites: int` (2)
+  - `TraversalPath: int[][]` (default `[[6,1],[5,2],[4,3]]`)
 - Workflow:
 1. Farmers assign to farm only while `Assignments.Count < MaxTrilobites`, unless the
    farmer is already in that assignment set.
-2. Farm exposes passable tile graph/path for traversal.
+2. On build, the farm converts `TraversalPath` into a circular linked traversal ring
+   over its passable farm tiles.
 3. `Growth` increments on each harvest attempt.
 4. Harvest succeeds probabilistically based on `Growth / Period`.
 5. On success, algae is transferred to creature inventory and `Growth` resets.
@@ -513,27 +535,36 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
     revealed walls
   - `ReachableTiles`, a live `HashSet<Tile>` tracking the currently passable tiles
     connected to the queen building's passable footprint
-  - wall mining explicitly reveals the newly emptied tile, and if that opening touches a
-    passable tile that was previously unreachable, the newly connected cave section is
-    reprocessed so its passable tiles join `ReachableTiles` and its newly accessible
-    boundary tiles join `RevealedTiles`, even when radar had already made some of that
-    section visible
+  - wall mining explicitly reveals the newly emptied tile and inserts that opened tile
+    directly into `ReachableTiles`; if that opening exposes a previously unreachable cave
+    section, `RevealCave` incrementally inserts each newly revealed passable tile into
+    both `RevealedTiles` and `ReachableTiles` without running a full reachability refresh
   - temporary destination-seeded distance-field generation for manual movement and
     non-building targets
   - per-building lazy `BfsField` objects over reachable tiles only
+  - dirty per-building BFS fields keep their last computed coverage for selection and
+    validation reads; they rebuild only when first accessed while empty or when a
+    creature using that field hits a stale/invalid traversal step
   - shared per-type nearest-building ownership fields for mining posts, algae farms, and
     barracks, plus same-type adjacency graphs where ownership regions touch
+  - wall mining patches touched ownership tiles locally by copying the best neighboring
+    owner/distance into the newly opened tile set and only adds missing same-type
+    adjacency links around those touched tiles, instead of forcing an immediate full
+    ownership rebalance
   - aggregate per-tile nearest-building lookup APIs that expose the nearest relevant
     building keyed by building name
   - game-held `BfsField` objects for `enemy` and `colony`, computed only over revealed
     tiles
   - dirty tile/building/creature tracking on every `BfsField`
+  - mining a tile applies an immediate local BFS-value patch to that tile on every active
+    field by using the mined tile's lowest-valued neighbor plus 1, while broader field
+    refreshes stay deferred until a stale move actually hits an impassable tile
   - incremental `BfsField` refreshes that rebalance around dirty tiles instead of
     recreating the whole map by default
   - shared combat-field dirtying on creature spawn/move/removal and on
     tile/building/reveal changes
-  - reachable-tile recomputation when buildings are placed/removed or wall mining changes
-    passable connectivity
+  - reachable-tile recomputation when buildings are placed/removed; wall mining updates
+    reachability incrementally by inserting the newly opened/revealed passable tiles
   - `MiningPostAssignmentCounts` / `BarracksAssignmentCounts`, cave-global dictionaries
     keyed by assignable building instance and kept in sync with each building's internal
     assignment collection
@@ -560,8 +591,13 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - path queue / path preview
   - combat state (`Health`, `MaxHealth`, `Damage`) and basic damage/death handling
   - behavior restart helper used after assignment/target cleanup
-  - navigation helpers that reconstruct routes from distance fields instead of direct
-    BFS-path searches
+  - building-navigation helpers that read the assigned building's cached BFS field one
+    step at a time instead of prebuilding a full queued route
+  - BFS-traversal context so field-following movement knows which building/shared field
+    is being used and only refreshes that field after an attempted step hits an
+    impassable tile
+  - non-building navigation helpers that can still reconstruct routes from distance
+    fields when a point-target path is needed
   - sprite-placement / draw-state helper that snaps movers to the destination tile center
     and then applies a fresh random 1-15 px radial offset on each completed move
   - generic selection/build interactions
@@ -569,7 +605,14 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
   - inventory model
   - role system (`unassigned`, `miner`, `farmer`, `builder`, `fighter`)
   - role-specific multi-step workflows
-  - building navigation via the assigned building's lazy cached BFS field
+  - building navigation via the assigned building's lazy cached BFS field, advancing one
+    tile per tick from the current field values
+  - farms and barracks trust the per-tile nearest-owner field when the current tile is
+    already owned by that building type, and only fall back to the building-local BFS
+    field when evaluating non-nearest candidates
+  - newly built buildings precompute one local BFS snapshot immediately, then leave that
+    field dirty so later refreshes only happen on failed traversal or on access from a
+    reachable tile that the stale field no longer covers
   - shared `AssignedBuilding` state for mining/farming/scaffolding/barracks assignments
   - `BuilderSourcePost` for the currently reserved mining-post pickup
   - `PendingMineTileKey` for reserved mining targets
@@ -910,8 +953,8 @@ changing gameplay, controls, content scope, data flow, or player-facing behavior
 ### Selection-driven menu flow
 1. Selecting a creature/building calls the selection setter.
 2. Selection visuals are rebuilt first:
-   - Creature: single selection indicator centered on the creature plus its queued path
-     display.
+   - Creature: single selection indicator centered on the creature; queued creature-path
+     rendering is currently disabled.
    - Building: perimeter edge highlight visuals around non-shared boundaries.
 3. The selected object is pushed into the shared `Menu`.
 4. The shared panel opens while preserving the current main-tab choice.

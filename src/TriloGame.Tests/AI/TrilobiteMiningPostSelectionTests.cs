@@ -163,6 +163,128 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Null(miner.LastMiningPostSelectionMetrics);
     }
 
+    [Fact]
+    public void MinerStep1_WaitsOnAssignedExhaustedPost_WhenGlobalAssignmentsAreUnavailable()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(26, 14, new GridPoint(10, 0));
+        SetTileBase(cave, new GridPoint(3, 11), "Sandstone");
+        var exhaustedPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 7));
+        var reservingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 9), "Reserver", "miner");
+        var waitingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Waiting Miner", "miner");
+
+        Assert.NotNull(exhaustedPost.GrabMineableTile(cave, reservingMiner));
+        Assert.False(exhaustedPost.AssignmentsAvailable);
+        Assert.False(cave.HasAvailableMiningPostAssignments);
+
+        waitingMiner.SetAssignedBuilding(exhaustedPost);
+        exhaustedPost.Assign(waitingMiner, null);
+
+        Assert.False(waitingMiner.MinerStep1());
+        Assert.Same(exhaustedPost, waitingMiner.GetAssignedMiningPost());
+        Assert.Null(waitingMiner.LastMiningPostSelectionMetrics);
+    }
+
+    [Fact]
+    public void MinerStep1_ReleasesExhaustedAssignedPost_WhenGlobalAssignmentsResume()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(34, 14, new GridPoint(14, 0));
+        SetTileBase(cave, new GridPoint(3, 11), "Sandstone");
+        var exhaustedPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 7));
+        var reservingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 9), "Reserver", "miner");
+        var waitingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Waiting Miner", "miner");
+
+        Assert.NotNull(exhaustedPost.GrabMineableTile(cave, reservingMiner));
+        waitingMiner.SetAssignedBuilding(exhaustedPost);
+        exhaustedPost.Assign(waitingMiner, null);
+
+        SetTileBase(cave, new GridPoint(30, 11), "Sandstone");
+        var freshPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(28, 7));
+
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+
+        waitingMiner.MinerStep1();
+
+        Assert.Same(freshPost, waitingMiner.GetAssignedMiningPost());
+        Assert.NotNull(waitingMiner.LastMiningPostSelectionMetrics);
+    }
+
+    [Fact]
+    public void MinerStep3_QueuesRouteToReservedMineTarget()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
+        SetTileBase(cave, new GridPoint(14, 11), "Sandstone");
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(6, 6));
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 6), "Miner", "miner");
+        miner.SetAssignedBuilding(post);
+        post.Assign(miner, null);
+
+        Assert.True(miner.MinerStep3());
+
+        var reservedTargetKey = post.GetAssignment(miner);
+        Assert.NotNull(reservedTargetKey);
+        var reservedTile = cave.GetTile(reservedTargetKey!);
+        Assert.NotNull(reservedTile);
+        var navTarget = post.GetNavigationTarget(cave, reservedTile!);
+        Assert.NotNull(navTarget);
+
+        var queuedPath = miner.GetQueuedPathPreview();
+        Assert.NotEmpty(queuedPath);
+        Assert.Equal(miner.Location, queuedPath[0]);
+        Assert.Equal(navTarget!.Value, queuedPath[^1]);
+    }
+
+    [Fact]
+    public void MinerStep3_UsesNearestTileOfAssignedTypeForReservation()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 18, new GridPoint(12, 0));
+        var fartherOre = new GridPoint(8, 12);
+        var nearerOre = new GridPoint(18, 12);
+        SetTileBase(cave, fartherOre, "Sandstone");
+        SetTileBase(cave, nearerOre, "Sandstone");
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(12, 8));
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(19, 12), "Miner", "miner");
+        miner.SetAssignedBuilding(post);
+        post.Assign(miner, null);
+
+        Assert.True(miner.MinerStep3());
+
+        Assert.Equal("Sandstone", miner.PendingMineType);
+        Assert.Equal(nearerOre.ToString(), miner.PendingMineTileKey);
+        Assert.Equal(nearerOre.ToString(), post.GetAssignment(miner));
+
+        var queuedPath = miner.GetQueuedPathPreview();
+        Assert.NotEmpty(queuedPath);
+        Assert.Equal(miner.Location, queuedPath[0]);
+        Assert.Equal(nearerOre, queuedPath[^1]);
+    }
+
+    [Fact]
+    public void MinerStep5_RetargetsWhenReservedTileWasAlreadyMined()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
+        var firstOre = new GridPoint(8, 10);
+        var secondOre = new GridPoint(10, 10);
+        SetTileBase(cave, firstOre, "Sandstone");
+        SetTileBase(cave, secondOre, "Sandstone");
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(8, 6), "Miner", "miner");
+        miner.SetAssignedBuilding(post);
+        post.Assign(miner, null);
+
+        Assert.True(miner.MinerStep3());
+
+        var staleTargetKey = miner.PendingMineTileKey;
+        Assert.Equal(firstOre.ToString(), staleTargetKey);
+        Assert.Equal(staleTargetKey, post.GetAssignment(miner));
+
+        Assert.True(session.MineTile(cave, staleTargetKey!, "test"));
+
+        Assert.True(miner.MinerStep5());
+        Assert.Equal(secondOre.ToString(), miner.PendingMineTileKey);
+        Assert.Equal(secondOre.ToString(), post.GetAssignment(miner));
+        Assert.NotEqual(staleTargetKey, miner.PendingMineTileKey);
+    }
+
     private static void SetTileBase(TriloGame.Game.Core.World.Cave cave, GridPoint location, string tileBase)
     {
         var tile = cave.GetTile(location.ToString())

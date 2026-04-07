@@ -72,4 +72,46 @@ public sealed class MiningPostOwnershipFieldTests
         Assert.DoesNotContain(rightPost, cave.GetAdjacentMiningPosts(leftPost));
         Assert.DoesNotContain(leftPost, cave.GetAdjacentMiningPosts(rightPost));
     }
+
+    [Fact]
+    public void MiningWall_PatchesOpenedOwnershipAndAddsMissingAdjacency()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+        var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(13, 6));
+
+        for (var y = 0; y < 12; y++)
+        {
+            var barrierTile = cave.GetTile(new GridPoint(9, y).ToString())
+                ?? throw new InvalidOperationException("Expected barrier tile to exist.");
+            barrierTile.SetBase("wall");
+            barrierTile.CreatureCanFit = false;
+        }
+
+        cave.RefreshReachableTiles();
+        var field = cave.RebuildMiningPostOwnershipField();
+
+        Assert.Empty(cave.GetAdjacentMiningPosts(leftPost));
+        Assert.Empty(cave.GetAdjacentMiningPosts(rightPost));
+
+        var openedLocation = new GridPoint(9, 6);
+        Assert.True(session.MineTile(cave, openedLocation.ToString(), "test"));
+
+        var openedTile = cave.GetTile(openedLocation.ToString())
+            ?? throw new InvalidOperationException("Expected opened tile to exist.");
+        var expectedNeighborOwnership = openedTile.Neighbors
+            .Select(neighbor => cave.GetMiningPostOwnership(neighbor.Coordinates))
+            .Where(ownership => ownership.IsOwned)
+            .OrderBy(ownership => ownership.Distance)
+            .ThenBy(ownership => ownership.Post!.Location!.ToString(), StringComparer.Ordinal)
+            .First();
+        var openedOwnership = cave.GetMiningPostOwnership(openedLocation);
+
+        Assert.True(openedOwnership.IsOwned);
+        Assert.Same(expectedNeighborOwnership.Post, openedOwnership.Post);
+        Assert.Equal(expectedNeighborOwnership.Distance + 1, openedOwnership.Distance);
+        Assert.Contains(rightPost, cave.GetAdjacentMiningPosts(leftPost));
+        Assert.Contains(leftPost, cave.GetAdjacentMiningPosts(rightPost));
+        Assert.True(field.IsUpdated());
+    }
 }

@@ -395,12 +395,19 @@ public sealed partial class MenuController
 
     private bool DeleteSelectedObject()
     {
-        return SelectedObject switch
+        var removed = SelectedObject switch
         {
             Creature creature => creature.RemoveFromGame("menuDelete"),
             Building building => building.RemoveFromGame("menuDelete"),
             _ => false
         };
+
+        if (removed)
+        {
+            SetSelectedObject(null);
+        }
+
+        return removed;
     }
 
     private bool TransferCreatureAssignment(string fromAssignment, string toAssignment, GameSession session)

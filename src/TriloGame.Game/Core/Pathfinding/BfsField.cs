@@ -85,6 +85,8 @@ public sealed class BfsField
 
     public bool IsUpdated() => Updated;
 
+    public bool HasCoverage() => _coverageCount > 0;
+
     public void SetTrackedTargets(IEnumerable<Building>? buildings = null, IEnumerable<Creature>? creatures = null)
     {
         TrackedBuildings.Clear();
@@ -509,6 +511,53 @@ public sealed class BfsField
         }
 
         return bestNeighbor == int.MaxValue ? int.MaxValue : bestNeighbor + 1;
+    }
+
+    private void SetTileCoverage(Tile tile, bool shouldCover)
+    {
+        if (_covered[tile.Id] == shouldCover)
+        {
+            return;
+        }
+
+        _covered[tile.Id] = shouldCover;
+        _coverageCount += shouldCover ? 1 : -1;
+        if (!shouldCover)
+        {
+            _values[tile.Id] = int.MaxValue;
+        }
+    }
+
+    public bool ApplyMinedTileUpdate(string tileKey)
+    {
+        if (Cave is null)
+        {
+            return false;
+        }
+
+        var tile = GetTile(tileKey);
+        if (tile is null)
+        {
+            return false;
+        }
+
+        EnsureCapacity(Cave.TileCapacity);
+
+        var shouldCover = IsTileInCoverage(tile);
+        SetTileCoverage(tile, shouldCover);
+        if (!shouldCover)
+        {
+            _fieldCacheDirty = true;
+            return false;
+        }
+
+        // Mining only opens the tile that was just cleared; we keep this update local
+        // by deriving its value from already-known neighbor distances.
+        _blocked[tile.Id] = !tile.CreatureFits();
+        _seeded[tile.Id] = false;
+        _values[tile.Id] = ComputeValue(tile);
+        _fieldCacheDirty = true;
+        return _values[tile.Id] != int.MaxValue;
     }
 
     private void EnqueueTile(Tile tile)

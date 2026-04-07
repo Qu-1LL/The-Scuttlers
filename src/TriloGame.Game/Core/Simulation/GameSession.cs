@@ -123,6 +123,7 @@ public sealed class GameSession
 
         tile.SetBase("empty");
         cave.MarkAllBuildingFieldsDirty([tileKey], [], []);
+        cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
         cave.NotifyMineableTilesChanged([tileKey]);
         EmitMineEvents(tileType, cave, tileKey, source);
         return true;
@@ -136,6 +137,8 @@ public sealed class GameSession
         }
 
         var changedKeys = new HashSet<string>(StringComparer.Ordinal) { emptyCoords };
+        var newlyRevealedKeys = new HashSet<string>(StringComparer.Ordinal);
+        var reachabilityChangedKeys = new HashSet<string>(StringComparer.Ordinal);
 
         static bool ShouldProcessAdjacentCaveTile(Cave activeCave, Tile adjacentTile)
         {
@@ -149,10 +152,11 @@ public sealed class GameSession
 
         tile.SetBase("empty");
         tile.CreatureCanFit = true;
-        if (cave.RevealTile(tile) > 0)
+        if (cave.RevealTile(tile, newlyRevealedKeys) > 0)
         {
             changedKeys.Add(emptyCoords);
         }
+        cave.TryAddReachableTile(tile, reachabilityChangedKeys);
 
         var myDeltas = new Dictionary<string, GridPoint>
         {
@@ -187,10 +191,10 @@ public sealed class GameSession
 
             if (neighbor.Base == "wall")
             {
-                if (cave.RevealTile(neighbor) > 0)
-                {
-                    changedKeys.Add(neighbor.Key);
-                }
+                    if (cave.RevealTile(neighbor, newlyRevealedKeys) > 0)
+                    {
+                        changedKeys.Add(neighbor.Key);
+                    }
 
                 continue;
             }
@@ -214,7 +218,7 @@ public sealed class GameSession
                 if (wallTile.Base == "wall")
                 {
                     wallTile.CreatureCanFit = false;
-                    if (cave.RevealTile(wallTile) > 0)
+                    if (cave.RevealTile(wallTile, newlyRevealedKeys) > 0)
                     {
                         changedKeys.Add(wallTile.Key);
                     }
@@ -252,22 +256,29 @@ public sealed class GameSession
                 }
             }
 
-            cave.RevealTile(wallTile);
+            cave.RevealTile(wallTile, newlyRevealedKeys);
         }
 
         if (shouldRevealCave)
         {
-            cave.RevealCave();
+            cave.RevealCave(newlyRevealedKeys, rebalanceFields: false, newlyReachableKeys: reachabilityChangedKeys);
         }
 
         cave.AdvanceTopologyVersionForCache();
-        var reachability = cave.RefreshReachableTiles();
-        var ownershipDirtyKeys = changedKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        if (reachabilityChangedKeys.Count > 0)
+        {
+            cave.AdvanceReachabilityVersionForIncrementalReachability();
+        }
+
+        var ownershipDirtyKeys = changedKeys.Concat(reachabilityChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
         cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
-        cave.MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, []);
-        cave.NotifyMineableTilesChanged(changedKeys.ToArray());
-        cave.RebalanceAllBfsFields(changedKeys.ToArray(), [], []);
-        cave.RebalanceAllBuildingOwnershipFields(changedKeys.ToArray(), []);
+        cave.ApplyMinedTileUpdateToAllBfsFields(emptyCoords);
+        var mineableChangedKeys = changedKeys
+            .Concat(newlyRevealedKeys.Where(key => Building.IsMineableType(cave.GetTile(key)?.Base ?? string.Empty)))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        cave.NotifyMineableTilesChanged(mineableChangedKeys);
+        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
         EmitMineEvents("wall", cave, emptyCoords, source);
         return true;
     }

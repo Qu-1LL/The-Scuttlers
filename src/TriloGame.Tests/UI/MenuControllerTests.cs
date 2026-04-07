@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.UI.Menu;
+using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.UI;
 
@@ -80,5 +81,52 @@ public sealed class MenuControllerTests
 
         menu.TogglePanel();
         Assert.True(menu.PanelOpen);
+    }
+
+    [Fact]
+    public void HandleClick_DeleteSelectedBuilding_ClearsSelectionAfterRemoval()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
+        var miningPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
+        var menu = new MenuController();
+        var viewport = new Point(1440, 900);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.OpenPanel("selected");
+        menu.SetSelectedObject(miningPost);
+
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var deleteBounds = (Rectangle)layout!.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
+
+        var handled = menu.HandleClick(deleteBounds.Center, viewport, null!, session);
+
+        Assert.True(handled);
+        Assert.Null(menu.SelectedObject);
+        Assert.Null(miningPost.Cave);
+    }
+
+    [Fact]
+    public void SelectedBuildingAssignmentCount_UsesCurrentBuildingAssignments()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
+        var miningPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
+        var algaeFarm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(12, 6));
+        var firstMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(2, 6), "Miner A", "miner");
+        var secondMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(3, 6), "Miner B", "miner");
+        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(12, 6), "Farmer", "farmer");
+        var storage = new Storage(session);
+
+        miningPost.Assign(firstMiner, null);
+        miningPost.Assign(secondMiner, null);
+        Assert.True(algaeFarm.Assign(farmer));
+
+        var getAssignmentCount = typeof(MenuController).GetMethod(
+            "GetSelectedBuildingAssignmentCount",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        Assert.NotNull(getAssignmentCount);
+        Assert.Equal(2, (int)getAssignmentCount!.Invoke(null, [miningPost])!);
+        Assert.Equal(1, (int)getAssignmentCount.Invoke(null, [algaeFarm])!);
+        Assert.Equal(0, (int)getAssignmentCount.Invoke(null, [storage])!);
     }
 }

@@ -47,6 +47,44 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void FarmerStep2_AdvancesAlongFarmTraversalRing_WhenHarvestDoesNotSucceed()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 16, new GridPoint(0, 0));
+        var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(6, 6));
+        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(7, 6), "Farmer", "farmer");
+
+        farmer.SetAssignedBuilding(farm);
+        Assert.True(farm.Assign(farmer));
+        Assert.Equal(1, farmer.AddToInventory("Sandstone", 1));
+
+        var nextLocation = farm.GetNextTraversalLocation(farmer.Location);
+        Assert.NotNull(nextLocation);
+
+        Assert.True(farmer.FarmerStep2());
+        Assert.NotNull(farmer.Move());
+        Assert.Equal(nextLocation!.Value, farmer.Location);
+    }
+
+    [Fact]
+    public void FarmerSelection_UsesNearestOwnershipWhenLocalFarmFieldIsStale()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 16, new GridPoint(0, 0));
+        var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(6, 6));
+        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Farmer", "farmer");
+        var seedTile = farm.TileArray.First(tile => tile.CreatureFits());
+
+        farm.BfsField.SetField(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [seedTile.Key] = 0
+        });
+        farm.BfsField.MarkDirty([seedTile.Key], [], []);
+
+        var selectedFarm = farmer.SelectAlgaeFarm();
+
+        Assert.Same(farm, selectedFarm);
+    }
+
+    [Fact]
     public void FighterSelection_UsesNearestBarracksOwnership_WhenUnassigned()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
@@ -72,6 +110,25 @@ public sealed class TrilobiteBuildingAssignmentTests
         var selectedBarracks = fighter.SelectBarracks(fighter.GetAssignedBarracks());
 
         Assert.Same(leftBarracks, selectedBarracks);
+    }
+
+    [Fact]
+    public void FighterSelection_UsesNearestOwnershipWhenLocalBarracksFieldIsStale()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(24, 6));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(23, 9), "Fighter", "fighter");
+        var seedTile = barracks.TileArray.First(tile => tile.CreatureFits());
+
+        barracks.BfsField.SetField(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [seedTile.Key] = 0
+        });
+        barracks.BfsField.MarkDirty([seedTile.Key], [], []);
+
+        var selectedBarracks = fighter.SelectBarracks();
+
+        Assert.Same(barracks, selectedBarracks);
     }
 
     [Fact]

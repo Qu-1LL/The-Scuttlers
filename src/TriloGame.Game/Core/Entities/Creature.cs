@@ -11,6 +11,7 @@ public class Creature
     private const float MovementOffsetMinDistance = 1f;
     private const float MovementOffsetMaxDistance = 15f;
     private readonly Queue<Action> _queue = new();
+    private Pathfinding.BfsField? _activeBfsTraversalField;
 
     public Creature(string name, GridPoint location, GameSession session)
     {
@@ -48,10 +49,15 @@ public class Creature
 
     public string Assignment { get; set; }
 
+    public string? ActiveBfsTraversalFieldName { get; private set; }
+
+    public Building? ActiveBfsTraversalBuilding { get; private set; }
+
     public void ClearActionQueue()
     {
         _queue.Clear();
         PathPreview.Clear();
+        ClearBfsTraversal();
     }
 
     public bool RestartBehavior(bool clearQueue = true)
@@ -151,6 +157,11 @@ public class Creature
         return Cave?.BuildPathFromField(Cave.BuildPointBfsField(destination), Location);
     }
 
+    public List<GridPoint>? BuildDirectNavigationPathToPoint(GridPoint destination)
+    {
+        return Cave?.BuildDirectPathToPoint(Location, destination);
+    }
+
     public List<GridPoint>? BuildNavigationPathToBuilding(Building building)
     {
         if (building is MiningPost miningPost)
@@ -159,6 +170,141 @@ public class Creature
         }
 
         return Cave?.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+    }
+
+    protected Pathfinding.BfsField? GetBuildingNavigationField(Building? building)
+    {
+        if (building is null || Cave is null)
+        {
+            return null;
+        }
+
+        if (building is MiningPost miningPost)
+        {
+            return Cave.GetMiningPostMovementFieldObject(miningPost);
+        }
+
+        return Cave.GetAccessibleBuildingBfsFieldObject(building, Location, rebuildIfEmpty: true);
+    }
+
+    protected void ArmBfsTraversal(Pathfinding.BfsField? field, string? sharedFieldName = null, Building? building = null)
+    {
+        _activeBfsTraversalField = field;
+        ActiveBfsTraversalFieldName = sharedFieldName;
+        ActiveBfsTraversalBuilding = building;
+    }
+
+    protected void ClearBfsTraversal()
+    {
+        _activeBfsTraversalField = null;
+        ActiveBfsTraversalFieldName = null;
+        ActiveBfsTraversalBuilding = null;
+    }
+
+    private bool IsImpassableTraversalStep(GridPoint location)
+    {
+        var tile = Cave?.GetTile(location.ToString());
+        return tile is null || !tile.CreatureFits();
+    }
+
+    private Pathfinding.BfsField? RefreshTraversalField(
+        Pathfinding.BfsField? field,
+        string? sharedFieldName,
+        Building? building,
+        GridPoint attemptedLocation)
+    {
+        if (Cave is null)
+        {
+            return null;
+        }
+
+        if (building is MiningPost miningPost)
+        {
+            if (Cave.ShouldInvalidateMiningPostMovementCacheOnFailure(miningPost, Location, attemptedLocation))
+            {
+                Cave.InvalidateMiningPostMovementCache(miningPost, staleFailure: true);
+            }
+
+            return Cave.GetMiningPostMovementFieldObject(miningPost);
+        }
+
+        if (building is not null)
+        {
+            var buildingField = Cave.GetBuildingBfsFieldObject(building);
+            buildingField.Rebuild();
+            return buildingField;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sharedFieldName))
+        {
+            var sharedField = Cave.GetBfsFieldObject(sharedFieldName);
+            sharedField?.Rebuild();
+            return sharedField;
+        }
+
+        field?.Rebuild();
+        return field;
+    }
+
+    private bool RetryTraversalMove(
+        Pathfinding.BfsField? field,
+        string? sharedFieldName,
+        Building? building,
+        GridPoint attemptedLocation)
+    {
+        var refreshedField = RefreshTraversalField(field, sharedFieldName, building, attemptedLocation);
+        if (refreshedField is null)
+        {
+            return false;
+        }
+
+        if (refreshedField.GetFieldValue(Location, refresh: false) == 0)
+        {
+            PathPreview.Clear();
+            return true;
+        }
+
+        var retryNext = refreshedField.GetNextStep(Location, refresh: false);
+        if (retryNext is null)
+        {
+            PathPreview.Clear();
+            return false;
+        }
+
+        if (PathPreview.Count > 0)
+        {
+            PathPreview[0] = retryNext.Value;
+        }
+
+        return Cave?.MoveCreature(this, retryNext.Value) ?? false;
+    }
+
+    protected GridPoint? ResolveTraversalStep(
+        Pathfinding.BfsField field,
+        GridPoint proposedStep,
+        string? sharedFieldName = null,
+        Building? building = null)
+    {
+        if (!IsImpassableTraversalStep(proposedStep))
+        {
+            return proposedStep;
+        }
+
+        var refreshedField = RefreshTraversalField(field, sharedFieldName, building, proposedStep);
+        if (refreshedField is null)
+        {
+            return null;
+        }
+
+        return refreshedField.GetFieldValue(Location, refresh: false) == 0
+            ? Location
+            : refreshedField.GetNextStep(Location, refresh: false);
+    }
+
+    protected bool IsAtBuildingNavigationTarget(Building? building)
+    {
+        var field = GetBuildingNavigationField(building);
+        return field is not null && field.GetFieldValue(Location, refresh: false) == 0;
     }
 
     protected bool RecoverNavigation(GridPoint? destination, Action? fallbackFn)
@@ -173,6 +319,24 @@ public class Creature
         if (reroute is not null && reroute.Count > 1)
         {
             EnqueueResolvedPath(reroute, () => RecoverNavigation(destination, fallbackFn), false);
+            return false;
+        }
+
+        return reroute is not null && reroute.Count == 1 || RunNavigationFallback(fallbackFn);
+    }
+
+    protected bool RecoverDirectNavigation(GridPoint? destination, Action? fallbackFn)
+    {
+        ClearActionQueue();
+        if (destination is null)
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
+        var reroute = BuildDirectNavigationPathToPoint(destination.Value);
+        if (reroute is not null && reroute.Count > 1)
+        {
+            EnqueueResolvedPath(reroute, () => RecoverDirectNavigation(destination, fallbackFn), false);
             return false;
         }
 
@@ -194,19 +358,18 @@ public class Creature
             Cave.InvalidateMiningPostMovementCache(miningPost, staleFailure: true);
         }
 
-        var reroute = BuildNavigationPathToBuilding(building);
-        if (reroute is not null && reroute.Count > 1)
+        if (IsAtBuildingNavigationTarget(building))
         {
-            EnqueueResolvedBuildingPath(building, reroute, fallbackFn, false);
-            return false;
+            return true;
         }
 
-        return reroute is not null && reroute.Count == 1 || RunNavigationFallback(fallbackFn);
+        EnqueueAction(() => NavigateToBuilding(building, fallbackFn, clearExisting: false));
+        return false;
     }
 
     protected bool ExecuteNavigationStep(GridPoint next, Action? onFailure)
     {
-        var result = Cave?.MoveCreature(this, next);
+        var result = PerformMove(next);
         if (result == false)
         {
             onFailure?.Invoke();
@@ -218,7 +381,7 @@ public class Creature
             PathPreview.RemoveAt(0);
         }
 
-        return result ?? false;
+        return result;
     }
 
     protected bool EnqueueResolvedPath(IReadOnlyList<GridPoint> path, Action? onFailure, bool clearExisting)
@@ -277,16 +440,67 @@ public class Creature
         return path.Count < 2 || EnqueueResolvedPath(path, () => RecoverNavigation(destination, fallbackFn), clearExisting);
     }
 
-    public bool NavigateToBuilding(Building building, Action? fallbackFn = null, bool clearExisting = true)
+    public bool NavigateToPointDirect(GridPoint destination, Action? fallbackFn = null, bool clearExisting = true)
     {
         fallbackFn ??= GetNavigationFallback();
-        var path = BuildNavigationPathToBuilding(building);
+        var path = BuildDirectNavigationPathToPoint(destination);
         if (path is null)
         {
             return RunNavigationFallback(fallbackFn);
         }
 
-        return path.Count < 2 || EnqueueResolvedBuildingPath(building, path, fallbackFn, clearExisting);
+        return path.Count < 2 || EnqueueResolvedPath(path, () => RecoverDirectNavigation(destination, fallbackFn), clearExisting);
+    }
+
+    public bool NavigateToBuilding(Building building, Action? fallbackFn = null, bool clearExisting = true)
+    {
+        fallbackFn ??= GetNavigationFallback();
+        if (clearExisting)
+        {
+            ClearActionQueue();
+        }
+
+        // Building navigation now advances one BFS-field step per tick instead of
+        // prebuilding and queuing an entire route.
+        var field = GetBuildingNavigationField(building);
+        if (field is null)
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
+        if (field.GetFieldValue(Location, refresh: false) == 0)
+        {
+            return true;
+        }
+
+        var resolvedField = field;
+        var resolvedNext = field.GetNextStep(Location, refresh: false);
+        if (resolvedNext is null || IsImpassableTraversalStep(resolvedNext.Value))
+        {
+            var attemptedStep = resolvedNext ?? Location;
+            var refreshedField = RefreshTraversalField(field, null, building, attemptedStep);
+            if (refreshedField is null)
+            {
+                return RunNavigationFallback(fallbackFn);
+            }
+
+            resolvedField = refreshedField;
+            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
+            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
+            {
+                return true;
+            }
+
+            if (resolvedNext is null)
+            {
+                return RunNavigationFallback(fallbackFn);
+            }
+        }
+
+        ArmBfsTraversal(resolvedField, building: building);
+        ClearBfsTraversal();
+        var moved = Cave?.MoveCreature(this, resolvedNext.Value) ?? false;
+        return moved || RecoverBuildingNavigation(building, fallbackFn, resolvedNext);
     }
 
     public bool QueueMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)
@@ -344,7 +558,18 @@ public class Creature
 
     public bool PerformMove(GridPoint next)
     {
-        return Cave?.MoveCreature(this, next) ?? false;
+        var field = _activeBfsTraversalField;
+        var sharedFieldName = ActiveBfsTraversalFieldName;
+        var building = ActiveBfsTraversalBuilding;
+        ClearBfsTraversal();
+
+        var moved = Cave?.MoveCreature(this, next) ?? false;
+        if (moved || field is null || !IsImpassableTraversalStep(next))
+        {
+            return moved;
+        }
+
+        return RetryTraversalMove(field, sharedFieldName, building, next);
     }
 
     public HashSet<Building> GetActions()

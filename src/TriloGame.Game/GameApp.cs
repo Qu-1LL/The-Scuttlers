@@ -1316,13 +1316,14 @@ public sealed partial class GameApp
         _tickAccumulatorMs += gameTime.ElapsedGameTime.TotalMilliseconds;
         while (_tickAccumulatorMs >= _tickSpeedMs)
         {
-            TickRunner.RunTick(_session, _debugMenuOpen);
-            _tickAccumulatorMs -= _tickSpeedMs;
             if (HasLostQueen())
             {
                 TriggerGameOver();
                 break;
             }
+            TickRunner.RunTick(_session, _debugMenuOpen);
+            _tickAccumulatorMs -= _tickSpeedMs;
+            
         }
     }
 
@@ -1432,21 +1433,8 @@ public sealed partial class GameApp
         {
             if (_selectedTrilobites.Count == 1)
             {
-                var selectedTrilobite = _selectedTrilobites.First();
-                var path = selectedTrilobite.GetQueuedPathPreview();
-                if (path.Count > 1)
-                {
-                    for (var index = 1; index < path.Count; index++)
-                    {
-                        var previous = path[index - 1];
-                        var current = path[index];
-                        var dy = current.Y - previous.Y;
-                        var midpoint = new Vector2(
-                            (((previous.X + current.X) * 0.5f) * TileConstants.TileSize) + selectedTrilobite.MovementOffset.X,
-                            (((previous.Y + current.Y) * 0.5f) * TileConstants.TileSize) + selectedTrilobite.MovementOffset.Y);
-                        DrawWorldTextureNative("Path", midpoint, dy != 0 ? MathF.PI / 2f : 0f);
-                    }
-                }
+                // Creature path rendering is intentionally disabled while autonomous
+                // building navigation uses per-tick BFS-field stepping.
             }
 
             foreach (var selectedTrilobite in _selectedTrilobites)
@@ -1461,20 +1449,8 @@ public sealed partial class GameApp
 
         if (_selectedObject is Creature creature)
         {
-            var path = creature.GetQueuedPathPreview();
-            if (path.Count > 1)
-            {
-                for (var index = 1; index < path.Count; index++)
-                {
-                    var previous = path[index - 1];
-                    var current = path[index];
-                    var dy = current.Y - previous.Y;
-                    var midpoint = new Vector2(
-                        (((previous.X + current.X) * 0.5f) * TileConstants.TileSize) + creature.MovementOffset.X,
-                        (((previous.Y + current.Y) * 0.5f) * TileConstants.TileSize) + creature.MovementOffset.Y);
-                    DrawWorldTextureNative("Path", midpoint, dy != 0 ? MathF.PI / 2f : 0f);
-                }
-            }
+            // Creature path rendering is intentionally disabled while autonomous
+            // building navigation uses per-tick BFS-field stepping.
 
             DrawWorldTextureNative(
                 "Selected",

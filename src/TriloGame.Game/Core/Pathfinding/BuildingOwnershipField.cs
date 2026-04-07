@@ -66,6 +66,18 @@ public class BuildingOwnershipField<TBuilding>
         _ownershipCacheDirty = true;
     }
 
+    public BuildingOwnershipField<TBuilding> Deactivate()
+    {
+        if (Cave is null && _coverageCount == 0 && OwnershipField.Count == 0 && _adjacency.Count == 0)
+        {
+            ClearUpdates();
+            return this;
+        }
+
+        SetCave(null);
+        return Rebuild();
+    }
+
     public bool IsUpdated() => Updated;
 
     public bool ClearUpdates()
@@ -450,6 +462,108 @@ public class BuildingOwnershipField<TBuilding>
         return new BuildingOwnership<TBuilding>(bestOwner, bestDistance);
     }
 
+    private void SetTileCoverage(Tile tile, bool shouldCover)
+    {
+        if (_covered[tile.Id] == shouldCover)
+        {
+            _nextCovered[tile.Id] = shouldCover;
+            if (!shouldCover)
+            {
+                _owners[tile.Id] = null;
+                _seedOwners[tile.Id] = null;
+                _distances[tile.Id] = int.MaxValue;
+            }
+
+            return;
+        }
+
+        _covered[tile.Id] = shouldCover;
+        _nextCovered[tile.Id] = shouldCover;
+        _coverageCount += shouldCover ? 1 : -1;
+        _owners[tile.Id] = null;
+        _seedOwners[tile.Id] = null;
+        _distances[tile.Id] = int.MaxValue;
+        if (!shouldCover)
+        {
+            RemoveTileAdjacencyContributions(tile.Id);
+        }
+
+        _ownershipCacheDirty = true;
+    }
+
+    private TBuilding? ResolveLocalSeedOwner(Tile tile)
+    {
+        if (Cave is null || !_covered[tile.Id] || !tile.CreatureFits())
+        {
+            return null;
+        }
+
+        foreach (var building in OrderBuildings(GetBuildings().Where(IsActiveBuilding)))
+        {
+            var hasPassableSeedTile = false;
+            foreach (var buildingTile in building.TileArray)
+            {
+                if (!_covered[buildingTile.Id] || !buildingTile.CreatureFits())
+                {
+                    continue;
+                }
+
+                hasPassableSeedTile = true;
+                if (buildingTile.Id == tile.Id)
+                {
+                    return building;
+                }
+            }
+
+            if (hasPassableSeedTile)
+            {
+                continue;
+            }
+
+            foreach (var buildingTile in building.TileArray)
+            {
+                if (buildingTile.Neighbors.Any(neighbor => neighbor.Id == tile.Id))
+                {
+                    return building;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private BuildingOwnership<TBuilding> ComputePatchedOwnership(Tile tile)
+    {
+        if (!_covered[tile.Id])
+        {
+            return new BuildingOwnership<TBuilding>(null, int.MaxValue);
+        }
+
+        var bestOwner = ResolveLocalSeedOwner(tile);
+        var bestDistance = bestOwner is null ? int.MaxValue : 0;
+        _seedOwners[tile.Id] = bestOwner;
+
+        foreach (var neighbor in tile.Neighbors)
+        {
+            if (!_covered[neighbor.Id])
+            {
+                continue;
+            }
+
+            var neighborOwner = _owners[neighbor.Id];
+            var neighborDistance = _distances[neighbor.Id];
+            if (!IsBetterCandidate(neighborOwner, neighborDistance + 1, bestOwner, bestDistance))
+            {
+                continue;
+            }
+
+            bestOwner = neighborOwner;
+            bestDistance = neighborDistance + 1;
+        }
+
+        return new BuildingOwnership<TBuilding>(bestOwner, bestDistance);
+    }
+
     private void EnqueueTile(Tile tile)
     {
         if (!_covered[tile.Id] || _queued[tile.Id])
@@ -620,11 +734,150 @@ public class BuildingOwnershipField<TBuilding>
         RebuildAdjacencyLookup();
     }
 
+    private void EnsureAdjacencyConnection(TBuilding owner, TBuilding neighborOwner)
+    {
+        if (ReferenceEquals(owner, neighborOwner))
+        {
+            return;
+        }
+
+        if (!_adjacency.TryGetValue(owner, out var ownerAdjacency))
+        {
+            ownerAdjacency = [];
+            _adjacency[owner] = ownerAdjacency;
+        }
+
+        if (!_adjacency.TryGetValue(neighborOwner, out var neighborAdjacency))
+        {
+            neighborAdjacency = [];
+            _adjacency[neighborOwner] = neighborAdjacency;
+        }
+
+        if (ownerAdjacency.Contains(neighborOwner))
+        {
+            return;
+        }
+
+        ownerAdjacency.Add(neighborOwner);
+        neighborAdjacency.Add(owner);
+        var edge = CreateEdge(owner, neighborOwner);
+        _adjacencySupportCounts[edge] = Math.Max(1, _adjacencySupportCounts.GetValueOrDefault(edge, 0));
+    }
+
+    private void ReconcileLocalAdjacency(Tile tile)
+    {
+        if (!_covered[tile.Id])
+        {
+            return;
+        }
+
+        var owner = _owners[tile.Id];
+        if (owner is null)
+        {
+            return;
+        }
+
+        var missingNeighbors = new HashSet<TBuilding>();
+        foreach (var neighbor in tile.Neighbors)
+        {
+            if (!_covered[neighbor.Id])
+            {
+                continue;
+            }
+
+            var neighborOwner = _owners[neighbor.Id];
+            if (neighborOwner is null || ReferenceEquals(owner, neighborOwner))
+            {
+                continue;
+            }
+
+            if (_adjacency.TryGetValue(owner, out var ownerAdjacency) && ownerAdjacency.Contains(neighborOwner))
+            {
+                continue;
+            }
+
+            missingNeighbors.Add(neighborOwner);
+        }
+
+        foreach (var neighborOwner in missingNeighbors)
+        {
+            EnsureAdjacencyConnection(owner, neighborOwner);
+        }
+    }
+
     private BuildingOwnershipField<TBuilding> CommitCurrentState()
     {
         _ownershipCacheDirty = true;
         ClearUpdates();
         return this;
+    }
+
+    public BuildingOwnershipField<TBuilding> ApplyMinedTileUpdates(IEnumerable<string>? tileKeys)
+    {
+        if (Cave is null || _coverageCount == 0)
+        {
+            return Rebuild();
+        }
+
+        var impactedTiles = (tileKeys ?? [])
+            .Where(tileKey => !string.IsNullOrWhiteSpace(tileKey))
+            .Select(GetTile)
+            .Where(tile => tile is not null)
+            .Select(tile => tile!)
+            .OrderBy(tile => tile.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (impactedTiles.Length == 0)
+        {
+            return this;
+        }
+
+        EnsureCapacity(Cave.TileCapacity);
+        RebuildOwnerOrdering();
+        foreach (var tile in impactedTiles)
+        {
+            SetTileCoverage(tile, Cave.IsTileReachable(tile) && tile.CreatureFits());
+        }
+
+        var impactedIds = impactedTiles.Select(tile => tile.Id).ToHashSet();
+        var queuedImpacted = new HashSet<int>(impactedIds);
+        var localQueue = new Queue<int>(impactedTiles.Select(tile => tile.Id));
+
+        while (localQueue.Count > 0)
+        {
+            var currentId = localQueue.Dequeue();
+            queuedImpacted.Remove(currentId);
+            var currentTile = Cave.GetTileById(currentId);
+            if (currentTile is null)
+            {
+                continue;
+            }
+
+            var nextOwnership = ComputePatchedOwnership(currentTile);
+            if (ReferenceEquals(_owners[currentId], nextOwnership.Building) &&
+                _distances[currentId] == nextOwnership.Distance)
+            {
+                continue;
+            }
+
+            _owners[currentId] = nextOwnership.Building;
+            _distances[currentId] = nextOwnership.Distance;
+            _ownershipCacheDirty = true;
+
+            foreach (var neighbor in currentTile.Neighbors)
+            {
+                if (impactedIds.Contains(neighbor.Id) && queuedImpacted.Add(neighbor.Id))
+                {
+                    localQueue.Enqueue(neighbor.Id);
+                }
+            }
+        }
+
+        foreach (var tile in impactedTiles)
+        {
+            ReconcileLocalAdjacency(tile);
+        }
+
+        return CommitCurrentState();
     }
 
     public BuildingOwnershipField<TBuilding> Rebuild()

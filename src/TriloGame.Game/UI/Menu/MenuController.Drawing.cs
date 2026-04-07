@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Rendering;
@@ -129,6 +130,9 @@ public sealed partial class MenuController
         var assignmentText = SelectedObject is Creature selectedCreature
             ? $"Assignment: {selectedCreature.Assignment}"
             : $"Type: {title}";
+        var buildingAssignmentText = SelectedObject is Building selectedBuilding
+            ? $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}"
+            : null;
         var bodyText = SelectedObject is Creature
             ? "Delete this trilobite from the colony immediately."
             : "Delete this building from the cave immediately.";
@@ -154,11 +158,19 @@ public sealed partial class MenuController
             assignmentText,
             new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
             new Color(135, 173, 187));
+        if (buildingAssignmentText is not null)
+        {
+            DrawTextFitted(
+                context,
+                buildingAssignmentText,
+                new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 124, layout.SelectedBounds.Width - 32, 20),
+                new Color(135, 173, 187));
+        }
 
         DrawWrappedText(
             context,
             $"{bodyText} This uses the normal in-game removal flow and clears the current selection afterward.",
-            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 132, layout.SelectedBounds.Width - 32, Math.Max(60, layout.SelectedBounds.Height - 220)),
+            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + (buildingAssignmentText is null ? 132 : 158), layout.SelectedBounds.Width - 32, Math.Max(60, layout.SelectedBounds.Height - 220)),
             new Color(226, 238, 244));
 
         var hovered = layout.DeleteSelectedBounds.Contains(_pointerPoint);
@@ -169,6 +181,18 @@ public sealed partial class MenuController
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),
             hovered ? new Color(255, 195, 188) : new Color(242, 176, 170),
             Color.White);
+    }
+
+    private static int GetSelectedBuildingAssignmentCount(Building building)
+    {
+        return building switch
+        {
+            MiningPost post => post.GetVolume(),
+            AlgaeFarm farm => farm.GetVolume(),
+            Barracks barracks => barracks.GetVolume(),
+            Scaffolding scaffolding => scaffolding.GetVolume(),
+            _ => 0
+        };
     }
 
     private void DrawPanelFrame(RenderingContext context, Rectangle bounds)
