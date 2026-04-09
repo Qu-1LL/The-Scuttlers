@@ -22,4 +22,12 @@ public sealed class GameSessionBootstrapperTests
         Assert.Equal("fighter", assignments["Sigma"]);
         Assert.NotNull(queen);
     }
+
+    [Fact]
+    public void CreateNewGame_DisablesEnemySpawnsByDefault()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame();
+
+        Assert.True(result.Session.Runtime.DisableEnemySpawns);
+    }
 }

@@ -8,6 +8,7 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
 {
     private long _tickStart;
     private long _phaseStart;
+    private long _trilobiteMoveStart;
     private long _allocatedStart;
     private int _gen0Start;
     private int _gen1Start;
@@ -17,6 +18,14 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
     private double _colonyBfsMs;
     private double _enemyMoveMs;
     private double _buildingTickMs;
+    private double _minerRoleTotalMs;
+    private double _builderRoleTotalMs;
+    private double _farmerRoleTotalMs;
+    private double _fighterRoleTotalMs;
+    private int _minerRoleCount;
+    private int _builderRoleCount;
+    private int _farmerRoleCount;
+    private int _fighterRoleCount;
 
     public void OnTickStarted(GameSession session)
     {
@@ -31,6 +40,14 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         _colonyBfsMs = 0d;
         _enemyMoveMs = 0d;
         _buildingTickMs = 0d;
+        _minerRoleTotalMs = 0d;
+        _builderRoleTotalMs = 0d;
+        _farmerRoleTotalMs = 0d;
+        _fighterRoleTotalMs = 0d;
+        _minerRoleCount = 0;
+        _builderRoleCount = 0;
+        _farmerRoleCount = 0;
+        _fighterRoleCount = 0;
         NavigationInstrumentation.BeginTick();
     }
 
@@ -69,6 +86,35 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         }
     }
 
+    public void OnTrilobiteMoveStarted(string assignment)
+    {
+        _trilobiteMoveStart = Stopwatch.GetTimestamp();
+    }
+
+    public void OnTrilobiteMoveCompleted(string assignment)
+    {
+        var elapsedMs = Stopwatch.GetElapsedTime(_trilobiteMoveStart).TotalMilliseconds;
+        switch (assignment)
+        {
+            case "miner":
+                _minerRoleTotalMs += elapsedMs;
+                _minerRoleCount++;
+                break;
+            case "builder":
+                _builderRoleTotalMs += elapsedMs;
+                _builderRoleCount++;
+                break;
+            case "farmer":
+                _farmerRoleTotalMs += elapsedMs;
+                _farmerRoleCount++;
+                break;
+            case "fighter":
+                _fighterRoleTotalMs += elapsedMs;
+                _fighterRoleCount++;
+                break;
+        }
+    }
+
     public void OnTickCompleted(GameSession session)
     {
         var cave = session.Cave;
@@ -92,7 +138,12 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
             cave.GetTrilobiteList().Count,
             cave.GetEnemyList().Count,
             cave.GetBuildingList().Count,
-            navigation);
+            navigation,
+            new RoleTimingSnapshot(_minerRoleTotalMs, _minerRoleCount),
+            new RoleTimingSnapshot(_builderRoleTotalMs, _builderRoleCount),
+            new RoleTimingSnapshot(_farmerRoleTotalMs, _farmerRoleCount),
+            new RoleTimingSnapshot(_fighterRoleTotalMs, _fighterRoleCount),
+            true);
         session.Runtime.TickProfiler.Record(snapshot);
         TickProfilerLogWriter.WriteTick(session, snapshot);
     }

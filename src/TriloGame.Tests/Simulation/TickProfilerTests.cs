@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.Shared.Diagnostics;
+using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Simulation;
 
@@ -22,16 +23,50 @@ public sealed class TickProfilerTests
     }
 
     [Fact]
-    public void RunTick_RecordsNavigationInstrumentationForWorkerMovement()
+    public void RunTick_RecordsNavigationInstrumentationForQueuedPointNavigation()
+    {
+        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var spawnTile = queen.GetFeedTiles().First(tile => tile.CreatureFits());
+        var start = spawnTile.Coordinates;
+        var destination = cave.GetReachableTiles()
+            .Where(tile => tile.CreatureFits() && tile.Key != start.ToString())
+            .OrderByDescending(tile => GridPoint.ManhattanDistance(GridPoint.Parse(tile.Key), start))
+            .Select(tile => GridPoint.Parse(tile.Key))
+            .First();
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, start, "Profiler");
+        var clock = new GameSimulationClockSystem();
+
+        trilobite.EnqueueAction(() => trilobite.NavigateTo(destination));
+
+        clock.RunSingleTick(session);
+
+        var navigation = session.Runtime.TickProfiler.Last.Navigation;
+        Assert.True(navigation.PointPathRequestCount > 0);
+        Assert.True(navigation.BuildPathFromFieldCallCount > 0);
+        Assert.True(navigation.BuildPointBfsFieldCallCount > 0);
+        Assert.True(navigation.QueuedNavigationSteps > 0);
+        Assert.Equal(start, trilobite.Location);
+        Assert.True(trilobite.GetQueuedPathPreview().Count > 1);
+    }
+
+    [Fact]
+    public void RunTick_RecordsRoleTimingSnapshotsForStarterAssignments()
     {
         var bootstrap = TestWorldFactory.CreateBootstrappedGame();
         var clock = new GameSimulationClockSystem();
 
         clock.RunSingleTick(bootstrap.Session);
 
-        var navigation = bootstrap.Session.Runtime.TickProfiler.Last.Navigation;
-        Assert.True(navigation.BuildingPathRequestCount > 0 || navigation.PointPathRequestCount > 0);
-        Assert.True(navigation.BuildPathFromFieldCallCount > 0 || navigation.BuildPointBfsFieldCallCount > 0);
+        var last = bootstrap.Session.Runtime.TickProfiler.Last;
+        Assert.True(last.RoleTimingsCaptured);
+        Assert.Equal(1, last.MinerTiming.Count);
+        Assert.Equal(1, last.BuilderTiming.Count);
+        Assert.Equal(1, last.FarmerTiming.Count);
+        Assert.Equal(1, last.FighterTiming.Count);
+        Assert.True(last.MinerTiming.TotalMs >= 0d);
+        Assert.True(last.BuilderTiming.TotalMs >= 0d);
+        Assert.True(last.FarmerTiming.TotalMs >= 0d);
+        Assert.True(last.FighterTiming.TotalMs >= 0d);
     }
 
     [Fact]

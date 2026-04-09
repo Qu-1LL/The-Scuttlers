@@ -11,7 +11,7 @@ public sealed class GameSessionRuntimeState
 
     public bool FreezeOpalProgression { get; set; }
 
-    public bool DisableEnemySpawns { get; set; }
+    public bool DisableEnemySpawns { get; set; } = true;
 
     public bool NoCostBuildPlacement { get; set; }
 

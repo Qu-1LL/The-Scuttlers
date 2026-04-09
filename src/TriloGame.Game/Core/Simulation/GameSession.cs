@@ -328,39 +328,17 @@ public sealed class GameSession
         cave.NotifyMineableTilesChanged(mineableChangedKeys);
         cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
 
-        var dropTile = ResolveWallDropTile(cave, emptyCoords, dropTargetTileKey);
-        var droppedAmount = 0;
-        if (dropTile is not null)
-        {
-            droppedAmount = dropTile.AddDroppedResource(OreType.SANDSTONE.Name, GameConstants.WallDropAmount);
-        }
-
         EmitMineEvents("wall", cave, emptyCoords, source);
         return new MineTileResult(
             true,
-            false,
-            OreType.SANDSTONE.Name,
-            0,
             true,
-            dropTile?.Key,
-            droppedAmount,
+            OreType.SANDSTONE.Name,
+            GameConstants.WallDropAmount,
+            true,
+            null,
+            0,
             0,
             0);
-    }
-
-    private static Tile? ResolveWallDropTile(Cave cave, string minedTileKey, string? dropTargetTileKey)
-    {
-        if (!string.IsNullOrWhiteSpace(dropTargetTileKey))
-        {
-            var explicitTile = cave.GetTile(dropTargetTileKey);
-            if (explicitTile is not null && explicitTile.CreatureFits())
-            {
-                return explicitTile;
-            }
-        }
-
-        var minedTile = cave.GetTile(minedTileKey);
-        return minedTile?.Neighbors.FirstOrDefault(candidate => candidate.CreatureFits()) ?? minedTile;
     }
 
     public string FormatInventory(Inventory inventory)

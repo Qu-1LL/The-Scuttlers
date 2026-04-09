@@ -1,5 +1,14 @@
 namespace TriloGame.Game.Shared.Diagnostics;
 
+public readonly record struct RoleTimingSnapshot(
+    double TotalMs,
+    int Count)
+{
+    public static RoleTimingSnapshot Empty => new(0d, 0);
+
+    public double AverageMsPerTrilobite => Count > 0 ? TotalMs / Count : 0d;
+}
+
 public readonly record struct NavigationTickMetrics(
     int PointPathRequestCount,
     int BuildingPathRequestCount,
@@ -160,7 +169,12 @@ public readonly record struct TickTimingSnapshot(
     int TrilobiteCount,
     int EnemyCount,
     int BuildingCount,
-    NavigationTickMetrics Navigation = default)
+    NavigationTickMetrics Navigation = default,
+    RoleTimingSnapshot MinerTiming = default,
+    RoleTimingSnapshot BuilderTiming = default,
+    RoleTimingSnapshot FarmerTiming = default,
+    RoleTimingSnapshot FighterTiming = default,
+    bool RoleTimingsCaptured = false)
 {
     public static TickTimingSnapshot Empty => new(
         0d,
@@ -176,7 +190,12 @@ public readonly record struct TickTimingSnapshot(
         0,
         0,
         0,
-        NavigationTickMetrics.Empty);
+        NavigationTickMetrics.Empty,
+        RoleTimingSnapshot.Empty,
+        RoleTimingSnapshot.Empty,
+        RoleTimingSnapshot.Empty,
+        RoleTimingSnapshot.Empty,
+        false);
 
     public double TotalBfsMs => EnemyBfsMs + ColonyBfsMs;
 
@@ -279,13 +298,30 @@ public sealed class TickProfiler
     private double _sumColonyBfsMs;
     private double _sumEnemyMoveMs;
     private double _sumBuildingTickMs;
+    private double _sumMinerRoleTotalMs;
+    private double _sumBuilderRoleTotalMs;
+    private double _sumFarmerRoleTotalMs;
+    private double _sumFighterRoleTotalMs;
     private long _sumAllocatedBytes;
+    private int _sumMinerRoleCount;
+    private int _sumBuilderRoleCount;
+    private int _sumFarmerRoleCount;
+    private int _sumFighterRoleCount;
+    private int _roleTimingSampleCount;
 
     public TickTimingSnapshot Last { get; private set; } = TickTimingSnapshot.Empty;
 
     public TickTimingSnapshot Average { get; private set; } = TickTimingSnapshot.Empty;
 
     public int SampleCount => _history.Count;
+
+    public double AverageMinerMsPerTrilobite => ComputeAverageRoleMsPerTrilobite(_sumMinerRoleTotalMs, _sumMinerRoleCount);
+
+    public double AverageBuilderMsPerTrilobite => ComputeAverageRoleMsPerTrilobite(_sumBuilderRoleTotalMs, _sumBuilderRoleCount);
+
+    public double AverageFarmerMsPerTrilobite => ComputeAverageRoleMsPerTrilobite(_sumFarmerRoleTotalMs, _sumFarmerRoleCount);
+
+    public double AverageFighterMsPerTrilobite => ComputeAverageRoleMsPerTrilobite(_sumFighterRoleTotalMs, _sumFighterRoleCount);
 
     public void Record(TickTimingSnapshot snapshot)
     {
@@ -311,6 +347,21 @@ public sealed class TickProfiler
         _sumBuildingTickMs += snapshot.BuildingTickMs;
         _sumAllocatedBytes += snapshot.AllocatedBytes;
         _sumNavigation = _sumNavigation.Add(snapshot.Navigation);
+
+        if (!snapshot.RoleTimingsCaptured)
+        {
+            return;
+        }
+
+        _roleTimingSampleCount++;
+        _sumMinerRoleTotalMs += snapshot.MinerTiming.TotalMs;
+        _sumBuilderRoleTotalMs += snapshot.BuilderTiming.TotalMs;
+        _sumFarmerRoleTotalMs += snapshot.FarmerTiming.TotalMs;
+        _sumFighterRoleTotalMs += snapshot.FighterTiming.TotalMs;
+        _sumMinerRoleCount += snapshot.MinerTiming.Count;
+        _sumBuilderRoleCount += snapshot.BuilderTiming.Count;
+        _sumFarmerRoleCount += snapshot.FarmerTiming.Count;
+        _sumFighterRoleCount += snapshot.FighterTiming.Count;
     }
 
     private void RemoveFromSums(TickTimingSnapshot snapshot)
@@ -323,6 +374,21 @@ public sealed class TickProfiler
         _sumBuildingTickMs -= snapshot.BuildingTickMs;
         _sumAllocatedBytes -= snapshot.AllocatedBytes;
         _sumNavigation = _sumNavigation.Subtract(snapshot.Navigation);
+
+        if (!snapshot.RoleTimingsCaptured)
+        {
+            return;
+        }
+
+        _roleTimingSampleCount--;
+        _sumMinerRoleTotalMs -= snapshot.MinerTiming.TotalMs;
+        _sumBuilderRoleTotalMs -= snapshot.BuilderTiming.TotalMs;
+        _sumFarmerRoleTotalMs -= snapshot.FarmerTiming.TotalMs;
+        _sumFighterRoleTotalMs -= snapshot.FighterTiming.TotalMs;
+        _sumMinerRoleCount -= snapshot.MinerTiming.Count;
+        _sumBuilderRoleCount -= snapshot.BuilderTiming.Count;
+        _sumFarmerRoleCount -= snapshot.FarmerTiming.Count;
+        _sumFighterRoleCount -= snapshot.FighterTiming.Count;
     }
 
     private TickTimingSnapshot BuildAverageSnapshot()
@@ -333,6 +399,7 @@ public sealed class TickProfiler
         }
 
         var sampleCount = _history.Count;
+        var roleSampleCount = _roleTimingSampleCount;
         return new TickTimingSnapshot(
             _sumTotalMs / sampleCount,
             _sumEnemyBfsMs / sampleCount,
@@ -347,7 +414,29 @@ public sealed class TickProfiler
             Last.TrilobiteCount,
             Last.EnemyCount,
             Last.BuildingCount,
-            _sumNavigation.Divide(sampleCount));
+            _sumNavigation.Divide(sampleCount),
+            BuildAverageRoleTimingSnapshot(_sumMinerRoleTotalMs, _sumMinerRoleCount, roleSampleCount),
+            BuildAverageRoleTimingSnapshot(_sumBuilderRoleTotalMs, _sumBuilderRoleCount, roleSampleCount),
+            BuildAverageRoleTimingSnapshot(_sumFarmerRoleTotalMs, _sumFarmerRoleCount, roleSampleCount),
+            BuildAverageRoleTimingSnapshot(_sumFighterRoleTotalMs, _sumFighterRoleCount, roleSampleCount),
+            roleSampleCount > 0);
+    }
+
+    private static double ComputeAverageRoleMsPerTrilobite(double totalMs, int totalCount)
+    {
+        return totalCount > 0 ? totalMs / totalCount : 0d;
+    }
+
+    private static RoleTimingSnapshot BuildAverageRoleTimingSnapshot(double totalMs, int totalCount, int sampleCount)
+    {
+        if (sampleCount <= 0)
+        {
+            return RoleTimingSnapshot.Empty;
+        }
+
+        return new RoleTimingSnapshot(
+            totalMs / sampleCount,
+            (int)System.Math.Round(totalCount / (double)sampleCount, MidpointRounding.AwayFromZero));
     }
 }
 

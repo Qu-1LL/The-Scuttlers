@@ -24,11 +24,11 @@ public static class GameConstants
     public const float MaxOreDarkness = 0.3f;
     public const int MinOreHitsPerYield = 1;
     public const int MaxOreHitsPerYield = 5;
-    public const int TrilobiteCarryCapacity = 1;
+    public const int TrilobiteCarryCapacity = 5;
     public const int TrilobiteStarterTraitCount = 1;
     public const int ExplosiveTraitBlastRadius = 3;
     public const float ExplosiveTraitScreenShakeIntensity = 1f;
-    public const int AlgaeHarvestYield = 1;
+    public const int AlgaeHarvestYield = 5;
     public const int OpalYield = 2000;
     public const int OpalInitialGraceTicks = 500;
     public const int OpalDormantTicks = 100;

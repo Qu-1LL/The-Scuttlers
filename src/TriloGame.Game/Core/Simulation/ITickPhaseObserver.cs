@@ -8,5 +8,9 @@ public interface ITickPhaseObserver
 
     void OnPhaseCompleted(TickPhase phase);
 
+    void OnTrilobiteMoveStarted(string assignment);
+
+    void OnTrilobiteMoveCompleted(string assignment);
+
     void OnTickCompleted(GameSession session);
 }

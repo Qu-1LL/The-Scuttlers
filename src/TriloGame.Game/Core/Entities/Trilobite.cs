@@ -3,9 +3,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
-using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
-using System.Diagnostics;
 
 namespace TriloGame.Game.Core.Entities;
 
@@ -1669,37 +1667,6 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (!HasManualMineOrders())
-        {
-            if (TryCollectDroppedSandstoneAtCurrentTile())
-            {
-                return MinerStep2();
-            }
-
-            var droppedSandstoneTile = GetNearestDroppedSandstoneTile(miningPost);
-            if (droppedSandstoneTile is not null)
-            {
-                if (Location == droppedSandstoneTile.Coordinates)
-                {
-                    if (TryCollectDroppedSandstoneAtCurrentTile())
-                    {
-                        return MinerStep2();
-                    }
-                }
-                else
-                {
-                    var navFallback = new Action(() => { MinerStep1(); });
-                    if (!NavigateTo(droppedSandstoneTile.Coordinates, navFallback))
-                    {
-                        return false;
-                    }
-
-                    EnqueueAction(() => { MinerStep3(); });
-                    return true;
-                }
-            }
-        }
-
         var manualTarget = GetNextManualMineOrder();
         if (manualTarget is not null)
         {
@@ -1882,15 +1849,13 @@ public sealed partial class Trilobite : Creature
 
         if (tile.Base == "wall")
         {
-            if (GridPoint.ManhattanDistance(Location, tileCoords) != 1)
+            if (GridPoint.ManhattanDistance(Location, tileCoords) != 1 ||
+                GetInventorySpace() < GameConstants.WallDropAmount)
             {
                 return MineTileResult.NotApplied;
             }
-
-            return Session.MineTile(Cave!, tileKey, Location.ToString(), "creature");
         }
-
-        if (Location != tileCoords || GetInventorySpace() < 1)
+        else if (Location != tileCoords || GetInventorySpace() < 1)
         {
             return MineTileResult.NotApplied;
         }
@@ -1941,11 +1906,6 @@ public sealed partial class Trilobite : Creature
             }
             EnqueueAction(() => { MinerStep1(); });
             return false;
-        }
-
-        if (result.DroppedAmount > 0)
-        {
-            TryCollectDroppedSandstoneAtCurrentTile();
         }
 
         if (result.TileDepleted)
@@ -2059,73 +2019,6 @@ public sealed partial class Trilobite : Creature
         return tile is not null &&
                Cave.IsTileRevealed(tile) &&
                !string.Equals(tile.Base, "wall", StringComparison.Ordinal);
-    }
-
-    private bool TryCollectDroppedSandstoneAtCurrentTile()
-    {
-        if (HasInventory() || Cave is null)
-        {
-            return false;
-        }
-
-        var tile = Cave.GetTile(Location);
-        if (tile is null)
-        {
-            return false;
-        }
-
-        var taken = tile.TakeDroppedResource(OreType.SANDSTONE.Name, GameConstants.WallDropCarryAmount);
-        if (taken <= 0)
-        {
-            return false;
-        }
-
-        if (AddToInventory(OreType.SANDSTONE.Name, taken) != taken)
-        {
-            tile.AddDroppedResource(OreType.SANDSTONE.Name, taken);
-            return false;
-        }
-
-        return true;
-    }
-
-    private World.Tile? GetNearestDroppedSandstoneTile(MiningPost miningPost)
-    {
-        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
-        var timerStart = Stopwatch.GetTimestamp();
-        var scannedTiles = 0;
-        if (Cave is null)
-        {
-            NavigationInstrumentation.RecordDroppedResourceScan(scannedTiles, 0d, 0L);
-            return null;
-        }
-
-        World.Tile? bestTile = null;
-        var bestDistance = int.MaxValue;
-        foreach (var tile in Cave.GetTiles())
-        {
-            scannedTiles++;
-            if (!tile.CreatureFits() ||
-                tile.GetDroppedResourceCount(OreType.SANDSTONE.Name) <= 0 ||
-                !miningPost.IsLocationInArea(tile.Coordinates) ||
-                !Cave.IsTileReachable(tile))
-            {
-                continue;
-            }
-
-            var distance = GridPoint.SquaredDistance(Location, tile.Coordinates);
-            if (bestTile is null || distance < bestDistance)
-            {
-                bestTile = tile;
-                bestDistance = distance;
-            }
-        }
-
-        NavigationInstrumentation.RecordDroppedResourceScan(
-            scannedTiles,
-            Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
-            GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
-        return bestTile;
     }
 
     public IReadOnlyList<Scaffolding> GetScaffoldingBuildings()

@@ -67,7 +67,10 @@ public static class TickRunner
         CopySnapshot(trilobiteBuffer, cave.GetTrilobiteList());
         foreach (var creature in trilobiteBuffer)
         {
+            var assignment = creature.Assignment;
+            phaseObserver?.OnTrilobiteMoveStarted(assignment);
             creature.Move();
+            phaseObserver?.OnTrilobiteMoveCompleted(assignment);
         }
         phaseObserver?.OnPhaseCompleted(TickPhase.TrilobiteMove);
 
