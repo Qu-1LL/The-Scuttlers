@@ -1,13 +1,16 @@
 using System.Text;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Pathfinding;
+using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Research;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
+using TriloGame.Game.Shared.State;
 
 namespace TriloGame.Game.Core.Simulation;
 
@@ -34,8 +37,9 @@ public sealed class GameSession
         GlobalResearch = new GlobalResearch();
         Danger = false;
         TickCount = 0;
-        DebugEnemyCount = 1;
-        TickProfiler = new TickProfiler();
+        Runtime = new GameSessionRuntimeState();
+        TraitHandler = new TrilobiteTraitHandler(this);
+        MiningPostMovementTelemetry = new MiningPostMovementTelemetry();
     }
 
     public GameEventBus EventBus { get; }
@@ -62,11 +66,15 @@ public sealed class GameSession
 
     public int TickCount { get; set; }
 
-    public int DebugEnemyCount { get; set; }
+    public GameSessionRuntimeState Runtime { get; }
 
-    public TickProfiler TickProfiler { get; }
+    public TrilobiteTraitHandler TraitHandler { get; }
+
+    public MiningPostMovementTelemetry MiningPostMovementTelemetry { get; }
 
     public event Action<GameAudioCue>? AudioCueRequested;
+    public event Action<float>? ScreenShakeRequested;
+    public event Action<DeathMistRequest>? DeathMistRequested;
 
     public Action On(string eventName, Action<GameEventPayload> listener)
     {
@@ -81,6 +89,26 @@ public sealed class GameSession
     public void RequestAudioCue(GameAudioCue cue)
     {
         AudioCueRequested?.Invoke(cue);
+    }
+
+    public void RequestScreenShake(float intensity)
+    {
+        if (intensity <= 0f)
+        {
+            return;
+        }
+
+        ScreenShakeRequested?.Invoke(intensity);
+    }
+
+    public void RequestDeathMist(GridPoint originTile, int radius)
+    {
+        if (radius < 0)
+        {
+            return;
+        }
+
+        DeathMistRequested?.Invoke(new DeathMistRequest(originTile, radius));
     }
 
     public FeatureTree? GetFeatureTree(string name)
@@ -117,40 +145,64 @@ public sealed class GameSession
         }
     }
 
-    public bool MineTile(Cave cave, string tileKey, object? source = null)
+    public MineTileResult MineTile(Cave cave, string tileKey, string? dropTargetTileKey = null, object? source = null)
     {
         var tile = cave.GetTile(tileKey);
         if (tile is null)
         {
-            return false;
+            return MineTileResult.NotApplied;
+        }
+
+        if (cave.HasOpal(tile))
+        {
+            return cave.MineOpal(tile);
         }
 
         var tileType = tile.Base;
         if (string.Equals(tileType, "wall", StringComparison.Ordinal))
         {
-            return MineWallTile(cave, tile, tileKey, source);
+            return MineWallTile(cave, tile, tileKey, dropTargetTileKey, source);
         }
 
         if (!IsOreTileType(tileType))
         {
-            return false;
+            return MineTileResult.NotApplied;
         }
 
-        tile.SetBase("empty");
-        cave.MarkAllBuildingFieldsDirty([tileKey], [], []);
-        cave.NotifyMineableTilesChanged([tileKey]);
+        var yieldedResource = tile.ApplyOreMineHit(out var depleted);
+        if (!yieldedResource)
+        {
+            return new MineTileResult(true, false, null, 0, false, null, 0, tile.ResourceYield, tile.HitsRemaining);
+        }
+
+        if (depleted)
+        {
+            tile.SetBase("empty");
+            tile.ClearResourceState();
+            cave.MarkAllBuildingFieldsDirty([tileKey], [], []);
+            cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
+            cave.NotifyMineableTilesChanged([tileKey]);
+        }
+
         EmitMineEvents(tileType, cave, tileKey, source);
-        return true;
+        return new MineTileResult(true, true, tileType, 1, depleted, null, 0, tile.ResourceYield, tile.HitsRemaining);
     }
 
-    public bool MineWallTile(Cave cave, Tile tile, string emptyCoords, object? source = null)
+    public MineTileResult MineWallTile(Cave cave, Tile tile, string emptyCoords, string? dropTargetTileKey = null, object? source = null)
     {
         if (!string.Equals(tile.Base, "wall", StringComparison.Ordinal))
         {
-            return false;
+            return MineTileResult.NotApplied;
+        }
+
+        if (!tile.ApplyWallMineHit())
+        {
+            return new MineTileResult(true, false, null, 0, false, null, 0, 0, tile.HitsRemaining);
         }
 
         var changedKeys = new HashSet<string>(StringComparer.Ordinal) { emptyCoords };
+        var newlyRevealedKeys = new HashSet<string>(StringComparer.Ordinal);
+        var reachabilityChangedKeys = new HashSet<string>(StringComparer.Ordinal);
 
         static bool ShouldProcessAdjacentCaveTile(Cave activeCave, Tile adjacentTile)
         {
@@ -163,11 +215,13 @@ public sealed class GameSession
         }
 
         tile.SetBase("empty");
+        tile.ClearResourceState();
         tile.CreatureCanFit = true;
-        if (cave.RevealTile(tile) > 0)
+        if (cave.RevealTile(tile, newlyRevealedKeys) > 0)
         {
             changedKeys.Add(emptyCoords);
         }
+        cave.TryAddReachableTile(tile, reachabilityChangedKeys);
 
         var myDeltas = new Dictionary<string, GridPoint>
         {
@@ -202,7 +256,7 @@ public sealed class GameSession
 
             if (neighbor.Base == "wall")
             {
-                if (cave.RevealTile(neighbor) > 0)
+                if (cave.RevealTile(neighbor, newlyRevealedKeys) > 0)
                 {
                     changedKeys.Add(neighbor.Key);
                 }
@@ -229,7 +283,7 @@ public sealed class GameSession
                 if (wallTile.Base == "wall")
                 {
                     wallTile.CreatureCanFit = false;
-                    if (cave.RevealTile(wallTile) > 0)
+                    if (cave.RevealTile(wallTile, newlyRevealedKeys) > 0)
                     {
                         changedKeys.Add(wallTile.Key);
                     }
@@ -248,6 +302,7 @@ public sealed class GameSession
             wallTile = cave.AddTile(newKey);
             wallTile.SetBase("wall");
             wallTile.CreatureCanFit = false;
+            wallTile.ConfigureWall(GameConstants.WallHitsRequired);
             changedKeys.Add(newKey);
 
             var newDeltas = new[]
@@ -267,20 +322,41 @@ public sealed class GameSession
                 }
             }
 
-            cave.RevealTile(wallTile);
+            cave.RevealTile(wallTile, newlyRevealedKeys);
         }
 
         if (shouldRevealCave)
         {
-            cave.RevealCave();
+            cave.RevealCave(newlyRevealedKeys, rebalanceFields: false, newlyReachableKeys: reachabilityChangedKeys);
         }
 
-        var reachability = cave.RefreshReachableTiles();
-        cave.MarkAllBuildingFieldsDirty(changedKeys.Concat(reachability.ChangedKeys), [], []);
-        cave.NotifyMineableTilesChanged(changedKeys.ToArray());
-        cave.RebalanceAllBfsFields(changedKeys.ToArray(), [], []);
+        cave.AdvanceTopologyVersionForCache();
+        if (reachabilityChangedKeys.Count > 0)
+        {
+            cave.AdvanceReachabilityVersionForIncrementalReachability();
+        }
+
+        var ownershipDirtyKeys = changedKeys.Concat(reachabilityChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
+        cave.ApplyMinedTileUpdateToAllBfsFields(emptyCoords);
+        var mineableChangedKeys = changedKeys
+            .Concat(newlyRevealedKeys.Where(key => Building.IsMineableType(cave.GetTile(key)?.Base ?? string.Empty)))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        cave.NotifyMineableTilesChanged(mineableChangedKeys);
+        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
+
         EmitMineEvents("wall", cave, emptyCoords, source);
-        return true;
+        return new MineTileResult(
+            true,
+            true,
+            OreType.SANDSTONE.Name,
+            GameConstants.WallDropAmount,
+            true,
+            null,
+            0,
+            0,
+            0);
     }
 
     public string FormatInventory(Inventory inventory)
@@ -309,4 +385,18 @@ public sealed class GameSession
 
         return builder.ToString().TrimEnd();
     }
+}
+
+public readonly record struct MineTileResult(
+    bool HitApplied,
+    bool YieldedResource,
+    string? ResourceType,
+    int ResourceAmount,
+    bool TileDepleted,
+    string? DroppedAtTileKey,
+    int DroppedAmount,
+    int RemainingYield,
+    int RemainingHits)
+{
+    public static MineTileResult NotApplied => new(false, false, null, 0, false, null, 0, 0, 0);
 }

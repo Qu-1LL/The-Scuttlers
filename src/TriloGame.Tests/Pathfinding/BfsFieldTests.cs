@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Pathfinding;
@@ -26,5 +27,149 @@ public sealed class BfsFieldTests
         {
             Assert.Equal(1, GridPoint.ManhattanDistance(path[index - 1], path[index]));
         }
+    }
+
+    [Fact]
+    public void DirectPointPath_BuildsAShortestContiguousPathAcrossReachableTiles()
+    {
+        var (_, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
+        var destination = cave.GetReachableTiles()
+            .Where(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString())
+            .OrderByDescending(tile => GridPoint.ManhattanDistance(GridPoint.Parse(tile.Key), trilobite.Location))
+            .First();
+        var destinationPoint = GridPoint.Parse(destination.Key);
+
+        var directPath = cave.BuildDirectPathToPoint(trilobite.Location, destinationPoint);
+        var fieldPath = cave.BuildPathFromField(cave.BuildPointBfsField(destinationPoint), trilobite.Location);
+
+        Assert.NotNull(directPath);
+        Assert.NotNull(fieldPath);
+        Assert.NotEmpty(directPath);
+        Assert.Equal(trilobite.Location, directPath[0]);
+        Assert.Equal(destinationPoint, directPath[^1]);
+        Assert.Equal(fieldPath!.Count, directPath.Count);
+        for (var index = 1; index < directPath.Count; index++)
+        {
+            Assert.Equal(1, GridPoint.ManhattanDistance(directPath[index - 1], directPath[index]));
+        }
+    }
+
+    [Fact]
+    public void NavigateToBuilding_RefreshesBlockedBfsStepAndRetries()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(12, 5));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Tester", "fighter");
+        var field = cave.GetBuildingBfsFieldObject(barracks);
+        field.Rebuild();
+
+        var originalStep = field.GetNextStep(trilobite.Location, refresh: false);
+        Assert.NotNull(originalStep);
+
+        var blockedTile = cave.GetTile(originalStep!.Value.ToString())!;
+        blockedTile.SetBase("wall");
+        blockedTile.CreatureCanFit = false;
+        field.MarkDirty([blockedTile.Key], [], []);
+        var expectedField = new TriloGame.Game.Core.Pathfinding.BfsField(barracks.Name, "building", cave, barracks);
+        expectedField.Rebuild();
+        var expectedStep = expectedField.GetNextStep(trilobite.Location, refresh: false);
+
+        var startingLocation = trilobite.Location;
+        var moved = trilobite.NavigateToBuilding(barracks);
+
+        Assert.NotNull(expectedStep);
+        Assert.True(
+            moved,
+            $"Expected retry step {expectedStep} from {startingLocation}, actual location {trilobite.Location}, blocked {blockedTile.Key}, blockedFit={blockedTile.CreatureFits()}, fieldUpdated={field.IsUpdated()}.");
+        Assert.True(field.IsUpdated());
+        Assert.NotEqual(startingLocation, trilobite.Location);
+        Assert.Equal(expectedStep!.Value, trilobite.Location);
+        Assert.NotEqual(blockedTile.Key, trilobite.Location.ToString());
+        Assert.Equal(1, GridPoint.ManhattanDistance(startingLocation, trilobite.Location));
+    }
+
+    [Fact]
+    public void NewBuilding_StartsWithGeneratedDirtyBfsField()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(12, 5));
+
+        var field = cave.GetBuildingBfsFieldObject(farm);
+
+        Assert.True(field.HasCoverage());
+        Assert.False(field.IsUpdated());
+        Assert.NotEqual(int.MaxValue, field.GetFieldValue(new GridPoint(4, 6), refresh: false));
+    }
+
+    [Fact]
+    public void DirtyBuildingField_ValueReadKeepsExistingCoverageUntilMoveFailure()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(12, 5));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Tester", "fighter");
+        var field = cave.GetBuildingBfsFieldObject(barracks);
+        field.Rebuild();
+
+        var staleStep = field.GetNextStep(trilobite.Location, refresh: false);
+        Assert.NotNull(staleStep);
+
+        var blockedTile = cave.GetTile(staleStep!.Value.ToString())!;
+        blockedTile.SetBase("wall");
+        blockedTile.CreatureCanFit = false;
+        field.MarkDirty([blockedTile.Key], [], []);
+
+        var staleValue = cave.GetBuildingBfsFieldValue(barracks, trilobite.Location);
+
+        Assert.NotEqual(int.MaxValue, staleValue);
+        Assert.False(field.IsUpdated());
+    }
+
+    [Fact]
+    public void DirtyBuildingField_ValueReadRebuildsWhenReachableTileIsMissingFromCoverage()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(12, 5));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Tester", "fighter");
+        var field = cave.GetBuildingBfsFieldObject(barracks);
+        var seedTile = barracks.TileArray.First(tile => tile.CreatureFits());
+        field.SetField(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [seedTile.Key] = 0
+        });
+        field.MarkDirty([seedTile.Key], [], []);
+
+        var value = cave.GetBuildingBfsFieldValue(barracks, trilobite.Location);
+
+        Assert.NotEqual(int.MaxValue, value);
+        Assert.True(field.IsUpdated());
+    }
+
+    [Fact]
+    public void MiningWall_AppliesImmediateLocalValueUpdateToExistingBfsFields()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(12, 5));
+        var wallLocation = new GridPoint(8, 6);
+        var wallTile = cave.GetTile(wallLocation.ToString())!;
+        wallTile.SetBase("wall");
+        wallTile.CreatureCanFit = false;
+        wallTile.ConfigureWall(1);
+        cave.RefreshReachableTiles();
+        cave.RevealTile(wallTile);
+
+        var field = cave.GetBuildingBfsFieldObject(barracks);
+        field.Rebuild();
+
+        Assert.Equal(int.MaxValue, field.GetFieldValue(wallLocation, refresh: false));
+
+        var mined = session.MineTile(cave, wallLocation.ToString(), "test");
+        var expectedValue = cave.GetTile(wallLocation.ToString())!.Neighbors
+            .Where(neighbor => neighbor.CreatureFits())
+            .Select(neighbor => field.GetFieldValue(neighbor.Coordinates, refresh: false))
+            .Where(value => value != int.MaxValue)
+            .Min();
+
+        Assert.True(mined.TileDepleted);
+        Assert.Equal(expectedValue + 1, field.GetFieldValue(wallLocation, refresh: false));
     }
 }

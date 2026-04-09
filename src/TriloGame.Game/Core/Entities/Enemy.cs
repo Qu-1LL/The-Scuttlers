@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Entities;
@@ -171,16 +172,45 @@ public sealed class Enemy : Creature
             ClearEnemyTarget();
         }
 
-        var nextLocation = Cave?.GetBfsFieldNextStep("colony", Location);
-        if (nextLocation is null)
+        var cave = Cave;
+        var field = cave?.GetBfsFieldObject("colony");
+        if (field is null || cave is null)
+        {
+            ClearEnemyTarget();
+            return TryDigTowardQueen();
+        }
+
+        ClearActionQueue();
+        var resolvedField = field;
+        var resolvedNext = field.GetNextStep(Location, refresh: false);
+        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        {
+            var refreshedField = cave.GetBfsFieldObject("colony");
+            refreshedField?.Rebuild();
+            if (refreshedField is null)
+            {
+                ClearEnemyTarget();
+                return false;
+            }
+
+            resolvedField = refreshedField;
+            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
+            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
+            {
+                ClearActionQueue();
+                return false;
+            }
+        }
+
+        if (resolvedNext is null)
         {
             ClearEnemyTarget();
             return false;
         }
 
-        ClearActionQueue();
-        PathPreview.Add(nextLocation.Value);
-        return EnemyStepMove(nextLocation.Value);
+        ArmBfsTraversal(resolvedField, sharedFieldName: "colony");
+        PathPreview.Add(resolvedNext.Value);
+        return EnemyStepMove(resolvedNext.Value);
     }
 
     public bool EnemyStepMove(GridPoint nextLocation)
@@ -205,7 +235,8 @@ public sealed class Enemy : Creature
             return EnemyStep2();
         }
 
-        var moved = PerformMove(nextLocation);
+        ClearBfsTraversal();
+        var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
         if (!moved)
         {
             ClearActionQueue();
@@ -232,5 +263,48 @@ public sealed class Enemy : Creature
         }
 
         return moved;
+    }
+
+    private bool TryDigTowardQueen()
+    {
+        var cave = Cave;
+        var queenCenter = cave?.GetQueenBuilding()?.GetCenter();
+        if (cave is null || queenCenter is null)
+        {
+            return false;
+        }
+
+        var currentTile = cave.GetTile(Location);
+        if (currentTile is null)
+        {
+            return false;
+        }
+
+        Tile? bestWall = null;
+        var bestDistance = int.MaxValue;
+        foreach (var neighbor in currentTile.Neighbors)
+        {
+            if (!string.Equals(neighbor.Base, "wall", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var distance = GridPoint.ManhattanDistance(neighbor.Coordinates, queenCenter.Value);
+            if (distance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestWall = neighbor;
+            bestDistance = distance;
+        }
+
+        if (bestWall is null)
+        {
+            return false;
+        }
+
+        var result = Session.MineTile(cave, bestWall.Key, Location.ToString(), "enemy");
+        return result.HitApplied;
     }
 }

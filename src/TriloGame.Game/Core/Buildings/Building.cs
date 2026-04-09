@@ -52,6 +52,8 @@ public class Building
 
     public Dictionary<string, int>? Recipe { get; protected set; }
 
+    public Dictionary<string, int>? ConstructionCost { get; protected set; }
+
     public bool Selectable { get; protected set; }
 
     public int DisplayRotationTurns { get; protected set; }
@@ -93,6 +95,11 @@ public class Building
     public virtual Dictionary<string, int>? GetRecipe()
     {
         return Recipe is null ? null : new Dictionary<string, int>(Recipe, StringComparer.Ordinal);
+    }
+
+    public virtual Dictionary<string, int>? GetConstructionCost()
+    {
+        return ConstructionCost is null ? null : new Dictionary<string, int>(ConstructionCost, StringComparer.Ordinal);
     }
 
     public virtual bool CanBeSelected() => Selectable;

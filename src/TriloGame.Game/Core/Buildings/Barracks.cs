@@ -20,7 +20,19 @@ public sealed class Barracks : Building
 
     public int GetVolume() => _assignments.Count;
 
-    public void Assign(Creature creature) => _assignments.Add(creature);
+    public void Assign(Creature creature)
+    {
+        if (_assignments.Add(creature))
+        {
+            Cave?.SyncBarracksAssignmentCount(this, _assignments.Count);
+        }
+    }
 
-    public void RemoveAssignment(Creature creature) => _assignments.Remove(creature);
+    public void RemoveAssignment(Creature creature)
+    {
+        if (_assignments.Remove(creature))
+        {
+            Cave?.SyncBarracksAssignmentCount(this, _assignments.Count);
+        }
+    }
 }

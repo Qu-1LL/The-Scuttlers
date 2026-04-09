@@ -1,30 +1,28 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.UI.Gum;
+using TriloGame.Game.UI.Input;
 using TriloGame.Game.UI.ViewModels;
 
 namespace TriloGame.Game.UI.Menu;
 
 public sealed partial class MenuController
 {
-    private enum DrawPass
-    {
-        Background,
-        Foreground
-    }
-
     private const string TabBuildings = "buildings";
     private const string TabAssignments = "assignments";
     private const string TabSelected = "selected";
     private const int AssignmentRowHeight = 76;
     private const int AssignmentRowGap = 10;
+    private const int RenameMaxLength = 24;
 
     private Point _pointerPoint;
-    private DrawPass _drawPass = DrawPass.Foreground;
-    private GumShapePool? _gumShapes;
+    private GumUiRenderer? _gumUi;
+    private bool _renamingSelectedTrilobite;
+    private string _renameBuffer = string.Empty;
 
     public object? SelectedObject { get; private set; }
 
@@ -44,6 +42,10 @@ public sealed partial class MenuController
 
     public float AssignmentUnassignedScroll { get; private set; }
 
+    public float SelectedInventoryScroll { get; private set; }
+
+    public bool IsRenamingSelectedTrilobite => _renamingSelectedTrilobite;
+
     public float GetOpenPanelWidth(Point viewport)
     {
         return PanelOpen ? GetMetrics(viewport).PanelWidth : 0f;
@@ -62,6 +64,7 @@ public sealed partial class MenuController
 
     public void ClosePanel()
     {
+        CancelRenameSelectedTrilobite();
         PanelOpen = false;
     }
 
@@ -78,6 +81,7 @@ public sealed partial class MenuController
 
     public void ResetState()
     {
+        CancelRenameSelectedTrilobite();
         SelectedObject = null;
         ActiveTab = TabBuildings;
         PanelOpen = true;
@@ -87,12 +91,115 @@ public sealed partial class MenuController
         BuildGridScroll = 0f;
         AssignmentActiveScroll = 0f;
         AssignmentUnassignedScroll = 0f;
+        SelectedInventoryScroll = 0f;
     }
 
     public void SetSelectedObject(object? selectedObject)
     {
+        if (!ReferenceEquals(SelectedObject, selectedObject))
+        {
+            CancelRenameSelectedTrilobite();
+            SelectedInventoryScroll = 0f;
+        }
+
         SelectedObject = selectedObject;
+        if (SelectedObject is not Trilobite)
+        {
+            CancelRenameSelectedTrilobite();
+        }
+
         NormalizeActiveTab();
+    }
+
+    public bool BeginRenameSelectedTrilobite()
+    {
+        if (SelectedObject is not Trilobite trilobite)
+        {
+            return false;
+        }
+
+        _renamingSelectedTrilobite = true;
+        _renameBuffer = trilobite.Name;
+        return true;
+    }
+
+    public void CancelRenameSelectedTrilobite()
+    {
+        _renamingSelectedTrilobite = false;
+        _renameBuffer = string.Empty;
+    }
+
+    public bool CommitRenameSelectedTrilobite()
+    {
+        if (SelectedObject is not Trilobite trilobite)
+        {
+            CancelRenameSelectedTrilobite();
+            return false;
+        }
+
+        var trimmed = _renameBuffer.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return false;
+        }
+
+        trilobite.Rename(trimmed);
+        _renameBuffer = trilobite.Name;
+        _renamingSelectedTrilobite = false;
+        return true;
+    }
+
+    public bool HandleRenameInput(InputController input)
+    {
+        if (!_renamingSelectedTrilobite)
+        {
+            return false;
+        }
+
+        if (input.KeyPressed(Keys.Escape))
+        {
+            CancelRenameSelectedTrilobite();
+            return true;
+        }
+
+        if (input.KeyPressed(Keys.Enter))
+        {
+            CommitRenameSelectedTrilobite();
+            return true;
+        }
+
+        if (input.KeyPressed(Keys.Back))
+        {
+            if (_renameBuffer.Length > 0)
+            {
+                _renameBuffer = _renameBuffer[..^1];
+            }
+
+            return true;
+        }
+
+        foreach (var key in input.CurrentKeyboard.GetPressedKeys())
+        {
+            if (!input.PreviousKeyboard.IsKeyUp(key))
+            {
+                continue;
+            }
+
+            if (!TryConvertKeyToCharacter(key, input.CurrentKeyboard, out var character))
+            {
+                continue;
+            }
+
+            if (_renameBuffer.Length >= RenameMaxLength)
+            {
+                return true;
+            }
+
+            _renameBuffer += character;
+            return true;
+        }
+
+        return false;
     }
 
     public bool CoversScreenPoint(Point point, Point viewport)
@@ -131,6 +238,10 @@ public sealed partial class MenuController
             {
                 AssignmentUnassignedScroll = Clamp(AssignmentUnassignedScroll + delta, 0f, layout.AssignmentUnassignedMaxScroll);
             }
+        }
+        else if (ActiveTab == TabSelected && layout.SelectedInventoryFrameBounds?.Contains(point) == true)
+        {
+            SelectedInventoryScroll = Clamp(SelectedInventoryScroll + delta, 0f, layout.SelectedInventoryMaxScroll);
         }
 
         return true;
@@ -182,6 +293,11 @@ public sealed partial class MenuController
             }
 
             game?.PlayUiSelectSound();
+            if (tab.Key != TabSelected)
+            {
+                CancelRenameSelectedTrilobite();
+            }
+
             ActiveTab = tab.Key;
             NormalizeActiveTab();
             return true;
@@ -240,26 +356,49 @@ public sealed partial class MenuController
                 }
             }
         }
-        else if (ActiveTab == TabSelected && layout.DeleteSelectedBounds.Contains(point))
+        else if (ActiveTab == TabSelected)
         {
-            game?.PlayUiSelectSound();
-            return DeleteSelectedObject();
+            if (_renamingSelectedTrilobite)
+            {
+                if (layout.SelectedRenameFieldBounds.Contains(point))
+                {
+                    return true;
+                }
+
+                if (layout.SelectedRenamePrimaryButtonBounds?.Contains(point) == true)
+                {
+                    game?.PlayUiSelectSound();
+                    CommitRenameSelectedTrilobite();
+                    return true;
+                }
+
+                if (layout.SelectedRenameSecondaryButtonBounds?.Contains(point) == true)
+                {
+                    game?.PlayUiSelectSound();
+                    CancelRenameSelectedTrilobite();
+                    return true;
+                }
+            }
+            else if (SelectedObject is Trilobite && layout.SelectedRenamePrimaryButtonBounds?.Contains(point) == true)
+            {
+                game?.PlayUiSelectSound();
+                BeginRenameSelectedTrilobite();
+                return true;
+            }
+
+            if (layout.DeleteSelectedBounds.Contains(point))
+            {
+                game?.PlayUiSelectSound();
+                return DeleteSelectedObject();
+            }
         }
 
         return layout.PanelBounds.Contains(point);
     }
 
-    public void SyncGumBackgrounds(RenderingContext context, Point viewport, GameApp game, GameSession session, GumShapePool gumShapes)
+    public void Draw(RenderingContext context, Point viewport, GameApp game, GameSession session, GumUiRenderer gumUi)
     {
-        _gumShapes = gumShapes;
-        _drawPass = DrawPass.Background;
-        DrawInternal(context, viewport, game, session);
-    }
-
-    public void Draw(RenderingContext context, Point viewport, GameApp game, GameSession session)
-    {
-        _gumShapes = null;
-        _drawPass = DrawPass.Foreground;
+        _gumUi = gumUi;
         DrawInternal(context, viewport, game, session);
     }
 
@@ -323,9 +462,7 @@ public sealed partial class MenuController
         }
     }
 
-    private bool IsBackgroundPass => _drawPass == DrawPass.Background;
-
-    private bool IsForegroundPass => _drawPass == DrawPass.Foreground;
+    private bool HasRenderer => _gumUi is not null;
 
     private IReadOnlyList<Factory> GetBuildableOptions(GameSession session)
     {
@@ -395,16 +532,28 @@ public sealed partial class MenuController
 
     private bool DeleteSelectedObject()
     {
-        return SelectedObject switch
+        var removed = SelectedObject switch
         {
-            Creature creature => creature.RemoveFromGame("menuDelete"),
+            Creature creature => creature.TakeDamage(Math.Max(1, creature.Health), "menuKill") > 0,
             Building building => building.RemoveFromGame("menuDelete"),
             _ => false
         };
+
+        if (removed)
+        {
+            SetSelectedObject(null);
+        }
+
+        return removed;
     }
 
     private bool TransferCreatureAssignment(string fromAssignment, string toAssignment, GameSession session)
     {
+        if (string.Equals(fromAssignment, toAssignment, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         var creature = session.Cave?.Trilobites.FirstOrDefault(trilo => trilo.Assignment == fromAssignment);
         if (creature is null)
         {
@@ -412,8 +561,49 @@ public sealed partial class MenuController
         }
 
         creature.Assignment = toAssignment;
-        creature.ClearActionQueue();
-        creature.GetBehavior()?.Invoke();
+        creature.RestartBehavior();
         return true;
+    }
+
+    private static bool TryConvertKeyToCharacter(Keys key, KeyboardState keyboard, out char character)
+    {
+        var shiftHeld = keyboard.IsKeyDown(Keys.LeftShift) || keyboard.IsKeyDown(Keys.RightShift);
+        if (key is >= Keys.A and <= Keys.Z)
+        {
+            character = (char)('a' + (key - Keys.A));
+            if (shiftHeld)
+            {
+                character = char.ToUpperInvariant(character);
+            }
+
+            return true;
+        }
+
+        if (key is >= Keys.D0 and <= Keys.D9)
+        {
+            character = (char)('0' + (key - Keys.D0));
+            return true;
+        }
+
+        if (key is >= Keys.NumPad0 and <= Keys.NumPad9)
+        {
+            character = (char)('0' + (key - Keys.NumPad0));
+            return true;
+        }
+
+        character = key switch
+        {
+            Keys.Space => ' ',
+            Keys.OemMinus => shiftHeld ? '_' : '-',
+            Keys.OemPlus => shiftHeld ? '+' : '=',
+            Keys.OemPeriod => shiftHeld ? '>' : '.',
+            Keys.OemComma => shiftHeld ? '<' : ',',
+            Keys.OemQuestion => shiftHeld ? '?' : '/',
+            Keys.OemSemicolon => shiftHeld ? ':' : ';',
+            Keys.OemQuotes => shiftHeld ? '"' : '\'',
+            _ => '\0'
+        };
+
+        return character != '\0';
     }
 }
