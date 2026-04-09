@@ -1,4 +1,6 @@
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Runtime.Systems;
+using TriloGame.Game.Shared.Diagnostics;
 
 namespace TriloGame.Tests.Simulation;
 
@@ -8,30 +10,39 @@ public sealed class TickProfilerTests
     public void RunTick_RecordsPhaseTimingAndEntityCounts()
     {
         var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var clock = new GameSimulationClockSystem();
 
-        TickRunner.RunTick(session);
+        clock.RunSingleTick(session);
 
-        Assert.Equal(1, session.TickProfiler.SampleCount);
-        Assert.True(session.TickProfiler.Last.TotalMs >= 0d);
-        Assert.True(session.TickProfiler.Last.BuildingCount >= 1);
-        Assert.Equal(0, session.TickProfiler.Last.EnemyCount);
-        Assert.Equal(session.TickProfiler.Last.BuildingCount, session.TickProfiler.Average.BuildingCount);
+        Assert.Equal(1, session.Runtime.TickProfiler.SampleCount);
+        Assert.True(session.Runtime.TickProfiler.Last.TotalMs >= 0d);
+        Assert.True(session.Runtime.TickProfiler.Last.BuildingCount >= 1);
+        Assert.Equal(0, session.Runtime.TickProfiler.Last.EnemyCount);
+        Assert.Equal(session.Runtime.TickProfiler.Last.BuildingCount, session.Runtime.TickProfiler.Average.BuildingCount);
     }
 
     [Fact]
-    public void RunTick_CapturesRoleTimingOnlyWhenRequested()
+    public void RunTick_RecordsNavigationInstrumentationForWorkerMovement()
     {
-        var (session, _, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
-        trilobite.Assignment = "miner";
+        var bootstrap = TestWorldFactory.CreateBootstrappedGame();
+        var clock = new GameSimulationClockSystem();
+
+        clock.RunSingleTick(bootstrap.Session);
+
+        var navigation = bootstrap.Session.Runtime.TickProfiler.Last.Navigation;
+        Assert.True(navigation.BuildingPathRequestCount > 0 || navigation.PointPathRequestCount > 0);
+        Assert.True(navigation.BuildPathFromFieldCallCount > 0 || navigation.BuildPointBfsFieldCallCount > 0);
+    }
+
+    [Fact]
+    public void RunTick_WithoutProfilingObserver_DoesNotRecordProfilerSnapshot()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
 
         TickRunner.RunTick(session);
-        Assert.False(session.TickProfiler.Last.RoleTimingsCaptured);
-        Assert.Equal(RoleTimingSnapshot.Empty, session.TickProfiler.Last.MinerTiming);
 
-        TickRunner.RunTick(session, captureRoleTimings: true);
-        Assert.True(session.TickProfiler.Last.RoleTimingsCaptured);
-        Assert.Equal(1, session.TickProfiler.Last.MinerTiming.Count);
-        Assert.True(session.TickProfiler.Last.MinerTiming.TotalMs >= 0d);
+        Assert.Equal(0, session.Runtime.TickProfiler.SampleCount);
+        Assert.Equal(TickTimingSnapshot.Empty, session.Runtime.TickProfiler.Last);
     }
 
     [Fact]
@@ -44,18 +55,14 @@ public sealed class TickProfilerTests
             8d,
             10d,
             6d,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            false,
             0L,
             0,
             0,
             0,
             37,
             4,
-            6);
+            6,
+            NavigationTickMetrics.Empty);
 
         var description = snapshot.DescribeDominantWork();
 
@@ -74,18 +81,14 @@ public sealed class TickProfilerTests
             21d,
             3d,
             2d,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            false,
             0L,
             0,
             0,
             0,
             12,
             1,
-            5);
+            5,
+            NavigationTickMetrics.Empty);
 
         var description = snapshot.DescribeDominantWork();
 
@@ -103,18 +106,14 @@ public sealed class TickProfilerTests
             9d,
             7d,
             5d,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            false,
             0L,
             0,
             0,
             0,
             48,
             3,
-            8);
+            8,
+            NavigationTickMetrics.Empty);
 
         var description = snapshot.DescribeDominantWorkShort();
 
@@ -124,52 +123,99 @@ public sealed class TickProfilerTests
     }
 
     [Fact]
-    public void Record_AverageRoleTimingPerTrilobite_UsesOnlyCapturedRoleTimingSamples()
+    public void Record_AverageNavigationMetrics_UsesRecordedSamples()
     {
         var profiler = new TickProfiler();
+        var firstNavigation = new NavigationTickMetrics(
+            2,
+            1,
+            10L,
+            20L,
+            3,
+            0.5d,
+            30L,
+            4,
+            0.75d,
+            40L,
+            0,
+            0d,
+            0L,
+            0,
+            2,
+            12,
+            8,
+            1,
+            6,
+            1,
+            6,
+            6,
+            1,
+            2);
+        var secondNavigation = new NavigationTickMetrics(
+            4,
+            3,
+            30L,
+            40L,
+            5,
+            1.5d,
+            50L,
+            6,
+            2.75d,
+            60L,
+            2,
+            1d,
+            10L,
+            20,
+            4,
+            18,
+            10,
+            3,
+            8,
+            3,
+            12,
+            8,
+            3,
+            6);
 
         profiler.Record(new TickTimingSnapshot(
             18d,
-            0d,
-            5d,
-            0d,
-            0d,
             1d,
-            new RoleTimingSnapshot(9d, 3),
-            new RoleTimingSnapshot(8d, 2),
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            true,
-            0L,
-            0,
+            5d,
+            2d,
+            3d,
+            4d,
+            100L,
+            1,
             0,
             0,
             5,
             0,
-            1));
+            1,
+            firstNavigation));
         profiler.Record(new TickTimingSnapshot(
             16d,
-            0d,
+            2d,
             4d,
-            0d,
-            0d,
             1d,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            RoleTimingSnapshot.Empty,
-            false,
-            0L,
+            2d,
+            5d,
+            300L,
+            2,
+            1,
             0,
-            0,
-            0,
-            5,
-            0,
-            1));
+            6,
+            1,
+            2,
+            secondNavigation));
 
-        Assert.Equal(3d, profiler.AverageMinerMsPerTrilobite);
-        Assert.Equal(4d, profiler.AverageBuilderMsPerTrilobite);
-        Assert.Equal(0d, profiler.AverageFarmerMsPerTrilobite);
-        Assert.Equal(0d, profiler.AverageFighterMsPerTrilobite);
+        Assert.Equal(17d, profiler.Average.TotalMs);
+        Assert.Equal(3, profiler.Average.Navigation.PointPathRequestCount);
+        Assert.Equal(2, profiler.Average.Navigation.BuildingPathRequestCount);
+        Assert.Equal(1d, profiler.Average.Navigation.BuildPathFromFieldMs);
+        Assert.Equal(1, profiler.Average.Navigation.DroppedResourceScanCount);
+        Assert.Equal(7, profiler.Average.Navigation.QueuedNavigationSteps);
+        Assert.Equal(9, profiler.Average.Navigation.MaxPathLength);
+        Assert.Equal(200L, profiler.Average.AllocatedBytes);
+        Assert.Equal(6, profiler.Average.TrilobiteCount);
     }
 }

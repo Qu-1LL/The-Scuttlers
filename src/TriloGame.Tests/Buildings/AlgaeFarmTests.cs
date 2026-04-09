@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Buildings;
@@ -68,5 +69,61 @@ public sealed class AlgaeFarmTests
 
         Assert.Equal(expected, visited);
         Assert.Equal(expected[0], current!.Value);
+    }
+
+    [Fact]
+    public void FarmPath_LoopsBackToStartingFarmTile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        var farm = new AlgaeFarm(session);
+        var buildLocation = TestWorldFactory.FindBuildLocation(cave, farm);
+        Assert.True(cave.Build(farm, buildLocation));
+
+        var start = Assert.IsType<GridPoint>(farm.GetApproachTile(buildLocation));
+        var path = farm.GetPath(start);
+
+        Assert.NotEmpty(path);
+        Assert.Equal(start, path[0]);
+        Assert.Equal(start, path[^1]);
+    }
+
+    [Fact]
+    public void Assign_DefaultCapacityAllowsTwoTrilobites()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        var farm = new AlgaeFarm(session);
+        var buildLocation = TestWorldFactory.FindBuildLocation(cave, farm);
+        Assert.True(cave.Build(farm, buildLocation));
+
+        var first = new Trilobite("Farmer 1", buildLocation, session);
+        var second = new Trilobite("Farmer 2", buildLocation, session);
+        var third = new Trilobite("Farmer 3", buildLocation, session);
+
+        Assert.True(farm.Assign(first));
+        Assert.True(farm.Assign(second));
+        Assert.False(farm.Assign(third));
+        Assert.Equal(2, farm.GetVolume());
+        Assert.Equal(0, farm.GetAvailableAssignmentSlots());
+    }
+
+    [Fact]
+    public void IncreaseAssignmentCapacity_AllowsAdditionalTrilobites()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        var farm = new AlgaeFarm(session);
+        var buildLocation = TestWorldFactory.FindBuildLocation(cave, farm);
+        Assert.True(cave.Build(farm, buildLocation));
+
+        var first = new Trilobite("Farmer 1", buildLocation, session);
+        var second = new Trilobite("Farmer 2", buildLocation, session);
+        var third = new Trilobite("Farmer 3", buildLocation, session);
+
+        Assert.True(farm.Assign(first));
+        Assert.True(farm.Assign(second));
+        farm.IncreaseAssignmentCapacity();
+
+        Assert.True(farm.Assign(third));
+        Assert.Equal(3, farm.GetVolume());
+        Assert.Equal(0, farm.GetAvailableAssignmentSlots());
     }
 }

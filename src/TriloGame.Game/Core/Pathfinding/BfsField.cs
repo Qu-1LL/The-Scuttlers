@@ -13,6 +13,7 @@ public sealed class BfsField
     private bool[] _blocked = [];
     private bool[] _seeded = [];
     private bool[] _queued = [];
+    private int[] _nextStepIds = [];
     private readonly Queue<int> _queue = [];
     private readonly List<int> _seedIds = [];
     private bool _fieldCacheDirty = true;
@@ -57,6 +58,11 @@ public sealed class BfsField
 
     public void SetCave(Cave? cave)
     {
+        if (ReferenceEquals(Cave, cave))
+        {
+            return;
+        }
+
         Cave = cave;
         EnsureCapacity(cave?.TileCapacity ?? 0);
         _fieldCacheDirty = true;
@@ -126,6 +132,17 @@ public sealed class BfsField
         return Updated;
     }
 
+    public bool MarkTileDirty(string? tileKey)
+    {
+        Updated = false;
+        if (!string.IsNullOrWhiteSpace(tileKey))
+        {
+            UpdatedTiles.Add(tileKey);
+        }
+
+        return Updated;
+    }
+
     public bool MarkBuildingsDirty(IEnumerable<Building>? buildings)
     {
         Updated = false;
@@ -141,6 +158,17 @@ public sealed class BfsField
     {
         Updated = false;
         foreach (var creature in creatures ?? [])
+        {
+            UpdatedCreatures.Add(creature);
+        }
+
+        return Updated;
+    }
+
+    public bool MarkCreatureDirty(Creature? creature)
+    {
+        Updated = false;
+        if (creature is not null)
         {
             UpdatedCreatures.Add(creature);
         }
@@ -221,6 +249,8 @@ public sealed class BfsField
         Array.Resize(ref _blocked, newLength);
         Array.Resize(ref _seeded, newLength);
         Array.Resize(ref _queued, newLength);
+        Array.Resize(ref _nextStepIds, newLength);
+        Array.Fill(_nextStepIds, -1, oldLength, newLength - oldLength);
     }
 
     private void ImportField(Dictionary<string, int> field)
@@ -256,6 +286,8 @@ public sealed class BfsField
             _covered[tile.Id] = true;
             _values[tile.Id] = pair.Value;
         }
+
+        RebuildNextStepCache();
     }
 
     private bool IsTileInCoverage(Tile? tile)
@@ -323,6 +355,7 @@ public sealed class BfsField
             else
             {
                 _values[tileId] = int.MaxValue;
+                _nextStepIds[tileId] = -1;
             }
         }
 
@@ -446,7 +479,7 @@ public sealed class BfsField
             foreach (var creature in Cave.GetEnemyList())
             {
                 trackedCreatures.Add(creature);
-                var tile = GetTile(creature.Location.ToString());
+                var tile = Cave.GetTile(creature.Location);
                 if (tile is null)
                 {
                     continue;
@@ -461,7 +494,7 @@ public sealed class BfsField
             foreach (var creature in Cave.GetTrilobiteList())
             {
                 trackedCreatures.Add(creature);
-                var tile = GetTile(creature.Location.ToString());
+                var tile = Cave.GetTile(creature.Location);
                 if (tile is null)
                 {
                     continue;
@@ -573,9 +606,63 @@ public sealed class BfsField
 
     private Dictionary<string, int> CommitCurrentField()
     {
+        RebuildNextStepCache();
         _fieldCacheDirty = true;
         ClearUpdates();
         return GetField(false);
+    }
+
+    private void RebuildNextStepCache()
+    {
+        if (Cave is null)
+        {
+            Array.Fill(_nextStepIds, -1);
+            return;
+        }
+
+        EnsureCapacity(Cave.TileCapacity);
+        Array.Fill(_nextStepIds, -1);
+
+        foreach (var tile in Cave.GetTiles())
+        {
+            if (!_covered[tile.Id] || _blocked[tile.Id])
+            {
+                continue;
+            }
+
+            var currentValue = _values[tile.Id];
+            if (currentValue == int.MaxValue || currentValue == 0)
+            {
+                continue;
+            }
+
+            Tile? bestNeighbor = null;
+            var bestValue = currentValue;
+
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (!neighbor.CreatureFits() || !_covered[neighbor.Id] || _blocked[neighbor.Id])
+                {
+                    continue;
+                }
+
+                var neighborValue = _values[neighbor.Id];
+                if (neighborValue == int.MaxValue || neighborValue >= bestValue)
+                {
+                    continue;
+                }
+
+                if (bestNeighbor is null ||
+                    neighborValue < bestValue ||
+                    string.CompareOrdinal(neighbor.Key, bestNeighbor.Key) < 0)
+                {
+                    bestNeighbor = neighbor;
+                    bestValue = neighborValue;
+                }
+            }
+
+            _nextStepIds[tile.Id] = bestNeighbor?.Id ?? -1;
+        }
     }
 
     public Dictionary<string, int> Rebuild()
@@ -729,7 +816,7 @@ public sealed class BfsField
             Refresh();
         }
 
-        var tile = GetTile(location.ToString());
+        var tile = Cave?.GetTile(location);
         return tile is null || !_covered[tile.Id]
             ? int.MaxValue
             : _values[tile.Id];
@@ -742,37 +829,14 @@ public sealed class BfsField
             Refresh();
         }
 
-        var currentTile = GetTile(location.ToString());
+        var currentTile = Cave?.GetTile(location);
         if (currentTile is null || !_covered[currentTile.Id])
         {
             return null;
         }
 
-        var currentValue = _values[currentTile.Id];
-        Tile? bestNeighbor = null;
-        var bestValue = currentValue;
-
-        foreach (var neighbor in currentTile.Neighbors)
-        {
-            if (!neighbor.CreatureFits() || !_covered[neighbor.Id])
-            {
-                continue;
-            }
-
-            var neighborValue = _values[neighbor.Id];
-            if (neighborValue == int.MaxValue || neighborValue >= bestValue)
-            {
-                continue;
-            }
-
-            if (bestNeighbor is null || neighborValue < bestValue || string.CompareOrdinal(neighbor.Key, bestNeighbor.Key) < 0)
-            {
-                bestNeighbor = neighbor;
-                bestValue = neighborValue;
-            }
-        }
-
-        return bestNeighbor?.Coordinates;
+        var nextStepId = _nextStepIds[currentTile.Id];
+        return nextStepId < 0 ? null : Cave?.GetTileById(nextStepId)?.Coordinates;
     }
 
     public List<GridPoint>? BuildPathFrom(GridPoint startLocation, bool refresh = true)
@@ -782,7 +846,7 @@ public sealed class BfsField
             Refresh();
         }
 
-        var startTile = GetTile(startLocation.ToString());
+        var startTile = Cave?.GetTile(startLocation);
         if (startTile is null || !_covered[startTile.Id])
         {
             return null;

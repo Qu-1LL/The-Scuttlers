@@ -153,6 +153,7 @@ public sealed class BfsFieldTests
         var wallTile = cave.GetTile(wallLocation.ToString())!;
         wallTile.SetBase("wall");
         wallTile.CreatureCanFit = false;
+        wallTile.ConfigureWall(1);
         cave.RefreshReachableTiles();
         cave.RevealTile(wallTile);
 
@@ -168,7 +169,7 @@ public sealed class BfsFieldTests
             .Where(value => value != int.MaxValue)
             .Min();
 
-        Assert.True(mined);
+        Assert.True(mined.TileDepleted);
         Assert.Equal(expectedValue + 1, field.GetFieldValue(wallLocation, refresh: false));
     }
 }

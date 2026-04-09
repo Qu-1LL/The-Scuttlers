@@ -1,28 +1,40 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Traits;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
+using System.Diagnostics;
 
 namespace TriloGame.Game.Core.Entities;
 
 public sealed partial class Trilobite : Creature
 {
+    private readonly List<string> _manualMineTileKeys = [];
+    private bool _fleeingToQueen;
+
     public Trilobite(string name, GridPoint location, GameSession session)
         : base(name, location, session)
     {
         Inventory = new Core.Economy.Inventory();
-        InventoryCapacity = 5;
+        InventoryCapacity = GameConstants.TrilobiteCarryCapacity;
         BuilderWorkRate = 5;
+        TraitState = new TrilobiteTraitState(TrilobiteTraits.CreateRandomStarterTraits(GameConstants.TrilobiteStarterTraitCount));
     }
 
     public Core.Economy.Inventory Inventory { get; }
 
     public int InventoryCapacity { get; }
 
+    public TrilobiteTraitState TraitState { get; }
+
     public Building? AssignedBuilding { get; private set; }
 
     public string? PendingMineType { get; private set; }
 
     public string? PendingMineTileKey { get; private set; }
+    public string? PendingManualMineSelectionKey { get; private set; }
 
     private List<GridPoint>? PendingMinePath { get; set; }
 
@@ -46,11 +58,23 @@ public sealed partial class Trilobite : Creature
 
     public void ClearInventory() => Inventory.Clear();
 
+    public void SetTraits(IEnumerable<TrilobiteTrait> traits)
+    {
+        TraitState.SetTraits(traits);
+    }
+
     public override void CleanupBeforeRemoval(object? source = null)
     {
+        if (Health <= 0 && TraitState.HasTrait(TrilobiteTrait.Explosive))
+        {
+            Cave?.TriggerDeathExplosion(this, source);
+        }
+
         ClearActionQueue();
+        ClearManualMineOrders();
         ClearFighterTarget();
         FighterPathMode = null;
+        _fleeingToQueen = false;
         ReleaseAssignedBuilding();
         PendingMineType = null;
         PendingMineTileKey = null;
@@ -92,6 +116,62 @@ public sealed partial class Trilobite : Creature
     public bool IsBuilder() => Assignment == "builder";
 
     public bool IsFighter() => Assignment == "fighter";
+
+    protected override bool TryInterruptQueuedAction()
+    {
+        if (!ShouldFleeFromNearbyEnemy())
+        {
+            if (_fleeingToQueen)
+            {
+                _fleeingToQueen = false;
+                ClearActionQueue();
+            }
+
+            return false;
+        }
+
+        var queen = GetQueen();
+        if (queen is null)
+        {
+            _fleeingToQueen = false;
+            return false;
+        }
+
+        if (!_fleeingToQueen)
+        {
+            _fleeingToQueen = true;
+            ReleaseAssignedBuilding();
+            ClearActionQueue();
+            if (queen.CanBeFedAt(Location) || IsOnPassableBuildingTile(queen))
+            {
+                return true;
+            }
+
+            NavigateToBuilding(queen, null, true);
+            return false;
+        }
+
+        if (queen.CanBeFedAt(Location) || IsOnPassableBuildingTile(queen))
+        {
+            ClearActionQueue();
+            return true;
+        }
+
+        if (QueuedActionCount == 0)
+        {
+            ClearActionQueue();
+            NavigateToBuilding(queen, null, true);
+        }
+
+        return false;
+    }
+
+    private bool ShouldFleeFromNearbyEnemy()
+    {
+        return Cave is not null &&
+               (IsMiner() || IsFarmer() || IsBuilder()) &&
+               Cave.IsLocationThreatenedByVisibleEnemy(Location);
+    }
 
     public bool EnsureMinerState()
     {
@@ -248,7 +328,16 @@ public sealed partial class Trilobite : Creature
 
     public bool IsOnPassableBuildingTile(Building building, GridPoint? location = null)
     {
-        return building.TileArray.Any(tile => tile.Key == (location ?? Location).ToString() && tile.CreatureFits());
+        var target = location ?? Location;
+        foreach (var tile in building.TileArray)
+        {
+            if (tile.CreatureFits() && tile.Coordinates == target)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public int FeedQueenAlgae(Queen queen)
@@ -293,6 +382,7 @@ public sealed partial class Trilobite : Creature
         if (AssignedBuilding is null)
         {
             PendingMineTileKey = null;
+            PendingManualMineSelectionKey = null;
             return;
         }
 
@@ -318,6 +408,7 @@ public sealed partial class Trilobite : Creature
         }
 
         PendingMineTileKey = null;
+        PendingManualMineSelectionKey = null;
         AssignedBuilding = null;
     }
 
@@ -935,8 +1026,7 @@ public sealed partial class Trilobite : Creature
         {
             ReleaseAssignedBuilding();
             excludedFarms.Add(farm);
-            EnqueueAction(() => { FarmerStep1(); });
-            return false;
+            return TryNavigateAlgaeFarms(excludedFarms);
         }
 
         if (farm.IsLocationOnFarm(Location))
@@ -1057,7 +1147,8 @@ public sealed partial class Trilobite : Creature
 
         if (!farm.TryHarvest(this))
         {
-            return FarmerStep2();
+            EnqueueAction(() => { FarmerStep2(); });
+            return true;
         }
 
         ClearActionQueue();
@@ -1084,7 +1175,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (IsOnPassableBuildingTile(queen))
+        if (queen.CanBeFedAt(Location))
         {
             return FarmerStep5();
         }
@@ -1139,7 +1230,6 @@ public sealed partial class Trilobite : Creature
         var moved = PerformMove(nextLocation);
         if (!moved)
         {
-            ClearActionQueue();
             return FarmerStep4();
         }
 
@@ -1165,7 +1255,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (!IsOnPassableBuildingTile(queen))
+        if (!queen.CanBeFedAt(Location))
         {
             return FarmerStep4();
         }
@@ -1185,6 +1275,38 @@ public sealed partial class Trilobite : Creature
         return Cave?.GetMiningPosts() ?? [];
     }
 
+    public IReadOnlyList<string> GetManualMineOrders() => _manualMineTileKeys;
+
+    public void SetManualMineOrders(IEnumerable<string> tileKeys)
+    {
+        _manualMineTileKeys.Clear();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tileKey in tileKeys)
+        {
+            if (!string.IsNullOrWhiteSpace(tileKey) && seen.Add(tileKey))
+            {
+                _manualMineTileKeys.Add(tileKey);
+            }
+        }
+
+        if (_manualMineTileKeys.Count == 0)
+        {
+            return;
+        }
+
+        ResetPendingMineTarget();
+        RestartBehavior();
+    }
+
+    public void ClearManualMineOrders(bool restartBehavior = false)
+    {
+        _manualMineTileKeys.Clear();
+        if (restartBehavior)
+        {
+            RestartBehavior();
+        }
+    }
+
     public void ResetPendingMineTarget(bool requeue = false)
     {
         var miningPost = GetAssignedMiningPost();
@@ -1197,6 +1319,7 @@ public sealed partial class Trilobite : Creature
         PendingMineType = null;
         PendingMineTileKey = null;
         PendingMinePath = null;
+        PendingManualMineSelectionKey = null;
     }
 
     private bool RetargetStalePendingMineTarget(MiningPost miningPost, string tileKey)
@@ -1205,6 +1328,12 @@ public sealed partial class Trilobite : Creature
         miningPost.Assign(this, null);
         PendingMineTileKey = null;
         PendingMinePath = null;
+        var wasManualTarget = HasPendingManualMineSelection();
+        PendingManualMineSelectionKey = null;
+        if (wasManualTarget)
+        {
+            PruneResolvedManualMineOrders();
+        }
         return string.IsNullOrWhiteSpace(PendingMineType) ? MinerStep3() : MinerStep4();
     }
 
@@ -1354,7 +1483,9 @@ public sealed partial class Trilobite : Creature
 
         foreach (var post in EnumerateMiningPostCandidates("miner", shouldBalanceAssignments ? null : preferredPost, excludedPosts))
         {
-            if (!CanReachMiningPostArea(post) || post.GetInventorySpace() <= 0 || !post.AssignmentsAvailable)
+            if (!CanReachMiningPostArea(post) ||
+                post.GetInventorySpace() <= 0 ||
+                (!HasManualMineOrders() && !post.AssignmentsAvailable))
             {
                 continue;
             }
@@ -1538,6 +1669,55 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        if (!HasManualMineOrders())
+        {
+            if (TryCollectDroppedSandstoneAtCurrentTile())
+            {
+                return MinerStep2();
+            }
+
+            var droppedSandstoneTile = GetNearestDroppedSandstoneTile(miningPost);
+            if (droppedSandstoneTile is not null)
+            {
+                if (Location == droppedSandstoneTile.Coordinates)
+                {
+                    if (TryCollectDroppedSandstoneAtCurrentTile())
+                    {
+                        return MinerStep2();
+                    }
+                }
+                else
+                {
+                    var navFallback = new Action(() => { MinerStep1(); });
+                    if (!NavigateTo(droppedSandstoneTile.Coordinates, navFallback))
+                    {
+                        return false;
+                    }
+
+                    EnqueueAction(() => { MinerStep3(); });
+                    return true;
+                }
+            }
+        }
+
+        var manualTarget = GetNextManualMineOrder();
+        if (manualTarget is not null)
+        {
+            if (miningPost.IsTileAssignedToOther(this, manualTarget.Value.TargetTile.Key))
+            {
+                RotateManualMineOrderToBack(manualTarget.Value.RequestedKey);
+                EnqueueAction(() => { MinerStep1(); });
+                return false;
+            }
+
+            PendingManualMineSelectionKey = manualTarget.Value.RequestedKey;
+            PendingMineTileKey = manualTarget.Value.TargetTile.Key;
+            miningPost.Assign(this, manualTarget.Value.TargetTile.Key);
+            PendingMineType = null;
+            PendingMinePath = null;
+            return MinerStep5();
+        }
+
         if (WaitForMiningAssignmentAvailability(miningPost))
         {
             return false;
@@ -1561,6 +1741,7 @@ public sealed partial class Trilobite : Creature
         PendingMineType = targetType;
         PendingMineTileKey = null;
         PendingMinePath = null;
+        PendingManualMineSelectionKey = null;
         return MinerStep4();
     }
 
@@ -1613,7 +1794,7 @@ public sealed partial class Trilobite : Creature
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
 
-        if (!Building.IsMineableType(targetTile.Base))
+        if (!Building.IsMineableType(targetTile.Base) && !(Cave?.HasOpal(targetTile) ?? false))
         {
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
@@ -1621,7 +1802,12 @@ public sealed partial class Trilobite : Creature
         var navTarget = miningPost.GetNavigationTarget(Cave!, targetTile);
         if (navTarget is null)
         {
-            ResetPendingMineTarget(true);
+            var wasManualTarget = HasPendingManualMineSelection();
+            ResetPendingMineTarget(!wasManualTarget);
+            if (wasManualTarget)
+            {
+                PruneResolvedManualMineOrders();
+            }
             EnqueueAction(() => { MinerStep1(); });
             return false;
         }
@@ -1648,7 +1834,13 @@ public sealed partial class Trilobite : Creature
 
         var navFallback = new Action(() =>
         {
-            ResetPendingMineTarget(true);
+            var pendingMineTileKey = PendingMineTileKey;
+            var wasManualTarget = HasPendingManualMineSelection();
+            ResetPendingMineTarget(!wasManualTarget);
+            if (wasManualTarget)
+            {
+                PruneResolvedManualMineOrders();
+            }
             MinerStep1();
         });
 
@@ -1666,49 +1858,56 @@ public sealed partial class Trilobite : Creature
         return true;
     }
 
-    public bool MineTile(string tileKey)
+    public MineTileResult MineTile(string tileKey)
     {
         var tile = Cave?.GetTile(tileKey);
         if (tile is null)
         {
-            return false;
+            return MineTileResult.NotApplied;
         }
 
-        var mineYield = InventoryCapacity;
-        if (GetInventorySpace() < mineYield || !Building.IsMineableType(tile.Base))
+        var isOpal = Cave?.HasOpal(tile) ?? false;
+        if (!isOpal && !Building.IsMineableType(tile.Base))
         {
-            return false;
+            return MineTileResult.NotApplied;
         }
 
         var tileCoords = GridPoint.Parse(tileKey);
+        if (isOpal)
+        {
+            return Location == tileCoords
+                ? Session.MineTile(Cave!, tileKey, source: "creature")
+                : MineTileResult.NotApplied;
+        }
+
         if (tile.Base == "wall")
         {
-            if (GridPoint.ManhattanDistance(Location, tileCoords) != 1 || AddToInventory("Sandstone", mineYield) != mineYield)
+            if (GridPoint.ManhattanDistance(Location, tileCoords) != 1)
             {
-                return false;
+                return MineTileResult.NotApplied;
             }
 
-            if (!Session.MineTile(Cave!, tileKey, "creature"))
-            {
-                RemoveFromInventory(mineYield);
-                return false;
-            }
-
-            return true;
+            return Session.MineTile(Cave!, tileKey, Location.ToString(), "creature");
         }
 
-        if (Location != tileCoords || AddToInventory(tile.Base, mineYield) != mineYield)
+        if (Location != tileCoords || GetInventorySpace() < 1)
         {
-            return false;
+            return MineTileResult.NotApplied;
         }
 
-        if (!Session.MineTile(Cave!, tileKey, "creature"))
+        var result = Session.MineTile(Cave!, tileKey, source: "creature");
+        if (!result.HitApplied)
         {
-            RemoveFromInventory(mineYield);
-            return false;
+            return result;
         }
 
-        return true;
+        if (result.ResourceAmount > 0 && AddToInventory(result.ResourceType!, result.ResourceAmount) != result.ResourceAmount)
+        {
+            RemoveFromInventory(result.ResourceAmount);
+            return MineTileResult.NotApplied;
+        }
+
+        return result;
     }
 
     public bool MinerStep6()
@@ -1726,20 +1925,207 @@ public sealed partial class Trilobite : Creature
         }
 
         var targetTile = Cave?.GetTile(PendingMineTileKey);
-        if (targetTile is null || !Building.IsMineableType(targetTile.Base))
+        if (targetTile is null || (!Building.IsMineableType(targetTile.Base) && !(Cave?.HasOpal(targetTile) ?? false)))
         {
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
 
-        var success = MineTile(PendingMineTileKey);
-        ResetPendingMineTarget(!success);
-        if (!success)
+        var wasManualTarget = HasPendingManualMineSelection();
+        var result = MineTile(PendingMineTileKey);
+        if (!result.HitApplied)
         {
+            ResetPendingMineTarget(!wasManualTarget);
+            if (wasManualTarget)
+            {
+                PruneResolvedManualMineOrders();
+            }
             EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
-        return MinerStep1();
+        if (result.DroppedAmount > 0)
+        {
+            TryCollectDroppedSandstoneAtCurrentTile();
+        }
+
+        if (result.TileDepleted)
+        {
+            var shouldReturnToPostForRevealedSelection = wasManualTarget && ShouldReturnToPostAfterManualReveal();
+            ResetPendingMineTarget(false);
+            PruneResolvedManualMineOrders();
+
+            if (shouldReturnToPostForRevealedSelection)
+            {
+                return MinerStep2();
+            }
+
+            return HasInventory() ? MinerStep2() : MinerStep1();
+        }
+
+        if (GetInventorySpace() <= 0)
+        {
+            ResetPendingMineTarget(!wasManualTarget);
+            return MinerStep2();
+        }
+
+        EnqueueAction(() => { MinerStep6(); });
+        return true;
+    }
+
+    private bool HasManualMineOrders()
+    {
+        return _manualMineTileKeys.Count > 0;
+    }
+
+    private (string RequestedKey, World.Tile TargetTile)? GetNextManualMineOrder()
+    {
+        if (Cave is null)
+        {
+            return null;
+        }
+
+        for (var index = 0; index < _manualMineTileKeys.Count; index++)
+        {
+            var tileKey = _manualMineTileKeys[index];
+            var tile = Cave.GetTile(tileKey);
+            if (tile is null)
+            {
+                _manualMineTileKeys.RemoveAt(index);
+                index--;
+                continue;
+            }
+
+            if (Cave.IsTileRevealed(tile) && !Cave.HasOpal(tile) && !Building.IsMineableType(tile.Base))
+            {
+                _manualMineTileKeys.RemoveAt(index);
+                index--;
+                continue;
+            }
+
+            var resolvedTile = MineOrderPlanner.ResolveTarget(Cave, tile);
+            if (resolvedTile is not null)
+            {
+                return (tileKey, resolvedTile);
+            }
+        }
+
+        return null;
+    }
+
+    private bool HasPendingManualMineSelection()
+    {
+        return !string.IsNullOrWhiteSpace(PendingManualMineSelectionKey);
+    }
+
+    private void PruneResolvedManualMineOrders()
+    {
+        if (Cave is null)
+        {
+            return;
+        }
+
+        for (var index = _manualMineTileKeys.Count - 1; index >= 0; index--)
+        {
+            var tile = Cave.GetTile(_manualMineTileKeys[index]);
+            if (tile is null ||
+                (Cave.IsTileRevealed(tile) && !Cave.HasOpal(tile) && !Building.IsMineableType(tile.Base)))
+            {
+                _manualMineTileKeys.RemoveAt(index);
+            }
+        }
+    }
+
+    private void RotateManualMineOrderToBack(string tileKey)
+    {
+        var index = _manualMineTileKeys.FindIndex(key => string.Equals(key, tileKey, StringComparison.Ordinal));
+        if (index < 0 || _manualMineTileKeys.Count <= 1)
+        {
+            return;
+        }
+
+        var current = _manualMineTileKeys[index];
+        _manualMineTileKeys.RemoveAt(index);
+        _manualMineTileKeys.Add(current);
+    }
+
+    private bool ShouldReturnToPostAfterManualReveal()
+    {
+        if (Cave is null || string.IsNullOrWhiteSpace(PendingManualMineSelectionKey))
+        {
+            return false;
+        }
+
+        var tile = Cave.GetTile(PendingManualMineSelectionKey);
+        return tile is not null &&
+               Cave.IsTileRevealed(tile) &&
+               !string.Equals(tile.Base, "wall", StringComparison.Ordinal);
+    }
+
+    private bool TryCollectDroppedSandstoneAtCurrentTile()
+    {
+        if (HasInventory() || Cave is null)
+        {
+            return false;
+        }
+
+        var tile = Cave.GetTile(Location);
+        if (tile is null)
+        {
+            return false;
+        }
+
+        var taken = tile.TakeDroppedResource(OreType.SANDSTONE.Name, GameConstants.WallDropCarryAmount);
+        if (taken <= 0)
+        {
+            return false;
+        }
+
+        if (AddToInventory(OreType.SANDSTONE.Name, taken) != taken)
+        {
+            tile.AddDroppedResource(OreType.SANDSTONE.Name, taken);
+            return false;
+        }
+
+        return true;
+    }
+
+    private World.Tile? GetNearestDroppedSandstoneTile(MiningPost miningPost)
+    {
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var timerStart = Stopwatch.GetTimestamp();
+        var scannedTiles = 0;
+        if (Cave is null)
+        {
+            NavigationInstrumentation.RecordDroppedResourceScan(scannedTiles, 0d, 0L);
+            return null;
+        }
+
+        World.Tile? bestTile = null;
+        var bestDistance = int.MaxValue;
+        foreach (var tile in Cave.GetTiles())
+        {
+            scannedTiles++;
+            if (!tile.CreatureFits() ||
+                tile.GetDroppedResourceCount(OreType.SANDSTONE.Name) <= 0 ||
+                !miningPost.IsLocationInArea(tile.Coordinates) ||
+                !Cave.IsTileReachable(tile))
+            {
+                continue;
+            }
+
+            var distance = GridPoint.SquaredDistance(Location, tile.Coordinates);
+            if (bestTile is null || distance < bestDistance)
+            {
+                bestTile = tile;
+                bestDistance = distance;
+            }
+        }
+
+        NavigationInstrumentation.RecordDroppedResourceScan(
+            scannedTiles,
+            Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
+            GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        return bestTile;
     }
 
     public IReadOnlyList<Scaffolding> GetScaffoldingBuildings()

@@ -86,6 +86,7 @@ public sealed class MiningPostOwnershipFieldTests
                 ?? throw new InvalidOperationException("Expected barrier tile to exist.");
             barrierTile.SetBase("wall");
             barrierTile.CreatureCanFit = false;
+            barrierTile.ConfigureWall(1);
         }
 
         cave.RefreshReachableTiles();
@@ -95,7 +96,7 @@ public sealed class MiningPostOwnershipFieldTests
         Assert.Empty(cave.GetAdjacentMiningPosts(rightPost));
 
         var openedLocation = new GridPoint(9, 6);
-        Assert.True(session.MineTile(cave, openedLocation.ToString(), "test"));
+        Assert.True(session.MineTile(cave, openedLocation.ToString(), "test").TileDepleted);
 
         var openedTile = cave.GetTile(openedLocation.ToString())
             ?? throw new InvalidOperationException("Expected opened tile to exist.");

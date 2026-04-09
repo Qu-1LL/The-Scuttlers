@@ -8,6 +8,9 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Queen : Building
 {
+    private List<World.Tile>? _feedTilesCache;
+    private HashSet<string>? _feedTileKeysCache;
+
     public Queen(GameSession session)
         : base("Queen", new GridPoint(3, 3), [[1, 1, 1], [1, 0, 1], [1, 1, 1]], session, true)
     {
@@ -26,12 +29,26 @@ public sealed class Queen : Building
 
     public IReadOnlyList<World.Tile> GetFeedTiles()
     {
-        return TileArray.Where(tile => tile.CreatureFits()).ToArray();
+        _feedTilesCache ??= TileArray.Where(tile => tile.CreatureFits()).ToList();
+        return _feedTilesCache;
+    }
+
+    private HashSet<string> GetFeedTileKeys()
+    {
+        _feedTileKeysCache ??= GetFeedTiles()
+            .Select(tile => tile.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        return _feedTileKeysCache;
+    }
+
+    public bool CanBeFedAt(GridPoint location)
+    {
+        return GetFeedTileKeys().Contains(location.ToString());
     }
 
     public bool CanBeFedBy(Creature creature)
     {
-        return GetFeedTiles().Any(tile => tile.Key == creature.Location.ToString());
+        return CanBeFedAt(creature.Location);
     }
 
     public World.Tile? GetBirthTile()

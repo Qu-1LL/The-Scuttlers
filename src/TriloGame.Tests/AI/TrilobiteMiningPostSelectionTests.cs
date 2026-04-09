@@ -277,7 +277,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal(firstOre.ToString(), staleTargetKey);
         Assert.Equal(staleTargetKey, post.GetAssignment(miner));
 
-        Assert.True(session.MineTile(cave, staleTargetKey!, "test"));
+        Assert.True(session.MineTile(cave, staleTargetKey!, "test").TileDepleted);
 
         Assert.True(miner.MinerStep5());
         Assert.Equal(secondOre.ToString(), miner.PendingMineTileKey);
@@ -290,5 +290,15 @@ public sealed class TrilobiteMiningPostSelectionTests
         var tile = cave.GetTile(location.ToString())
             ?? throw new InvalidOperationException($"No tile exists at {location}.");
         tile.SetBase(tileBase);
+        if (string.Equals(tileBase, "wall", StringComparison.Ordinal))
+        {
+            tile.CreatureCanFit = false;
+            tile.ConfigureWall(1);
+        }
+        else
+        {
+            tile.CreatureCanFit = true;
+            tile.ConfigureOre(1, 1);
+        }
     }
 }

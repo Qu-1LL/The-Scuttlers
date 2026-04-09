@@ -156,7 +156,7 @@ public sealed class MiningPostTests
         Assert.True(post.AssignmentsAvailable);
         Assert.True(cave.HasAvailableMiningPostAssignments);
 
-        Assert.True(session.MineTile(cave, oreLocation.ToString(), "test"));
+        Assert.True(session.MineTile(cave, oreLocation.ToString(), "test").TileDepleted);
 
         Assert.False(post.AssignmentsAvailable);
         Assert.False(cave.HasAvailableMiningPostAssignments);
@@ -181,7 +181,7 @@ public sealed class MiningPostTests
         Assert.True(post.AssignmentsAvailable);
         Assert.False(cave.IsTileRevealed(cave.GetTile(newlyRevealedWall.ToString())!));
 
-        Assert.True(session.MineTile(cave, minedWall.ToString(), "test"));
+        Assert.True(session.MineTile(cave, minedWall.ToString(), "test").TileDepleted);
 
         Assert.True(cave.IsTileRevealed(cave.GetTile(newlyRevealedWall.ToString())!));
         Assert.True(post.AssignmentsAvailable);
@@ -199,5 +199,13 @@ public sealed class MiningPostTests
             ?? throw new InvalidOperationException($"No tile exists at {location}.");
         tile.SetBase(tileBase);
         tile.CreatureCanFit = !string.Equals(tileBase, "wall", StringComparison.Ordinal);
+        if (string.Equals(tileBase, "wall", StringComparison.Ordinal))
+        {
+            tile.ConfigureWall(1);
+        }
+        else
+        {
+            tile.ConfigureOre(1, 1);
+        }
     }
 }

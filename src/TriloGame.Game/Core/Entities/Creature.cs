@@ -1,6 +1,7 @@
-using Microsoft.Xna.Framework;
+using System.Numerics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 
@@ -27,7 +28,7 @@ public class Creature
         PathPreview = [];
     }
 
-    public string Name { get; }
+    public string Name { get; private set; }
 
     public List<GridPoint> PathPreview { get; }
 
@@ -79,6 +80,18 @@ public class Creature
 
     public virtual Action? GetBehavior() => null;
 
+    public bool Rename(string name)
+    {
+        var trimmed = name.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) || string.Equals(Name, trimmed, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        Name = trimmed;
+        return true;
+    }
+
     public int RestoreHealth()
     {
         Health = MaxHealth;
@@ -128,6 +141,8 @@ public class Creature
         return true;
     }
 
+    protected int QueuedActionCount => _queue.Count;
+
     public virtual Action? GetNavigationFallback()
     {
         return Assignment switch
@@ -154,7 +169,16 @@ public class Creature
 
     public List<GridPoint>? BuildNavigationPathToPoint(GridPoint destination)
     {
-        return Cave?.BuildPathFromField(Cave.BuildPointBfsField(destination), Location);
+        if (Cave is null)
+        {
+            NavigationInstrumentation.RecordPointPathRequest(0, 0L);
+            return null;
+        }
+
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var path = Cave.BuildPathFromField(Cave.BuildPointBfsField(destination), Location);
+        NavigationInstrumentation.RecordPointPathRequest(path?.Count ?? 0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        return path;
     }
 
     public List<GridPoint>? BuildDirectNavigationPathToPoint(GridPoint destination)
@@ -164,12 +188,20 @@ public class Creature
 
     public List<GridPoint>? BuildNavigationPathToBuilding(Building building)
     {
-        if (building is MiningPost miningPost)
+        if (Cave is null)
         {
-            return Cave?.BuildPathToMiningPost(miningPost, Location);
+            NavigationInstrumentation.RecordBuildingPathRequest(0, 0L);
+            return null;
         }
 
-        return Cave?.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var path = building is MiningPost miningPost
+            ? Cave.BuildPathToMiningPost(miningPost, Location)
+            : Cave.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+        NavigationInstrumentation.RecordBuildingPathRequest(
+            path?.Count ?? 0,
+            GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        return path;
     }
 
     protected Pathfinding.BfsField? GetBuildingNavigationField(Building? building)
@@ -309,6 +341,7 @@ public class Creature
 
     protected bool RecoverNavigation(GridPoint? destination, Action? fallbackFn)
     {
+        NavigationInstrumentation.RecordNavigationReroute();
         ClearActionQueue();
         if (destination is null)
         {
@@ -345,6 +378,7 @@ public class Creature
 
     protected bool RecoverBuildingNavigation(Building? building, Action? fallbackFn, GridPoint? failedStep = null)
     {
+        NavigationInstrumentation.RecordNavigationReroute();
         ClearActionQueue();
         if (building is null)
         {
@@ -378,6 +412,7 @@ public class Creature
 
         if (PathPreview.Count > 0)
         {
+            NavigationInstrumentation.RecordPathPreviewFrontRemoval(PathPreview.Count);
             PathPreview.RemoveAt(0);
         }
 
@@ -403,6 +438,7 @@ public class Creature
             EnqueueAction(() => ExecuteNavigationStep(next, onFailure));
         }
 
+        NavigationInstrumentation.RecordQueuedNavigationSteps(path.Count - 1, PathPreview.Count);
         return true;
     }
 
@@ -539,6 +575,11 @@ public class Creature
             GetBehavior()?.Invoke();
         }
 
+        if (TryInterruptQueuedAction())
+        {
+            return true;
+        }
+
         if (_queue.Count == 0)
         {
             return null;
@@ -547,6 +588,11 @@ public class Creature
         var action = _queue.Dequeue();
         action();
         return true;
+    }
+
+    protected virtual bool TryInterruptQueuedAction()
+    {
+        return false;
     }
 
     public void UpdateMovementOffset(bool randomize)
@@ -574,7 +620,7 @@ public class Creature
 
     public HashSet<Building> GetActions()
     {
-        var currentTile = Cave?.GetTile(Location.ToString());
+        var currentTile = Cave?.GetTile(Location);
         if (currentTile is null)
         {
             return [];

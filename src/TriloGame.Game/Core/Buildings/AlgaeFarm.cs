@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -22,6 +23,8 @@ public sealed class AlgaeFarm : Building
     private static readonly int[][] DefaultTraversalPath = [[6, 1], [5, 2], [4, 3]];
     private readonly HashSet<Creature> _assignments = [];
     private readonly Dictionary<string, TraversalNode> _traversalNodes = new(StringComparer.Ordinal);
+    private readonly List<GridPoint> _traversalCycle = [];
+    private Dictionary<string, World.Tile>? _passableTileMapCache;
     private TraversalNode? _traversalHead;
 
     public AlgaeFarm(GameSession session)
@@ -30,7 +33,7 @@ public sealed class AlgaeFarm : Building
         TextureKey = "AlgaeFarm";
         Period = 30;
         Growth = 0;
-        HarvestYield = 5;
+        HarvestYield = GameConstants.AlgaeHarvestYield;
         MaxTrilobites = 2;
         TraversalPath = CloneOpenMap(DefaultTraversalPath);
         Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
@@ -43,7 +46,9 @@ public sealed class AlgaeFarm : Building
 
     public int HarvestYield { get; }
 
-    public int MaxTrilobites { get; }
+    public int MaxTrilobites { get; private set; }
+
+    public int AssignmentCapacity => MaxTrilobites;
 
     public int[][] TraversalPath { get; private set; }
 
@@ -52,6 +57,7 @@ public sealed class AlgaeFarm : Building
     public override int[][] RotateMap()
     {
         TraversalPath = RotateTraversalPath(TraversalPath, Size);
+        InvalidateTraversalCaches();
         return base.RotateMap();
     }
 
@@ -63,6 +69,11 @@ public sealed class AlgaeFarm : Building
     public bool HasAssignmentSlot(Creature? creature = null)
     {
         return (creature is not null && _assignments.Contains(creature)) || _assignments.Count < MaxTrilobites;
+    }
+
+    public bool CanAssign(Creature creature)
+    {
+        return HasAssignmentSlot(creature);
     }
 
     public bool Assign(Creature creature)
@@ -87,6 +98,36 @@ public sealed class AlgaeFarm : Building
 
     public int GetVolume() => _assignments.Count;
 
+    public int GetAvailableAssignmentSlots()
+    {
+        return Math.Max(0, MaxTrilobites - _assignments.Count);
+    }
+
+    public void SetAssignmentCapacity(int capacity)
+    {
+        MaxTrilobites = Math.Max(1, capacity);
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+    }
+
+    public void IncreaseAssignmentCapacity(int amount = 1)
+    {
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        MaxTrilobites += amount;
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+    }
+
+    public Dictionary<string, World.Tile> GetPassableTileMap()
+    {
+        _passableTileMapCache ??= TileArray
+            .Where(tile => tile.CreatureFits())
+            .ToDictionary(tile => tile.Key, StringComparer.Ordinal);
+        return _passableTileMapCache;
+    }
+
     public bool IsLocationOnFarm(GridPoint location)
     {
         return _traversalNodes.ContainsKey(location.ToString());
@@ -94,22 +135,20 @@ public sealed class AlgaeFarm : Building
 
     public GridPoint? GetApproachTile(GridPoint? startLocation)
     {
-        var passableTiles = TileArray
-            .Where(tile => tile.CreatureFits())
-            .Select(tile => tile.Coordinates)
-            .ToArray();
-        if (passableTiles.Length == 0)
+        var passableTiles = GetPassableTileMap().Values;
+        using var enumerator = passableTiles.GetEnumerator();
+        if (!enumerator.MoveNext())
         {
             return null;
         }
 
-        var origin = startLocation ?? passableTiles[0];
-        var bestTile = passableTiles[0];
-        var bestDistance = GridPoint.SquaredDistance(origin, bestTile);
+        var bestTile = enumerator.Current;
+        var origin = startLocation ?? bestTile.Coordinates;
+        var bestDistance = GridPoint.SquaredDistance(origin, bestTile.Coordinates);
 
         foreach (var tile in passableTiles)
         {
-            var distance = GridPoint.SquaredDistance(origin, tile);
+            var distance = GridPoint.SquaredDistance(origin, tile.Coordinates);
             if (distance < bestDistance)
             {
                 bestDistance = distance;
@@ -117,7 +156,7 @@ public sealed class AlgaeFarm : Building
             }
         }
 
-        return bestTile;
+        return bestTile.Coordinates;
     }
 
     internal GridPoint? GetNextTraversalLocation(GridPoint currentLocation)
@@ -129,19 +168,64 @@ public sealed class AlgaeFarm : Building
 
     internal GridPoint? GetTraversalStartLocation() => _traversalHead?.Location;
 
+    public bool TryGetNextHarvestStep(GridPoint currentPositionOnFarm, out GridPoint nextLocation)
+    {
+        var next = GetNextTraversalLocation(currentPositionOnFarm);
+        if (next is null)
+        {
+            nextLocation = default;
+            return false;
+        }
+
+        nextLocation = next.Value;
+        return true;
+    }
+
+    public List<GridPoint> GetPath(GridPoint currentPositionOnFarm, Creature? creature = null)
+    {
+        if (_traversalCycle.Count == 0)
+        {
+            return [];
+        }
+
+        var start = IsLocationOnFarm(currentPositionOnFarm)
+            ? currentPositionOnFarm
+            : GetApproachTile(currentPositionOnFarm) ?? _traversalCycle[0];
+        var startIndex = _traversalCycle.FindIndex(location => location == start);
+        if (startIndex < 0)
+        {
+            startIndex = 0;
+            start = _traversalCycle[0];
+        }
+
+        var path = new List<GridPoint>(_traversalCycle.Count + 1);
+        for (var offset = 0; offset < _traversalCycle.Count; offset++)
+        {
+            path.Add(_traversalCycle[(startIndex + offset) % _traversalCycle.Count]);
+        }
+
+        path.Add(start);
+        return path;
+    }
+
+    private void InvalidateTraversalCaches()
+    {
+        _passableTileMapCache = null;
+        _traversalNodes.Clear();
+        _traversalCycle.Clear();
+        _traversalHead = null;
+    }
+
     private void RebuildTraversalRing()
     {
-        _traversalNodes.Clear();
-        _traversalHead = null;
+        InvalidateTraversalCaches();
 
         if (Location is null || TileArray.Count == 0)
         {
             return;
         }
 
-        var passableTiles = TileArray
-            .Where(tile => tile.CreatureFits())
-            .ToDictionary(tile => tile.Key, tile => tile.Coordinates, StringComparer.Ordinal);
+        var passableTiles = GetPassableTileMap();
         if (passableTiles.Count == 0)
         {
             return;
@@ -168,8 +252,6 @@ public sealed class AlgaeFarm : Building
             }
         }
 
-        // Traversal order is defined entirely by the numbered path map, so once the
-        // farm is built each farmer can advance to its next tile in O(1).
         var orderedNodes = orderedLocations
             .OrderBy(entry => entry.Order)
             .Select(entry => new TraversalNode(entry.Location))
@@ -184,6 +266,7 @@ public sealed class AlgaeFarm : Building
             var node = orderedNodes[index];
             node.Next = orderedNodes[(index + 1) % orderedNodes.Length];
             _traversalNodes[node.Location.ToString()] = node;
+            _traversalCycle.Add(node.Location);
         }
 
         _traversalHead = orderedNodes[0];

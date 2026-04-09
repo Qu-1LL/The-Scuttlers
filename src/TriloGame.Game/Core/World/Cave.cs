@@ -1,10 +1,13 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
+using System.Diagnostics;
 
 namespace TriloGame.Game.Core.World;
 
@@ -34,6 +37,7 @@ public sealed partial class Cave : Graph
     private readonly MiningPostOwnershipField _miningPostOwnershipField;
     private readonly AlgaeFarmOwnershipField _algaeFarmOwnershipField;
     private readonly BarracksOwnershipField _barracksOwnershipField;
+    private bool[] _visibleEnemyThreatenedTiles = [];
     private Queen? _queenBuilding;
 
     public Cave(GameSession session)
@@ -93,6 +97,121 @@ public sealed partial class Cave : Graph
     public IReadOnlyDictionary<MiningPost, int> GetMiningPostAssignmentCounts() => _miningPostAssignmentCounts;
 
     public IReadOnlyDictionary<Barracks, int> GetBarracksAssignmentCounts() => _barracksAssignmentCounts;
+
+    public bool RefreshDangerState()
+    {
+        Session.Danger = _enemyList.Any(enemy =>
+        {
+            var tile = GetTile(enemy.Location);
+            return tile is not null && IsTileRevealed(tile);
+        });
+
+        if (!Session.Danger)
+        {
+            DespawnAntHoles();
+        }
+
+        return Session.Danger;
+    }
+
+    public void RefreshVisibleEnemyThreatMap(int radius)
+    {
+        Array.Resize(ref _visibleEnemyThreatenedTiles, TileCapacity);
+        Array.Clear(_visibleEnemyThreatenedTiles, 0, _visibleEnemyThreatenedTiles.Length);
+
+        if (radius <= 0)
+        {
+            return;
+        }
+
+        foreach (var enemy in _enemyList)
+        {
+            var enemyTile = GetTile(enemy.Location);
+            if (enemyTile is null || !IsTileRevealed(enemyTile))
+            {
+                continue;
+            }
+
+            for (var dx = -radius; dx <= radius; dx++)
+            {
+                var maxDy = radius - Math.Abs(dx);
+                for (var dy = -maxDy; dy <= maxDy; dy++)
+                {
+                    var tile = GetTile(new GridPoint(enemy.Location.X + dx, enemy.Location.Y + dy));
+                    if (tile is not null)
+                    {
+                        _visibleEnemyThreatenedTiles[tile.Id] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    public bool IsLocationThreatenedByVisibleEnemy(GridPoint location)
+    {
+        var tile = GetTile(location);
+        return tile is not null &&
+               tile.Id < _visibleEnemyThreatenedTiles.Length &&
+               _visibleEnemyThreatenedTiles[tile.Id];
+    }
+
+    public int SpawnUndiscoveredAntCluster(int requestedCount)
+    {
+        if (requestedCount <= 0 || Enemies.Count >= GameConstants.MaxAmbientAntCount)
+        {
+            return 0;
+        }
+
+        var candidates = GetTiles()
+            .Where(tile => !IsTileRevealed(tile) && tile.CreatureFits() && tile.Trilobites.Count == 0 && tile.EnemyOccupant is null)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return 0;
+        }
+
+        var targetCount = Math.Min(requestedCount, GameConstants.MaxAmbientAntCount - Enemies.Count);
+        var seedTile = candidates[RandomUtil.NextInt(candidates.Length)];
+        var selectedTiles = new List<Tile>(targetCount);
+        var queue = new Queue<Tile>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        queue.Enqueue(seedTile);
+        visited.Add(seedTile.Key);
+
+        while (queue.Count > 0 && selectedTiles.Count < targetCount)
+        {
+            var current = queue.Dequeue();
+            if (current.CreatureFits() && !IsTileRevealed(current) && current.Trilobites.Count == 0 && current.EnemyOccupant is null)
+            {
+                selectedTiles.Add(current);
+            }
+
+            foreach (var neighbor in RandomUtil.Shuffle(current.Neighbors))
+            {
+                if (!visited.Add(neighbor.Key) ||
+                    IsTileRevealed(neighbor) ||
+                    !neighbor.CreatureFits() ||
+                    neighbor.Trilobites.Count > 0 ||
+                    neighbor.EnemyOccupant is not null)
+                {
+                    continue;
+                }
+
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        var spawned = 0;
+        foreach (var tile in selectedTiles)
+        {
+            if (Spawn(new Enemy($"Ant {Session.Runtime.AllocateDebugEnemyId()}", tile.Coordinates, Session), tile))
+            {
+                spawned++;
+            }
+        }
+
+        return spawned;
+    }
 
     private void GenerateCaveShrink()
     {
@@ -185,6 +304,7 @@ public sealed partial class Cave : Graph
             {
                 tile.SetBase("wall");
                 tile.CreatureCanFit = false;
+                tile.ConfigureWall(GameConstants.WallHitsRequired);
             }
         }
 
@@ -232,7 +352,7 @@ public sealed partial class Cave : Graph
                 var tile = cave.GetTile(new GridPoint(x, y).ToString());
                 if (tile is not null && tile.Base == "empty")
                 {
-                    tile.SetBase(ore);
+                    cave.ConfigureGeneratedOreTile(tile, ore);
                     return true;
                 }
             }
@@ -256,7 +376,7 @@ public sealed partial class Cave : Graph
                 var vector = GetDistance(coords.X, coords.Y, 0, 0);
                 if (vector > lower && vector < upper && tile.Base == "empty")
                 {
-                    tile.SetBase(ore.Name);
+                    ConfigureGeneratedOreTile(tile, ore.Name);
                     var veinCount = 0;
                     var roll = RandomUtil.NextDouble();
                     while (roll < 0.85d && veinCount <= 2 + (OreType.GetOres().Count - oreCount))
@@ -271,7 +391,7 @@ public sealed partial class Cave : Graph
 
                         if (neighbor is not null && brokenCount < 4)
                         {
-                            neighbor.SetBase(ore.Name);
+                            ConfigureGeneratedOreTile(neighbor, ore.Name);
                         }
 
                         roll = RandomUtil.NextDouble();
@@ -289,6 +409,14 @@ public sealed partial class Cave : Graph
 
             oreCount++;
         }
+    }
+
+    private void ConfigureGeneratedOreTile(Tile tile, string oreName)
+    {
+        tile.SetBase(oreName);
+        tile.ConfigureOre(
+            RandomUtil.NextInt(GameConstants.MinOreYield, GameConstants.MaxOreYield + 1),
+            RandomUtil.NextInt(GameConstants.MinOreHitsPerYield, GameConstants.MaxOreHitsPerYield + 1));
     }
 
     private void FillCircle(int originX, int originY, int radius)
@@ -584,7 +712,12 @@ public sealed partial class Cave : Graph
                 }
 
                 var tile = GetTile(new GridPoint(location.X + x, location.Y + y).ToString());
-                if (tile is null || tile.Built is not null || tile.Base != "empty" || !tile.CreatureFits() || tile.Trilobites.Count > 0)
+                if (tile is null ||
+                    tile.Built is not null ||
+                    HasBlockingSurfaceFeature(tile) ||
+                    tile.Base != "empty" ||
+                    !tile.CreatureFits() ||
+                    tile.Trilobites.Count > 0)
                 {
                     return false;
                 }
@@ -1404,14 +1537,25 @@ public sealed partial class Cave
 
     public List<GridPoint>? BuildPathFromField(Dictionary<string, int>? field, GridPoint startLocation)
     {
-        if (field is null)
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var timerStart = Stopwatch.GetTimestamp();
+        try
         {
-            return null;
-        }
+            if (field is null)
+            {
+                return null;
+            }
 
-        var tempField = new BfsField(cave: this);
-        tempField.SetField(field);
-        return tempField.BuildPathFrom(startLocation, false);
+            var tempField = new BfsField(cave: this);
+            tempField.SetField(field);
+            return tempField.BuildPathFrom(startLocation, false);
+        }
+        finally
+        {
+            NavigationInstrumentation.RecordBuildPathFromField(
+                Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
+                GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        }
     }
 
     public List<GridPoint>? BuildDirectPathToPoint(GridPoint startLocation, GridPoint destination)
@@ -1549,53 +1693,64 @@ public sealed partial class Cave
 
     public Dictionary<string, int>? BuildPointBfsField(GridPoint destination)
     {
-        var destinationTile = GetTile(destination.ToString());
-        if (destinationTile is null || !destinationTile.CreatureFits() || !IsTileReachable(destinationTile))
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var timerStart = Stopwatch.GetTimestamp();
+        try
         {
-            return null;
-        }
-
-        var field = ReachableTiles
-            .Where(tile => tile.CreatureFits())
-            .ToDictionary(tile => tile.Key, _ => int.MaxValue, StringComparer.Ordinal);
-        field[destination.ToString()] = 0;
-
-        var queue = new Queue<string>();
-        queue.Enqueue(destination.ToString());
-        while (queue.Count > 0)
-        {
-            var currentKey = queue.Dequeue();
-            var currentTile = GetTile(currentKey);
-            if (currentTile is null)
+            var destinationTile = GetTile(destination);
+            if (destinationTile is null || !destinationTile.CreatureFits() || !IsTileReachable(destinationTile))
             {
-                continue;
+                return null;
             }
 
-            var currentValue = field.GetValueOrDefault(currentKey, int.MaxValue);
-            if (currentValue == int.MaxValue)
-            {
-                continue;
-            }
+            var field = ReachableTiles
+                .Where(tile => tile.CreatureFits())
+                .ToDictionary(tile => tile.Key, _ => int.MaxValue, StringComparer.Ordinal);
+            field[destination.ToString()] = 0;
 
-            foreach (var neighbor in currentTile.Neighbors)
+            var queue = new Queue<string>();
+            queue.Enqueue(destination.ToString());
+            while (queue.Count > 0)
             {
-                if (!neighbor.CreatureFits() || !IsTileReachable(neighbor))
+                var currentKey = queue.Dequeue();
+                var currentTile = GetTile(currentKey);
+                if (currentTile is null)
                 {
                     continue;
                 }
 
-                var nextValue = currentValue + 1;
-                if (nextValue >= field.GetValueOrDefault(neighbor.Key, int.MaxValue))
+                var currentValue = field.GetValueOrDefault(currentKey, int.MaxValue);
+                if (currentValue == int.MaxValue)
                 {
                     continue;
                 }
 
-                field[neighbor.Key] = nextValue;
-                queue.Enqueue(neighbor.Key);
-            }
-        }
+                foreach (var neighbor in currentTile.Neighbors)
+                {
+                    if (!neighbor.CreatureFits() || !IsTileReachable(neighbor))
+                    {
+                        continue;
+                    }
 
-        return field;
+                    var nextValue = currentValue + 1;
+                    if (nextValue >= field.GetValueOrDefault(neighbor.Key, int.MaxValue))
+                    {
+                        continue;
+                    }
+
+                    field[neighbor.Key] = nextValue;
+                    queue.Enqueue(neighbor.Key);
+                }
+            }
+
+            return field;
+        }
+        finally
+        {
+            NavigationInstrumentation.RecordBuildPointBfsField(
+                Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
+                GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        }
     }
 
     private static List<GridPoint> ReconstructDirectPath(
@@ -1660,6 +1815,10 @@ public sealed partial class Cave
         }
 
         newlyRevealedKeys?.Add(tile.Key);
+        if (tile.EnemyOccupant is not null)
+        {
+            RefreshDangerState();
+        }
         return 1;
     }
 
@@ -1931,9 +2090,37 @@ public sealed partial class Cave
 
     public bool MarkCreatureBfsFieldsDirty(Creature creature, IEnumerable<string>? tileKeys = null)
     {
+        if (creature is Trilobite && !Session.Danger)
+        {
+            return true;
+        }
+
         foreach (var fieldName in GetCreatureBfsFieldNames(creature))
         {
             GetBfsFieldObject(fieldName)?.MarkDirty(tileKeys, [], [creature]);
+        }
+
+        return true;
+    }
+
+    private bool MarkCreatureBfsFieldsDirty(Creature creature, string? firstTileKey, string? secondTileKey = null)
+    {
+        if (creature is Trilobite && !Session.Danger)
+        {
+            return true;
+        }
+
+        foreach (var fieldName in GetCreatureBfsFieldNames(creature))
+        {
+            var field = GetBfsFieldObject(fieldName);
+            if (field is null)
+            {
+                continue;
+            }
+
+            field.MarkTileDirty(firstTileKey);
+            field.MarkTileDirty(secondTileKey);
+            field.MarkCreatureDirty(creature);
         }
 
         return true;
@@ -2040,16 +2227,20 @@ public sealed partial class Cave
             }
         }
 
-        var currentTile = GetTile(creature.Location.ToString());
+        var currentTile = GetTile(creature.Location);
         SyncTrilobiteTileOccupancy(creature, currentTile, null);
 
-        if (removedEnemy && !HasEnemies())
+        if (removedEnemy)
         {
-            Session.Danger = false;
-            RestoreAllCreatureHealth();
+            HandleRemovedEnemySurfaceFeature((Enemy)creature);
+            RefreshDangerState();
+            if (!Session.Danger)
+            {
+                RestoreAllCreatureHealth();
+            }
         }
 
-        MarkCreatureBfsFieldsDirty(creature, currentTile is null ? [] : [currentTile.Key]);
+        MarkCreatureBfsFieldsDirty(creature, currentTile?.Key);
         creature.Location = GridPoint.Zero;
         creature.Cave = null;
         creature.UpdateMovementOffset(false);
@@ -2058,12 +2249,17 @@ public sealed partial class Cave
 
     public bool Spawn(Creature creature, Tile tile)
     {
-        if (tile.Base == "wall" || !tile.CreatureFits() || !IsTileReachable(tile))
+        if (tile.Base == "wall" || !tile.CreatureFits())
         {
             return false;
         }
 
-        var currentTile = GetTile(creature.Location.ToString());
+        if (creature is not Enemy && !IsTileReachable(tile))
+        {
+            return false;
+        }
+
+        var currentTile = GetTile(creature.Location);
         creature.Location = GridPoint.Parse(tile.Key);
         SyncTrilobiteTileOccupancy(creature, currentTile, tile);
         creature.UpdateMovementOffset(false);
@@ -2073,7 +2269,6 @@ public sealed partial class Cave
         {
             Enemies.Add(enemy);
             _enemyList.Add(enemy);
-            Session.Danger = true;
         }
         else
         {
@@ -2082,14 +2277,15 @@ public sealed partial class Cave
             _trilobiteList.Add(trilobite);
         }
 
-        MarkCreatureBfsFieldsDirty(creature, [tile.Key]);
+        RefreshDangerState();
+        MarkCreatureBfsFieldsDirty(creature, tile.Key);
         return true;
     }
 
     public bool MoveCreature(Creature creature, GridPoint nextLocation)
     {
         var current = creature.Location;
-        var nextTile = GetTile(nextLocation.ToString());
+        var nextTile = GetTile(nextLocation);
         if (nextTile is null || !nextTile.CreatureFits())
         {
             return false;
@@ -2100,7 +2296,7 @@ public sealed partial class Cave
             return false;
         }
 
-        var currentTile = GetTile(current.ToString());
+        var currentTile = GetTile(current);
         var moveX = current.X - nextLocation.X;
         var moveY = current.Y - nextLocation.Y;
 
@@ -2116,7 +2312,7 @@ public sealed partial class Cave
         }
 
         SyncTrilobiteTileOccupancy(creature, currentTile, nextTile);
-        MarkCreatureBfsFieldsDirty(creature, new[] { currentTile?.Key, nextTile.Key }.OfType<string>());
+        MarkCreatureBfsFieldsDirty(creature, currentTile?.Key, nextTile.Key);
         return true;
     }
 
