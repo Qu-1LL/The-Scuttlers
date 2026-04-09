@@ -81,6 +81,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             value => _showRoleLabels = value,
             value => _session.Runtime.FreezeOpalProgression = value,
             value => _session.Runtime.DisableEnemySpawns = value,
+            value => _session.Runtime.NoCostBuildPlacement = value,
             PlayUiSelectSound);
         _stopSimulationAfterTick = StopSimulationAfterTick;
         PlayApi = new GamePlayApi(this);
@@ -857,7 +858,8 @@ public sealed partial class GameApp
                 _debugMenuOpen,
                 _showRoleLabels,
                 _session.Runtime.FreezeOpalProgression,
-                _session.Runtime.DisableEnemySpawns))
+                _session.Runtime.DisableEnemySpawns,
+                _session.Runtime.NoCostBuildPlacement))
         {
             return;
         }
@@ -1050,6 +1052,10 @@ public sealed partial class GameApp
                 return;
             case DebugMenuAction.SpawnEnemy:
                 SpawnDebugEnemy();
+                RefreshBfsFieldDebug();
+                return;
+            case DebugMenuAction.SpawnTrilobite:
+                SpawnDebugTrilobite();
                 RefreshBfsFieldDebug();
                 return;
             case DebugMenuAction.PlaceAntHole:
@@ -1277,12 +1283,20 @@ public sealed partial class GameApp
             ClearPendingManualMove();
             ClearMiningTileSelection();
             var location = GridPoint.Parse(tile.Key);
-            if (_session.Cave!.CanBuild(_floatingBuilding, location, true))
+            var buildingToPlace = _session.Runtime.NoCostBuildPlacement
+                ? _floatingBuilding.TargetBuilding
+                : _floatingBuilding;
+            if (_session.Cave!.CanBuild(buildingToPlace, location, true))
             {
-                _session.Cave.Build(_floatingBuilding, location);
-                _audio.Play(GameAudioCue.BuildingPlace);
-                _floatingBuilding = null;
-                CleanActive();
+                var built = _session.Runtime.NoCostBuildPlacement
+                    ? BuildWithoutCost(location, _floatingBuilding)
+                    : _session.Cave.Build(_floatingBuilding, location);
+                if (built)
+                {
+                    _audio.Play(GameAudioCue.BuildingPlace);
+                    _floatingBuilding = null;
+                    CleanActive();
+                }
             }
 
             return;
@@ -2059,7 +2073,10 @@ public sealed partial class GameApp
         }
 
         var location = GridPoint.Parse(tile.Key);
-        var canBuild = _session.Cave!.CanBuild(_floatingBuilding, location, true);
+        var previewBuilding = _session.Runtime.NoCostBuildPlacement
+            ? _floatingBuilding.TargetBuilding
+            : _floatingBuilding;
+        var canBuild = _session.Cave!.CanBuild(previewBuilding, location, true);
         DrawScreenTextureNative(
             _floatingBuilding.TargetBuilding.TextureKey,
             _input.MousePoint.ToVector2(),
@@ -2210,6 +2227,7 @@ public sealed partial class GameApp
             _showRoleLabels,
             _session.Runtime.FreezeOpalProgression,
             _session.Runtime.DisableEnemySpawns,
+            _session.Runtime.NoCostBuildPlacement,
             pointer);
         DrawWrappedScreenText(
             ["` closes this panel. Hotkeys still work."],
@@ -2373,7 +2391,7 @@ public sealed partial class GameApp
             $"Paused: {(_gamePaused ? "Yes" : "No")}    Danger: {(_session.Danger ? "Yes" : "No")}    Tick: {_session.TickCount}",
             $"Tick Speed: {(int)_tickSpeedMs} ms",
             $"BFS View: {(_activeBfsDebugField ?? "none")} (visible while paused)",
-            $"Role Labels: {(_showRoleLabels ? "On" : "Off")}"
+            $"Role Labels: {(_showRoleLabels ? "On" : "Off")}    No Cost Build: {(_session.Runtime.NoCostBuildPlacement ? "On" : "Off")}"
         };
 
         if (GameConstants.EnableOpal)
@@ -2780,7 +2798,7 @@ public sealed partial class GameApp
         var speedButtons = DebugMenuLayout.SplitRow(layout.SpeedRowBounds, 4, layout.ButtonGap);
         var bfsTopButtons = DebugMenuLayout.SplitRow(layout.BfsTopRowBounds, 2, layout.ButtonGap);
         var bfsBottomButtons = DebugMenuLayout.SplitRow(layout.BfsBottomRowBounds, 2, layout.ButtonGap);
-        var actionButtons = DebugMenuLayout.SplitRow(layout.ActionsRowBounds, 3, layout.ButtonGap);
+        var actionButtons = DebugMenuLayout.SplitRow(layout.ActionsRowBounds, 4, layout.ButtonGap);
 
         return
         [
@@ -2863,12 +2881,57 @@ public sealed partial class GameApp
                 true,
                 false),
             new DebugMenuButton(
+                DebugMenuAction.SpawnTrilobite,
+                "Spawn Trilobite",
+                actionButtons[2],
+                true,
+                false),
+            new DebugMenuButton(
                 DebugMenuAction.PlaceAntHole,
                 "Place Ant Hole",
-                actionButtons[2],
+                actionButtons[3],
                 true,
                 _debugAntHolePlacementMode)
         ];
+    }
+
+    private bool BuildWithoutCost(GridPoint location, Scaffolding scaffolding)
+    {
+        var targetBuilding = scaffolding.TargetBuilding;
+        targetBuilding.SetDisplayRotationTurns(scaffolding.GetDisplayRotationTurns());
+        return _session.Cave!.Build(targetBuilding, location);
+    }
+
+    private void SpawnDebugTrilobite()
+    {
+        var cave = _session.Cave;
+        var queen = cave?.GetQueenBuilding();
+        if (cave is null || queen is null)
+        {
+            return;
+        }
+
+        var spawnTile = queen.GetBirthTile()
+            ?? cave.GetReachableTiles().FirstOrDefault(tile =>
+                tile.CreatureFits() &&
+                tile.EnemyOccupant is null &&
+                !cave.HasBlockingSurfaceFeature(tile));
+        if (spawnTile is null)
+        {
+            return;
+        }
+
+        var debugId = _session.Runtime.AllocateDebugTrilobiteId();
+        var trilobite = new Trilobite($"Debug Trilobite {debugId}", spawnTile.Coordinates, _session)
+        {
+            Assignment = "unassigned"
+        };
+
+        if (cave.Spawn(trilobite, spawnTile))
+        {
+            trilobite.RestartBehavior();
+            _session.RequestAudioCue(GameAudioCue.TrilobiteBirth);
+        }
     }
 
     private bool TickSpeedMatches(double tickSpeed)
@@ -3349,6 +3412,7 @@ public sealed partial class GameApp
         ToggleRoleLabels,
         RestartGame,
         SpawnEnemy,
+        SpawnTrilobite,
         PlaceAntHole,
         Close
     }

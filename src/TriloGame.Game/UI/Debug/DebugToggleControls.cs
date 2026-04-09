@@ -10,17 +10,20 @@ public sealed class DebugToggleControls
     private readonly Action<bool> _setRoleLabels;
     private readonly Action<bool> _setFreezeOpal;
     private readonly Action<bool> _setDisableEnemySpawns;
+    private readonly Action<bool> _setNoCostBuildPlacement;
     private readonly Action _playUiSelectSound;
 
     public DebugToggleControls(
         Action<bool> setRoleLabels,
         Action<bool> setFreezeOpal,
         Action<bool> setDisableEnemySpawns,
+        Action<bool> setNoCostBuildPlacement,
         Action playUiSelectSound)
     {
         _setRoleLabels = setRoleLabels;
         _setFreezeOpal = setFreezeOpal;
         _setDisableEnemySpawns = setDisableEnemySpawns;
+        _setNoCostBuildPlacement = setNoCostBuildPlacement;
         _playUiSelectSound = playUiSelectSound;
     }
 
@@ -30,7 +33,8 @@ public sealed class DebugToggleControls
         bool debugMenuOpen,
         bool showRoleLabels,
         bool freezeOpalProgression,
-        bool disableEnemySpawns)
+        bool disableEnemySpawns,
+        bool noCostBuildPlacement)
     {
         if (!debugMenuOpen)
         {
@@ -52,7 +56,15 @@ public sealed class DebugToggleControls
             return true;
         }
 
-        var disableEnemyIndex = GameConstants.EnableOpal ? 2 : 1;
+        var noCostBuildIndex = GameConstants.EnableOpal ? 2 : 1;
+        if (rows[noCostBuildIndex].Contains(point))
+        {
+            _setNoCostBuildPlacement(!noCostBuildPlacement);
+            _playUiSelectSound();
+            return true;
+        }
+
+        var disableEnemyIndex = GameConstants.EnableOpal ? 3 : 2;
         if (rows[disableEnemyIndex].Contains(point))
         {
             _setDisableEnemySpawns(!disableEnemySpawns);
@@ -70,6 +82,7 @@ public sealed class DebugToggleControls
         bool showRoleLabels,
         bool freezeOpalProgression,
         bool disableEnemySpawns,
+        bool noCostBuildPlacement,
         Point pointer)
     {
         if (!debugMenuOpen)
@@ -84,14 +97,17 @@ public sealed class DebugToggleControls
             DrawToggle(gumUi, rows[1], "Freeze Opal", freezeOpalProgression, rows[1].Contains(pointer));
         }
 
-        var disableEnemyIndex = GameConstants.EnableOpal ? 2 : 1;
+        var noCostBuildIndex = GameConstants.EnableOpal ? 2 : 1;
+        DrawToggle(gumUi, rows[noCostBuildIndex], "No Cost Build", noCostBuildPlacement, rows[noCostBuildIndex].Contains(pointer));
+
+        var disableEnemyIndex = GameConstants.EnableOpal ? 3 : 2;
         DrawToggle(gumUi, rows[disableEnemyIndex], "Disable Enemy Spawns", disableEnemySpawns, rows[disableEnemyIndex].Contains(pointer));
     }
 
     private static IReadOnlyList<Rectangle> GetToggleRows(Point viewport)
     {
         var layout = DebugMenuLayout.Build(viewport);
-        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, GameConstants.EnableOpal ? 3 : 2, layout.ButtonGap);
+        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, GameConstants.EnableOpal ? 4 : 3, layout.ButtonGap);
     }
 
     private static void DrawToggle(GumUiRenderer gumUi, Rectangle bounds, string text, bool isChecked, bool hovered)
