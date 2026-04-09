@@ -55,9 +55,19 @@ public static class SettingsMenuLayout
         return new Rectangle(panelBounds.Right - 62, bar.Y - 11, 40, 40);
     }
 
+    public static Rectangle GetReturnToMainMenuButtonBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 156, panelBounds.Width - 48, 38);
+    }
+
     public static Rectangle GetQuitToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 156, panelBounds.Width - 48, 42);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204, panelBounds.Width - 48, 38);
+    }
+
+    public static Rectangle GetDismissHintBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.X + 24, panelBounds.Bottom - 28, panelBounds.Width - 48, 18);
     }
 
     public static int GetSnappedVolumeFromBar(Rectangle barBounds, int pointerX)

@@ -172,16 +172,45 @@ public sealed class Enemy : Creature
             ClearEnemyTarget();
         }
 
-        var nextLocation = Cave?.GetBfsFieldNextStep("colony", Location);
-        if (nextLocation is null)
+        var cave = Cave;
+        var field = cave?.GetBfsFieldObject("colony");
+        if (field is null || cave is null)
         {
             ClearEnemyTarget();
             return TryDigTowardQueen();
         }
 
         ClearActionQueue();
-        PathPreview.Add(nextLocation.Value);
-        return EnemyStepMove(nextLocation.Value);
+        var resolvedField = field;
+        var resolvedNext = field.GetNextStep(Location, refresh: false);
+        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        {
+            var refreshedField = cave.GetBfsFieldObject("colony");
+            refreshedField?.Rebuild();
+            if (refreshedField is null)
+            {
+                ClearEnemyTarget();
+                return false;
+            }
+
+            resolvedField = refreshedField;
+            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
+            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
+            {
+                ClearActionQueue();
+                return false;
+            }
+        }
+
+        if (resolvedNext is null)
+        {
+            ClearEnemyTarget();
+            return false;
+        }
+
+        ArmBfsTraversal(resolvedField, sharedFieldName: "colony");
+        PathPreview.Add(resolvedNext.Value);
+        return EnemyStepMove(resolvedNext.Value);
     }
 
     public bool EnemyStepMove(GridPoint nextLocation)
@@ -206,7 +235,8 @@ public sealed class Enemy : Creature
             return EnemyStep2();
         }
 
-        var moved = PerformMove(nextLocation);
+        ClearBfsTraversal();
+        var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
         if (!moved)
         {
             ClearActionQueue();

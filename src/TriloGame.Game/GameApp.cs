@@ -23,6 +23,7 @@ using TriloGame.Game.Shared.Utilities;
 using TriloGame.Game.UI.Debug;
 using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Input;
+using TriloGame.Game.UI.MainMenu;
 using TriloGame.Game.UI.Menu;
 using TriloGame.Game.UI.Selection;
 using TriloGame.Game.UI.Settings;
@@ -31,6 +32,17 @@ namespace TriloGame.Game;
 
 public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHost
 {
+    private enum AppScreen
+    {
+        MainMenu,
+        Gameplay
+    }
+
+    private enum ScreenUiPass
+    {
+        Background,
+        Foreground
+    }
     private GumService GumUi => GumService.Default;
     private readonly GraphicsDeviceManager _graphics;
     private readonly AudioService _audio = new();
@@ -66,6 +78,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _leftPanActive;
     private bool _selectionDragActive;
     private double _uiClockMs;
+    private AppScreen _appScreen = AppScreen.MainMenu;
+    private ScreenUiPass _screenUiPass = ScreenUiPass.Foreground;
     private Scaffolding? _floatingBuilding;
     private Rectangle? _selectionBoxBounds;
     private RoleRadialMenuState? _roleRadialMenu;
@@ -133,6 +147,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         var builder = new StringBuilder();
 
         builder.AppendLine("[Game]");
+        builder.AppendLine($"AppScreen: {_appScreen}");
         builder.AppendLine($"Paused: {_gamePaused}");
         builder.AppendLine($"GameOver: {_isGameOver}");
         builder.AppendLine($"MainMenuOpen: {_mainMenuOpen}");
@@ -582,6 +597,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     public void RestartGame()
     {
+        StartGameplaySession();
+    }
+
+    private void StartGameplaySession()
+    {
         _sessionAudioBridge.Detach();
         _sessionScreenShakeBridge.Detach();
         _sessionParticleBridge.Detach();
@@ -595,6 +615,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     private void StartNewGame()
     {
+        _appScreen = AppScreen.Gameplay;
         var bootstrap = _bootstrapper.CreateNewGame();
         _session = bootstrap.Session;
         _sessionAudioBridge.Attach(_session);
@@ -637,6 +658,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         CleanActive(true);
         CloseSettingsMenu();
         _camera.ClearShake();
+        _appScreen = AppScreen.MainMenu;
         _gamePaused = true;
         _isGameOver = false;
         _mainMenuOpen = true;
@@ -775,6 +797,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _camera.SetOrigin(focusPoint + new Vector2(menuOffset * (1f / _camera.CurrentScale), 0f));
     }
 
+    private bool IsMainMenuActive => _appScreen == AppScreen.MainMenu;
+
+    private bool IsScreenUiBackgroundPass => _screenUiPass == ScreenUiPass.Background;
+
+    private bool IsScreenUiForegroundPass => _screenUiPass == ScreenUiPass.Foreground;
     private bool HasGumUiRenderer => _gumUiRenderer is not null;
 }
 
@@ -945,10 +972,16 @@ public sealed partial class GameApp
             return true;
         }
 
-        if (allowQuitToMainMenu && SettingsMenuLayout.GetQuitToMainMenuButtonBounds(panelBounds).Contains(point))
+        if (allowQuitToMainMenu && SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds).Contains(point))
         {
             PlayUiSelectSound();
             ReturnToMainMenu();
+            return true;
+        }
+
+        if (!panelBounds.Contains(point))
+        {
+            CloseSettingsMenu();
             return true;
         }
 
@@ -1761,21 +1794,8 @@ public sealed partial class GameApp
         {
             if (_selectedTrilobites.Count == 1)
             {
-                var selectedTrilobite = _selectedTrilobites.First();
-                var path = selectedTrilobite.GetQueuedPathPreview();
-                if (path.Count > 1)
-                {
-                    for (var index = 1; index < path.Count; index++)
-                    {
-                        var previous = path[index - 1];
-                        var current = path[index];
-                        var dy = current.Y - previous.Y;
-                        var midpoint = new Vector2(
-                            (((previous.X + current.X) * 0.5f) * TileConstants.TileSize) + selectedTrilobite.MovementOffset.X,
-                            (((previous.Y + current.Y) * 0.5f) * TileConstants.TileSize) + selectedTrilobite.MovementOffset.Y);
-                        DrawWorldTextureNative("Path", midpoint, dy != 0 ? MathF.PI / 2f : 0f);
-                    }
-                }
+                // Creature path rendering is intentionally disabled while autonomous
+                // building navigation uses per-tick BFS-field stepping.
             }
 
             foreach (var selectedTrilobite in _selectedTrilobites)
@@ -1790,20 +1810,8 @@ public sealed partial class GameApp
 
         if (_selectedObject is Creature creature)
         {
-            var path = creature.GetQueuedPathPreview();
-            if (path.Count > 1)
-            {
-                for (var index = 1; index < path.Count; index++)
-                {
-                    var previous = path[index - 1];
-                    var current = path[index];
-                    var dy = current.Y - previous.Y;
-                    var midpoint = new Vector2(
-                        (((previous.X + current.X) * 0.5f) * TileConstants.TileSize) + creature.MovementOffset.X,
-                        (((previous.Y + current.Y) * 0.5f) * TileConstants.TileSize) + creature.MovementOffset.Y);
-                    DrawWorldTextureNative("Path", midpoint, dy != 0 ? MathF.PI / 2f : 0f);
-                }
-            }
+            // Creature path rendering is intentionally disabled while autonomous
+            // building navigation uses per-tick BFS-field stepping.
 
             DrawWorldTextureNative(
                 "Selected",
@@ -1929,6 +1937,69 @@ public sealed partial class GameApp
         DrawScreenTextFittedCentered(label, hintBounds, new Color(239, 247, 252), _rendering.SmallFont, minScale: 0.72f);
     }
 
+    private void DrawMainMenu()
+    {
+        var viewport = Window.ClientBounds.Size;
+        var overlayBounds = new Rectangle(0, 0, viewport.X, viewport.Y);
+        var cardBounds = MainMenuLayout.GetCardBounds(viewport);
+        var titleBounds = MainMenuLayout.GetTitleBounds(cardBounds);
+        var startBounds = MainMenuLayout.GetStartGameButtonBounds(cardBounds);
+        var quitBounds = MainMenuLayout.GetQuitGameButtonBounds(cardBounds);
+        var comingSoonBounds = MainMenuLayout.GetComingSoonBounds(cardBounds);
+
+        if (IsScreenUiBackgroundPass)
+        {
+            DrawRoundedScreenRect(overlayBounds, new Color(6, 11, 16) * 0.94f, 0);
+            DrawRoundedScreenFrame(cardBounds, new Color(16, 30, 42, 244), new Color(141, 199, 219), 3, 22);
+            return;
+        }
+
+        if (!IsScreenUiForegroundPass)
+        {
+            return;
+        }
+
+        DrawScreenTextFittedCentered(
+            "Welcome to The Scuttlers",
+            titleBounds,
+            Color.White,
+            _rendering.UiFont,
+            minScale: 0.66f);
+
+        DrawMainMenuButton(
+            startBounds,
+            "Start Game",
+            startBounds.Contains(_input.MousePoint),
+            new Color(32, 90, 112),
+            new Color(173, 229, 242));
+        DrawMainMenuButton(
+            quitBounds,
+            "Quit Game",
+            quitBounds.Contains(_input.MousePoint),
+            new Color(86, 54, 42),
+            new Color(231, 196, 174));
+
+        DrawScreenTextFittedCentered(
+            "Trilo-dex coming soon!",
+            comingSoonBounds,
+            new Color(181, 206, 217),
+            _rendering.SmallFont,
+            minScale: 0.7f);
+    }
+
+    private void DrawMainMenuButton(Rectangle bounds, string label, bool hovered, Color fill, Color border)
+    {
+        var buttonFill = hovered
+            ? Color.Lerp(fill, Color.White, 0.14f)
+            : fill;
+        var buttonBorder = hovered
+            ? Color.Lerp(border, Color.White, 0.22f)
+            : border;
+
+        DrawRoundedScreenFrame(bounds, buttonFill, buttonBorder, 2, 16);
+        DrawScreenTextFittedCentered(label, bounds, new Color(246, 251, 253), _rendering.SmallFont, minScale: 0.72f);
+    }
+
     private void DrawSettingsMenu()
     {
         var viewport = Window.ClientBounds.Size;
@@ -1967,13 +2038,13 @@ public sealed partial class GameApp
         var barBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
         var downBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
         var upBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
-        var quitToMenuBounds = !_mainMenuOpen ? SettingsMenuLayout.GetQuitToMainMenuButtonBounds(panelBounds) : Rectangle.Empty;
+        var returnBounds = !_mainMenuOpen ? SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds) : Rectangle.Empty;
         var downHovered = downBounds.Contains(_input.MousePoint);
         var upHovered = upBounds.Contains(_input.MousePoint);
         var barHovered = barBounds.Contains(_input.MousePoint);
         var closeHovered = closeBounds.Contains(_input.MousePoint);
         var backHovered = backBounds.Contains(_input.MousePoint);
-        var quitHovered = !_mainMenuOpen && quitToMenuBounds.Contains(_input.MousePoint);
+        var returnHovered = !_mainMenuOpen && returnBounds.Contains(_input.MousePoint);
 
         _gumUiRenderer.AddFilledRectangle(new Rectangle(0, 0, viewport.X, viewport.Y), new Color(0, 0, 0, _mainMenuOpen ? 180 : 96));
         DrawRoundedScreenFrame(panelBounds, new Color(8, 19, 29, 247), new Color(77, 122, 140), 3, 16);
@@ -2020,12 +2091,12 @@ public sealed partial class GameApp
         if (!_mainMenuOpen)
         {
             DrawRoundedScreenFrame(
-                quitToMenuBounds,
-                quitHovered ? new Color(82, 113, 96) : new Color(61, 92, 76),
-                quitHovered ? new Color(185, 230, 204) : new Color(129, 170, 149),
+                returnBounds,
+                returnHovered ? new Color(82, 113, 96) : new Color(61, 92, 76),
+                returnHovered ? new Color(185, 230, 204) : new Color(129, 170, 149),
                 2,
                 12);
-            DrawScreenTextFittedCentered("Quit To Main Menu", quitToMenuBounds, Color.White, _rendering.SmallFont, minScale: 0.72f);
+            DrawScreenTextFittedCentered("Return To Main Menu", returnBounds, Color.White, _rendering.SmallFont, minScale: 0.72f);
         }
 
         DrawRoundedScreenFrame(
@@ -2328,13 +2399,22 @@ public sealed partial class GameApp
             workBounds.Bottom + 6,
             contentBounds.Width,
             Math.Max(0, contentBounds.Bottom - workBounds.Bottom - 6));
-        var rowCount = 5;
+        var rowCount = 9;
         var rowHeight = Math.Max(18, metricsBounds.Height / rowCount);
-        var gap = 12;
-        var leftWidth = Math.Max(0, (metricsBounds.Width - gap) / 2);
-        var rightWidth = Math.Max(0, metricsBounds.Width - leftWidth - gap);
         var average = _session.Runtime.TickProfiler.Average;
         var last = _session.Runtime.TickProfiler.Last;
+        var rows = new (string Label, string Value)[]
+        {
+            ("Miner role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageMinerMsPerTrilobite, last.MinerTiming)),
+            ("Builder role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageBuilderMsPerTrilobite, last.BuilderTiming)),
+            ("Farmer role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageFarmerMsPerTrilobite, last.FarmerTiming)),
+            ("Fighter role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageFighterMsPerTrilobite, last.FighterTiming)),
+            ("Avg ene", $"{average.EnemyMoveMs:0.00} ms"),
+            ("Avg bld", $"{average.BuildingTickMs:0.00} ms"),
+            ("Avg total", $"{average.TotalMs:0.00} ms"),
+            ("Stats", $"Alloc {FormatByteCount(last.AllocatedBytes)}   GC {last.Gen0Collections}/{last.Gen1Collections}/{last.Gen2Collections}"),
+            ("Counts", $"{last.TrilobiteCount} tri  {last.EnemyCount} ene  {last.BuildingCount} bld")
+        };
 
         for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
@@ -2345,28 +2425,7 @@ public sealed partial class GameApp
                 metricsBounds.Width,
                 Math.Max(1, rowIndex == rowCount - 1 ? metricsBounds.Bottom - rowY : rowHeight));
 
-            switch (rowIndex)
-            {
-                case 0:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Avg total", $"{average.TotalMs:0.00} ms");
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "Avg BFS", $"{average.TotalBfsMs:0.00} ms");
-                    break;
-                case 1:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Avg tri", $"{average.TrilobiteMoveMs:0.00} ms");
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "Avg ene", $"{average.EnemyMoveMs:0.00} ms");
-                    break;
-                case 2:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Avg bld", $"{average.BuildingTickMs:0.00} ms");
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "Last total", $"{last.TotalMs:0.00} ms");
-                    break;
-                case 3:
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X, rowBounds.Y, leftWidth, rowBounds.Height), "Alloc", FormatByteCount(last.AllocatedBytes));
-                    DrawDebugMetricCell(new Rectangle(rowBounds.X + leftWidth + gap, rowBounds.Y, rightWidth, rowBounds.Height), "GC", $"{last.Gen0Collections}/{last.Gen1Collections}/{last.Gen2Collections}");
-                    break;
-                default:
-                    DrawDebugMetricCell(rowBounds, "Counts", $"{last.TrilobiteCount} tri  {last.EnemyCount} ene  {last.BuildingCount} bld");
-                    break;
-            }
+            DrawDebugMetricCell(rowBounds, rows[rowIndex].Label, rows[rowIndex].Value);
         }
     }
 
@@ -2377,7 +2436,7 @@ public sealed partial class GameApp
             return;
         }
 
-        var labelWidth = Math.Min(74, Math.Max(44, bounds.Width / 2));
+        var labelWidth = Math.Min(104, Math.Max(60, bounds.Width / 2));
         var labelBounds = new Rectangle(bounds.X, bounds.Y, labelWidth, bounds.Height);
         var valueBounds = new Rectangle(bounds.X + labelWidth + 6, bounds.Y, Math.Max(0, bounds.Width - labelWidth - 6), bounds.Height);
         DrawScreenTextFittedLeft(label, labelBounds, new Color(156, 187, 199), _rendering.SmallFont, minScale: 0.8f);
@@ -3098,7 +3157,17 @@ public sealed partial class GameApp
 
     private static string FormatTickProfile(TickTimingSnapshot snapshot, string label)
     {
-        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobites {snapshot.TrilobiteMoveMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
+        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobites {snapshot.TrilobiteMoveMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, miner {FormatRoleTimingSnapshot(snapshot.MinerTiming)}, builder {FormatRoleTimingSnapshot(snapshot.BuilderTiming)}, farmer {FormatRoleTimingSnapshot(snapshot.FarmerTiming)}, fighter {FormatRoleTimingSnapshot(snapshot.FighterTiming)}, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
+    }
+
+    private static string FormatRoleTimingMetric(double averageMsPerTrilobite, RoleTimingSnapshot lastTiming)
+    {
+        return $"avg {averageMsPerTrilobite:0.00} ms/tri   last X{lastTiming.Count} = {lastTiming.TotalMs:0.00} ms";
+    }
+
+    private static string FormatRoleTimingSnapshot(RoleTimingSnapshot timing)
+    {
+        return $"{timing.AverageMsPerTrilobite:0.00} ms/trilo (X{timing.Count} = {timing.TotalMs:0.00} ms)";
     }
 
     private string DescribeSelectedObject()

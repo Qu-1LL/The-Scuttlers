@@ -13,6 +13,8 @@ namespace TriloGame.Game.Core.World;
 
 public sealed partial class Cave : Graph
 {
+    public readonly record struct MineablePathResult(string TileKey, GridPoint NavigationTarget, List<GridPoint> Path);
+
     private const int SizeMult = 30;
     private const int HoleLimit = 10;
     private const double DegradeLimit = 2.75;
@@ -29,6 +31,12 @@ public sealed partial class Cave : Graph
     private readonly List<Barracks> _barracks = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
+    private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
+    private readonly Dictionary<MiningPost, int> _miningPostAssignmentCounts = [];
+    private readonly Dictionary<Barracks, int> _barracksAssignmentCounts = [];
+    private readonly MiningPostOwnershipField _miningPostOwnershipField;
+    private readonly AlgaeFarmOwnershipField _algaeFarmOwnershipField;
+    private readonly BarracksOwnershipField _barracksOwnershipField;
     private bool[] _visibleEnemyThreatenedTiles = [];
     private Queen? _queenBuilding;
 
@@ -41,6 +49,9 @@ public sealed partial class Cave : Graph
         Buildings = [];
         RevealedTiles = [];
         ReachableTiles = [];
+        _miningPostOwnershipField = new MiningPostOwnershipField(this);
+        _algaeFarmOwnershipField = new AlgaeFarmOwnershipField(this);
+        _barracksOwnershipField = new BarracksOwnershipField(this);
         session.Cave = this;
         ResetBfsFields();
     }
@@ -57,6 +68,18 @@ public sealed partial class Cave : Graph
 
     public HashSet<Tile> ReachableTiles { get; private set; }
 
+    public bool HasOpenAlgaeFarms { get; private set; }
+
+    public bool HasAvailableMiningPostAssignments { get; private set; }
+
+    public bool MiningPostBuildingsAdded { get; private set; }
+
+    public bool BarracksBuildingsAdded { get; private set; }
+
+    public long TopologyVersion { get; private set; }
+
+    public long ReachabilityVersion { get; private set; }
+
     public IReadOnlyList<Trilobite> GetTrilobiteList() => _trilobiteList;
 
     public IReadOnlyList<Enemy> GetEnemyList() => _enemyList;
@@ -70,6 +93,10 @@ public sealed partial class Cave : Graph
     public IReadOnlyList<Barracks> GetBarracksList() => _barracks;
 
     public IReadOnlyList<Scaffolding> GetScaffoldingList() => _scaffolds;
+
+    public IReadOnlyDictionary<MiningPost, int> GetMiningPostAssignmentCounts() => _miningPostAssignmentCounts;
+
+    public IReadOnlyDictionary<Barracks, int> GetBarracksAssignmentCounts() => _barracksAssignmentCounts;
 
     public bool RefreshDangerState()
     {
@@ -426,12 +453,23 @@ public sealed partial class Cave : Graph
                 break;
             case MiningPost post:
                 _miningPosts.Add(post);
+                _miningPostAssignmentCounts[post] = post.GetVolume();
+                MiningPostBuildingsAdded = true;
+                if (post.Location is not null && post.TileArray.Count > 0 && post.AssignmentsAvailable)
+                {
+                    HasAvailableMiningPostAssignments = true;
+                }
+                SyncMiningPostBuildingsAddedState();
                 break;
             case AlgaeFarm farm:
                 _algaeFarms.Add(farm);
+                RefreshOpenAlgaeFarmAvailability();
                 break;
             case Barracks barracks:
                 _barracks.Add(barracks);
+                _barracksAssignmentCounts[barracks] = barracks.GetVolume();
+                BarracksBuildingsAdded = true;
+                SyncBarracksBuildingsAddedState();
                 break;
             case Scaffolding scaffolding:
                 _scaffolds.Add(scaffolding);
@@ -448,17 +486,214 @@ public sealed partial class Cave : Graph
                 break;
             case MiningPost post:
                 _miningPosts.Remove(post);
+                _miningPostAssignmentCounts.Remove(post);
+                ForgetMiningPostMovementCache(post);
+                if (HasAvailableMiningPostAssignments && post.AssignmentsAvailable)
+                {
+                    HasAvailableMiningPostAssignments = _miningPosts.Any(other => other.Location is not null && other.TileArray.Count > 0 && other.AssignmentsAvailable);
+                }
+                SyncMiningPostBuildingsAddedState();
                 break;
             case AlgaeFarm farm:
                 _algaeFarms.Remove(farm);
+                RefreshOpenAlgaeFarmAvailability();
                 break;
             case Barracks barracks:
                 _barracks.Remove(barracks);
+                _barracksAssignmentCounts.Remove(barracks);
+                SyncBarracksBuildingsAddedState();
                 break;
             case Scaffolding scaffolding:
                 _scaffolds.Remove(scaffolding);
                 break;
         }
+    }
+
+    private void AdvanceTopologyVersion()
+    {
+        TopologyVersion++;
+    }
+
+    private void AdvanceReachabilityVersion()
+    {
+        ReachabilityVersion++;
+    }
+
+    internal void AdvanceTopologyVersionForCache()
+    {
+        AdvanceTopologyVersion();
+    }
+
+    internal void AdvanceReachabilityVersionForIncrementalReachability()
+    {
+        AdvanceReachabilityVersion();
+    }
+
+    private void ForgetMiningPostMovementCache(MiningPost post)
+    {
+        _miningPostMovementCache.Remove(post);
+    }
+
+    public bool RefreshOpenAlgaeFarmAvailability()
+    {
+        HasOpenAlgaeFarms = _algaeFarms.Any(farm => farm.Location is not null && farm.TileArray.Count > 0 && farm.HasAssignmentSlot());
+        return HasOpenAlgaeFarms;
+    }
+
+    private static bool IsActiveAssignedBuilding(Building building)
+    {
+        return building.Location is not null && building.TileArray.Count > 0;
+    }
+
+    private bool ShouldBalanceMiningPost(MiningPost post)
+    {
+        return IsActiveAssignedBuilding(post) && post.AssignmentsAvailable;
+    }
+
+    private bool ShouldBalanceBarracks(Barracks barracks)
+    {
+        return IsActiveAssignedBuilding(barracks);
+    }
+
+    private static bool AreAssignmentCountsBalanced<TBuilding>(IDictionary<TBuilding, int> counts, Func<TBuilding, bool> includeBuilding)
+        where TBuilding : Building
+    {
+        var min = int.MaxValue;
+        var max = int.MinValue;
+        var includedCount = 0;
+
+        foreach (var pair in counts)
+        {
+            if (!includeBuilding(pair.Key))
+            {
+                continue;
+            }
+
+            includedCount++;
+            min = System.Math.Min(min, pair.Value);
+            max = System.Math.Max(max, pair.Value);
+        }
+
+        return includedCount <= 1 || (max - min) <= 1;
+    }
+
+    private static int? GetLeastAssignmentCount<TBuilding>(IDictionary<TBuilding, int> counts, Func<TBuilding, bool> includeBuilding)
+        where TBuilding : Building
+    {
+        int? leastCount = null;
+        foreach (var pair in counts)
+        {
+            if (!includeBuilding(pair.Key))
+            {
+                continue;
+            }
+
+            leastCount = !leastCount.HasValue || pair.Value < leastCount.Value
+                ? pair.Value
+                : leastCount.Value;
+        }
+
+        return leastCount;
+    }
+
+    internal int GetMiningPostAssignmentCount(MiningPost post)
+    {
+        return _miningPostAssignmentCounts.GetValueOrDefault(post, post.GetVolume());
+    }
+
+    internal int GetBarracksAssignmentCount(Barracks barracks)
+    {
+        return _barracksAssignmentCounts.GetValueOrDefault(barracks, barracks.GetVolume());
+    }
+
+    internal void SyncMiningPostAssignmentCount(MiningPost post, int count)
+    {
+        if (!_miningPostAssignmentCounts.ContainsKey(post))
+        {
+            return;
+        }
+
+        _miningPostAssignmentCounts[post] = count;
+        SyncMiningPostBuildingsAddedState();
+    }
+
+    internal void SyncBarracksAssignmentCount(Barracks barracks, int count)
+    {
+        if (!_barracksAssignmentCounts.ContainsKey(barracks))
+        {
+            return;
+        }
+
+        _barracksAssignmentCounts[barracks] = count;
+        SyncBarracksBuildingsAddedState();
+    }
+
+    private void SyncMiningPostBuildingsAddedState()
+    {
+        if (MiningPostBuildingsAdded && AreAssignmentCountsBalanced(_miningPostAssignmentCounts, ShouldBalanceMiningPost))
+        {
+            MiningPostBuildingsAdded = false;
+        }
+    }
+
+    private void SyncBarracksBuildingsAddedState()
+    {
+        if (BarracksBuildingsAdded && AreAssignmentCountsBalanced(_barracksAssignmentCounts, ShouldBalanceBarracks))
+        {
+            BarracksBuildingsAdded = false;
+        }
+    }
+
+    internal void OnMiningPostAssignmentsAvailableChanged(MiningPost post, bool previousValue, bool currentValue)
+    {
+        if (currentValue)
+        {
+            HasAvailableMiningPostAssignments = true;
+        }
+        else if (previousValue && HasAvailableMiningPostAssignments)
+        {
+            HasAvailableMiningPostAssignments = _miningPosts.Any(other => other.Location is not null && other.TileArray.Count > 0 && other.AssignmentsAvailable);
+        }
+
+        if (!previousValue && currentValue && _miningPostAssignmentCounts.ContainsKey(post))
+        {
+            MiningPostBuildingsAdded = true;
+        }
+
+        SyncMiningPostBuildingsAddedState();
+    }
+
+    internal bool ShouldRebalanceMiningPostAssignments(MiningPost? currentPost)
+    {
+        if (!MiningPostBuildingsAdded || currentPost is null || !ShouldBalanceMiningPost(currentPost))
+        {
+            return false;
+        }
+
+        var leastCount = GetLeastAssignmentCount(_miningPostAssignmentCounts, ShouldBalanceMiningPost);
+        return leastCount.HasValue && GetMiningPostAssignmentCount(currentPost) > leastCount.Value + 1;
+    }
+
+    internal bool ShouldRebalanceBarracksAssignments(Barracks? currentBarracks)
+    {
+        if (!BarracksBuildingsAdded || currentBarracks is null || !ShouldBalanceBarracks(currentBarracks))
+        {
+            return false;
+        }
+
+        var leastCount = GetLeastAssignmentCount(_barracksAssignmentCounts, ShouldBalanceBarracks);
+        return leastCount.HasValue && GetBarracksAssignmentCount(currentBarracks) > leastCount.Value + 1;
+    }
+
+    internal bool SyncMiningPostAssignmentAvailability()
+    {
+        if (!HasAvailableMiningPostAssignments)
+        {
+            return false;
+        }
+
+        HasAvailableMiningPostAssignments = _miningPosts.Any(post => post.Location is not null && post.TileArray.Count > 0 && post.AssignmentsAvailable);
+        return HasAvailableMiningPostAssignments;
     }
 
     public bool CanBuild(Building building, GridPoint location, bool preserveReachability = false)
@@ -650,11 +885,18 @@ public sealed partial class Cave : Graph
 
         building.OnBuilt(this);
         RegisterBuilding(building);
+        AdvanceTopologyVersion();
 
         var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
         var reachability = RefreshReachableTiles();
-        MarkAllBuildingFieldsDirty(dirtyKeys.Concat(reachability.ChangedKeys), [building], []);
+        var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
+        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, [building]);
         RebalanceAllBfsFields(dirtyKeys, [building], []);
+        RebalanceAllBuildingOwnershipFields(dirtyKeys, [building]);
+        var buildingField = GetBuildingBfsFieldObject(building);
+        buildingField.Rebuild();
+        buildingField.MarkDirty(ownershipDirtyKeys, [building], []);
         return true;
     }
 
@@ -665,22 +907,8 @@ public sealed partial class Cave : Graph
             return false;
         }
 
-        _buildingList.Remove(building);
-        UnregisterBuilding(building);
-
-        var dirtyKeys = new List<string>();
-        foreach (var tile in building.TileArray)
-        {
-            dirtyKeys.Add(tile.Key);
-            if (ReferenceEquals(tile.Built, building))
-            {
-                tile.SetBuilt(null);
-            }
-
-            tile.CreatureCanFit = true;
-        }
-
-        foreach (var creature in GetCreatures())
+        var affectedCreatures = new List<Creature>();
+        foreach (var creature in GetCreatures().ToArray())
         {
             var creatureWasAffected = false;
             if (creature is Trilobite trilobite && ReferenceEquals(trilobite.BuilderSourcePost, building))
@@ -709,26 +937,52 @@ public sealed partial class Cave : Graph
 
             if (creature is Trilobite assignedTrilobite && ReferenceEquals(assignedTrilobite.GetAssignedBuilding(), building))
             {
-                assignedTrilobite.ClearActionQueue();
                 assignedTrilobite.ReleaseAssignedBuilding();
-                assignedTrilobite.RestartBehavior(false);
                 creatureWasAffected = true;
             }
 
-            if (creatureWasAffected)
+            if (!creatureWasAffected)
             {
-                creature.RestartBehavior(false);
+                continue;
             }
+
+            creature.ClearActionQueue();
+            affectedCreatures.Add(creature);
+        }
+
+        _buildingList.Remove(building);
+        UnregisterBuilding(building);
+
+        var dirtyKeys = new List<string>();
+        foreach (var tile in building.TileArray)
+        {
+            dirtyKeys.Add(tile.Key);
+            if (ReferenceEquals(tile.Built, building))
+            {
+                tile.SetBuilt(null);
+            }
+
+            tile.CreatureCanFit = true;
         }
 
         building.CleanupBeforeRemoval(source);
+        AdvanceTopologyVersion();
         var reachability = RefreshReachableTiles();
-        MarkAllBuildingFieldsDirty(dirtyKeys.Concat(reachability.ChangedKeys), [building], []);
+        var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
+        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, [building]);
         building.TileArray = [];
         building.Location = null;
         building.Cave = null;
         building.BfsField.SetCave(null);
         RebalanceAllBfsFields(dirtyKeys, [building], []);
+        RebalanceAllBuildingOwnershipFields(dirtyKeys, [building]);
+
+        foreach (var creature in affectedCreatures)
+        {
+            creature.RestartBehavior(false);
+        }
+
         return true;
     }
 
@@ -744,6 +998,17 @@ public sealed partial class Cave : Graph
     public bool IsTileReachable(Tile tile) => ReachableTiles.Contains(tile);
 
     public IReadOnlyCollection<Tile> GetReachableTiles() => ReachableTiles;
+
+    internal bool TryAddReachableTile(Tile tile, ISet<string>? changedKeys = null)
+    {
+        if (!tile.CreatureFits() || !ReachableTiles.Add(tile))
+        {
+            return false;
+        }
+
+        changedKeys?.Add(tile.Key);
+        return true;
+    }
 
     public IReadOnlyList<string> GetReachabilityChangedKeys(HashSet<Tile> previousReachableTiles, HashSet<Tile> nextReachableTiles)
     {
@@ -776,7 +1041,13 @@ public sealed partial class Cave : Graph
         if (queenBuilding is null || queenBuilding.TileArray.Count == 0)
         {
             ReachableTiles = nextReachableTiles;
-            return new ReachabilityRefreshResult(0, GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles));
+            var changedKeys = GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles);
+            if (changedKeys.Count > 0)
+            {
+                AdvanceReachabilityVersion();
+            }
+
+            return new ReachabilityRefreshResult(0, changedKeys);
         }
 
         var queue = new Queue<Tile>();
@@ -808,7 +1079,13 @@ public sealed partial class Cave : Graph
         }
 
         ReachableTiles = nextReachableTiles;
-        return new ReachabilityRefreshResult(ReachableTiles.Count, GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles));
+        var finalChangedKeys = GetReachabilityChangedKeys(previousReachableTiles, nextReachableTiles);
+        if (finalChangedKeys.Count > 0)
+        {
+            AdvanceReachabilityVersion();
+        }
+
+        return new ReachabilityRefreshResult(ReachableTiles.Count, finalChangedKeys);
     }
 }
 
@@ -816,6 +1093,381 @@ public readonly record struct ReachabilityRefreshResult(int Count, IReadOnlyList
 
 public sealed partial class Cave
 {
+    private static bool HasActiveOwnershipBuildings<TBuilding>(IReadOnlyList<TBuilding> buildings)
+        where TBuilding : Building
+    {
+        return buildings.Any(building => building.Location is not null && building.TileArray.Count > 0);
+    }
+
+    private TField GetBuildingOwnershipFieldObject<TField, TBuilding>(TField field, IReadOnlyList<TBuilding> buildings)
+        where TField : BuildingOwnershipField<TBuilding>
+        where TBuilding : Building
+    {
+        if (!HasActiveOwnershipBuildings(buildings))
+        {
+            field.Deactivate();
+            return field;
+        }
+
+        field.SetCave(this);
+        return field;
+    }
+
+    public MiningPostOwnershipField GetMiningPostOwnershipFieldObject()
+    {
+        return GetBuildingOwnershipFieldObject(_miningPostOwnershipField, _miningPosts);
+    }
+
+    public AlgaeFarmOwnershipField GetAlgaeFarmOwnershipFieldObject()
+    {
+        return GetBuildingOwnershipFieldObject(_algaeFarmOwnershipField, _algaeFarms);
+    }
+
+    public BarracksOwnershipField GetBarracksOwnershipFieldObject()
+    {
+        return GetBuildingOwnershipFieldObject(_barracksOwnershipField, _barracks);
+    }
+
+    public MiningPostOwnershipField MarkMiningPostOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetMiningPostOwnershipFieldObject();
+        field.MarkDirty(tileKeys, dirtyBuildings);
+        return field;
+    }
+
+    public AlgaeFarmOwnershipField MarkAlgaeFarmOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetAlgaeFarmOwnershipFieldObject();
+        field.MarkDirty(tileKeys, dirtyBuildings);
+        return field;
+    }
+
+    public BarracksOwnershipField MarkBarracksOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetBarracksOwnershipFieldObject();
+        field.MarkDirty(tileKeys, dirtyBuildings);
+        return field;
+    }
+
+    public bool MarkAllBuildingOwnershipFieldsDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        MarkMiningPostOwnershipFieldDirty(tileKeys, dirtyBuildings);
+        MarkAlgaeFarmOwnershipFieldDirty(tileKeys, dirtyBuildings);
+        MarkBarracksOwnershipFieldDirty(tileKeys, dirtyBuildings);
+        return true;
+    }
+
+    public MiningPostOwnershipField RefreshMiningPostOwnershipField()
+    {
+        var field = GetMiningPostOwnershipFieldObject();
+        field.Refresh();
+        return field;
+    }
+
+    public AlgaeFarmOwnershipField RefreshAlgaeFarmOwnershipField()
+    {
+        var field = GetAlgaeFarmOwnershipFieldObject();
+        field.Refresh();
+        return field;
+    }
+
+    public BarracksOwnershipField RefreshBarracksOwnershipField()
+    {
+        var field = GetBarracksOwnershipFieldObject();
+        field.Refresh();
+        return field;
+    }
+
+    public MiningPostOwnershipField RebuildMiningPostOwnershipField()
+    {
+        var field = GetMiningPostOwnershipFieldObject();
+        field.Rebuild();
+        return field;
+    }
+
+    public AlgaeFarmOwnershipField RebuildAlgaeFarmOwnershipField()
+    {
+        var field = GetAlgaeFarmOwnershipFieldObject();
+        field.Rebuild();
+        return field;
+    }
+
+    public BarracksOwnershipField RebuildBarracksOwnershipField()
+    {
+        var field = GetBarracksOwnershipFieldObject();
+        field.Rebuild();
+        return field;
+    }
+
+    public bool RebuildAllBuildingOwnershipFields()
+    {
+        RebuildMiningPostOwnershipField();
+        RebuildAlgaeFarmOwnershipField();
+        RebuildBarracksOwnershipField();
+        return true;
+    }
+
+    public MiningPostOwnershipField RebalanceMiningPostOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetMiningPostOwnershipFieldObject();
+        field.MarkDirty(dirtyKeys, dirtyBuildings);
+        field.Refresh();
+        return field;
+    }
+
+    public AlgaeFarmOwnershipField RebalanceAlgaeFarmOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetAlgaeFarmOwnershipFieldObject();
+        field.MarkDirty(dirtyKeys, dirtyBuildings);
+        field.Refresh();
+        return field;
+    }
+
+    public BarracksOwnershipField RebalanceBarracksOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetBarracksOwnershipFieldObject();
+        field.MarkDirty(dirtyKeys, dirtyBuildings);
+        field.Refresh();
+        return field;
+    }
+
+    public bool RebalanceAllBuildingOwnershipFields(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        RebalanceMiningPostOwnershipField(dirtyKeys, dirtyBuildings);
+        RebalanceAlgaeFarmOwnershipField(dirtyKeys, dirtyBuildings);
+        RebalanceBarracksOwnershipField(dirtyKeys, dirtyBuildings);
+        return true;
+    }
+
+    public bool ApplyMinedTileUpdateToAllBuildingOwnershipFields(IEnumerable<string>? tileKeys)
+    {
+        GetMiningPostOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
+        GetAlgaeFarmOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
+        GetBarracksOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
+        return true;
+    }
+
+    public MiningPostOwnership GetMiningPostOwnership(GridPoint location)
+    {
+        return MiningPostOwnership.From(GetMiningPostOwnershipFieldObject().GetOwnership(location));
+    }
+
+    public MiningPost? GetNearestMiningPost(GridPoint location)
+    {
+        return GetMiningPostOwnershipFieldObject().GetOwner(location);
+    }
+
+    public int GetNearestMiningPostDistance(GridPoint location)
+    {
+        return GetMiningPostOwnershipFieldObject().GetDistance(location);
+    }
+
+    public IReadOnlyCollection<MiningPost> GetAdjacentMiningPosts(MiningPost post)
+    {
+        return GetMiningPostOwnershipFieldObject().GetAdjacentBuildings(post);
+    }
+
+    public IReadOnlyDictionary<MiningPost, IReadOnlyCollection<MiningPost>> GetMiningPostAdjacencyGraph()
+    {
+        return GetMiningPostOwnershipFieldObject().GetAdjacencyGraph();
+    }
+
+    public BuildingOwnership<AlgaeFarm> GetAlgaeFarmOwnership(GridPoint location)
+    {
+        return GetAlgaeFarmOwnershipFieldObject().GetOwnership(location);
+    }
+
+    public AlgaeFarm? GetNearestAlgaeFarm(GridPoint location)
+    {
+        return GetAlgaeFarmOwnershipFieldObject().GetOwner(location);
+    }
+
+    public int GetNearestAlgaeFarmDistance(GridPoint location)
+    {
+        return GetAlgaeFarmOwnershipFieldObject().GetDistance(location);
+    }
+
+    public IReadOnlyCollection<AlgaeFarm> GetAdjacentAlgaeFarms(AlgaeFarm farm)
+    {
+        return GetAlgaeFarmOwnershipFieldObject().GetAdjacentBuildings(farm);
+    }
+
+    public IReadOnlyDictionary<AlgaeFarm, IReadOnlyCollection<AlgaeFarm>> GetAlgaeFarmAdjacencyGraph()
+    {
+        return GetAlgaeFarmOwnershipFieldObject().GetAdjacencyGraph();
+    }
+
+    public BuildingOwnership<Barracks> GetBarracksOwnership(GridPoint location)
+    {
+        return GetBarracksOwnershipFieldObject().GetOwnership(location);
+    }
+
+    public Barracks? GetNearestBarracks(GridPoint location)
+    {
+        return GetBarracksOwnershipFieldObject().GetOwner(location);
+    }
+
+    public int GetNearestBarracksDistance(GridPoint location)
+    {
+        return GetBarracksOwnershipFieldObject().GetDistance(location);
+    }
+
+    public IReadOnlyCollection<Barracks> GetAdjacentBarracks(Barracks barracks)
+    {
+        return GetBarracksOwnershipFieldObject().GetAdjacentBuildings(barracks);
+    }
+
+    public IReadOnlyDictionary<Barracks, IReadOnlyCollection<Barracks>> GetBarracksAdjacencyGraph()
+    {
+        return GetBarracksOwnershipFieldObject().GetAdjacencyGraph();
+    }
+
+    public IReadOnlyDictionary<string, Building> GetNearestBuildings(GridPoint location)
+    {
+        var nearestBuildings = new Dictionary<string, Building>(StringComparer.Ordinal);
+        var buildingOwnerships = GetNearestBuildingOwnerships(location);
+        foreach (var pair in buildingOwnerships)
+        {
+            if (pair.Value.Building is not null)
+            {
+                nearestBuildings[pair.Key] = pair.Value.Building;
+            }
+        }
+
+        return nearestBuildings;
+    }
+
+    public IReadOnlyDictionary<string, int> GetNearestBuildingDistances(GridPoint location)
+    {
+        var distances = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var pair in GetNearestBuildingOwnerships(location))
+        {
+            if (pair.Value.IsOwned)
+            {
+                distances[pair.Key] = pair.Value.Distance;
+            }
+        }
+
+        return distances;
+    }
+
+    public IReadOnlyDictionary<string, BuildingOwnershipSnapshot> GetNearestBuildingOwnerships(GridPoint location)
+    {
+        var ownerships = new Dictionary<string, BuildingOwnershipSnapshot>(StringComparer.Ordinal);
+        AddBuildingOwnershipSnapshot(ownerships, GetMiningPostOwnershipFieldObject().BuildingName, GetMiningPostOwnershipFieldObject().GetOwnership(location));
+        AddBuildingOwnershipSnapshot(ownerships, GetAlgaeFarmOwnershipFieldObject().BuildingName, GetAlgaeFarmOwnership(location));
+        AddBuildingOwnershipSnapshot(ownerships, GetBarracksOwnershipFieldObject().BuildingName, GetBarracksOwnership(location));
+        return ownerships;
+    }
+
+    private static void AddBuildingOwnershipSnapshot<TBuilding>(
+        IDictionary<string, BuildingOwnershipSnapshot> ownerships,
+        string buildingName,
+        BuildingOwnership<TBuilding> ownership)
+        where TBuilding : Building
+    {
+        if (!ownership.IsOwned || ownership.Building is null)
+        {
+            return;
+        }
+
+        ownerships[buildingName] = new BuildingOwnershipSnapshot(ownership.Building, ownership.Distance);
+    }
+
+    internal MiningPostMovementCacheEntry GetMiningPostMovementCacheEntry(MiningPost post)
+    {
+        if (!_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
+        {
+            cacheEntry = new MiningPostMovementCacheEntry(post, this);
+            _miningPostMovementCache[post] = cacheEntry;
+        }
+
+        return cacheEntry;
+    }
+
+    public bool InvalidateMiningPostMovementCache(MiningPost post, bool staleFailure = false)
+    {
+        if (!_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
+        {
+            return false;
+        }
+
+        cacheEntry.ForceRebuild = true;
+        if (staleFailure)
+        {
+            Session.MiningPostMovementTelemetry.RecordStalePathInvalidation();
+        }
+
+        return true;
+    }
+
+    public BfsField GetMiningPostMovementFieldObject(MiningPost post)
+    {
+        var cacheEntry = GetMiningPostMovementCacheEntry(post);
+        var telemetry = Session.MiningPostMovementTelemetry;
+        var forceRebuild = cacheEntry.ForceRebuild;
+        var versionDirty = cacheEntry.TopologyVersion != TopologyVersion ||
+                           cacheEntry.ReachabilityVersion != ReachabilityVersion;
+        var hasCachedCoverage = cacheEntry.Field.HasCoverage();
+
+        cacheEntry.Field.SetOwnerBuilding(post);
+        cacheEntry.Field.SetCave(post.Cave ?? this);
+
+        if (forceRebuild || !hasCachedCoverage)
+        {
+            telemetry.RecordCacheMiss();
+            cacheEntry.Field.Rebuild();
+            cacheEntry.TopologyVersion = TopologyVersion;
+            cacheEntry.ReachabilityVersion = ReachabilityVersion;
+            cacheEntry.ForceRebuild = false;
+            telemetry.RecordCacheRebuild();
+        }
+        else
+        {
+            telemetry.RecordCacheHit();
+            if (!versionDirty)
+            {
+                cacheEntry.TopologyVersion = TopologyVersion;
+                cacheEntry.ReachabilityVersion = ReachabilityVersion;
+            }
+        }
+
+        return cacheEntry.Field;
+    }
+
+    public List<GridPoint>? BuildPathToMiningPost(MiningPost post, GridPoint startLocation)
+    {
+        if (post.Location is null || post.TileArray.Count == 0)
+        {
+            return null;
+        }
+
+        return GetMiningPostMovementFieldObject(post).BuildPathFrom(startLocation, refresh: false);
+    }
+
+    public bool ShouldInvalidateMiningPostMovementCacheOnFailure(MiningPost post, GridPoint currentLocation, GridPoint attemptedLocation)
+    {
+        if (GridPoint.ManhattanDistance(currentLocation, attemptedLocation) != 1)
+        {
+            return true;
+        }
+
+        var tile = GetTile(attemptedLocation.ToString());
+        if (tile is null || !tile.CreatureFits() || !IsTileReachable(tile))
+        {
+            return true;
+        }
+
+        if (_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
+        {
+            return cacheEntry.TopologyVersion != TopologyVersion ||
+                   cacheEntry.ReachabilityVersion != ReachabilityVersion ||
+                   cacheEntry.ForceRebuild;
+        }
+
+        return false;
+    }
+
     public BfsField GetBuildingBfsFieldObject(Building building)
     {
         building.BfsField ??= new BfsField(building.Name, "building", this, building);
@@ -824,9 +1476,40 @@ public sealed partial class Cave
         return building.BfsField;
     }
 
+    private BfsField GetAccessibleBuildingBfsFieldObject(Building building, bool rebuildIfEmpty, GridPoint? accessLocation = null)
+    {
+        var field = GetBuildingBfsFieldObject(building);
+        if (rebuildIfEmpty &&
+            field.HasActiveBuildingTarget() &&
+            !field.HasCoverage())
+        {
+            field.Rebuild();
+        }
+
+        if (accessLocation.HasValue &&
+            field.HasActiveBuildingTarget() &&
+            !field.IsUpdated())
+        {
+            var accessTile = GetTile(accessLocation.Value.ToString());
+            if (accessTile is not null &&
+                IsTileReachable(accessTile) &&
+                field.GetFieldValue(accessLocation.Value, refresh: false) == int.MaxValue)
+            {
+                field.Rebuild();
+            }
+        }
+
+        return field;
+    }
+
+    internal BfsField GetAccessibleBuildingBfsFieldObject(Building building, GridPoint accessLocation, bool rebuildIfEmpty = true)
+    {
+        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty, accessLocation);
+    }
+
     public Dictionary<string, int> EnsureBuildingBfsField(Building building)
     {
-        return GetBuildingBfsFieldObject(building).GetField();
+        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty: true).GetField(false);
     }
 
     public bool MarkAllBuildingFieldsDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null, IEnumerable<Creature>? dirtyCreatures = null)
@@ -873,6 +1556,139 @@ public sealed partial class Cave
                 Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
                 GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
         }
+    }
+
+    public List<GridPoint>? BuildDirectPathToPoint(GridPoint startLocation, GridPoint destination)
+    {
+        var startTile = GetTile(startLocation.ToString());
+        var destinationTile = GetTile(destination.ToString());
+        if (startTile is null || destinationTile is null ||
+            !startTile.CreatureFits() || !destinationTile.CreatureFits() ||
+            !IsTileReachable(startTile) || !IsTileReachable(destinationTile))
+        {
+            return null;
+        }
+
+        if (startTile.Key == destinationTile.Key)
+        {
+            return [startLocation];
+        }
+
+        var queue = new Queue<Tile>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { startTile.Key };
+        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
+        queue.Enqueue(startTile);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var neighbor in current.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
+            {
+                if (!neighbor.CreatureFits() || !IsTileReachable(neighbor) || !visited.Add(neighbor.Key))
+                {
+                    continue;
+                }
+
+                cameFrom[neighbor.Key] = current.Key;
+                if (neighbor.Key == destinationTile.Key)
+                {
+                    return ReconstructDirectPath(cameFrom, startTile.Key, destinationTile.Key);
+                }
+
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return null;
+    }
+
+    public MineablePathResult? BuildPathToNearestMineableType(
+        GridPoint startLocation,
+        MiningPost post,
+        string mineableType,
+        ISet<string>? reservedTileKeys = null)
+    {
+        var startTile = GetTile(startLocation.ToString());
+        if (startTile is null || !startTile.CreatureFits() || !IsTileReachable(startTile))
+        {
+            return null;
+        }
+
+        reservedTileKeys ??= new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<Tile>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { startTile.Key };
+        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
+        queue.Enqueue(startTile);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var currentResult = TryCreateMineablePathResult(
+                current,
+                post,
+                mineableType,
+                reservedTileKeys,
+                cameFrom,
+                startTile.Key);
+            if (currentResult.HasValue)
+            {
+                return currentResult.Value;
+            }
+
+            foreach (var neighbor in current.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
+            {
+                if (!neighbor.CreatureFits() || !IsTileReachable(neighbor) || !visited.Add(neighbor.Key))
+                {
+                    continue;
+                }
+
+                cameFrom[neighbor.Key] = current.Key;
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return null;
+    }
+
+    private MineablePathResult? TryCreateMineablePathResult(
+        Tile current,
+        MiningPost post,
+        string mineableType,
+        ISet<string> reservedTileKeys,
+        IReadOnlyDictionary<string, string> cameFrom,
+        string startKey)
+    {
+        if (string.Equals(mineableType, "wall", StringComparison.Ordinal))
+        {
+            foreach (var neighbor in current.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
+            {
+                if (!string.Equals(neighbor.Base, "wall", StringComparison.Ordinal) ||
+                    reservedTileKeys.Contains(neighbor.Key) ||
+                    !post.IsLocationInArea(neighbor.Coordinates))
+                {
+                    continue;
+                }
+
+                return new MineablePathResult(
+                    neighbor.Key,
+                    current.Coordinates,
+                    ReconstructDirectPath(cameFrom, startKey, current.Key));
+            }
+
+            return null;
+        }
+
+        if (!string.Equals(current.Base, mineableType, StringComparison.Ordinal) ||
+            reservedTileKeys.Contains(current.Key) ||
+            !post.IsLocationInArea(current.Coordinates))
+        {
+            return null;
+        }
+
+        return new MineablePathResult(
+            current.Key,
+            current.Coordinates,
+            ReconstructDirectPath(cameFrom, startKey, current.Key));
     }
 
     public Dictionary<string, int>? BuildPointBfsField(GridPoint destination)
@@ -937,28 +1753,72 @@ public sealed partial class Cave
         }
     }
 
+    private static List<GridPoint> ReconstructDirectPath(
+        IReadOnlyDictionary<string, string> cameFrom,
+        string startKey,
+        string destinationKey)
+    {
+        var path = new List<GridPoint>();
+        string? currentKey = destinationKey;
+        while (currentKey is not null)
+        {
+            path.Add(GridPoint.Parse(currentKey));
+            currentKey = string.Equals(currentKey, startKey, StringComparison.Ordinal)
+                ? null
+                : cameFrom.GetValueOrDefault(currentKey);
+        }
+
+        path.Reverse();
+        return path;
+    }
+
     public int GetBuildingBfsFieldValue(Building building, GridPoint location)
     {
-        return GetBuildingBfsFieldObject(building).GetFieldValue(location);
+        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty: true, accessLocation: location).GetFieldValue(location, refresh: false);
     }
 
     public GridPoint? GetBuildingBfsFieldNextStep(Building building, GridPoint location)
     {
-        return GetBuildingBfsFieldObject(building).GetNextStep(location);
+        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty: true, accessLocation: location).GetNextStep(location, refresh: false);
     }
 
-    public int RevealTile(Tile tile)
+    public void ApplyMinedTileUpdateToAllBfsFields(string tileKey)
+    {
+        if (string.IsNullOrWhiteSpace(tileKey))
+        {
+            return;
+        }
+
+        foreach (var field in Session.BfsFields.Values)
+        {
+            field.ApplyMinedTileUpdate(tileKey);
+        }
+
+        foreach (var building in _buildingList)
+        {
+            building.BfsField.SetOwnerBuilding(building);
+            building.BfsField.SetCave(building.Cave ?? this);
+            building.BfsField.ApplyMinedTileUpdate(tileKey);
+        }
+
+        foreach (var cacheEntry in _miningPostMovementCache.Values)
+        {
+            cacheEntry.Field.ApplyMinedTileUpdate(tileKey);
+        }
+    }
+
+    public int RevealTile(Tile tile, ISet<string>? newlyRevealedKeys = null)
     {
         if (!RevealedTiles.Add(tile))
         {
             return 0;
         }
 
+        newlyRevealedKeys?.Add(tile.Key);
         if (tile.EnemyOccupant is not null)
         {
             RefreshDangerState();
         }
-
         return 1;
     }
 
@@ -1076,7 +1936,10 @@ public sealed partial class Cave
         return revealedCount;
     }
 
-    public int RevealCave()
+    public int RevealCave(
+        ISet<string>? newlyRevealedKeys = null,
+        bool rebalanceFields = true,
+        ISet<string>? newlyReachableKeys = null)
     {
         var queenBuilding = GetQueenBuilding();
         if (queenBuilding is null)
@@ -1100,7 +1963,8 @@ public sealed partial class Cave
         while (queue.Count > 0)
         {
             var currentTile = queue.Dequeue();
-            revealedCount += RevealTile(currentTile);
+            revealedCount += RevealTile(currentTile, newlyRevealedKeys);
+            TryAddReachableTile(currentTile, newlyReachableKeys);
             revealedKeys.Add(currentTile.Key);
 
             if (currentTile.Base == "wall")
@@ -1115,7 +1979,8 @@ public sealed partial class Cave
                     continue;
                 }
 
-                revealedCount += RevealTile(neighbor);
+                revealedCount += RevealTile(neighbor, newlyRevealedKeys);
+                TryAddReachableTile(neighbor, newlyReachableKeys);
                 revealedKeys.Add(neighbor.Key);
                 if (neighbor.Base != "wall")
                 {
@@ -1124,7 +1989,7 @@ public sealed partial class Cave
             }
         }
 
-        if (revealedKeys.Count > 0)
+        if (rebalanceFields && revealedKeys.Count > 0)
         {
             RebalanceAllBfsFields(revealedKeys, [], []);
         }

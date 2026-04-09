@@ -138,6 +138,9 @@ public sealed partial class MenuController
             MiningPost miningPost => $"Stored: {miningPost.GetInventoryTotal()}/{miningPost.Capacity}",
             _ => $"Type: {title}"
         };
+        var buildingAssignmentText = SelectedObject is Building selectedBuilding
+            ? $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}"
+            : null;
         var canRename = SelectedObject is Trilobite;
         var bodyText = SelectedObject is Creature
             ? "Kill this trilobite immediately."
@@ -179,6 +182,14 @@ public sealed partial class MenuController
             assignmentText,
             new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
             new Color(135, 173, 187));
+        if (buildingAssignmentText is not null)
+        {
+            DrawTextFitted(
+                context,
+                buildingAssignmentText,
+                new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 124, layout.SelectedBounds.Width - 32, 20),
+                new Color(135, 173, 187));
+        }
 
         if (SelectedObject is Trilobite selectedTrilobite &&
             layout.SelectedTraitSummaryBounds is { } traitBounds)
@@ -294,6 +305,18 @@ public sealed partial class MenuController
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),
             hovered ? new Color(255, 195, 188) : new Color(242, 176, 170),
             Color.White);
+    }
+
+    private static int GetSelectedBuildingAssignmentCount(Building building)
+    {
+        return building switch
+        {
+            MiningPost post => post.GetVolume(),
+            AlgaeFarm farm => farm.GetVolume(),
+            Barracks barracks => barracks.GetVolume(),
+            Scaffolding scaffolding => scaffolding.GetVolume(),
+            _ => 0
+        };
     }
 
     private void DrawPanelFrame(RenderingContext context, Rectangle bounds)

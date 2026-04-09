@@ -12,8 +12,7 @@ Use it as:
 - a performance and determinism checklist
 - a placement guide for where new code should go
 
-This file is intentionally compact enough to stay useful as root agent context. For deeper detail,
-follow these docs after reading this file:
+Read these after this file when you need deeper detail:
 
 - [README.md](README.md)
 - [docs/architecture.md](docs/architecture.md)
@@ -67,7 +66,7 @@ Before making substantial changes, build context in this order:
 4. [docs/runtime-systems.md](docs/runtime-systems.md)
 5. The exact files in the subsystem you are changing
 
-For feature work, also inspect the nearest tests first.
+For feature work, inspect the nearest tests first.
 
 ## Repository Commands
 
@@ -338,31 +337,3 @@ The target direction for this codebase is:
 - thinner MonoGame host
 - stronger deterministic `Core`
 - more runtime systems under `Runtime`
-- clearer seams for UI, audio, and automation
-- eventual easier extraction into separate host/core assemblies if desired
-
-Good changes move the project toward:
-
-- modules over monoliths
-- systems over giant host classes
-- explicit ownership of state transitions
-- reusable runtime seams
-- measurable hot-path discipline
-
-Bad changes move the project toward:
-
-- more logic in `GameApp`
-- render code owning simulation rules
-- duplicated orchestration
-- hidden allocations in tick paths
-- ad-hoc testing hooks spread through unrelated classes
-
-## Before Coding Checklist
-
-Before substantial implementation, confirm:
-
-1. Which layer owns this change?
-2. Is the behavior deterministic?
-3. Does this belong in an existing runtime system?
-4. Is there already a test or API seam that should be reused?
-5. If touching `GameApp`, can part of the change be extracted first?

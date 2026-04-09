@@ -85,9 +85,9 @@ You can read the design and road map below, or check out the latest release note
 
 ## General Gameplay
 
-The Scuttlers is an attempt at combining the colony simulator, tower defense, and roguelike game genres into one game. We plan to do this with an arsenal of intricate game mechanics and lots of unique design inspired by many other games in those genres. 
+The Scuttlers is an attempt at combining the colony simulator, tower defense, and roguelike game genres into one game. We plan to do this with an arsenal of intricate game mechanics and lots of unique design inspired by many other games in those genres.
 
-In this game you will build a city from the ground up while defending your city with your queen inside it from increasingly difficult waves of enemies. The game will challenge players to optimize their base for production and defense simultaneously. Each "run" should only take about 1 to 2 hours maximum before the player defends against a final boss wave of enemies. But don't worry, there will of course be an endless mode for players to continue the insanity!  
+In this game you will build a city from the ground up while defending your city with your queen inside it from increasingly difficult waves of enemies. The game will challenge players to optimize their base for production and defense simultaneously. Each "run" should only take about 1 to 2 hours maximum before the player defends against a final boss wave of enemies. But don't worry, there will of course be an endless mode for players to continue the insanity!
 
 While players develop their city and fight wave after wave of enemies, they will also be completing quests and filling in a skill tree. As players defeat rounds of enemies they will draft and place different branches onto their skill tree for the run. Completing quests will then allow players to unlock the skills on the tree as they are putting the tree together, allowing for a unique and self-generated progression every run!
 

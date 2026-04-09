@@ -25,14 +25,14 @@ public sealed class MiningYieldTests
     }
 
     [Fact]
-    public void TrilobiteInventory_IsLimitedToOneItem()
+    public void TrilobiteInventory_IsLimitedToConfiguredCarryCapacity()
     {
         var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
         var trilobite = new Trilobite("Carrier", new GridPoint(0, 0), session);
 
-        var accepted = trilobite.AddToInventory(OreType.MAGNETITE.Name, 2);
+        var accepted = trilobite.AddToInventory(OreType.MAGNETITE.Name, GameConstants.TrilobiteCarryCapacity + 2);
 
-        Assert.Equal(1, accepted);
+        Assert.Equal(GameConstants.TrilobiteCarryCapacity, accepted);
         Assert.True(trilobite.HasInventory());
         Assert.Equal(OreType.MAGNETITE.Name, trilobite.Inventory.Type);
         Assert.Equal(GameConstants.TrilobiteCarryCapacity, trilobite.Inventory.Amount);
@@ -94,7 +94,7 @@ public sealed class MiningYieldTests
     }
 
     [Fact]
-    public void WallMining_DropsSandstoneOnRequestedCollectorTile()
+    public void WallMining_YieldsSandstoneDirectlyOnDepletion()
     {
         var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
         var wallTile = cave.GetReachableTiles()
@@ -107,13 +107,18 @@ public sealed class MiningYieldTests
         var hit3 = session.MineTile(cave, wallTile.Key, collectorTile.Key, "manual");
 
         Assert.True(hit1.HitApplied);
+        Assert.False(hit1.YieldedResource);
         Assert.False(hit1.TileDepleted);
         Assert.True(hit2.HitApplied);
+        Assert.False(hit2.YieldedResource);
         Assert.False(hit2.TileDepleted);
         Assert.True(hit3.HitApplied);
+        Assert.True(hit3.YieldedResource);
         Assert.True(hit3.TileDepleted);
-        Assert.Equal(collectorTile.Key, hit3.DroppedAtTileKey);
-        Assert.Equal(GameConstants.WallDropAmount, hit3.DroppedAmount);
-        Assert.Equal(GameConstants.WallDropAmount, collectorTile.GetDroppedResourceCount(OreType.SANDSTONE.Name));
+        Assert.Equal(OreType.SANDSTONE.Name, hit3.ResourceType);
+        Assert.Equal(GameConstants.WallDropAmount, hit3.ResourceAmount);
+        Assert.Null(hit3.DroppedAtTileKey);
+        Assert.Equal(0, hit3.DroppedAmount);
+        Assert.Equal(0, collectorTile.GetDroppedResourceCount(OreType.SANDSTONE.Name));
     }
 }

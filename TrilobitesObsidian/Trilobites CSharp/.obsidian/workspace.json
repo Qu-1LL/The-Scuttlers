@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "04 Game Wiki/Skill Tree and Quest Overview.md",
+                "file": "04 Game Wiki/Buildings and Placement.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Skill Tree and Quest Overview"
+              "title": "Buildings and Placement"
             }
           }
         ]
@@ -185,14 +185,31 @@
   },
   "active": "cf292799a0539fa1",
   "lastOpenFiles": [
+    "04 Game Wiki/Controls and Shortcuts.md",
+    "04 Game Wiki/Core Loop and Colony Growth.md",
+    "04 Game Wiki/Features Overview.md",
+    "02 Systems/Simulation and Ticks.md",
+    "02 Systems/UI and Input.md",
+    "02 Systems/World Tiles and Cave.md",
+    "02 Systems/Buildings.md",
+    "04 Game Wiki/Buildings and Placement.md",
+    "04 Game Wiki/Game Wiki Home.md",
+    "04 Game Wiki/Getting Started and How to Play.md",
+    "00 Home/Using This Vault.md",
+    "00 Home/Trilobites CSharp Home.md",
+    "01 Architecture/System Map.md",
+    "01 Architecture/Runtime Flow.md",
+    "01 Architecture/File Structure.md",
+    "01 Architecture/Build Content and Packaging.md",
+    "02 Systems/Resources Events and Stats.md",
+    "02 Systems/Diagnostics and Crash Reports.md",
+    "02 Systems/Boot and Game Root.md",
+    "04 Game Wiki/Resources Mining and Danger.md",
+    "04 Game Wiki/Skill Tree and Quest Overview.md",
     "SkillBranchExample.drawio.svg",
     "SkillLineExample.drawio.svg",
     "ExampleSkillTree.drawio.svg",
     "SkillTreeExample.drawio.png",
-    "SkillTreeExample.drawio (1).png",
-    "04 Game Wiki/Features Overview.md",
-    "04 Game Wiki/Getting Started and How to Play.md",
-    "04 Game Wiki/Skill Tree and Quest Overview.md",
-    "00 Home/Trilobites CSharp Home.md"
+    "SkillTreeExample.drawio (1).png"
   ]
 }

@@ -40,4 +40,24 @@ public sealed class CaveOccupancyTests
         Assert.True(cave.RemoveBuilding(miningPost));
         Assert.DoesNotContain(miningPost, cave.GetMiningPosts());
     }
+
+    [Fact]
+    public void RemoveBuilding_ReleasesAssignedTrilobites()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
+        var miningPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(3, 9), "Miner", "miner");
+
+        miner.SetAssignedBuilding(miningPost);
+        miningPost.Assign(miner, null);
+
+        Assert.Same(miningPost, miner.GetAssignedBuilding());
+        Assert.Equal(1, miningPost.GetVolume());
+
+        Assert.True(cave.RemoveBuilding(miningPost));
+
+        Assert.Null(miner.GetAssignedBuilding());
+        Assert.Equal(0, miningPost.GetVolume());
+        Assert.DoesNotContain(miningPost, cave.GetMiningPosts());
+    }
 }
