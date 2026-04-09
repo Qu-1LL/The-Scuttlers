@@ -140,7 +140,7 @@ public sealed partial class MenuController
         };
         var canRename = SelectedObject is Trilobite;
         var bodyText = SelectedObject is Creature
-            ? "Delete this trilobite from the colony immediately."
+            ? "Kill this trilobite immediately."
             : "Delete this building from the cave immediately.";
         var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
         var healthBounds = healthText is null
@@ -179,6 +179,16 @@ public sealed partial class MenuController
             assignmentText,
             new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
             new Color(135, 173, 187));
+
+        if (SelectedObject is Trilobite selectedTrilobite &&
+            layout.SelectedTraitSummaryBounds is { } traitBounds)
+        {
+            DrawTextFitted(
+                context,
+                $"Trait: {selectedTrilobite.TraitState.GetTraitSummary()}",
+                traitBounds,
+                new Color(210, 228, 236));
+        }
 
         if (canRename)
         {
@@ -280,7 +290,7 @@ public sealed partial class MenuController
         DrawButton(
             context,
             layout.DeleteSelectedBounds,
-            SelectedObject is Creature ? "Delete Trilobite" : "Delete Building",
+            SelectedObject is Creature ? "Kill Trilobite" : "Delete Building",
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),
             hovered ? new Color(255, 195, 188) : new Color(242, 176, 170),
             Color.White);

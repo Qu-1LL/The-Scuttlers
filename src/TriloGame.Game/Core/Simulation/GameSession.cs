@@ -5,6 +5,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Pathfinding;
+using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
@@ -33,6 +34,7 @@ public sealed class GameSession
         Danger = false;
         TickCount = 0;
         Runtime = new GameSessionRuntimeState();
+        TraitHandler = new TrilobiteTraitHandler(this);
     }
 
     public GameEventBus EventBus { get; }
@@ -53,7 +55,11 @@ public sealed class GameSession
 
     public GameSessionRuntimeState Runtime { get; }
 
+    public TrilobiteTraitHandler TraitHandler { get; }
+
     public event Action<GameAudioCue>? AudioCueRequested;
+    public event Action<float>? ScreenShakeRequested;
+    public event Action<DeathMistRequest>? DeathMistRequested;
 
     public Action On(string eventName, Action<GameEventPayload> listener)
     {
@@ -68,6 +74,26 @@ public sealed class GameSession
     public void RequestAudioCue(GameAudioCue cue)
     {
         AudioCueRequested?.Invoke(cue);
+    }
+
+    public void RequestScreenShake(float intensity)
+    {
+        if (intensity <= 0f)
+        {
+            return;
+        }
+
+        ScreenShakeRequested?.Invoke(intensity);
+    }
+
+    public void RequestDeathMist(GridPoint originTile, int radius)
+    {
+        if (radius < 0)
+        {
+            return;
+        }
+
+        DeathMistRequested?.Invoke(new DeathMistRequest(originTile, radius));
     }
 
     public bool IsOreTileType(string tileType)

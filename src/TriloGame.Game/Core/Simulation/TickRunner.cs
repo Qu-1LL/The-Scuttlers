@@ -25,29 +25,44 @@ public static class TickRunner
         }
 
         session.TickCount++;
+        phaseObserver?.OnTickStarted(session);
+
+        phaseObserver?.OnPhaseStarted(TickPhase.TraitTick);
+        session.TraitHandler.Tick();
+        phaseObserver?.OnPhaseCompleted(TickPhase.TraitTick);
 
         if (!session.Runtime.FreezeOpalProgression)
         {
+            phaseObserver?.OnPhaseStarted(TickPhase.SurfaceFeatureTick);
             cave.TickSurfaceFeatures();
+            phaseObserver?.OnPhaseCompleted(TickPhase.SurfaceFeatureTick);
         }
 
         if (cave.AllowsNaturalEnemySpawns() &&
             cave.Enemies.Count < GameConstants.MaxAmbientAntCount &&
             RandomUtil.NextInt(cave.GetAntHoleSpawnChanceDenominator()) == 0)
         {
+            phaseObserver?.OnPhaseStarted(TickPhase.NaturalEnemySpawn);
             cave.TrySpawnAntHole();
+            phaseObserver?.OnPhaseCompleted(TickPhase.NaturalEnemySpawn);
         }
 
+        phaseObserver?.OnPhaseStarted(TickPhase.DangerRefresh);
         cave.RefreshDangerState();
+        phaseObserver?.OnPhaseCompleted(TickPhase.DangerRefresh);
+
+        phaseObserver?.OnPhaseStarted(TickPhase.ThreatMapRefresh);
         cave.RefreshVisibleEnemyThreatMap(GameConstants.WorkerEnemyFleeRadius);
-        phaseObserver?.OnTickStarted(session);
+        phaseObserver?.OnPhaseCompleted(TickPhase.ThreatMapRefresh);
 
         if (session.Danger)
         {
+            phaseObserver?.OnPhaseStarted(TickPhase.EnemyBfs);
             cave.RefreshBfsField("enemy");
             phaseObserver?.OnPhaseCompleted(TickPhase.EnemyBfs);
         }
 
+        phaseObserver?.OnPhaseStarted(TickPhase.TrilobiteMove);
         var trilobiteBuffer = GetTrilobiteBuffer();
         CopySnapshot(trilobiteBuffer, cave.GetTrilobiteList());
         foreach (var creature in trilobiteBuffer)
@@ -58,9 +73,11 @@ public static class TickRunner
 
         if (session.Danger)
         {
+            phaseObserver?.OnPhaseStarted(TickPhase.ColonyBfs);
             cave.RefreshBfsField("colony");
             phaseObserver?.OnPhaseCompleted(TickPhase.ColonyBfs);
 
+            phaseObserver?.OnPhaseStarted(TickPhase.EnemyMove);
             var enemyBuffer = GetEnemyBuffer();
             CopySnapshot(enemyBuffer, cave.GetEnemyList());
             foreach (var creature in enemyBuffer)
@@ -70,6 +87,7 @@ public static class TickRunner
             phaseObserver?.OnPhaseCompleted(TickPhase.EnemyMove);
         }
 
+        phaseObserver?.OnPhaseStarted(TickPhase.BuildingTick);
         var buildingBuffer = GetBuildingBuffer();
         CopySnapshot(buildingBuffer, cave.GetBuildingList());
         foreach (var building in buildingBuffer)

@@ -22,6 +22,19 @@ public sealed class TickProfilerTests
     }
 
     [Fact]
+    public void RunTick_RecordsNavigationInstrumentationForWorkerMovement()
+    {
+        var bootstrap = TestWorldFactory.CreateBootstrappedGame();
+        var clock = new GameSimulationClockSystem();
+
+        clock.RunSingleTick(bootstrap.Session);
+
+        var navigation = bootstrap.Session.Runtime.TickProfiler.Last.Navigation;
+        Assert.True(navigation.BuildingPathRequestCount > 0 || navigation.PointPathRequestCount > 0);
+        Assert.True(navigation.BuildPathFromFieldCallCount > 0 || navigation.BuildPointBfsFieldCallCount > 0);
+    }
+
+    [Fact]
     public void DescribeDominantWork_ReportsSlowTickCauseForDominantPhase()
     {
         var snapshot = new TickTimingSnapshot(

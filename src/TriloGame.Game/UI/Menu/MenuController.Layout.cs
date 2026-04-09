@@ -68,6 +68,7 @@ public sealed partial class MenuController
         var selectedRenameFieldBounds = Rectangle.Empty;
         Rectangle? selectedRenamePrimaryButtonBounds = null;
         Rectangle? selectedRenameSecondaryButtonBounds = null;
+        Rectangle? selectedTraitSummaryBounds = null;
         Rectangle? selectedInventoryFrameBounds = null;
         Rectangle? selectedInventoryViewportBounds = null;
         IReadOnlyList<InventoryEntryRect> selectedInventoryEntries = [];
@@ -81,7 +82,16 @@ public sealed partial class MenuController
             Math.Max(60, selectedBounds.Height - 220));
         if (SelectedObject is Trilobite)
         {
-            var renameRowY = selectedBounds.Y + (int)MathF.Round(128f * selectedScale);
+            var traitTop = selectedBounds.Y + (int)MathF.Round(122f * selectedScale);
+            var traitLineHeight = (int)MathF.Round(18f * selectedScale);
+            var traitLineGap = (int)MathF.Round(6f * selectedScale);
+            selectedTraitSummaryBounds = new Rectangle(
+                selectedBounds.X + 16,
+                traitTop,
+                selectedBounds.Width - 32,
+                traitLineHeight);
+
+            var renameRowY = selectedTraitSummaryBounds.Value.Bottom + traitLineGap + (int)MathF.Round(16f * selectedScale);
             var renameRowHeight = (int)MathF.Round(44f * selectedScale);
             var renameGap = (int)MathF.Round(10f * selectedScale);
             var buttonWidth = Math.Min((int)MathF.Round(112f * selectedScale), Math.Max(92, selectedBounds.Width / 4));
@@ -236,6 +246,7 @@ public sealed partial class MenuController
             selectedRenameFieldBounds,
             selectedRenamePrimaryButtonBounds,
             selectedRenameSecondaryButtonBounds,
+            selectedTraitSummaryBounds,
             selectedInventoryFrameBounds,
             selectedInventoryViewportBounds,
             selectedInventoryEntries,
@@ -537,6 +548,7 @@ public sealed partial class MenuController
         Rectangle SelectedRenameFieldBounds,
         Rectangle? SelectedRenamePrimaryButtonBounds,
         Rectangle? SelectedRenameSecondaryButtonBounds,
+        Rectangle? SelectedTraitSummaryBounds,
         Rectangle? SelectedInventoryFrameBounds,
         Rectangle? SelectedInventoryViewportBounds,
         IReadOnlyList<InventoryEntryRect> SelectedInventoryEntries,

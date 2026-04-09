@@ -35,6 +35,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly GraphicsDeviceManager _graphics;
     private readonly AudioService _audio = new();
     private readonly SessionAudioBridge _sessionAudioBridge;
+    private readonly SessionScreenShakeBridge _sessionScreenShakeBridge;
+    private readonly SessionParticleBridge _sessionParticleBridge;
     private readonly OpalAudioSystem _opalAudioSystem;
     private readonly InputController _input = new();
     private readonly DoubleClickTracker _manualMoveDoubleClick = new();
@@ -72,6 +74,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     {
         _graphics = new GraphicsDeviceManager(this);
         _sessionAudioBridge = new SessionAudioBridge(_audio);
+        _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
+        _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
         _opalAudioSystem = new OpalAudioSystem(_audio);
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,
@@ -238,10 +242,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             Sprites = sprites,
             Camera = _camera
         };
+        InitializeWorldParticles();
 
         _audio.Register(GameAudioCue.BuildingPlace, Content.Load<SoundEffect>("Audio/BuildingPlace"));
         _audio.Register(GameAudioCue.BuildingFinished, Content.Load<SoundEffect>("Audio/BuildingFinished"));
         _audio.Register(GameAudioCue.AntHoleSpawn, Content.Load<SoundEffect>("Audio/AntHoleSpawn"));
+        _audio.Register(GameAudioCue.TrilobiteExplosion, Content.Load<SoundEffect>("Audio/TrilobiteExplosion"));
         if (GameConstants.EnableOpal)
         {
             _audio.Register(GameAudioCue.OpalChangeStart, Content.Load<SoundEffect>("Audio/OpalChangeStart"));
@@ -258,6 +264,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     {
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
+        _camera.Update(gameTime);
+        UpdateWorldParticles(gameTime);
         ExpirePendingManualMove();
         SyncSelectionIfRemoved();
 
@@ -497,6 +505,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawDroppedResources(_session.Cave);
             DrawBuildings(_session.Cave);
             DrawCreatures(_session.Cave);
+            DrawWorldParticles();
             DrawSelection();
             DrawFloatingPreview();
             DrawDebugOverlay(_session.Cave);
@@ -573,7 +582,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     public void RestartGame()
     {
         _sessionAudioBridge.Detach();
+        _sessionScreenShakeBridge.Detach();
+        _sessionParticleBridge.Detach();
         ResetOpalAudioState();
+        ClearWorldParticles();
         CleanActive(true);
         _tickAccumulatorMs = 0d;
         _input.EndDrag();
@@ -585,10 +597,13 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         var bootstrap = _bootstrapper.CreateNewGame();
         _session = bootstrap.Session;
         _sessionAudioBridge.Attach(_session);
+        _sessionScreenShakeBridge.Attach(_session);
+        _sessionParticleBridge.Attach(_session);
         var spawnX = bootstrap.QueenLocation.X;
         var spawnY = bootstrap.QueenLocation.Y;
 
         _camera.CurrentScale = 1f;
+        _camera.ClearShake();
         _camera.SetOrigin(new Vector2((spawnX * TileConstants.TileSize) + TileConstants.TileSize, (spawnY * TileConstants.TileSize) + TileConstants.TileSize));
         _activeBfsDebugField = null;
         _selectedObject = null;
@@ -611,13 +626,16 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ClearPendingManualMove();
         _menu.ResetState();
         ResetOpalAudioState();
+        ClearWorldParticles();
     }
 
     private void ReturnToMainMenu()
     {
         ResetOpalAudioState();
+        ClearWorldParticles();
         CleanActive(true);
         CloseSettingsMenu();
+        _camera.ClearShake();
         _gamePaused = true;
         _isGameOver = false;
         _mainMenuOpen = true;

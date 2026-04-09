@@ -4,8 +4,10 @@ using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
+using System.Diagnostics;
 
 namespace TriloGame.Game.Core.World;
 
@@ -852,65 +854,87 @@ public sealed partial class Cave
 
     public List<GridPoint>? BuildPathFromField(Dictionary<string, int>? field, GridPoint startLocation)
     {
-        if (field is null)
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var timerStart = Stopwatch.GetTimestamp();
+        try
         {
-            return null;
-        }
+            if (field is null)
+            {
+                return null;
+            }
 
-        var tempField = new BfsField(cave: this);
-        tempField.SetField(field);
-        return tempField.BuildPathFrom(startLocation, false);
+            var tempField = new BfsField(cave: this);
+            tempField.SetField(field);
+            return tempField.BuildPathFrom(startLocation, false);
+        }
+        finally
+        {
+            NavigationInstrumentation.RecordBuildPathFromField(
+                Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
+                GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        }
     }
 
     public Dictionary<string, int>? BuildPointBfsField(GridPoint destination)
     {
-        var destinationTile = GetTile(destination);
-        if (destinationTile is null || !destinationTile.CreatureFits() || !IsTileReachable(destinationTile))
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var timerStart = Stopwatch.GetTimestamp();
+        try
         {
-            return null;
-        }
-
-        var field = ReachableTiles
-            .Where(tile => tile.CreatureFits())
-            .ToDictionary(tile => tile.Key, _ => int.MaxValue, StringComparer.Ordinal);
-        field[destination.ToString()] = 0;
-
-        var queue = new Queue<string>();
-        queue.Enqueue(destination.ToString());
-        while (queue.Count > 0)
-        {
-            var currentKey = queue.Dequeue();
-            var currentTile = GetTile(currentKey);
-            if (currentTile is null)
+            var destinationTile = GetTile(destination);
+            if (destinationTile is null || !destinationTile.CreatureFits() || !IsTileReachable(destinationTile))
             {
-                continue;
+                return null;
             }
 
-            var currentValue = field.GetValueOrDefault(currentKey, int.MaxValue);
-            if (currentValue == int.MaxValue)
-            {
-                continue;
-            }
+            var field = ReachableTiles
+                .Where(tile => tile.CreatureFits())
+                .ToDictionary(tile => tile.Key, _ => int.MaxValue, StringComparer.Ordinal);
+            field[destination.ToString()] = 0;
 
-            foreach (var neighbor in currentTile.Neighbors)
+            var queue = new Queue<string>();
+            queue.Enqueue(destination.ToString());
+            while (queue.Count > 0)
             {
-                if (!neighbor.CreatureFits() || !IsTileReachable(neighbor))
+                var currentKey = queue.Dequeue();
+                var currentTile = GetTile(currentKey);
+                if (currentTile is null)
                 {
                     continue;
                 }
 
-                var nextValue = currentValue + 1;
-                if (nextValue >= field.GetValueOrDefault(neighbor.Key, int.MaxValue))
+                var currentValue = field.GetValueOrDefault(currentKey, int.MaxValue);
+                if (currentValue == int.MaxValue)
                 {
                     continue;
                 }
 
-                field[neighbor.Key] = nextValue;
-                queue.Enqueue(neighbor.Key);
-            }
-        }
+                foreach (var neighbor in currentTile.Neighbors)
+                {
+                    if (!neighbor.CreatureFits() || !IsTileReachable(neighbor))
+                    {
+                        continue;
+                    }
 
-        return field;
+                    var nextValue = currentValue + 1;
+                    if (nextValue >= field.GetValueOrDefault(neighbor.Key, int.MaxValue))
+                    {
+                        continue;
+                    }
+
+                    field[neighbor.Key] = nextValue;
+                    queue.Enqueue(neighbor.Key);
+                }
+            }
+
+            return field;
+        }
+        finally
+        {
+            NavigationInstrumentation.RecordBuildPointBfsField(
+                Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
+                GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        }
     }
 
     public int GetBuildingBfsFieldValue(Building building, GridPoint location)

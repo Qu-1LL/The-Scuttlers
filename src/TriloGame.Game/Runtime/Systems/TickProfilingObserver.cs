@@ -31,6 +31,11 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         _colonyBfsMs = 0d;
         _enemyMoveMs = 0d;
         _buildingTickMs = 0d;
+        NavigationInstrumentation.BeginTick();
+    }
+
+    public void OnPhaseStarted(TickPhase phase)
+    {
     }
 
     public void OnPhaseCompleted(TickPhase phase)
@@ -38,6 +43,12 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         var elapsedMs = ConsumeElapsedMs();
         switch (phase)
         {
+            case TickPhase.TraitTick:
+            case TickPhase.SurfaceFeatureTick:
+            case TickPhase.NaturalEnemySpawn:
+            case TickPhase.DangerRefresh:
+            case TickPhase.ThreatMapRefresh:
+                break;
             case TickPhase.EnemyBfs:
                 _enemyBfsMs = elapsedMs;
                 break;
@@ -66,7 +77,8 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
             return;
         }
 
-        session.Runtime.TickProfiler.Record(new TickTimingSnapshot(
+        var navigation = NavigationInstrumentation.CompleteTick();
+        var snapshot = new TickTimingSnapshot(
             Stopwatch.GetElapsedTime(_tickStart).TotalMilliseconds,
             _enemyBfsMs,
             _trilobiteMoveMs,
@@ -79,7 +91,10 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
             GC.CollectionCount(2) - _gen2Start,
             cave.GetTrilobiteList().Count,
             cave.GetEnemyList().Count,
-            cave.GetBuildingList().Count));
+            cave.GetBuildingList().Count,
+            navigation);
+        session.Runtime.TickProfiler.Record(snapshot);
+        TickProfilerLogWriter.WriteTick(session, snapshot);
     }
 
     private double ConsumeElapsedMs()

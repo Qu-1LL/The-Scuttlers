@@ -8,6 +8,9 @@ public static class GameConstants
     public const double TickSpeedNormal = 250d;
     public const double TickSpeedFast = 100d;
     public const double TickSpeedFastest = 50d;
+    public const float ExplosionShakeMaxPixels = 20f;
+    public const float ExplosionShakeFrequencyHz = 18f;
+    public const float ExplosionShakeDecayPerSecond = 2.75f;
 
     public const float MinScale = 0.1f;
     public const float MaxScale = 2.5f;
@@ -22,6 +25,9 @@ public static class GameConstants
     public const int MinOreHitsPerYield = 1;
     public const int MaxOreHitsPerYield = 5;
     public const int TrilobiteCarryCapacity = 1;
+    public const int TrilobiteStarterTraitCount = 1;
+    public const int ExplosiveTraitBlastRadius = 3;
+    public const float ExplosiveTraitScreenShakeIntensity = 1f;
     public const int AlgaeHarvestYield = 1;
     public const int OpalYield = 2000;
     public const int OpalInitialGraceTicks = 500;

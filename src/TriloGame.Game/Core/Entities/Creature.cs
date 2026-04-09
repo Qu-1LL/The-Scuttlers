@@ -1,6 +1,7 @@
 using System.Numerics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 
@@ -162,16 +163,97 @@ public class Creature
 
     public List<GridPoint>? BuildNavigationPathToPoint(GridPoint destination)
     {
-        return Cave?.BuildPathFromField(Cave.BuildPointBfsField(destination), Location);
+        if (Cave is null)
+        {
+            NavigationInstrumentation.RecordPointPathRequest(0, 0L);
+            return null;
+        }
+
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var path = Cave.BuildPathFromField(Cave.BuildPointBfsField(destination), Location);
+        NavigationInstrumentation.RecordPointPathRequest(path?.Count ?? 0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        return path;
     }
 
     public List<GridPoint>? BuildNavigationPathToBuilding(Building building)
     {
-        return Cave?.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+        if (Cave is null)
+        {
+            NavigationInstrumentation.RecordBuildingPathRequest(0, 0L);
+            return null;
+        }
+
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var path = Cave.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+        NavigationInstrumentation.RecordBuildingPathRequest(path?.Count ?? 0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        return path;
+    }
+
+    private bool EnqueueBuildingFieldNavigation(Building building, Action? fallbackFn, bool clearExisting)
+    {
+        if (Cave is null)
+        {
+            NavigationInstrumentation.RecordBuildingPathRequest(0, 0L);
+            return false;
+        }
+
+        if (!clearExisting)
+        {
+            var appendPath = BuildNavigationPathToBuilding(building);
+            if (appendPath is null)
+            {
+                return false;
+            }
+
+            return appendPath.Count < 2 || EnqueueResolvedPath(appendPath, () => RecoverBuildingNavigation(building, fallbackFn), false);
+        }
+
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        ClearActionQueue();
+        var current = Location;
+
+        if (Cave.GetBuildingBfsFieldValue(building, current) == 0)
+        {
+            NavigationInstrumentation.RecordBuildingPathRequest(1, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+            return true;
+        }
+
+        var stepCount = 0;
+        var maxSteps = Cave.GetReachableTiles().Count + 1;
+        var onFailure = new Action(() => RecoverBuildingNavigation(building, fallbackFn));
+
+        while (Cave.GetBuildingBfsFieldValue(building, current) > 0)
+        {
+            if (stepCount >= maxSteps)
+            {
+                ClearActionQueue();
+                NavigationInstrumentation.RecordBuildingPathRequest(0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+                return false;
+            }
+
+            var next = Cave.GetBuildingBfsFieldNextStep(building, current);
+            if (next is null || GridPoint.ManhattanDistance(current, next.Value) != 1)
+            {
+                ClearActionQueue();
+                NavigationInstrumentation.RecordBuildingPathRequest(0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+                return false;
+            }
+
+            var nextStep = next.Value;
+            PathPreview.Add(nextStep);
+            EnqueueAction(() => ExecuteNavigationStep(nextStep, onFailure));
+            current = nextStep;
+            stepCount++;
+        }
+
+        NavigationInstrumentation.RecordBuildingPathRequest(stepCount + 1, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        NavigationInstrumentation.RecordQueuedNavigationSteps(stepCount, PathPreview.Count);
+        return true;
     }
 
     protected bool RecoverNavigation(GridPoint? destination, Action? fallbackFn)
     {
+        NavigationInstrumentation.RecordNavigationReroute();
         ClearActionQueue();
         if (destination is null)
         {
@@ -190,20 +272,14 @@ public class Creature
 
     protected bool RecoverBuildingNavigation(Building? building, Action? fallbackFn)
     {
+        NavigationInstrumentation.RecordNavigationReroute();
         ClearActionQueue();
         if (building is null)
         {
             return RunNavigationFallback(fallbackFn);
         }
 
-        var reroute = BuildNavigationPathToBuilding(building);
-        if (reroute is not null && reroute.Count > 1)
-        {
-            EnqueueResolvedPath(reroute, () => RecoverBuildingNavigation(building, fallbackFn), false);
-            return false;
-        }
-
-        return reroute is not null && reroute.Count == 1 || RunNavigationFallback(fallbackFn);
+        return NavigateToBuilding(building, fallbackFn, clearExisting: true);
     }
 
     protected bool ExecuteNavigationStep(GridPoint next, Action? onFailure)
@@ -217,6 +293,7 @@ public class Creature
 
         if (PathPreview.Count > 0)
         {
+            NavigationInstrumentation.RecordPathPreviewFrontRemoval(PathPreview.Count);
             PathPreview.RemoveAt(0);
         }
 
@@ -242,6 +319,7 @@ public class Creature
             EnqueueAction(() => ExecuteNavigationStep(next, onFailure));
         }
 
+        NavigationInstrumentation.RecordQueuedNavigationSteps(path.Count - 1, PathPreview.Count);
         return true;
     }
 
@@ -260,13 +338,12 @@ public class Creature
     public bool NavigateToBuilding(Building building, Action? fallbackFn = null, bool clearExisting = true)
     {
         fallbackFn ??= GetNavigationFallback();
-        var path = BuildNavigationPathToBuilding(building);
-        if (path is null)
+        if (!EnqueueBuildingFieldNavigation(building, fallbackFn, clearExisting))
         {
             return RunNavigationFallback(fallbackFn);
         }
 
-        return path.Count < 2 || EnqueueResolvedPath(path, () => RecoverBuildingNavigation(building, fallbackFn), clearExisting);
+        return true;
     }
 
     public bool QueueMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)

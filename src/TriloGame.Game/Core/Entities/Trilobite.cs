@@ -2,7 +2,10 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Traits;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
+using System.Diagnostics;
 
 namespace TriloGame.Game.Core.Entities;
 
@@ -17,11 +20,14 @@ public sealed partial class Trilobite : Creature
         Inventory = new Core.Economy.Inventory();
         InventoryCapacity = GameConstants.TrilobiteCarryCapacity;
         BuilderWorkRate = 5;
+        TraitState = new TrilobiteTraitState(TrilobiteTraits.CreateRandomStarterTraits(GameConstants.TrilobiteStarterTraitCount));
     }
 
     public Core.Economy.Inventory Inventory { get; }
 
     public int InventoryCapacity { get; }
+
+    public TrilobiteTraitState TraitState { get; }
 
     public Building? AssignedBuilding { get; private set; }
 
@@ -46,8 +52,18 @@ public sealed partial class Trilobite : Creature
 
     public void ClearInventory() => Inventory.Clear();
 
+    public void SetTraits(IEnumerable<TrilobiteTrait> traits)
+    {
+        TraitState.SetTraits(traits);
+    }
+
     public override void CleanupBeforeRemoval(object? source = null)
     {
+        if (Health <= 0 && TraitState.HasTrait(TrilobiteTrait.Explosive))
+        {
+            Cave?.TriggerDeathExplosion(this, source);
+        }
+
         ClearActionQueue();
         ClearManualMineOrders();
         ClearFighterTarget();
@@ -1667,8 +1683,12 @@ public sealed partial class Trilobite : Creature
 
     private World.Tile? GetNearestDroppedSandstoneTile(MiningPost miningPost)
     {
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var timerStart = Stopwatch.GetTimestamp();
+        var scannedTiles = 0;
         if (Cave is null)
         {
+            NavigationInstrumentation.RecordDroppedResourceScan(scannedTiles, 0d, 0L);
             return null;
         }
 
@@ -1676,6 +1696,7 @@ public sealed partial class Trilobite : Creature
         var bestDistance = int.MaxValue;
         foreach (var tile in Cave.GetTiles())
         {
+            scannedTiles++;
             if (!tile.CreatureFits() ||
                 tile.GetDroppedResourceCount(OreType.SANDSTONE.Name) <= 0 ||
                 !miningPost.IsLocationInArea(tile.Coordinates) ||
@@ -1692,6 +1713,10 @@ public sealed partial class Trilobite : Creature
             }
         }
 
+        NavigationInstrumentation.RecordDroppedResourceScan(
+            scannedTiles,
+            Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
+            GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
         return bestTile;
     }
 

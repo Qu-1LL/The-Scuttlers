@@ -534,7 +534,7 @@ public sealed partial class MenuController
     {
         return SelectedObject switch
         {
-            Creature creature => creature.RemoveFromGame("menuDelete"),
+            Creature creature => creature.TakeDamage(Math.Max(1, creature.Health), "menuKill") > 0,
             Building building => building.RemoveFromGame("menuDelete"),
             _ => false
         };

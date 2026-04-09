@@ -73,6 +73,21 @@
 /processor:TextureProcessor
 /build:Textures/Enemy.png
 
+#begin Textures/HealingMist1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HealingMist1.png
+
+#begin Textures/HealingMist2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HealingMist2.png
+
+#begin Textures/HealingMist3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HealingMist3.png
+
 #begin Textures/HowDoIGetHimOff.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -192,6 +207,11 @@
 /importer:WavImporter
 /processor:SoundEffectProcessor
 /build:Audio/AntHoleSpawn.wav
+
+#begin Audio/TrilobiteExplosion.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/TrilobiteExplosion.wav
 
 #begin Audio/OpalChangeStart.wav
 /importer:WavImporter
