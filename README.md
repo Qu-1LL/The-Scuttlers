@@ -6,7 +6,7 @@ Future versions will not be released to the browser, as we have moved the progra
 
 ## Release Packaging
 
-To use a downloaded release simply download the zipped files and unzip them. In the root if the release's directory there will be an application file named "TriloGame.Game.exe". Simply open that file and a window will open for the hame!
+To use a downloaded release simply download the zipped files and unzip them. In the root of the release's directory there will be an application file named "TriloGame.Game.exe". Simply open that file and a window will open for the game!
 
 The game window may prompt you for two issues. First, if you dont have .NET 9 installed it will likely have you install it on your device. Next, it will likely tell you that the authors aren't trusted and you will need to give permission to run the program. When this window appears, simply press "More Info" and then press "Run Anyway" to run the application. (Unless you dont actually trust us, then feel free to close the window and delete the game files from your device.)
 
