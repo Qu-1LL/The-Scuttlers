@@ -79,7 +79,7 @@ public sealed class CaveOccupancyTests
     }
 
     [Fact]
-    public void RemoveBuilding_DestroysCreaturesStationedInBarracks()
+    public void RemoveBuilding_RestoresCreaturesStationedInBarracksToTheirLastTrackedTiles()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
         var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(18, 6));
@@ -91,15 +91,18 @@ public sealed class CaveOccupancyTests
 
         Assert.True(cave.RemoveBuilding(barracks));
 
-        Assert.Equal(0, fighter.Health);
-        Assert.Null(fighter.Cave);
+        Assert.Equal(fighter.MaxHealth, fighter.Health);
+        Assert.Same(cave, fighter.Cave);
+        Assert.True(fighter.IsTrackedInTileSystem);
         Assert.Null(fighter.GetAssignedBuilding());
-        Assert.DoesNotContain(fighter, cave.GetTrilobiteList());
+        Assert.Equal(new GridPoint(18, 6), fighter.Location);
+        Assert.Same(fighter, cave.GetTrilobiteAtTileKey(fighter.Location.ToString()));
+        Assert.Contains(fighter, cave.GetTrilobiteList());
         Assert.False(barracks.IsAssigned(fighter));
     }
 
     [Fact]
-    public void RemoveBuilding_DestroysCreaturesStationedInTurret()
+    public void RemoveBuilding_RestoresCreaturesStationedInTurretToTheirLastTrackedTiles()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(14, 0));
         var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
@@ -113,11 +116,16 @@ public sealed class CaveOccupancyTests
 
         Assert.True(cave.RemoveBuilding(turret));
 
-        Assert.Equal(0, fighter.Health);
-        Assert.Null(fighter.Cave);
+        Assert.Equal(fighter.MaxHealth, fighter.Health);
+        Assert.Same(cave, fighter.Cave);
+        Assert.True(fighter.IsTrackedInTileSystem);
         Assert.Null(fighter.HostedBuilding);
+        Assert.Null(fighter.HostedWorldPosition);
         Assert.Null(fighter.GetAssignedBuilding());
-        Assert.DoesNotContain(fighter, cave.GetTrilobiteList());
+        Assert.Equal(accessTile, fighter.Location);
+        Assert.Same(fighter, cave.GetTrilobiteAtTileKey(accessTile.ToString()));
+        Assert.Contains(fighter, cave.GetTile(accessTile.ToString())!.Trilobites);
+        Assert.Contains(fighter, cave.GetTrilobiteList());
         Assert.False(turret.IsAssigned(fighter));
     }
 

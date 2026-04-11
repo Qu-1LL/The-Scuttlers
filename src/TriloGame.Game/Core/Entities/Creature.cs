@@ -324,8 +324,7 @@ public class Creature
 
     private bool IsImpassableTraversalStep(GridPoint location)
     {
-        var tile = Cave?.GetTile(location.ToString());
-        return tile is null || !tile.CreatureFits();
+        return Cave is null || !Cave.CanCreatureTraverseTile(this, Cave.GetTile(location.ToString()));
     }
 
     private Pathfinding.BfsField? RefreshTraversalField(

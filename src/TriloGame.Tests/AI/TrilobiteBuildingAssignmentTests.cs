@@ -315,6 +315,46 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void BuilderAssignment_ReassignsWhenCurrentScaffoldBecomesUnreachable()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(22, 14, new GridPoint(1, 1));
+        var firstScaffold = new Scaffolding(session, new Storage(session));
+        var secondScaffold = new Scaffolding(session, new Storage(session));
+        Assert.True(cave.Build(firstScaffold, new GridPoint(6, 6)));
+        Assert.True(cave.Build(secondScaffold, new GridPoint(14, 6)));
+        Assert.Equal(20, firstScaffold.Deposit("Sandstone", 20));
+        Assert.Equal(20, secondScaffold.Deposit("Sandstone", 20));
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
+
+        Assert.Same(firstScaffold, builder.EnsureBuilderAssignment(true));
+        Assert.Same(firstScaffold, builder.GetAssignedScaffolding());
+        Assert.Contains(builder, firstScaffold.GetAssignments());
+
+        foreach (var location in new[]
+                 {
+                     new GridPoint(5, 5), new GridPoint(6, 5), new GridPoint(7, 5), new GridPoint(8, 5),
+                     new GridPoint(5, 6), new GridPoint(8, 6),
+                     new GridPoint(5, 7), new GridPoint(8, 7),
+                     new GridPoint(5, 8), new GridPoint(6, 8), new GridPoint(7, 8), new GridPoint(8, 8)
+                 })
+        {
+            SetWallTile(cave, location);
+        }
+
+        cave.RefreshReachableTiles();
+        firstScaffold.BfsField.Rebuild();
+        secondScaffold.BfsField.Rebuild();
+
+        var reassigned = builder.EnsureBuilderAssignment(true);
+
+        Assert.Same(secondScaffold, reassigned);
+        Assert.Same(secondScaffold, builder.GetAssignedScaffolding());
+        Assert.DoesNotContain(builder, firstScaffold.GetAssignments());
+        Assert.Contains(builder, secondScaffold.GetAssignments());
+    }
+
+    [Fact]
     public void BarracksAssignment_IsTrackedAndRemovedWhenFighterDies()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(14, 0));
@@ -332,5 +372,14 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.False(barracks.IsAssigned(fighter));
         Assert.Contains(barracks, cave.GetBarracksList());
         Assert.Empty(fighter.TrackedBy);
+    }
+
+    private static void SetWallTile(TriloGame.Game.Core.World.Cave cave, GridPoint location)
+    {
+        var tile = cave.GetTile(location)
+            ?? throw new InvalidOperationException($"Expected tile at {location}.");
+        tile.SetBase("wall");
+        tile.CreatureCanFit = false;
+        tile.ConfigureWall(1);
     }
 }

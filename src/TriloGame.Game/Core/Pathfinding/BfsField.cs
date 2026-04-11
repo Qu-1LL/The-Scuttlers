@@ -327,6 +327,11 @@ public sealed class BfsField
             return HasActiveBuildingTarget() && Cave.IsTileReachable(tile);
         }
 
+        if (string.Equals(Type, "wall", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
         return Cave.IsTileRevealed(tile);
     }
 
@@ -398,6 +403,17 @@ public sealed class BfsField
         _seedIds.Add(tile.Id);
     }
 
+    private bool IsTilePassableToField(Tile tile)
+    {
+        if (string.Equals(Type, "colony", StringComparison.Ordinal) ||
+            string.Equals(Type, "wall", StringComparison.Ordinal))
+        {
+            return tile.EnemyFits();
+        }
+
+        return tile.CreatureFits();
+    }
+
     private void AddAdjacentPassableSeeds(Tile? tile)
     {
         if (tile is null)
@@ -407,7 +423,7 @@ public sealed class BfsField
 
         foreach (var neighbor in tile.Neighbors)
         {
-            if (!_covered[neighbor.Id] || !neighbor.CreatureFits() || _blocked[neighbor.Id])
+            if (!_covered[neighbor.Id] || !IsTilePassableToField(neighbor) || _blocked[neighbor.Id])
             {
                 continue;
             }
@@ -425,7 +441,7 @@ public sealed class BfsField
 
         foreach (var tile in building.TileArray)
         {
-            var shouldBlockTile = blockPassableTiles || !tile.CreatureFits();
+            var shouldBlockTile = blockPassableTiles || !IsTilePassableToField(tile);
             if (!shouldBlockTile)
             {
                 continue;
@@ -445,7 +461,7 @@ public sealed class BfsField
 
         foreach (var tile in building.TileArray)
         {
-            if (ReferenceEquals(tile.Built, building) && tile.CreatureFits() && _covered[tile.Id])
+            if (ReferenceEquals(tile.Built, building) && IsTilePassableToField(tile) && _covered[tile.Id])
             {
                 AddSeed(tile);
             }
@@ -460,7 +476,7 @@ public sealed class BfsField
         {
             foreach (var neighbor in tile.Neighbors)
             {
-                if (neighbor.CreatureFits() && _covered[neighbor.Id])
+                if (IsTilePassableToField(neighbor) && _covered[neighbor.Id])
                 {
                     AddSeed(neighbor);
                 }
@@ -485,7 +501,7 @@ public sealed class BfsField
 
         foreach (var tile in Cave.GetTiles())
         {
-            if (!_covered[tile.Id] || !tile.CreatureFits())
+            if (!_covered[tile.Id] || !IsTilePassableToField(tile))
             {
                 _blocked[tile.Id] = true;
             }
@@ -497,6 +513,14 @@ public sealed class BfsField
             {
                 trackedBuildings.Add(OwnerBuilding!);
                 AddBuildingSeedIds(OwnerBuilding);
+            }
+        }
+        else if (string.Equals(Type, "wall", StringComparison.Ordinal))
+        {
+            foreach (var wall in Cave.GetWalls())
+            {
+                trackedBuildings.Add(wall);
+                AddBuildingTargets(wall);
             }
         }
         else if (string.Equals(Type, "enemy", StringComparison.Ordinal))
@@ -541,6 +565,11 @@ public sealed class BfsField
 
             foreach (var building in Cave.GetBuildingList())
             {
+                if (building is Wall)
+                {
+                    continue;
+                }
+
                 trackedBuildings.Add(building);
                 var isAlgaeFarm = string.Equals(building.Name, "Algae Farm", StringComparison.Ordinal) ||
                                   string.Equals(building.GetType().Name, "AlgaeFarm", StringComparison.Ordinal);
@@ -621,7 +650,7 @@ public sealed class BfsField
 
         // Mining only opens the tile that was just cleared; we keep this update local
         // by deriving its value from already-known neighbor distances.
-        _blocked[tile.Id] = !tile.CreatureFits();
+        _blocked[tile.Id] = !IsTilePassableToField(tile);
         _seeded[tile.Id] = false;
         _values[tile.Id] = ComputeValue(tile);
         _fieldCacheDirty = true;
@@ -676,7 +705,7 @@ public sealed class BfsField
 
             foreach (var neighbor in tile.Neighbors)
             {
-                if (!neighbor.CreatureFits() || !_covered[neighbor.Id] || _blocked[neighbor.Id])
+                if (!IsTilePassableToField(neighbor) || !_covered[neighbor.Id] || _blocked[neighbor.Id])
                 {
                     continue;
                 }

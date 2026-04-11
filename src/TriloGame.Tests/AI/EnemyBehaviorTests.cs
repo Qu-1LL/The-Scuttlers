@@ -48,4 +48,27 @@ public sealed class EnemyBehaviorTests
         Assert.True(enemy.EnemyStep3());
         Assert.Equal("empty", wallTile.Base);
     }
+
+    [Fact]
+    public void Enemy_SeesAdjacentWallWhenColonyTargetsAreUnreachable()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(8, 3, new GridPoint(0, 0));
+        TestWorldFactory.BuildWall(cave, session, new GridPoint(3, 0));
+        var targetWall = TestWorldFactory.BuildWall(cave, session, new GridPoint(3, 1));
+        TestWorldFactory.BuildWall(cave, session, new GridPoint(3, 2));
+
+        var enemyLocation = new GridPoint(4, 1);
+        var enemyTile = cave.GetTile(enemyLocation)
+            ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
+        var enemy = new Enemy("Breacher", enemyLocation, session);
+
+        Assert.True(cave.Spawn(enemy, enemyTile));
+
+        var colonyField = cave.GetBfsFieldObject("colony")
+            ?? throw new InvalidOperationException("Expected the colony BFS field to exist.");
+        colonyField.Rebuild();
+
+        Assert.Equal(int.MaxValue, colonyField.GetFieldValue(enemyLocation, refresh: false));
+        Assert.Equal(targetWall.Location!.Value.ToString(), enemy.GetAdjacentWallTileKey());
+    }
 }

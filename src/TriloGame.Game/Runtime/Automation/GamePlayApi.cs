@@ -201,6 +201,7 @@ public sealed class GamePlayApi
             "radar" => new Radar(session),
             "storage" => new Storage(session),
             "smith" => new Smith(session),
+            "wall" => new Wall(session),
             _ => null
         };
     }

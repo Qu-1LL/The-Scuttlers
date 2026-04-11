@@ -186,6 +186,13 @@ public sealed class Tile
 
     public bool CreatureFits() => CreatureCanFit;
 
+    public bool EnemyFits() => CreatureCanFit && Built is not Buildings.Wall;
+
+    public bool CreatureFits(Entities.Creature creature)
+    {
+        return creature is Entities.Enemy ? EnemyFits() : CreatureFits();
+    }
+
     public bool AddTrilobite(Entities.Trilobite trilobite)
     {
         if (_trilobites.Contains(trilobite))

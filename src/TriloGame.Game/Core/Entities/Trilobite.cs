@@ -1049,7 +1049,7 @@ public sealed partial class Trilobite : Creature
         ClearActionQueue();
         var resolvedField = field;
         var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !cave.CanCreatureTraverseTile(this, attemptedTile)))
         {
             var refreshedField = cave.GetBfsFieldObject("enemy");
             refreshedField?.Rebuild();
@@ -1468,7 +1468,7 @@ public sealed partial class Trilobite : Creature
         ClearActionQueue();
         var resolvedField = field;
         var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (Cave is not null && Cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        if (resolvedNext is null || (Cave is not null && Cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !Cave.CanCreatureTraverseTile(this, attemptedTile)))
         {
             var refreshedField = GetBuildingNavigationField(queen);
             refreshedField?.Rebuild();
@@ -2375,6 +2375,11 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        if (!CanReachScaffolding(scaffold))
+        {
+            return false;
+        }
+
         if (HasInventory())
         {
             return scaffold.NeedsResource(Inventory.Type!);
@@ -2465,12 +2470,18 @@ public sealed partial class Trilobite : Creature
         return (Cave?.GetBuildingBfsFieldValue(building, location ?? Location) ?? int.MaxValue) == 0;
     }
 
+    private bool CanReachScaffolding(Scaffolding scaffold)
+    {
+        return (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) != int.MaxValue;
+    }
+
     public Scaffolding? EnsureBuilderAssignment(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
     {
         var excluded = excludeScaffolds?.ToHashSet() ?? [];
         var assignedScaffold = GetAssignedScaffolding();
         if (assignedScaffold is not null &&
             assignedScaffold.IsInProgress() &&
+            CanReachScaffolding(assignedScaffold) &&
             !excluded.Contains(assignedScaffold) &&
             (!actionableOnly || CanActOnScaffold(assignedScaffold)))
         {

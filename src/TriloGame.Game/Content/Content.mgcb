@@ -58,6 +58,36 @@
 /processor:TextureProcessor
 /build:Textures/CaveWall.png
 
+#begin Textures/wall_0.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_0.png
+
+#begin Textures/wall_1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_1.png
+
+#begin Textures/wall_2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_2.png
+
+#begin Textures/wall_2_bent.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_2_bent.png
+
+#begin Textures/wall_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_3.png
+
+#begin Textures/wall_4.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_4.png
+
 #begin Textures/CochiniumTile.png
 /importer:TextureImporter
 /processor:TextureProcessor

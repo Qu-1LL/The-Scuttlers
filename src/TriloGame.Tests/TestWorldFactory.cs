@@ -178,6 +178,17 @@ internal static class TestWorldFactory
         return turret;
     }
 
+    public static Wall BuildWall(Cave cave, GameSession session, GridPoint location)
+    {
+        var wall = new Wall(session);
+        if (!cave.Build(wall, location))
+        {
+            throw new InvalidOperationException($"Failed to build wall at {location}.");
+        }
+
+        return wall;
+    }
+
     public static Trilobite SpawnTrilobite(Cave cave, GameSession session, GridPoint location, string name = "Tester", string assignment = "unassigned")
     {
         var tile = cave.GetTile(location.ToString())

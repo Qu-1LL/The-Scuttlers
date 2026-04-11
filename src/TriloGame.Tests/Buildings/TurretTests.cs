@@ -143,4 +143,52 @@ public sealed class TurretTests
         Assert.Equal(fighter.HostedWorldPosition!.Value, projectile.SourceWorldPosition);
         Assert.NotEqual(new System.Numerics.Vector2(fighter.Location.X * 80f, fighter.Location.Y * 80f), projectile.SourceWorldPosition);
     }
+
+    [Fact]
+    public void StationedFighter_RotatesToMatchProjectileLaunchAngle()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(1, 1));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 18));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(18, 17), "Fighter", "fighter");
+        fighter.SetTraits(Array.Empty<TrilobiteTrait>());
+        fighter.SetAssignedBuilding(turret);
+        Assert.True(turret.Assign(fighter));
+        Assert.False(fighter.FighterReturnToStation(true));
+
+        var enemyTile = cave.GetTile(new GridPoint(25, 19))
+            ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
+        var enemy = new Enemy("Enemy", enemyTile.Coordinates, session);
+        Assert.True(cave.Spawn(enemy, enemyTile));
+
+        for (var index = 0; index < 5; index++)
+        {
+            turret.Tick(cave);
+        }
+
+        var projectile = Assert.Single(session.Runtime.ActiveProjectileFlights);
+        var expectedRotation = Microsoft.Xna.Framework.MathHelper.ToRadians(projectile.AngleDegrees);
+        Assert.Equal(expectedRotation, fighter.RotationRadians, 5);
+    }
+
+    [Fact]
+    public void TryRestoreCreatureToTileSystem_ReturnsHostedFighterToLastTrackedAccessTile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(1, 1));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 18));
+        var accessTile = new GridPoint(18, 17);
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, accessTile, "Fighter", "fighter");
+
+        fighter.SetAssignedBuilding(turret);
+        Assert.True(turret.Assign(fighter));
+        Assert.False(fighter.FighterReturnToStation(true));
+        Assert.False(fighter.IsTrackedInTileSystem);
+
+        Assert.True(turret.TryRestoreCreatureToTileSystem(fighter));
+
+        Assert.True(fighter.IsTrackedInTileSystem);
+        Assert.Null(fighter.HostedBuilding);
+        Assert.Null(fighter.HostedWorldPosition);
+        Assert.Equal(accessTile, fighter.Location);
+        Assert.Same(fighter, cave.GetTrilobiteAtTileKey(accessTile.ToString()));
+    }
 }

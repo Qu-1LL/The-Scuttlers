@@ -222,6 +222,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         var sprites = new SpriteFactory();
         RegisterTexture(sprites, "empty", "Textures/EmptyTile");
         RegisterTexture(sprites, "wall", "Textures/CaveWall");
+        RegisterTexture(sprites, "wall_0", "Textures/wall_0");
+        RegisterTexture(sprites, "wall_1", "Textures/wall_1");
+        RegisterTexture(sprites, "wall_2", "Textures/wall_2");
+        RegisterTexture(sprites, "wall_2_bent", "Textures/wall_2_bent");
+        RegisterTexture(sprites, "wall_3", "Textures/wall_3");
+        RegisterTexture(sprites, "wall_4", "Textures/wall_4");
         RegisterTexture(sprites, "Algae", "Textures/AlgaeTile");
         RegisterTexture(sprites, "Sandstone", "Textures/SandTile");
         RegisterTexture(sprites, "Malachite", "Textures/MalachiteTile");

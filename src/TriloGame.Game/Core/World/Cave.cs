@@ -30,6 +30,7 @@ public sealed partial class Cave : Graph
     private readonly List<AlgaeFarm> _algaeFarms = [];
     private readonly List<Barracks> _barracks = [];
     private readonly List<Turret> _turrets = [];
+    private readonly List<Wall> _walls = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
     private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
@@ -95,6 +96,8 @@ public sealed partial class Cave : Graph
     public IReadOnlyList<Barracks> GetBarracksList() => _barracks;
 
     public IReadOnlyList<Turret> GetTurretList() => _turrets;
+
+    public IReadOnlyList<Wall> GetWalls() => _walls;
 
     public IReadOnlyList<Scaffolding> GetScaffoldingList() => _scaffolds;
 
@@ -475,6 +478,9 @@ public sealed partial class Cave : Graph
                 BarracksBuildingsAdded = true;
                 SyncBarracksBuildingsAddedState();
                 break;
+            case Wall wall:
+                _walls.Add(wall);
+                break;
             case Scaffolding scaffolding:
                 _scaffolds.Add(scaffolding);
                 break;
@@ -511,6 +517,9 @@ public sealed partial class Cave : Graph
                 _barracks.Remove(barracks);
                 _fighterStationAssignmentCounts.Remove(barracks);
                 SyncBarracksBuildingsAddedState();
+                break;
+            case Wall wall:
+                _walls.Remove(wall);
                 break;
             case Scaffolding scaffolding:
                 _scaffolds.Remove(scaffolding);
@@ -770,7 +779,10 @@ public sealed partial class Cave : Graph
             return false;
         }
 
-        if (preserveReachability && requireReachableTiles && !SimulatedBuildPreservesBuildingAccess(building, location))
+        if (preserveReachability &&
+            requireReachableTiles &&
+            !ShouldSkipSimulatedBuildingAccessCheck(building) &&
+            !SimulatedBuildPreservesBuildingAccess(building, location))
         {
             return false;
         }
@@ -790,7 +802,7 @@ public sealed partial class Cave : Graph
         {
             for (var y = 0; y < building.Size.Y; y++)
             {
-                if (building.OpenMap[y][x] <= 1)
+                if (building.OpenMap[y][x] < 1)
                 {
                     reachableKeys.Remove(new GridPoint(location.Value.X + x, location.Value.Y + y).ToString());
                 }
@@ -798,6 +810,12 @@ public sealed partial class Cave : Graph
         }
 
         return reachableKeys;
+    }
+
+    private static bool ShouldSkipSimulatedBuildingAccessCheck(Building building)
+    {
+        return building is Wall ||
+               building is Scaffolding { TargetBuilding: Wall };
     }
 
     public bool IsBuildingAccessibleFromReachableKeys(Building building, HashSet<string> reachableKeys)
@@ -933,6 +951,10 @@ public sealed partial class Cave : Graph
         var buildingField = GetBuildingBfsFieldObject(building);
         buildingField.Rebuild();
         buildingField.MarkDirty(ownershipDirtyKeys, [building], []);
+        if (building is Wall)
+        {
+            RebuildWallBfsField();
+        }
         return true;
     }
 
@@ -946,13 +968,23 @@ public sealed partial class Cave : Graph
         var affectedCreatures = new List<Creature>();
         foreach (var creature in GetCreatures().ToArray())
         {
-            if (building is StationBuilding stationBuilding && stationBuilding.IsCreatureStationed(creature))
+            var creatureWasAffected = false;
+            if (building is StationBuilding stationBuilding &&
+                (stationBuilding.IsCreatureStationed(creature) || creature.IsHostedOnBuilding(stationBuilding)))
             {
-                creature.TakeDamage(creature.Health, source ?? building);
-                continue;
+                if (creature is Trilobite stationedTrilobite)
+                {
+                    RestoreStationedTrilobiteToLastTrackedTile(stationBuilding, stationedTrilobite);
+                    stationedTrilobite.ReleaseAssignedBuilding();
+                    creatureWasAffected = true;
+                }
+                else
+                {
+                    creatureWasAffected = stationBuilding.TryRestoreCreatureToTileSystem(creature);
+                    stationBuilding.RemoveAssignment(creature);
+                }
             }
 
-            var creatureWasAffected = false;
             if (creature is Trilobite trilobite && ReferenceEquals(trilobite.BuilderSourcePost, building))
             {
                 trilobite.ClearBuilderSourcePost();
@@ -1019,6 +1051,10 @@ public sealed partial class Cave : Graph
         building.BfsField.SetCave(null);
         RebalanceAllBfsFields(dirtyKeys, [building], []);
         RebalanceAllBuildingOwnershipFields(dirtyKeys, [building]);
+        if (building is Wall)
+        {
+            RebuildWallBfsField();
+        }
 
         foreach (var creature in affectedCreatures)
         {
@@ -1897,6 +1933,11 @@ public sealed partial class Cave
 
         foreach (var field in Session.BfsFields.Values)
         {
+            if (string.Equals(field.Type, "wall", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             field.ApplyMinedTileUpdate(tileKey);
         }
 
@@ -2112,6 +2153,25 @@ public sealed partial class Cave
     }
 
     public IReadOnlyList<string> GetBfsFieldNames() => ["enemy", "colony"];
+
+    private BfsField? RebuildWallBfsField()
+    {
+        if (_walls.Count == 0)
+        {
+            if (Session.BfsFields.TryGetValue("wall", out var existingField))
+            {
+                existingField.SetCave(this);
+                existingField.ClearField();
+                return existingField;
+            }
+
+            return null;
+        }
+
+        var wallField = GetBfsFieldObject("wall");
+        wallField?.Rebuild();
+        return wallField;
+    }
 
     public Dictionary<string, BfsField> ResetBfsFields()
     {
@@ -2348,6 +2408,31 @@ public sealed partial class Cave
         return true;
     }
 
+    private void RestoreStationedTrilobiteToLastTrackedTile(StationBuilding stationBuilding, Trilobite trilobite)
+    {
+        if (!ReferenceEquals(trilobite.HostedBuilding, stationBuilding))
+        {
+            return;
+        }
+
+        if (PlaceCreatureOnTile(trilobite, trilobite.Location, randomizeMovementOffset: false))
+        {
+            return;
+        }
+
+        if (stationBuilding.TryRestoreCreatureToTileSystem(trilobite))
+        {
+            return;
+        }
+
+        var fallbackTile = GetTile(trilobite.Location);
+        trilobite.ReturnToTileSystem();
+        trilobite.Cave = this;
+        SyncTrilobiteTileOccupancy(trilobite, null, fallbackTile);
+        trilobite.UpdateMovementOffset(false);
+        MarkCreatureBfsFieldsDirty(trilobite, fallbackTile?.Key);
+    }
+
     public bool RemoveCreatureFromTileSystem(Creature creature)
     {
         if (!creature.IsTrackedInTileSystem)
@@ -2362,10 +2447,15 @@ public sealed partial class Cave
         return true;
     }
 
+    public bool CanCreatureTraverseTile(Creature creature, Tile? tile)
+    {
+        return tile is not null && tile.CreatureFits(creature);
+    }
+
     public bool PlaceCreatureOnTile(Creature creature, GridPoint location, bool randomizeMovementOffset = false)
     {
         var tile = GetTile(location.ToString());
-        if (tile is null || !tile.CreatureFits())
+        if (!CanCreatureTraverseTile(creature, tile))
         {
             return false;
         }
@@ -2461,7 +2551,7 @@ public sealed partial class Cave
 
     public bool Spawn(Creature creature, Tile tile)
     {
-        if (tile.Base == "wall" || !tile.CreatureFits())
+        if (tile.Base == "wall" || !CanCreatureTraverseTile(creature, tile))
         {
             return false;
         }
@@ -2503,7 +2593,7 @@ public sealed partial class Cave
 
         var current = creature.Location;
         var nextTile = GetTile(nextLocation);
-        if (nextTile is null || !nextTile.CreatureFits())
+        if (!CanCreatureTraverseTile(creature, nextTile))
         {
             return false;
         }

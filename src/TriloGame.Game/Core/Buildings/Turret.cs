@@ -179,6 +179,11 @@ public sealed class Turret : StationBuilding
             return false;
         }
 
+        if (Cave?.PlaceCreatureOnTile(creature, creature.Location, randomizeMovementOffset: false) == true)
+        {
+            return true;
+        }
+
         var preferredAccessTile = GetPreferredAccessTile(creature.Location);
         return preferredAccessTile.HasValue &&
                (Cave?.PlaceCreatureOnTile(creature, preferredAccessTile.Value, randomizeMovementOffset: false) ?? false);
@@ -266,10 +271,15 @@ public sealed class Turret : StationBuilding
                 remainingTicks--;
             }
 
-            if (remainingTicks <= 0 && Target is not null && creature.ShootProjectile(Target, ProjectileCatalog.Rock))
+            if (remainingTicks <= 0 && Target is not null)
             {
-                remainingTicks = ReloadTicks;
-                shotsFired++;
+                var launchAngleRadians = GetLaunchAngleRadians(creature, Target);
+                if (creature.ShootProjectile(Target, ProjectileCatalog.Rock))
+                {
+                    creature.RotationRadians = launchAngleRadians;
+                    remainingTicks = ReloadTicks;
+                    shotsFired++;
+                }
             }
 
             _remainingReloadTicks[creature] = remainingTicks;
@@ -315,5 +325,13 @@ public sealed class Turret : StationBuilding
         UntrackCreature(Target);
         Target = target;
         TrackCreature(Target);
+    }
+
+    private static float GetLaunchAngleRadians(Creature source, Creature target)
+    {
+        var delta = target.GetWorldPosition() - source.GetWorldPosition();
+        return delta.LengthSquared() <= 0f
+            ? MathF.PI / 2f
+            : MathF.Atan2(delta.Y, delta.X) + (MathF.PI / 2f);
     }
 }
