@@ -20,6 +20,7 @@ public sealed class GameSessionBootstrapperTests
         Assert.Equal("builder", assignments["Quinton"]);
         Assert.Equal("farmer", assignments["Yeetmuncher"]);
         Assert.Equal("fighter", assignments["Sigma"]);
+        Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Turret");
         Assert.NotNull(queen);
     }
 

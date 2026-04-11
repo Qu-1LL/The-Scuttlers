@@ -56,6 +56,30 @@ public sealed partial class Trilobite : Creature
 
     public void ClearInventory() => Inventory.Clear();
 
+    public bool ChangeAssignment(string assignment)
+    {
+        var normalizedAssignment = assignment.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedAssignment) ||
+            string.Equals(Assignment, normalizedAssignment, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.Equals(normalizedAssignment, "miner", StringComparison.Ordinal))
+        {
+            ClearManualMineOrders();
+        }
+
+        if (GetAssignedBuilding() is not null)
+        {
+            ReleaseAssignedBuilding();
+        }
+
+        Assignment = normalizedAssignment;
+        RestartBehavior();
+        return true;
+    }
+
     public void SetTraits(IEnumerable<TrilobiteTrait> traits)
     {
         TraitState.SetTraits(traits);
@@ -73,7 +97,7 @@ public sealed partial class Trilobite : Creature
         ClearFighterTarget();
         FighterPathMode = null;
         _fleeingToQueen = false;
-        ReleaseAssignedBuilding();
+        ReleaseAssignedBuilding(restoreHostedCreatureToTileSystem: false);
         PendingMineType = null;
         PendingMineTileKey = null;
         PendingMinePath = null;
@@ -166,9 +190,15 @@ public sealed partial class Trilobite : Creature
 
     private bool ShouldFleeFromNearbyEnemy()
     {
-        return Cave is not null &&
-               (IsMiner() || IsFarmer() || IsBuilder()) &&
-               Cave.IsLocationThreatenedByVisibleEnemy(Location);
+        if (Cave is null ||
+            !Session.Danger ||
+            (!IsMiner() && !IsFarmer() && !IsBuilder()))
+        {
+            return false;
+        }
+
+        var enemyDistance = Cave.GetBfsFieldValue("enemy", Location);
+        return enemyDistance < GameConstants.WorkerEnemyFleeRadius;
     }
 
     public bool EnsureMinerState()
@@ -266,7 +296,7 @@ public sealed partial class Trilobite : Creature
     {
         if (IsFighter())
         {
-            if (GetAssignedBuilding() is not null && GetAssignedBarracks() is null)
+            if (GetAssignedBuilding() is not null && GetAssignedFighterStation() is null)
             {
                 ReleaseAssignedBuilding();
             }
@@ -276,7 +306,7 @@ public sealed partial class Trilobite : Creature
 
         ClearFighterTarget();
         FighterPathMode = null;
-        if (GetAssignedBarracks() is not null)
+        if (GetAssignedFighterStation() is not null)
         {
             ReleaseAssignedBuilding();
         }
@@ -361,7 +391,9 @@ public sealed partial class Trilobite : Creature
 
     public MiningPost? GetAssignedMiningPost() => AssignedBuilding as MiningPost;
 
-    public Barracks? GetAssignedBarracks() => AssignedBuilding as Barracks;
+    public StationBuilding? GetAssignedFighterStation() => AssignedBuilding as StationBuilding;
+
+    public Barracks? GetAssignedBarracks() => GetAssignedFighterStation() as Barracks;
 
     public Scaffolding? GetAssignedScaffolding() => AssignedBuilding as Scaffolding;
 
@@ -374,7 +406,7 @@ public sealed partial class Trilobite : Creature
         }
     }
 
-    public void ReleaseAssignedBuilding()
+    public void ReleaseAssignedBuilding(bool restoreHostedCreatureToTileSystem = true)
     {
         ClearBuilderSourcePost();
         if (AssignedBuilding is null)
@@ -396,8 +428,20 @@ public sealed partial class Trilobite : Creature
             case AlgaeFarm farm:
                 farm.RemoveAssignment(this);
                 break;
-            case Barracks barracks:
-                barracks.RemoveAssignment(this);
+            case StationBuilding station:
+                if (ReferenceEquals(HostedBuilding, station))
+                {
+                    if (restoreHostedCreatureToTileSystem)
+                    {
+                        station.TryRestoreCreatureToTileSystem(this);
+                    }
+                    else
+                    {
+                        LeaveTileSystem();
+                    }
+                }
+
+                station.RemoveAssignment(this);
                 break;
             case Scaffolding scaffolding:
                 scaffolding.RemoveAssignment(this);
@@ -408,6 +452,17 @@ public sealed partial class Trilobite : Creature
         PendingMineTileKey = null;
         PendingManualMineSelectionKey = null;
         AssignedBuilding = null;
+    }
+
+    protected override bool EnsureReadyForTileNavigation()
+    {
+        return IsTrackedInTileSystem ||
+               (HostedBuilding as StationBuilding)?.TryRestoreCreatureToTileSystem(this) == true;
+    }
+
+    private bool TryStationAtFighterStation(StationBuilding station)
+    {
+        return station.TryStationCreature(this);
     }
 
     public void ClearBuilderSourcePost(bool releaseReservation = true)
@@ -430,10 +485,34 @@ public sealed partial class Trilobite : Creature
         return Cave?.GetBarracksList() ?? [];
     }
 
+    public IReadOnlyList<Turret> GetTurretBuildings()
+    {
+        return Cave?.GetTurretList() ?? [];
+    }
+
+    public IReadOnlyList<StationBuilding> GetFighterStationBuildings()
+    {
+        return Cave?.GetFighterStations() ?? [];
+    }
+
+    public StationBuilding? GetFighterStationAtLocation(GridPoint? location = null)
+    {
+        if (location is null && HostedBuilding is StationBuilding hostedStation)
+        {
+            return hostedStation;
+        }
+
+        var checkLocation = location ?? Location;
+        return GetFighterStationBuildings()
+            .Where(station => IsAtFighterStationNavigationTarget(station, checkLocation))
+            .OrderByDescending(station => station.FighterAssignmentPriority)
+            .ThenBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
     public Barracks? GetBarracksAtLocation(GridPoint? location = null)
     {
-        var checkLocation = location ?? Location;
-        return GetBarracksBuildings().FirstOrDefault(barracks => IsOnPassableBuildingTile(barracks, checkLocation));
+        return GetFighterStationAtLocation(location) as Barracks;
     }
 
     private static string GetOwnedBuildingSelectionKey(Building? building)
@@ -441,47 +520,69 @@ public sealed partial class Trilobite : Creature
         return building?.Location?.ToString() ?? building?.Name ?? string.Empty;
     }
 
-    private bool IsSelectableBarracks(Barracks? barracks, ISet<Barracks>? excludedBarracks = null)
-    {
-        return barracks is not null &&
-               barracks.Location is not null &&
-               barracks.TileArray.Count > 0 &&
-               excludedBarracks?.Contains(barracks) != true;
-    }
-
-    private bool CanReachBarracks(Barracks barracks)
-    {
-        return Cave is not null &&
-               (IsOnPassableBuildingTile(barracks) ||
-                ReferenceEquals(Cave.GetNearestBarracks(Location), barracks) ||
-                Cave.GetBuildingBfsFieldValue(barracks, Location) != int.MaxValue);
-    }
-
-    private bool ShouldBalanceBarracksAssignments(Barracks? preferredBarracks)
-    {
-        return preferredBarracks is null || (Cave?.ShouldRebalanceBarracksAssignments(preferredBarracks) ?? false);
-    }
-
-    private IEnumerable<Barracks> EnumerateBarracksCandidates(Barracks? preferredBarracks = null, ISet<Barracks>? excludedBarracks = null)
+    private bool IsAtFighterStationNavigationTarget(StationBuilding station, GridPoint location)
     {
         if (Cave is null)
         {
-            yield break;
+            return false;
         }
 
-        excludedBarracks ??= new HashSet<Barracks>();
-        var visited = new HashSet<Barracks>();
-
-        if (IsSelectableBarracks(preferredBarracks, excludedBarracks) && visited.Add(preferredBarracks!))
+        return station switch
         {
-            yield return preferredBarracks!;
-        }
+            Turret turret => Cave.GetTile(location.ToString()) is { } tile &&
+                             tile.Neighbors.Any(neighbor => ReferenceEquals(neighbor.Built, turret)),
+            _ => IsOnPassableBuildingTile(station, location)
+        };
+    }
 
-        var nearestBarracks = Cave.GetNearestBarracks(Location);
-        var queue = new Queue<Barracks>();
-        if (IsSelectableBarracks(nearestBarracks, excludedBarracks) && visited.Add(nearestBarracks!))
+    private bool IsSelectableStation(StationBuilding? station, ISet<StationBuilding>? excludedStations = null)
+    {
+        return station is not null &&
+               station.Location is not null &&
+               station.TileArray.Count > 0 &&
+               station.CanAssign(this) &&
+               excludedStations?.Contains(station) != true;
+    }
+
+    private bool IsStationedAtFighterStation(StationBuilding station)
+    {
+        return station.IsCreatureStationed(this);
+    }
+
+    private bool CanReachFighterStation(StationBuilding station)
+    {
+        return Cave is not null &&
+               (IsStationedAtFighterStation(station) ||
+                station.IsCreatureAtNavigationTarget(this) ||
+                station switch
+                {
+                    Turret turret => ReferenceEquals(Cave.GetNearestTurret(Location), turret),
+                    Barracks barracks => ReferenceEquals(Cave.GetNearestBarracks(Location), barracks),
+                    _ => false
+                } ||
+                Cave.GetBuildingBfsFieldValue(station, Location) != int.MaxValue);
+    }
+
+    private bool ShouldBalanceFighterStationAssignments(StationBuilding? preferredStation)
+    {
+        return preferredStation is null || (Cave?.ShouldRebalanceFighterStationAssignments(preferredStation) ?? false);
+    }
+
+    private IEnumerable<TStation> EnumerateStationTypeCandidates<TStation>(
+        int priority,
+        TStation? nearestStation,
+        Func<TStation, IReadOnlyCollection<TStation>> getAdjacentStations,
+        IEnumerable<TStation> allStations,
+        ISet<StationBuilding> excludedStations,
+        ISet<StationBuilding> visited)
+        where TStation : StationBuilding
+    {
+        var queue = new Queue<TStation>();
+        if (IsSelectableStation(nearestStation, excludedStations) &&
+            nearestStation!.FighterAssignmentPriority == priority &&
+            visited.Add(nearestStation))
         {
-            queue.Enqueue(nearestBarracks!);
+            queue.Enqueue(nearestStation);
         }
 
         while (queue.Count > 0)
@@ -489,63 +590,175 @@ public sealed partial class Trilobite : Creature
             var current = queue.Dequeue();
             yield return current;
 
-            foreach (var neighbor in Cave.GetAdjacentBarracks(current))
+            foreach (var neighbor in getAdjacentStations(current))
             {
-                if (IsSelectableBarracks(neighbor, excludedBarracks) && visited.Add(neighbor))
+                if (IsSelectableStation(neighbor, excludedStations) &&
+                    neighbor.FighterAssignmentPriority == priority &&
+                    visited.Add(neighbor))
                 {
                     queue.Enqueue(neighbor);
                 }
             }
         }
 
-        if (visited.Count > 0)
+        foreach (var station in allStations
+                     .Where(station => IsSelectableStation(station, excludedStations) &&
+                                       station.FighterAssignmentPriority == priority)
+                     .OrderBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal))
         {
-            yield break;
-        }
-
-        foreach (var barracks in GetBarracksBuildings()
-                     .Where(barracks => IsSelectableBarracks(barracks, excludedBarracks))
-                     .OrderBy(barracks => GetOwnedBuildingSelectionKey(barracks), StringComparer.Ordinal))
-        {
-            if (visited.Add(barracks))
+            if (visited.Add(station))
             {
-                yield return barracks;
+                yield return station;
             }
         }
     }
 
+    private IEnumerable<StationBuilding> EnumerateFighterStationCandidates(int priority, StationBuilding? preferredStation = null, ISet<StationBuilding>? excludedStations = null)
+    {
+        if (Cave is null)
+        {
+            yield break;
+        }
+
+        excludedStations ??= new HashSet<StationBuilding>();
+        var visited = new HashSet<StationBuilding>();
+
+        if (IsSelectableStation(preferredStation, excludedStations) &&
+            preferredStation!.FighterAssignmentPriority == priority &&
+            visited.Add(preferredStation))
+        {
+            yield return preferredStation;
+        }
+
+        foreach (var turret in EnumerateStationTypeCandidates(
+                     priority,
+                     Cave.GetNearestTurret(Location),
+                     Cave.GetAdjacentTurrets,
+                     GetTurretBuildings(),
+                     excludedStations,
+                     visited))
+        {
+            yield return turret;
+        }
+
+        foreach (var barracks in EnumerateStationTypeCandidates(
+                     priority,
+                     Cave.GetNearestBarracks(Location),
+                     Cave.GetAdjacentBarracks,
+                     GetBarracksBuildings(),
+                     excludedStations,
+                     visited))
+        {
+            yield return barracks;
+        }
+    }
+
+    public List<StationBuilding> GetFighterStationPriorityList()
+    {
+        var prioritizedStations = new List<StationBuilding>();
+        var visited = new HashSet<StationBuilding>();
+        foreach (var priority in GetFighterStationBuildings()
+                     .Select(station => station.FighterAssignmentPriority)
+                     .Distinct()
+                     .OrderByDescending(priority => priority))
+        {
+            foreach (var station in EnumerateFighterStationCandidates(priority, GetAssignedFighterStation(), visited))
+            {
+                if (!CanReachFighterStation(station) || !visited.Add(station))
+                {
+                    continue;
+                }
+
+                prioritizedStations.Add(station);
+            }
+        }
+
+        return prioritizedStations;
+    }
+
+    internal StationBuilding? SelectFighterStation(StationBuilding? preferredStation = null, ISet<StationBuilding>? excludedStations = null)
+    {
+        excludedStations ??= new HashSet<StationBuilding>();
+        foreach (var priority in GetFighterStationBuildings()
+                     .Where(station => IsSelectableStation(station, excludedStations))
+                     .Select(station => station.FighterAssignmentPriority)
+                     .Distinct()
+                     .OrderByDescending(priority => priority))
+        {
+            var shouldBalanceAssignments = ShouldBalanceFighterStationAssignments(
+                preferredStation is not null && preferredStation.FighterAssignmentPriority == priority
+                    ? preferredStation
+                    : null);
+            StationBuilding? bestStation = null;
+            var bestCount = int.MaxValue;
+
+            foreach (var station in EnumerateFighterStationCandidates(
+                         priority,
+                         shouldBalanceAssignments ? null : preferredStation,
+                         excludedStations))
+            {
+                if (!CanReachFighterStation(station))
+                {
+                    continue;
+                }
+
+                if (!shouldBalanceAssignments)
+                {
+                    return station;
+                }
+
+                var assignmentCount = Cave?.GetStationAssignmentCount(station) ?? int.MaxValue;
+                if (bestStation is null || assignmentCount < bestCount)
+                {
+                    bestStation = station;
+                    bestCount = assignmentCount;
+                }
+            }
+
+            if (bestStation is not null)
+            {
+                return bestStation;
+            }
+        }
+
+        return null;
+    }
+
     public List<Barracks> GetBarracksPriorityList()
     {
-        return EnumerateBarracksCandidates(GetAssignedBarracks())
-            .Where(CanReachBarracks)
+        return GetFighterStationPriorityList()
+            .OfType<Barracks>()
             .ToList();
     }
 
     internal Barracks? SelectBarracks(Barracks? preferredBarracks = null, ISet<Barracks>? excludedBarracks = null)
     {
-        var shouldBalanceAssignments = ShouldBalanceBarracksAssignments(preferredBarracks);
-        Barracks? bestBarracks = null;
-        var bestCount = int.MaxValue;
-
-        foreach (var barracks in EnumerateBarracksCandidates(shouldBalanceAssignments ? null : preferredBarracks, excludedBarracks))
+        HashSet<StationBuilding>? excludedStations = null;
+        if (excludedBarracks is not null)
         {
-            if (CanReachBarracks(barracks))
+            excludedStations = [];
+            foreach (var barracks in excludedBarracks)
             {
-                if (!shouldBalanceAssignments)
-                {
-                    return barracks;
-                }
-
-                var assignmentCount = Cave?.GetBarracksAssignmentCount(barracks) ?? int.MaxValue;
-                if (bestBarracks is null || assignmentCount < bestCount)
-                {
-                    bestBarracks = barracks;
-                    bestCount = assignmentCount;
-                }
+                excludedStations.Add(barracks);
             }
         }
 
-        return bestBarracks;
+        return SelectFighterStation(preferredBarracks, excludedStations) as Barracks;
+    }
+
+    internal Turret? SelectTurret(Turret? preferredTurret = null, ISet<Turret>? excludedTurrets = null)
+    {
+        HashSet<StationBuilding>? excludedStations = null;
+        if (excludedTurrets is not null)
+        {
+            excludedStations = [];
+            foreach (var turret in excludedTurrets)
+            {
+                excludedStations.Add(turret);
+            }
+        }
+
+        return SelectFighterStation(preferredTurret, excludedStations) as Turret;
     }
 
     public IReadOnlyList<Enemy> GetEnemyCreatures()
@@ -599,75 +812,109 @@ public sealed partial class Trilobite : Creature
         return true;
     }
 
-    public bool TryNavigateBarracks(ISet<Barracks>? excludedBarracks = null, bool preferAssignedBarracks = true)
+    public bool TryNavigateToFighterStation(ISet<StationBuilding>? excludedStations = null, bool preferAssignedStation = true)
     {
         if (!EnsureFighterState())
         {
             return false;
         }
 
-        excludedBarracks ??= new HashSet<Barracks>();
-        var preferredBarracks = preferAssignedBarracks ? GetAssignedBarracks() : null;
-        var barracks = SelectBarracks(preferredBarracks, excludedBarracks);
-        if (barracks is null)
+        excludedStations ??= new HashSet<StationBuilding>();
+        var preferredStation = preferAssignedStation ? GetAssignedFighterStation() : null;
+        var station = SelectFighterStation(preferredStation, excludedStations);
+        if (station is null)
         {
             return false;
         }
 
-        SetAssignedBuilding(barracks);
-        barracks.Assign(this);
+        if (!station.CanAssign(this))
+        {
+            excludedStations.Add(station);
+            return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
+        }
 
-        if (IsOnPassableBuildingTile(barracks))
+        SetAssignedBuilding(station);
+        if (!station.Assign(this))
+        {
+            ReleaseAssignedBuilding();
+            excludedStations.Add(station);
+            return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
+        }
+
+        if (TryStationAtFighterStation(station))
         {
             return false;
         }
 
-        var path = BuildNavigationPathToBuilding(barracks);
+        var navigationTile = station.GetAssignedNavigationTile(this, Location);
+        if (!navigationTile.HasValue)
+        {
+            ReleaseAssignedBuilding();
+            excludedStations.Add(station);
+            return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
+        }
+
+        var path = BuildNavigationPathToPoint(navigationTile.Value);
         if (path is null)
         {
             ReleaseAssignedBuilding();
-            excludedBarracks.Add(barracks);
-            return TryNavigateBarracks(excludedBarracks, preferAssignedBarracks: false);
+            excludedStations.Add(station);
+            return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
         }
 
-        return QueueFighterPath(path, "barracks");
+        return QueueFighterPath(path, "station");
     }
 
-    public bool FighterReturnToBarracks(bool preferAssignedBarracks = true)
+    public bool TryNavigateBarracks(ISet<Barracks>? excludedBarracks = null, bool preferAssignedBarracks = true)
+    {
+        HashSet<StationBuilding>? excludedStations = null;
+        if (excludedBarracks is not null)
+        {
+            excludedStations = [];
+            foreach (var barracks in excludedBarracks)
+            {
+                excludedStations.Add(barracks);
+            }
+        }
+
+        return TryNavigateToFighterStation(excludedStations, preferAssignedBarracks);
+    }
+
+    public bool FighterReturnToStation(bool preferAssignedStation = true)
     {
         if (!EnsureFighterState())
         {
             return false;
         }
 
-        var assignedBarracks = GetAssignedBarracks();
-        var shouldRebalanceAssignedBarracks = ShouldBalanceBarracksAssignments(assignedBarracks);
-        if (preferAssignedBarracks && assignedBarracks is not null)
+        var assignedStation = GetAssignedFighterStation();
+        var shouldRebalanceAssignedStation = ShouldBalanceFighterStationAssignments(assignedStation);
+        if (preferAssignedStation && assignedStation is not null)
         {
-            assignedBarracks.Assign(this);
-            if (!shouldRebalanceAssignedBarracks && IsOnPassableBuildingTile(assignedBarracks))
+            var retainedAssignedStation = assignedStation.Assign(this);
+            if (retainedAssignedStation && !shouldRebalanceAssignedStation && TryStationAtFighterStation(assignedStation))
             {
                 return false;
             }
         }
 
-        if (preferAssignedBarracks)
+        if (preferAssignedStation)
         {
-            var currentBarracks = GetBarracksAtLocation();
-            if (currentBarracks is not null)
+            var currentStation = GetFighterStationAtLocation();
+            if (currentStation is not null && currentStation.CanAssign(this))
             {
-                SetAssignedBuilding(currentBarracks);
-                currentBarracks.Assign(this);
-                if (!ShouldBalanceBarracksAssignments(currentBarracks))
+                SetAssignedBuilding(currentStation);
+                currentStation.Assign(this);
+                if (!ShouldBalanceFighterStationAssignments(currentStation) && TryStationAtFighterStation(currentStation))
                 {
                     return false;
                 }
             }
         }
 
-        if (SelectBarracks(preferAssignedBarracks ? assignedBarracks : null) is null)
+        if (SelectFighterStation(preferAssignedStation ? assignedStation : null) is null)
         {
-            if (!preferAssignedBarracks)
+            if (!preferAssignedStation)
             {
                 ReleaseAssignedBuilding();
             }
@@ -675,7 +922,12 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        return TryNavigateBarracks(preferAssignedBarracks: preferAssignedBarracks);
+        return TryNavigateToFighterStation(preferAssignedStation: preferAssignedStation);
+    }
+
+    public bool FighterReturnToBarracks(bool preferAssignedBarracks = true)
+    {
+        return FighterReturnToStation(preferAssignedBarracks);
     }
 
     public bool FighterStep1()
@@ -687,10 +939,21 @@ public sealed partial class Trilobite : Creature
 
         FighterPathMode = null;
 
+        if (ShouldHoldTurretPosition())
+        {
+            ClearFighterTarget();
+            return false;
+        }
+
         if (!Session.Danger)
         {
             ClearFighterTarget();
-            return FighterReturnToBarracks(true);
+            return FighterReturnToStation(true);
+        }
+
+        if (!EnsureReadyForTileNavigation())
+        {
+            return false;
         }
 
         if (FighterTargetTileKey is not null && IsAdjacentToTileKey(FighterTargetTileKey))
@@ -718,7 +981,12 @@ public sealed partial class Trilobite : Creature
         if (!Session.Danger)
         {
             ClearFighterTarget();
-            return FighterReturnToBarracks(true);
+            return FighterReturnToStation(true);
+        }
+
+        if (!EnsureReadyForTileNavigation())
+        {
+            return false;
         }
 
         if (FighterTargetTileKey is null)
@@ -757,7 +1025,12 @@ public sealed partial class Trilobite : Creature
         if (!Session.Danger)
         {
             ClearFighterTarget();
-            return FighterReturnToBarracks(true);
+            return FighterReturnToStation(true);
+        }
+
+        if (!EnsureReadyForTileNavigation())
+        {
+            return false;
         }
 
         if (FighterTargetTileKey is not null && GetEnemyAtTileKey(FighterTargetTileKey) is null)
@@ -770,20 +1043,20 @@ public sealed partial class Trilobite : Creature
         if (field is null || cave is null)
         {
             ClearFighterTarget();
-            return FighterReturnToBarracks(false);
+            return FighterReturnToStation(false);
         }
 
         ClearActionQueue();
         var resolvedField = field;
         var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !cave.CanCreatureTraverseTile(this, attemptedTile)))
         {
             var refreshedField = cave.GetBfsFieldObject("enemy");
             refreshedField?.Rebuild();
             if (refreshedField is null)
             {
                 ClearFighterTarget();
-                return FighterReturnToBarracks(false);
+                return FighterReturnToStation(false);
             }
 
             resolvedField = refreshedField;
@@ -798,7 +1071,7 @@ public sealed partial class Trilobite : Creature
         if (resolvedNext is null)
         {
             ClearFighterTarget();
-            return FighterReturnToBarracks(false);
+            return FighterReturnToStation(false);
         }
 
         ArmBfsTraversal(resolvedField, sharedFieldName: "enemy");
@@ -815,28 +1088,28 @@ public sealed partial class Trilobite : Creature
 
         if (!Session.Danger)
         {
-            if (FighterPathMode != "barracks")
+            if (FighterPathMode != "station")
             {
                 ClearActionQueue();
                 return FighterStep1();
             }
 
-            var assignedBarracks = GetAssignedBarracks();
-            if (assignedBarracks is not null && IsOnPassableBuildingTile(assignedBarracks))
+            var assignedStation = GetAssignedFighterStation();
+            if (assignedStation is not null && TryStationAtFighterStation(assignedStation))
             {
                 FighterPathMode = null;
                 ClearActionQueue();
                 return false;
             }
         }
-        else if (FighterPathMode == "barracks")
+        else if (FighterPathMode == "station")
         {
             FighterPathMode = null;
             ClearActionQueue();
             return FighterStep1();
         }
 
-        if (FighterPathMode != "barracks")
+        if (FighterPathMode != "station")
         {
             if (FighterTargetTileKey is not null && GetEnemyAtTileKey(FighterTargetTileKey) is null)
             {
@@ -854,18 +1127,18 @@ public sealed partial class Trilobite : Creature
             }
         }
 
-        var wasBarracksMove = FighterPathMode == "barracks";
+        var wasStationMove = FighterPathMode == "station";
         ClearBfsTraversal();
         var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
         if (!moved)
         {
-            if (wasBarracksMove)
+            if (wasStationMove)
             {
                 FighterPathMode = null;
             }
 
             ClearActionQueue();
-            return wasBarracksMove ? FighterReturnToBarracks(true) : FighterStep3();
+            return wasStationMove ? FighterReturnToStation(true) : FighterStep3();
         }
 
         if (PathPreview.Count > 0)
@@ -873,10 +1146,10 @@ public sealed partial class Trilobite : Creature
             PathPreview.RemoveAt(0);
         }
 
-        if (wasBarracksMove)
+        if (wasStationMove)
         {
-            var assignedBarracks = GetAssignedBarracks();
-            if (assignedBarracks is not null && IsOnPassableBuildingTile(assignedBarracks))
+            var assignedStation = GetAssignedFighterStation();
+            if (assignedStation is not null && TryStationAtFighterStation(assignedStation))
             {
                 FighterPathMode = null;
                 ClearActionQueue();
@@ -901,6 +1174,13 @@ public sealed partial class Trilobite : Creature
         }
 
         return true;
+    }
+
+    private bool ShouldHoldTurretPosition()
+    {
+        return GetAssignedFighterStation() is Turret turret &&
+               IsHostedOnBuilding(turret) &&
+               turret.IsCreatureStationed(this);
     }
 
     public List<AlgaeFarm> GetAlgaeFarmPriorityList()
@@ -1188,7 +1468,7 @@ public sealed partial class Trilobite : Creature
         ClearActionQueue();
         var resolvedField = field;
         var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (Cave is not null && Cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        if (resolvedNext is null || (Cave is not null && Cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !Cave.CanCreatureTraverseTile(this, attemptedTile)))
         {
             var refreshedField = GetBuildingNavigationField(queen);
             refreshedField?.Rebuild();
@@ -2095,6 +2375,11 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        if (!CanReachScaffolding(scaffold))
+        {
+            return false;
+        }
+
         if (HasInventory())
         {
             return scaffold.NeedsResource(Inventory.Type!);
@@ -2185,12 +2470,18 @@ public sealed partial class Trilobite : Creature
         return (Cave?.GetBuildingBfsFieldValue(building, location ?? Location) ?? int.MaxValue) == 0;
     }
 
+    private bool CanReachScaffolding(Scaffolding scaffold)
+    {
+        return (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) != int.MaxValue;
+    }
+
     public Scaffolding? EnsureBuilderAssignment(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
     {
         var excluded = excludeScaffolds?.ToHashSet() ?? [];
         var assignedScaffold = GetAssignedScaffolding();
         if (assignedScaffold is not null &&
             assignedScaffold.IsInProgress() &&
+            CanReachScaffolding(assignedScaffold) &&
             !excluded.Contains(assignedScaffold) &&
             (!actionableOnly || CanActOnScaffold(assignedScaffold)))
         {

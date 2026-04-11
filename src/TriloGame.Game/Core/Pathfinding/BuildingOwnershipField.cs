@@ -216,6 +216,11 @@ public class BuildingOwnershipField<TBuilding>
         return building.Location?.ToString() ?? string.Empty;
     }
 
+    protected virtual bool IsSeedTile(TBuilding building, Tile tile)
+    {
+        return ReferenceEquals(tile.Built, building) && tile.CreatureFits();
+    }
+
     protected virtual int CompareOwners(TBuilding? left, TBuilding? right)
     {
         if (ReferenceEquals(left, right))
@@ -382,7 +387,7 @@ public class BuildingOwnershipField<TBuilding>
             var addedSeed = false;
             foreach (var tile in building.TileArray)
             {
-                if (!_covered[tile.Id] || !tile.CreatureFits())
+                if (!_covered[tile.Id] || !IsSeedTile(building, tile))
                 {
                     continue;
                 }
@@ -503,7 +508,7 @@ public class BuildingOwnershipField<TBuilding>
             var hasPassableSeedTile = false;
             foreach (var buildingTile in building.TileArray)
             {
-                if (!_covered[buildingTile.Id] || !buildingTile.CreatureFits())
+                if (!_covered[buildingTile.Id] || !IsSeedTile(building, buildingTile))
                 {
                     continue;
                 }

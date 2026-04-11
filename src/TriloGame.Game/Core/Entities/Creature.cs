@@ -1,5 +1,7 @@
 using System.Numerics;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Combat;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
@@ -12,6 +14,7 @@ public class Creature
     private const float MovementOffsetMinDistance = 1f;
     private const float MovementOffsetMaxDistance = 15f;
     private readonly Queue<Action> _queue = new();
+    private readonly HashSet<Building> _trackedBy = [];
     private Pathfinding.BfsField? _activeBfsTraversalField;
 
     public Creature(string name, GridPoint location, GameSession session)
@@ -25,6 +28,7 @@ public class Creature
         Assignment = "unassigned";
         MovementOffset = Vector2.Zero;
         RotationRadians = 0f;
+        IsTrackedInTileSystem = true;
         PathPreview = [];
     }
 
@@ -44,6 +48,12 @@ public class Creature
 
     public Vector2 MovementOffset { get; private set; }
 
+    public bool IsTrackedInTileSystem { get; private set; }
+
+    public Building? HostedBuilding { get; private set; }
+
+    public Vector2? HostedWorldPosition { get; private set; }
+
     public GameSession Session { get; }
 
     public World.Cave? Cave { get; set; }
@@ -53,6 +63,47 @@ public class Creature
     public string? ActiveBfsTraversalFieldName { get; private set; }
 
     public Building? ActiveBfsTraversalBuilding { get; private set; }
+
+    public IReadOnlyCollection<Building> TrackedBy => _trackedBy;
+
+    public bool IsHostedOnBuilding(Building? building = null)
+    {
+        return HostedBuilding is not null &&
+               (building is null || ReferenceEquals(HostedBuilding, building));
+    }
+
+    public void HostOnBuilding(Building building, Vector2 worldPosition)
+    {
+        // Hosted creatures keep their last tile `Location` as a restoration hint while
+        // world-space consumers render and fire from `HostedWorldPosition`/`GetWorldPosition`.
+        HostedBuilding = building;
+        HostedWorldPosition = worldPosition;
+        IsTrackedInTileSystem = false;
+        MovementOffset = Vector2.Zero;
+        ClearBfsTraversal();
+    }
+
+    public void LeaveTileSystem()
+    {
+        HostedBuilding = null;
+        HostedWorldPosition = null;
+        IsTrackedInTileSystem = false;
+        MovementOffset = Vector2.Zero;
+        ClearBfsTraversal();
+    }
+
+    public void ReturnToTileSystem()
+    {
+        HostedBuilding = null;
+        HostedWorldPosition = null;
+        IsTrackedInTileSystem = true;
+        ClearBfsTraversal();
+    }
+
+    protected virtual bool EnsureReadyForTileNavigation()
+    {
+        return IsTrackedInTileSystem;
+    }
 
     public void ClearActionQueue()
     {
@@ -133,6 +184,44 @@ public class Creature
     public virtual bool RemoveFromGame(object? source = null)
     {
         return Cave?.RemoveCreature(this, source) ?? true;
+    }
+
+    public Vector2 GetWorldPosition()
+    {
+        return HostedWorldPosition ?? new Vector2(
+            Location.X * TileConstants.TileSize,
+            Location.Y * TileConstants.TileSize) + MovementOffset;
+    }
+
+    public bool ShootProjectile(Creature target, Projectile projectile)
+    {
+        return Session.LaunchProjectile(this, target, projectile) is not null;
+    }
+
+    public bool AddTrackedBy(Building building)
+    {
+        return _trackedBy.Add(building);
+    }
+
+    public bool RemoveTrackedBy(Building building)
+    {
+        return _trackedBy.Remove(building);
+    }
+
+    public void NotifyTrackedByCreatureDied()
+    {
+        if (_trackedBy.Count == 0)
+        {
+            return;
+        }
+
+        var trackedBuildings = _trackedBy.ToArray();
+        foreach (var building in trackedBuildings)
+        {
+            building.TrackedCreatureDied(this);
+        }
+
+        _trackedBy.Clear();
     }
 
     public bool EnqueueAction(Action action)
@@ -235,8 +324,7 @@ public class Creature
 
     private bool IsImpassableTraversalStep(GridPoint location)
     {
-        var tile = Cave?.GetTile(location.ToString());
-        return tile is null || !tile.CreatureFits();
+        return Cave is null || !Cave.CanCreatureTraverseTile(this, Cave.GetTile(location.ToString()));
     }
 
     private Pathfinding.BfsField? RefreshTraversalField(
@@ -467,6 +555,11 @@ public class Creature
     public bool NavigateTo(GridPoint destination, Action? fallbackFn = null, bool clearExisting = true)
     {
         fallbackFn ??= GetNavigationFallback();
+        if (!EnsureReadyForTileNavigation())
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
         var path = BuildNavigationPathToPoint(destination);
         if (path is null)
         {
@@ -479,6 +572,11 @@ public class Creature
     public bool NavigateToPointDirect(GridPoint destination, Action? fallbackFn = null, bool clearExisting = true)
     {
         fallbackFn ??= GetNavigationFallback();
+        if (!EnsureReadyForTileNavigation())
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
         var path = BuildDirectNavigationPathToPoint(destination);
         if (path is null)
         {
@@ -491,6 +589,11 @@ public class Creature
     public bool NavigateToBuilding(Building building, Action? fallbackFn = null, bool clearExisting = true)
     {
         fallbackFn ??= GetNavigationFallback();
+        if (!EnsureReadyForTileNavigation())
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
         if (clearExisting)
         {
             ClearActionQueue();
@@ -542,6 +645,11 @@ public class Creature
     public bool QueueMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)
     {
         fallbackFn ??= GetNavigationFallback();
+        if (!EnsureReadyForTileNavigation())
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
         if (path.Count < 2)
         {
             return path.Count > 0;
@@ -554,6 +662,11 @@ public class Creature
     public bool AppendMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)
     {
         fallbackFn ??= GetNavigationFallback();
+        if (!EnsureReadyForTileNavigation())
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
         if (path.Count < 2)
         {
             return path.Count > 0;
@@ -597,6 +710,12 @@ public class Creature
 
     public void UpdateMovementOffset(bool randomize)
     {
+        if (!IsTrackedInTileSystem)
+        {
+            MovementOffset = Vector2.Zero;
+            return;
+        }
+
         MovementOffset = randomize
             ? RandomUtil.NextMovementOffset(MovementOffsetMinDistance, MovementOffsetMaxDistance)
             : Vector2.Zero;
@@ -604,6 +723,11 @@ public class Creature
 
     public bool PerformMove(GridPoint next)
     {
+        if (!EnsureReadyForTileNavigation())
+        {
+            return false;
+        }
+
         var field = _activeBfsTraversalField;
         var sharedFieldName = ActiveBfsTraversalFieldName;
         var building = ActiveBfsTraversalBuilding;

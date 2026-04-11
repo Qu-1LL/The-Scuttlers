@@ -10,7 +10,7 @@ public sealed class WorkerFleeBehaviorTests
     [InlineData("miner")]
     [InlineData("builder")]
     [InlineData("farmer")]
-    public void WorkerRoles_FleeTowardQueenWhenVisibleEnemyIsNearby(string assignment)
+    public void WorkerRoles_FleeTowardQueenWhenEnemyBfsDistanceIsWithinThreshold(string assignment)
     {
         var (session, cave, queen) = TestWorldFactory.CreateSessionWithQueen();
         cave.RevealCave();
@@ -38,13 +38,16 @@ public sealed class WorkerFleeBehaviorTests
         var enemy = new Enemy("Nearby Ant", enemyTile.Coordinates, session);
         Assert.True(cave.Spawn(enemy, enemyTile));
 
-        cave.RefreshVisibleEnemyThreatMap(GameConstants.WorkerEnemyFleeRadius);
+        Assert.True(cave.RefreshDangerState());
+        cave.RefreshBfsField("enemy");
+        var enemyDistance = cave.GetBfsFieldValue("enemy", worker.Location);
         var initialDistance = MinDistanceToQueen(worker.Location, queenFeedTiles);
 
         worker.Move();
 
         var nextDistance = MinDistanceToQueen(worker.Location, queenFeedTiles);
         Assert.True(session.Danger);
+        Assert.InRange(enemyDistance, 0, GameConstants.WorkerEnemyFleeRadius - 1);
         Assert.True(nextDistance < initialDistance, $"Expected {assignment} to move closer to the queen. Before: {initialDistance}, after: {nextDistance}.");
     }
 

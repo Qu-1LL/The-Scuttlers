@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Shared.Diagnostics;
 
 namespace TriloGame.Game.Shared.State;
@@ -9,11 +10,15 @@ public sealed class GameSessionRuntimeState
 
     public TickProfiler TickProfiler { get; } = new();
 
+    public double CurrentTickSpeedMs { get; set; } = GameConstants.TickSpeedFast;
+
     public bool FreezeOpalProgression { get; set; }
 
     public bool DisableEnemySpawns { get; set; } = true;
 
     public bool NoCostBuildPlacement { get; set; }
+
+    public List<ProjectileFlight> ActiveProjectileFlights { get; } = [];
 
     public int PeekNextDebugEnemyId()
     {

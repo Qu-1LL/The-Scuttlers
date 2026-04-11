@@ -5,6 +5,7 @@ public sealed class Tile
     private readonly HashSet<Tile> _adjacent = [];
     private readonly List<Entities.Trilobite> _trilobites = [];
     private readonly Dictionary<string, int> _droppedResources = new(StringComparer.Ordinal);
+    private readonly List<Buildings.Building> _projections = [];
 
     public Tile(int id, string key)
     {
@@ -40,6 +41,8 @@ public sealed class Tile
     public IReadOnlyList<Entities.Trilobite> Trilobites => _trilobites;
 
     public IReadOnlyDictionary<string, int> DroppedResources => _droppedResources;
+
+    public IReadOnlyList<Buildings.Building> Projections => _projections;
 
     public void AddNeighbor(Tile tile)
     {
@@ -183,6 +186,13 @@ public sealed class Tile
 
     public bool CreatureFits() => CreatureCanFit;
 
+    public bool EnemyFits() => CreatureCanFit && Built is not Buildings.Wall;
+
+    public bool CreatureFits(Entities.Creature creature)
+    {
+        return creature is Entities.Enemy ? EnemyFits() : CreatureFits();
+    }
+
     public bool AddTrilobite(Entities.Trilobite trilobite)
     {
         if (_trilobites.Contains(trilobite))
@@ -197,6 +207,36 @@ public sealed class Tile
     public bool RemoveTrilobite(Entities.Trilobite trilobite)
     {
         return _trilobites.Remove(trilobite);
+    }
+
+    public bool AddProjection(Buildings.Building building)
+    {
+        for (var index = 0; index < _projections.Count; index++)
+        {
+            if (ReferenceEquals(_projections[index], building))
+            {
+                return false;
+            }
+        }
+
+        _projections.Add(building);
+        return true;
+    }
+
+    public bool RemoveProjection(Buildings.Building building)
+    {
+        for (var index = 0; index < _projections.Count; index++)
+        {
+            if (!ReferenceEquals(_projections[index], building))
+            {
+                continue;
+            }
+
+            _projections.RemoveAt(index);
+            return true;
+        }
+
+        return false;
     }
 
     public void SetEnemyOccupant(Entities.Enemy? enemy)

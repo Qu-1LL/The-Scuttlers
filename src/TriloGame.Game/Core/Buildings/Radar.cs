@@ -48,6 +48,7 @@ public sealed class Radar : Building
 
     public override void OnBuilt(World.Cave cave)
     {
+        base.OnBuilt(cave);
         cave.RevealTiles(TileArray);
         RevealUnlockedArea(cave, -1);
     }

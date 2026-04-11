@@ -106,14 +106,7 @@ public sealed class GamePlayApi
             return true;
         }
 
-        if (!string.Equals(assignment, "miner", StringComparison.Ordinal))
-        {
-            trilobite.ClearManualMineOrders();
-        }
-
-        trilobite.Assignment = assignment.Trim();
-        trilobite.RestartBehavior();
-        return true;
+        return trilobite.ChangeAssignment(assignment);
     }
 
     public bool MoveTrilobite(string trilobiteName, GridPoint destination)
@@ -208,6 +201,7 @@ public sealed class GamePlayApi
             "radar" => new Radar(session),
             "storage" => new Storage(session),
             "smith" => new Smith(session),
+            "wall" => new Wall(session),
             _ => null
         };
     }

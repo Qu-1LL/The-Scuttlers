@@ -25,7 +25,7 @@ public static class GameConstants
     public const int MinOreHitsPerYield = 1;
     public const int MaxOreHitsPerYield = 5;
     public const int TrilobiteCarryCapacity = 5;
-    public const int TrilobiteStarterTraitCount = 1;
+    public const int TrilobiteStarterTraitCount = 0;
     public const int ExplosiveTraitBlastRadius = 3;
     public const float ExplosiveTraitScreenShakeIntensity = 1f;
     public const int AlgaeHarvestYield = 5;
@@ -46,4 +46,6 @@ public static class GameConstants
     public const int MaxAmbientAntSpawnCount = 1;
     public const int MaxAmbientAntCount = 24;
     public const int AntHoleSpawnRadius = 2;
+    public const int TurretProjectionRadius = 10;
+    public const int TurretMaxHealth = 100;
 }

@@ -560,9 +560,7 @@ public sealed partial class MenuController
             return false;
         }
 
-        creature.Assignment = toAssignment;
-        creature.RestartBehavior();
-        return true;
+        return creature.ChangeAssignment(toAssignment);
     }
 
     private static bool TryConvertKeyToCharacter(Keys key, KeyboardState keyboard, out char character)

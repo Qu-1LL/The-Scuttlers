@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
@@ -58,7 +59,7 @@ public sealed class Enemy : Creature
         return Cave?.GetTrilobiteAtTileKey(tileKey);
     }
 
-    public Core.Buildings.Building? GetHostileBuildingAtTileKey(string? tileKey)
+    public Building? GetHostileBuildingAtTileKey(string? tileKey, bool includeWalls = true)
     {
         if (Cave is null || string.IsNullOrWhiteSpace(tileKey))
         {
@@ -67,12 +68,20 @@ public sealed class Enemy : Creature
 
         var tile = Cave.GetTile(tileKey);
         var building = tile?.Built;
-        return building is not null && building.Cave == Cave && building.Health > 0 ? building : null;
+        if (building is null ||
+            building.Cave != Cave ||
+            building.Health <= 0 ||
+            (!includeWalls && building is Wall))
+        {
+            return null;
+        }
+
+        return building;
     }
 
-    public object? GetHostileTargetAtTileKey(string? tileKey)
+    public object? GetHostileTargetAtTileKey(string? tileKey, bool includeWalls = true)
     {
-        return (object?)GetHostileAtTileKey(tileKey) ?? GetHostileBuildingAtTileKey(tileKey);
+        return (object?)GetHostileAtTileKey(tileKey) ?? GetHostileBuildingAtTileKey(tileKey, includeWalls);
     }
 
     public bool IsAdjacentToTileKey(string tileKey, GridPoint? location = null)
@@ -80,7 +89,7 @@ public sealed class Enemy : Creature
         return GridPoint.ManhattanDistance(location ?? Location, GridPoint.Parse(tileKey)) == 1;
     }
 
-    public string? GetAdjacentHostileTileKey(GridPoint? location = null)
+    public string? GetAdjacentHostileTileKey(GridPoint? location = null, bool includeWalls = false)
     {
         var currentTile = Cave?.GetTile((location ?? Location).ToString());
         if (currentTile is null)
@@ -96,13 +105,33 @@ public sealed class Enemy : Creature
                 return neighbor.Key;
             }
 
-            if (adjacentBuildingTileKey is null && GetHostileBuildingAtTileKey(neighbor.Key) is not null)
+            if (adjacentBuildingTileKey is null && GetHostileBuildingAtTileKey(neighbor.Key, includeWalls) is not null)
             {
                 adjacentBuildingTileKey = neighbor.Key;
             }
         }
 
         return adjacentBuildingTileKey;
+    }
+
+    public string? GetAdjacentWallTileKey(GridPoint? location = null)
+    {
+        var currentTile = Cave?.GetTile((location ?? Location).ToString());
+        if (currentTile is null)
+        {
+            return null;
+        }
+
+        string? adjacentWallTileKey = null;
+        foreach (var neighbor in currentTile.Neighbors)
+        {
+            if (adjacentWallTileKey is null && GetHostileBuildingAtTileKey(neighbor.Key) is Wall)
+            {
+                adjacentWallTileKey = neighbor.Key;
+            }
+        }
+
+        return adjacentWallTileKey;
     }
 
     public bool EnemyStep1()
@@ -172,6 +201,11 @@ public sealed class Enemy : Creature
             ClearEnemyTarget();
         }
 
+        if (EnemyTargetTileKey is not null && GetHostileBuildingAtTileKey(EnemyTargetTileKey) is Wall && !IsAdjacentToTileKey(EnemyTargetTileKey))
+        {
+            ClearEnemyTarget();
+        }
+
         var cave = Cave;
         var field = cave?.GetBfsFieldObject("colony");
         if (field is null || cave is null)
@@ -183,7 +217,7 @@ public sealed class Enemy : Creature
         ClearActionQueue();
         var resolvedField = field;
         var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !attemptedTile.CreatureFits()))
+        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !cave.CanCreatureTraverseTile(this, attemptedTile)))
         {
             var refreshedField = cave.GetBfsFieldObject("colony");
             refreshedField?.Rebuild();
@@ -202,10 +236,33 @@ public sealed class Enemy : Creature
             }
         }
 
-        if (resolvedNext is null)
+        if (resolvedField.GetFieldValue(Location, refresh: false) == int.MaxValue || resolvedNext is null)
         {
+            var adjacentWallTileKey = GetAdjacentWallTileKey();
+            if (adjacentWallTileKey is not null)
+            {
+                EnemyTargetTileKey = adjacentWallTileKey;
+                ClearActionQueue();
+                return EnemyStep2();
+            }
+
+            if (cave.GetWalls().Count > 0)
+            {
+                var wallField = cave.GetBfsFieldObject("wall");
+                if (wallField is not null && wallField.GetFieldValue(Location, refresh: false) != int.MaxValue)
+                {
+                    var wallNext = wallField.GetNextStep(Location, refresh: false);
+                    if (wallNext is not null)
+                    {
+                        ArmBfsTraversal(wallField, sharedFieldName: "wall");
+                        PathPreview.Add(wallNext.Value);
+                        return EnemyStepMove(wallNext.Value, allowWallRetarget: true);
+                    }
+                }
+            }
+
             ClearEnemyTarget();
-            return false;
+            return TryDigTowardQueen();
         }
 
         ArmBfsTraversal(resolvedField, sharedFieldName: "colony");
@@ -213,7 +270,7 @@ public sealed class Enemy : Creature
         return EnemyStepMove(resolvedNext.Value);
     }
 
-    public bool EnemyStepMove(GridPoint nextLocation)
+    public bool EnemyStepMove(GridPoint nextLocation, bool allowWallRetarget = false)
     {
         if (!EnsureEnemyState())
         {
@@ -260,6 +317,17 @@ public sealed class Enemy : Creature
             EnemyTargetTileKey = nextAdjacent;
             ClearActionQueue();
             return EnemyStep2();
+        }
+
+        if (allowWallRetarget)
+        {
+            var adjacentWallTileKey = GetAdjacentWallTileKey();
+            if (adjacentWallTileKey is not null)
+            {
+                EnemyTargetTileKey = adjacentWallTileKey;
+                ClearActionQueue();
+                return EnemyStep2();
+            }
         }
 
         return moved;
