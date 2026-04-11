@@ -63,6 +63,7 @@ public sealed class AlgaeFarm : Building
 
     public override void OnBuilt(World.Cave cave)
     {
+        base.OnBuilt(cave);
         RebuildTraversalRing();
     }
 
@@ -85,6 +86,11 @@ public sealed class AlgaeFarm : Building
         }
 
         var added = _assignments.Add(creature);
+        if (added)
+        {
+            TrackCreature(creature);
+        }
+
         Cave?.RefreshOpenAlgaeFarmAvailability();
         return added || _assignments.Contains(creature);
     }
@@ -92,8 +98,18 @@ public sealed class AlgaeFarm : Building
     public bool RemoveAssignment(Creature creature)
     {
         var removed = _assignments.Remove(creature);
+        if (removed)
+        {
+            UntrackCreature(creature);
+        }
+
         Cave?.RefreshOpenAlgaeFarmAvailability();
         return removed;
+    }
+
+    public override void TrackedCreatureDied(Creature creature)
+    {
+        RemoveAssignment(creature);
     }
 
     public int GetVolume() => _assignments.Count;

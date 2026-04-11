@@ -64,7 +64,6 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
             case TickPhase.SurfaceFeatureTick:
             case TickPhase.NaturalEnemySpawn:
             case TickPhase.DangerRefresh:
-            case TickPhase.ThreatMapRefresh:
                 break;
             case TickPhase.EnemyBfs:
                 _enemyBfsMs = elapsedMs;

@@ -6,7 +6,6 @@ public enum TickPhase
     SurfaceFeatureTick,
     NaturalEnemySpawn,
     DangerRefresh,
-    ThreatMapRefresh,
     EnemyBfs,
     TrilobiteMove,
     ColonyBfs,

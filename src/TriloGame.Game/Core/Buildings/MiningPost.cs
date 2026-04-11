@@ -169,6 +169,7 @@ public sealed class MiningPost : Building
         var hadAssignment = _assignments.ContainsKey(creature);
         var previousTileKey = _assignments.GetValueOrDefault(creature);
         _assignments[creature] = tileKey;
+        TrackCreature(creature);
         if (!hadAssignment)
         {
             Cave?.SyncMiningPostAssignmentCount(this, _assignments.Count);
@@ -195,6 +196,7 @@ public sealed class MiningPost : Building
             return;
         }
 
+        UntrackCreature(creature);
         Cave?.SyncMiningPostAssignmentCount(this, _assignments.Count);
 
         if (Cave is null)
@@ -241,7 +243,13 @@ public sealed class MiningPost : Building
 
     public override void OnBuilt(World.Cave cave)
     {
+        base.OnBuilt(cave);
         RefreshPossibleAssignmentsOnBuilt(cave);
+    }
+
+    public override void TrackedCreatureDied(Creature creature)
+    {
+        RemoveAssignment(creature);
     }
 
     public void InvalidateMineableQueues()

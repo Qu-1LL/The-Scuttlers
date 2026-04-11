@@ -210,6 +210,7 @@ public sealed class Scaffolding : Building
 
     public override void CleanupBeforeRemoval(object? source = null)
     {
+        base.CleanupBeforeRemoval(source);
         _assignments.Clear();
         _materialReservations.Clear();
         CompletionPending = false;

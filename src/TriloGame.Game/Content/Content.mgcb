@@ -183,6 +183,11 @@
 /processor:TextureProcessor
 /build:Textures/Trilobite.png
 
+#begin Textures/Turret.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Turret.png
+
 #begin Textures/window_3x1.png
 /importer:TextureImporter
 /processor:TextureProcessor

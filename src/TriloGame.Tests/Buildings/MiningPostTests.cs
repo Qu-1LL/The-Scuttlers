@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Buildings;
@@ -191,6 +192,24 @@ public sealed class MiningPostTests
 
         Assert.NotNull(nextTile);
         Assert.Equal(newlyRevealedWall.ToString(), nextTile!.Key);
+    }
+
+    [Fact]
+    public void AssignedCreature_IsTrackedAndRemovedWhenItDies()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(1, 1));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(10, 10));
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(9, 10), "Miner", "miner");
+        miner.SetTraits(Array.Empty<TrilobiteTrait>());
+
+        post.Assign(miner, null);
+        Assert.Contains(post, miner.TrackedBy);
+        Assert.Equal(1, post.GetVolume());
+
+        miner.TakeDamage(miner.Health, "test");
+
+        Assert.Equal(0, post.GetVolume());
+        Assert.Empty(miner.TrackedBy);
     }
 
     private static void SetTileBase(TriloGame.Game.Core.World.Cave cave, GridPoint location, string tileBase)

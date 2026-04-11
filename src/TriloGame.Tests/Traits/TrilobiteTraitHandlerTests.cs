@@ -12,11 +12,11 @@ namespace TriloGame.Tests.Traits;
 public sealed class TrilobiteTraitHandlerTests
 {
     [Fact]
-    public void StarterTrilobite_IsExplosiveByDefault()
+    public void StarterTrilobite_StartsWithNoTraits()
     {
         var (_, _, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
 
-        Assert.Equal("Explosive", trilobite.TraitState.GetTraitSummary());
+        Assert.Equal("None", trilobite.TraitState.GetTraitSummary());
     }
 
     [Fact]

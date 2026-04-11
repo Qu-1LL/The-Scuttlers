@@ -42,6 +42,23 @@ public sealed class CaveOccupancyTests
     }
 
     [Fact]
+    public void CanBuild_ReturnsFalse_WhenEnemyOccupiesCoveredTile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(1, 1));
+        var enemyLocation = new GridPoint(8, 8);
+        var enemyTile = cave.GetTile(enemyLocation)
+            ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
+        var enemy = new Enemy("Occupant", enemyLocation, session);
+        var miningPost = new MiningPost(session);
+        var buildLocation = new GridPoint(enemyLocation.X - 1, enemyLocation.Y - 1);
+
+        Assert.True(cave.Spawn(enemy, enemyTile));
+        Assert.False(cave.CanBuild(miningPost, buildLocation));
+        Assert.False(cave.Build(miningPost, buildLocation));
+        Assert.Same(enemy, cave.GetEnemyAtTileKey(enemyTile.Key));
+    }
+
+    [Fact]
     public void RemoveBuilding_ReleasesAssignedTrilobites()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
@@ -59,5 +76,101 @@ public sealed class CaveOccupancyTests
         Assert.Null(miner.GetAssignedBuilding());
         Assert.Equal(0, miningPost.GetVolume());
         Assert.DoesNotContain(miningPost, cave.GetMiningPosts());
+    }
+
+    [Fact]
+    public void RemoveBuilding_DestroysCreaturesStationedInBarracks()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(18, 6));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(18, 6), "Fighter", "fighter");
+
+        fighter.SetAssignedBuilding(barracks);
+        Assert.True(barracks.Assign(fighter));
+        Assert.True(barracks.IsCreatureStationed(fighter));
+
+        Assert.True(cave.RemoveBuilding(barracks));
+
+        Assert.Equal(0, fighter.Health);
+        Assert.Null(fighter.Cave);
+        Assert.Null(fighter.GetAssignedBuilding());
+        Assert.DoesNotContain(fighter, cave.GetTrilobiteList());
+        Assert.False(barracks.IsAssigned(fighter));
+    }
+
+    [Fact]
+    public void RemoveBuilding_DestroysCreaturesStationedInTurret()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(14, 0));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        var accessTile = new GridPoint(18, 5);
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, accessTile, "Fighter", "fighter");
+
+        fighter.SetAssignedBuilding(turret);
+        Assert.True(turret.Assign(fighter));
+        Assert.False(fighter.FighterReturnToStation(true));
+        Assert.True(turret.IsCreatureStationed(fighter));
+
+        Assert.True(cave.RemoveBuilding(turret));
+
+        Assert.Equal(0, fighter.Health);
+        Assert.Null(fighter.Cave);
+        Assert.Null(fighter.HostedBuilding);
+        Assert.Null(fighter.GetAssignedBuilding());
+        Assert.DoesNotContain(fighter, cave.GetTrilobiteList());
+        Assert.False(turret.IsAssigned(fighter));
+    }
+
+    [Fact]
+    public void EnemyField_ClearsWhenDangerEnds()
+    {
+        var (session, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
+        cave.RevealCave();
+        var enemyTile = cave.GetReachableTiles()
+            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() && tile.Trilobites.Count == 0)
+            ?? throw new InvalidOperationException("No reachable enemy spawn tile was available for the enemy BFS death test.");
+        var enemy = new Enemy("Target", enemyTile.Coordinates, session);
+
+        Assert.True(cave.Spawn(enemy, enemyTile));
+        var enemyField = cave.GetBfsFieldObject("enemy")
+            ?? throw new InvalidOperationException("Expected the enemy BFS field to exist.");
+        enemyField.Rebuild();
+        Assert.Contains(enemy, enemyField.TrackedCreatures);
+
+        enemy.TakeDamage(enemy.Health, "test");
+
+        Assert.Null(enemy.Cave);
+        Assert.Empty(cave.GetEnemyList());
+        Assert.DoesNotContain(enemy, enemyField.TrackedCreatures);
+        Assert.DoesNotContain(enemy, enemyField.UpdatedCreatures);
+        Assert.Empty(enemyField.GetField(false));
+        Assert.Equal(int.MaxValue, enemyField.GetFieldValue(trilobite.Location, refresh: false));
+        Assert.Null(enemyField.GetNextStep(trilobite.Location, refresh: false));
+    }
+
+    [Fact]
+    public void BuildAfterEnemyDeath_KeepsClearedEnemyFieldStable()
+    {
+        var (session, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
+        cave.RevealCave();
+        var enemyTile = cave.GetReachableTiles()
+            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() && tile.Trilobites.Count == 0)
+            ?? throw new InvalidOperationException("No reachable enemy spawn tile was available for the post-death build test.");
+        var enemy = new Enemy("Builder Freeze Target", enemyTile.Coordinates, session);
+        var miningPost = new MiningPost(session);
+        var buildLocation = TestWorldFactory.FindBuildLocation(cave, miningPost);
+
+        Assert.True(cave.Spawn(enemy, enemyTile));
+        cave.RefreshBfsField("enemy");
+
+        enemy.TakeDamage(enemy.Health, "test");
+
+        Assert.True(cave.Build(miningPost, buildLocation));
+        var enemyField = cave.GetBfsFieldObject("enemy")
+            ?? throw new InvalidOperationException("Expected the enemy BFS field to exist after building.");
+        Assert.DoesNotContain(enemy, enemyField.TrackedCreatures);
+        Assert.DoesNotContain(enemy, enemyField.UpdatedCreatures);
+        Assert.Empty(enemyField.GetField(false));
+        Assert.Equal(int.MaxValue, enemyField.GetFieldValue(trilobite.Location, refresh: false));
     }
 }

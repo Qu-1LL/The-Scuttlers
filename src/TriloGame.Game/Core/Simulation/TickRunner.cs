@@ -51,10 +51,6 @@ public static class TickRunner
         cave.RefreshDangerState();
         phaseObserver?.OnPhaseCompleted(TickPhase.DangerRefresh);
 
-        phaseObserver?.OnPhaseStarted(TickPhase.ThreatMapRefresh);
-        cave.RefreshVisibleEnemyThreatMap(GameConstants.WorkerEnemyFleeRadius);
-        phaseObserver?.OnPhaseCompleted(TickPhase.ThreatMapRefresh);
-
         if (session.Danger)
         {
             phaseObserver?.OnPhaseStarted(TickPhase.EnemyBfs);

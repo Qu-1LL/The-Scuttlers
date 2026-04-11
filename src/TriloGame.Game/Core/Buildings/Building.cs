@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -6,6 +7,8 @@ namespace TriloGame.Game.Core.Buildings;
 
 public class Building
 {
+    private readonly List<World.Tile> _projectedTiles = [];
+
     public Building(string name, GridPoint size, int[][] openMap, GameSession session, bool hasStation)
     {
         Name = name;
@@ -57,6 +60,10 @@ public class Building
     public bool Selectable { get; protected set; }
 
     public int DisplayRotationTurns { get; protected set; }
+
+    public IReadOnlyList<World.Tile> ProjectedTiles => _projectedTiles;
+
+    public virtual int ProjectionRadius => 0;
 
     public virtual int[][] RotateMap()
     {
@@ -135,6 +142,7 @@ public class Building
 
     public virtual void CleanupBeforeRemoval(object? source = null)
     {
+        ClearProjectedTiles();
     }
 
     public virtual bool RemoveFromGame(object? source = null)
@@ -144,11 +152,85 @@ public class Building
 
     public virtual void OnBuilt(World.Cave cave)
     {
+        RefreshProjectedTiles(cave);
     }
 
     public virtual int Tick(World.Cave cave)
     {
         return 0;
+    }
+
+    public virtual void TargetInRadius(Creature creature)
+    {
+    }
+
+    public virtual void TargetNoLongerInRadius(Creature creature)
+    {
+    }
+
+    public virtual void TrackedCreatureDied(Creature creature)
+    {
+    }
+
+    protected void TrackCreature(Creature? creature)
+    {
+        if (creature is null)
+        {
+            return;
+        }
+
+        creature.AddTrackedBy(this);
+    }
+
+    protected void UntrackCreature(Creature? creature)
+    {
+        if (creature is null)
+        {
+            return;
+        }
+
+        creature.RemoveTrackedBy(this);
+    }
+
+    protected void RefreshProjectedTiles(World.Cave cave)
+    {
+        ClearProjectedTiles();
+        if (ProjectionRadius <= 0 || Location is null)
+        {
+            return;
+        }
+
+        var center = GetCenter();
+        var radiusSquared = ProjectionRadius * ProjectionRadius;
+        for (var dx = -ProjectionRadius; dx <= ProjectionRadius; dx++)
+        {
+            for (var dy = -ProjectionRadius; dy <= ProjectionRadius; dy++)
+            {
+                var projectedLocation = new GridPoint(center.X + dx, center.Y + dy);
+                if (GridPoint.SquaredDistance(center, projectedLocation) > radiusSquared)
+                {
+                    continue;
+                }
+
+                var tile = cave.GetTile(projectedLocation);
+                if (tile is null || !tile.AddProjection(this))
+                {
+                    continue;
+                }
+
+                _projectedTiles.Add(tile);
+            }
+        }
+    }
+
+    protected void ClearProjectedTiles()
+    {
+        for (var index = _projectedTiles.Count - 1; index >= 0; index--)
+        {
+            _projectedTiles[index].RemoveProjection(this);
+        }
+
+        _projectedTiles.Clear();
     }
 
     protected static int[][] CloneOpenMap(int[][] openMap)

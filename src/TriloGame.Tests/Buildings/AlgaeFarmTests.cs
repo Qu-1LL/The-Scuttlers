@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Buildings;
@@ -125,5 +126,22 @@ public sealed class AlgaeFarmTests
         Assert.True(farm.Assign(third));
         Assert.Equal(3, farm.GetVolume());
         Assert.Equal(0, farm.GetAvailableAssignmentSlots());
+    }
+
+    [Fact]
+    public void AssignedCreature_IsTrackedAndRemovedWhenItDies()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(1, 1));
+        var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(10, 10));
+        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(9, 10), "Farmer", "farmer");
+        farmer.SetTraits(Array.Empty<TrilobiteTrait>());
+
+        Assert.True(farm.Assign(farmer));
+        Assert.Contains(farm, farmer.TrackedBy);
+
+        farmer.TakeDamage(farmer.Health, "test");
+
+        Assert.Empty(farm.Assignments);
+        Assert.Empty(farmer.TrackedBy);
     }
 }

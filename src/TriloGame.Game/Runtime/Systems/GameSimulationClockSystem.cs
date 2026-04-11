@@ -6,6 +6,7 @@ namespace TriloGame.Game.Runtime.Systems;
 public sealed class GameSimulationClockSystem
 {
     private readonly TickProfilingObserver _tickProfilingObserver = new();
+    private readonly ProjectileFlightSystem _projectileFlights = new();
 
     public bool IsPaused { get; set; }
 
@@ -22,6 +23,8 @@ public sealed class GameSimulationClockSystem
 
     public void RunSingleTick(GameSession session)
     {
+        session.Runtime.CurrentTickSpeedMs = TickSpeedMs;
+        _projectileFlights.Advance(session, TickSpeedMs);
         TickRunner.RunTick(session, _tickProfilingObserver);
     }
 
@@ -32,10 +35,24 @@ public sealed class GameSimulationClockSystem
             return 0;
         }
 
-        TickAccumulatorMs += elapsedMs;
+        session.Runtime.CurrentTickSpeedMs = TickSpeedMs;
         var executedTicks = 0;
-        while (TickAccumulatorMs >= TickSpeedMs)
+        var remainingElapsedMs = Math.Max(0d, elapsedMs);
+        while (remainingElapsedMs > 0d)
         {
+            var timeToNextTick = Math.Max(0d, TickSpeedMs - TickAccumulatorMs);
+            var stepMs = timeToNextTick <= 0d
+                ? remainingElapsedMs
+                : Math.Min(remainingElapsedMs, timeToNextTick);
+            _projectileFlights.Advance(session, stepMs);
+            TickAccumulatorMs += stepMs;
+            remainingElapsedMs -= stepMs;
+
+            if (TickAccumulatorMs < TickSpeedMs)
+            {
+                continue;
+            }
+
             TickRunner.RunTick(session, _tickProfilingObserver);
             TickAccumulatorMs -= TickSpeedMs;
             executedTicks++;

@@ -46,7 +46,7 @@ public sealed class TriloDex
 
     private static IEnumerable<FeatureTree> BuildGlobalFeatureTrees()
     {
-        var myFeatureTrees = [];
+        FeatureTree[] myFeatureTrees = [];
 
 
         return myFeatureTrees;

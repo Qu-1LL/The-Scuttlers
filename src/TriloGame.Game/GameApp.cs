@@ -2,6 +2,7 @@ using System.Text;
 using Gum.Forms;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoGameGum;
@@ -243,10 +244,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "MiningPost", "Textures/MiningPost");
         RegisterTexture(sprites, "Radar", "Textures/Radar");
         RegisterTexture(sprites, "Barracks", "Textures/Barracks");
+        RegisterTexture(sprites, "Turret", "Textures/Turret");
         RegisterTexture(sprites, "Selected", "Textures/Selected");
         RegisterTexture(sprites, "SelectedEdge", "Textures/SelectedEdge");
         RegisterTexture(sprites, "Path", "Textures/Path");
         RegisterTexture(sprites, "BackArrow", "Textures/BackArrow");
+        TryRegisterTexture(sprites, "Rock", "Textures/Rock");
 
         _rendering = new RenderingContext
         {
@@ -521,6 +524,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawDroppedResources(_session.Cave);
             DrawBuildings(_session.Cave);
             DrawCreatures(_session.Cave);
+            DrawProjectiles();
             DrawWorldParticles();
             DrawSelection();
             DrawFloatingPreview();
@@ -1602,18 +1606,12 @@ public sealed partial class GameApp
     {
         foreach (var trilobite in targets)
         {
-            if (trilobite.Cave is null || string.Equals(trilobite.Assignment, assignment, StringComparison.Ordinal))
+            if (trilobite.Cave is null)
             {
                 continue;
             }
 
-            if (!string.Equals(assignment, "miner", StringComparison.Ordinal))
-            {
-                trilobite.ClearManualMineOrders();
-            }
-
-            trilobite.Assignment = assignment;
-            trilobite.RestartBehavior();
+            trilobite.ChangeAssignment(assignment);
         }
     }
 
@@ -1751,7 +1749,7 @@ public sealed partial class GameApp
         {
             DrawWorldTextureNative(
                 "Trilobite",
-                new Vector2(trilobite.Location.X * TileConstants.TileSize, trilobite.Location.Y * TileConstants.TileSize) + ToFrameworkVector(trilobite.MovementOffset),
+                GetCreatureWorldPosition(trilobite),
                 trilobite.RotationRadians);
         }
 
@@ -1759,8 +1757,26 @@ public sealed partial class GameApp
         {
             DrawWorldTextureNative(
                 "Enemy",
-                new Vector2(enemy.Location.X * TileConstants.TileSize, enemy.Location.Y * TileConstants.TileSize) + ToFrameworkVector(enemy.MovementOffset),
+                GetCreatureWorldPosition(enemy),
                 enemy.RotationRadians);
+        }
+    }
+
+    private void DrawProjectiles()
+    {
+        foreach (var projectileFlight in _session.Runtime.ActiveProjectileFlights)
+        {
+            var textureKey = _rendering.Sprites.TryGet(projectileFlight.Projectile.SpriteKey, out _)
+                ? projectileFlight.Projectile.SpriteKey
+                : "wall";
+            var worldPosition = ToFrameworkVector(projectileFlight.CurrentWorldPosition);
+            var normalizedWorldPosition = worldPosition / TileConstants.TileSize;
+            var projectileScale = new Vector2(projectileFlight.Projectile.SpriteScale);
+            DrawWorldTexture(
+                textureKey,
+                normalizedWorldPosition,
+                MathHelper.ToRadians(projectileFlight.AngleDegrees),
+                projectileScale);
         }
     }
 
@@ -1802,7 +1818,7 @@ public sealed partial class GameApp
             {
                 DrawWorldTextureNative(
                     "Selected",
-                    new Vector2(selectedTrilobite.Location.X * TileConstants.TileSize, selectedTrilobite.Location.Y * TileConstants.TileSize) + ToFrameworkVector(selectedTrilobite.MovementOffset));
+                    GetCreatureWorldPosition(selectedTrilobite));
             }
 
             return;
@@ -1815,7 +1831,7 @@ public sealed partial class GameApp
 
             DrawWorldTextureNative(
                 "Selected",
-                new Vector2(creature.Location.X * TileConstants.TileSize, creature.Location.Y * TileConstants.TileSize) + ToFrameworkVector(creature.MovementOffset));
+                GetCreatureWorldPosition(creature));
         }
         else if (_selectedObject is Building building)
         {
@@ -3101,7 +3117,7 @@ public sealed partial class GameApp
 
     private Vector2 GetCreatureWorldPosition(Creature creature)
     {
-        return new Vector2(creature.Location.X * TileConstants.TileSize, creature.Location.Y * TileConstants.TileSize) + ToFrameworkVector(creature.MovementOffset);
+        return ToFrameworkVector(creature.GetWorldPosition());
     }
 
     private Vector2 GetCreatureScreenPosition(Creature creature)
@@ -3316,15 +3332,12 @@ public sealed partial class GameApp
             return false;
         }
 
-        foreach (var tile in GetCandidateTilesForScreenPoint(point, cave))
+        foreach (var candidate in cave.GetTrilobiteList())
         {
-            foreach (var candidate in tile.Trilobites)
+            if (GetCreatureHitBounds(candidate).Contains(point))
             {
-                if (GetCreatureHitBounds(candidate).Contains(point))
-                {
-                    trilobite = candidate;
-                    return true;
-                }
+                trilobite = candidate;
+                return true;
             }
         }
 
@@ -3341,20 +3354,20 @@ public sealed partial class GameApp
             return false;
         }
 
-        foreach (var tile in GetCandidateTilesForScreenPoint(point, cave))
+        foreach (var candidate in cave.GetTrilobiteList())
         {
-            foreach (var candidate in tile.Trilobites)
+            if (GetCreatureHitBounds(candidate).Contains(point))
             {
-                if (GetCreatureHitBounds(candidate).Contains(point))
-                {
-                    creature = candidate;
-                    return true;
-                }
+                creature = candidate;
+                return true;
             }
+        }
 
-            if (tile.EnemyOccupant is { } enemy && GetCreatureHitBounds(enemy).Contains(point))
+        foreach (var candidate in cave.GetEnemyList())
+        {
+            if (GetCreatureHitBounds(candidate).Contains(point))
             {
-                creature = enemy;
+                creature = candidate;
                 return true;
             }
         }
@@ -3384,18 +3397,12 @@ public sealed partial class GameApp
 
     private bool TryHitBuilding(Point point, out Building building)
     {
-        var halfSize = TileConstants.TileHalfSize * _camera.CurrentScale;
         foreach (var candidate in _session.Cave?.Buildings ?? [])
         {
             if (candidate.TileArray.Any(tile =>
             {
                 var tilePoint = GridPoint.Parse(tile.Key);
-                var screen = _camera.WorldToScreen(new Vector2(tilePoint.X * TileConstants.TileSize, tilePoint.Y * TileConstants.TileSize));
-                return new Rectangle(
-                    (int)MathF.Round(screen.X - halfSize),
-                    (int)MathF.Round(screen.Y - halfSize),
-                    (int)MathF.Round(halfSize * 2f),
-                    (int)MathF.Round(halfSize * 2f)).Contains(point);
+                return GetTileHitBounds(tilePoint).Contains(point);
             }))
             {
                 building = candidate;
@@ -3409,8 +3416,13 @@ public sealed partial class GameApp
 
     private Rectangle GetCreatureHitBounds(Creature creature)
     {
+        return GetTileHitBounds(creature.Location);
+    }
+
+    private Rectangle GetTileHitBounds(GridPoint tilePoint)
+    {
         var halfSize = TileConstants.TileHalfSize * _camera.CurrentScale;
-        var screen = GetCreatureScreenPosition(creature);
+        var screen = _camera.WorldToScreen(new Vector2(tilePoint.X * TileConstants.TileSize, tilePoint.Y * TileConstants.TileSize));
         return new Rectangle(
             (int)MathF.Round(screen.X - halfSize),
             (int)MathF.Round(screen.Y - halfSize),
@@ -3421,6 +3433,17 @@ public sealed partial class GameApp
     private void RegisterTexture(SpriteFactory sprites, string key, string assetName)
     {
         sprites.Register(key, Content.Load<Texture2D>(assetName));
+    }
+
+    private void TryRegisterTexture(SpriteFactory sprites, string key, string assetName)
+    {
+        try
+        {
+            RegisterTexture(sprites, key, assetName);
+        }
+        catch (ContentLoadException)
+        {
+        }
     }
 
     private void HandleViewportResize()
@@ -3443,7 +3466,10 @@ public sealed partial class GameApp
             return;
         }
 
-        var occupiedKeys = cave.GetCreatures().Select(creature => creature.Location.ToString()).ToHashSet(StringComparer.Ordinal);
+        var occupiedKeys = cave.GetCreatures()
+            .Where(creature => creature.IsTrackedInTileSystem)
+            .Select(creature => creature.Location.ToString())
+            .ToHashSet(StringComparer.Ordinal);
         var reachable = cave.GetReachableTiles().Where(tile => tile.CreatureFits() && !occupiedKeys.Contains(tile.Key)).ToArray();
         if (reachable.Length == 0)
         {

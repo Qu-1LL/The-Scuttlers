@@ -29,15 +29,16 @@ public sealed partial class Cave : Graph
     private readonly List<MiningPost> _miningPosts = [];
     private readonly List<AlgaeFarm> _algaeFarms = [];
     private readonly List<Barracks> _barracks = [];
+    private readonly List<Turret> _turrets = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
     private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
     private readonly Dictionary<MiningPost, int> _miningPostAssignmentCounts = [];
-    private readonly Dictionary<Barracks, int> _barracksAssignmentCounts = [];
+    private readonly Dictionary<StationBuilding, int> _fighterStationAssignmentCounts = [];
     private readonly MiningPostOwnershipField _miningPostOwnershipField;
     private readonly AlgaeFarmOwnershipField _algaeFarmOwnershipField;
     private readonly BarracksOwnershipField _barracksOwnershipField;
-    private bool[] _visibleEnemyThreatenedTiles = [];
+    private readonly TurretOwnershipField _turretOwnershipField;
     private Queen? _queenBuilding;
 
     public Cave(GameSession session)
@@ -52,6 +53,7 @@ public sealed partial class Cave : Graph
         _miningPostOwnershipField = new MiningPostOwnershipField(this);
         _algaeFarmOwnershipField = new AlgaeFarmOwnershipField(this);
         _barracksOwnershipField = new BarracksOwnershipField(this);
+        _turretOwnershipField = new TurretOwnershipField(this);
         session.Cave = this;
         ResetBfsFields();
     }
@@ -92,14 +94,47 @@ public sealed partial class Cave : Graph
 
     public IReadOnlyList<Barracks> GetBarracksList() => _barracks;
 
+    public IReadOnlyList<Turret> GetTurretList() => _turrets;
+
     public IReadOnlyList<Scaffolding> GetScaffoldingList() => _scaffolds;
 
     public IReadOnlyDictionary<MiningPost, int> GetMiningPostAssignmentCounts() => _miningPostAssignmentCounts;
 
-    public IReadOnlyDictionary<Barracks, int> GetBarracksAssignmentCounts() => _barracksAssignmentCounts;
+    public IReadOnlyDictionary<Barracks, int> GetBarracksAssignmentCounts()
+    {
+        return _fighterStationAssignmentCounts
+            .Where(pair => pair.Key is Barracks)
+            .ToDictionary(pair => (Barracks)pair.Key, pair => pair.Value);
+    }
+
+    public IReadOnlyDictionary<Turret, int> GetTurretAssignmentCounts()
+    {
+        return _fighterStationAssignmentCounts
+            .Where(pair => pair.Key is Turret)
+            .ToDictionary(pair => (Turret)pair.Key, pair => pair.Value);
+    }
+
+    public IReadOnlyList<StationBuilding> GetFighterStations()
+    {
+        return [.. EnumerateFighterStations()];
+    }
+
+    private IEnumerable<StationBuilding> EnumerateFighterStations()
+    {
+        foreach (var turret in _turrets)
+        {
+            yield return turret;
+        }
+
+        foreach (var barracks in _barracks)
+        {
+            yield return barracks;
+        }
+    }
 
     public bool RefreshDangerState()
     {
+        var previousDanger = Session.Danger;
         Session.Danger = _enemyList.Any(enemy =>
         {
             var tile = GetTile(enemy.Location);
@@ -109,50 +144,13 @@ public sealed partial class Cave : Graph
         if (!Session.Danger)
         {
             DespawnAntHoles();
+            if (previousDanger)
+            {
+                GetBfsFieldObject("enemy")?.ClearField();
+            }
         }
 
         return Session.Danger;
-    }
-
-    public void RefreshVisibleEnemyThreatMap(int radius)
-    {
-        Array.Resize(ref _visibleEnemyThreatenedTiles, TileCapacity);
-        Array.Clear(_visibleEnemyThreatenedTiles, 0, _visibleEnemyThreatenedTiles.Length);
-
-        if (radius <= 0)
-        {
-            return;
-        }
-
-        foreach (var enemy in _enemyList)
-        {
-            var enemyTile = GetTile(enemy.Location);
-            if (enemyTile is null || !IsTileRevealed(enemyTile))
-            {
-                continue;
-            }
-
-            for (var dx = -radius; dx <= radius; dx++)
-            {
-                var maxDy = radius - Math.Abs(dx);
-                for (var dy = -maxDy; dy <= maxDy; dy++)
-                {
-                    var tile = GetTile(new GridPoint(enemy.Location.X + dx, enemy.Location.Y + dy));
-                    if (tile is not null)
-                    {
-                        _visibleEnemyThreatenedTiles[tile.Id] = true;
-                    }
-                }
-            }
-        }
-    }
-
-    public bool IsLocationThreatenedByVisibleEnemy(GridPoint location)
-    {
-        var tile = GetTile(location);
-        return tile is not null &&
-               tile.Id < _visibleEnemyThreatenedTiles.Length &&
-               _visibleEnemyThreatenedTiles[tile.Id];
     }
 
     public int SpawnUndiscoveredAntCluster(int requestedCount)
@@ -465,9 +463,15 @@ public sealed partial class Cave : Graph
                 _algaeFarms.Add(farm);
                 RefreshOpenAlgaeFarmAvailability();
                 break;
+            case Turret turret:
+                _turrets.Add(turret);
+                _fighterStationAssignmentCounts[turret] = turret.GetVolume();
+                BarracksBuildingsAdded = true;
+                SyncBarracksBuildingsAddedState();
+                break;
             case Barracks barracks:
                 _barracks.Add(barracks);
-                _barracksAssignmentCounts[barracks] = barracks.GetVolume();
+                _fighterStationAssignmentCounts[barracks] = barracks.GetVolume();
                 BarracksBuildingsAdded = true;
                 SyncBarracksBuildingsAddedState();
                 break;
@@ -498,9 +502,14 @@ public sealed partial class Cave : Graph
                 _algaeFarms.Remove(farm);
                 RefreshOpenAlgaeFarmAvailability();
                 break;
+            case Turret turret:
+                _turrets.Remove(turret);
+                _fighterStationAssignmentCounts.Remove(turret);
+                SyncBarracksBuildingsAddedState();
+                break;
             case Barracks barracks:
                 _barracks.Remove(barracks);
-                _barracksAssignmentCounts.Remove(barracks);
+                _fighterStationAssignmentCounts.Remove(barracks);
                 SyncBarracksBuildingsAddedState();
                 break;
             case Scaffolding scaffolding:
@@ -550,9 +559,9 @@ public sealed partial class Cave : Graph
         return IsActiveAssignedBuilding(post) && post.AssignmentsAvailable;
     }
 
-    private bool ShouldBalanceBarracks(Barracks barracks)
+    private bool ShouldBalanceStation(StationBuilding station)
     {
-        return IsActiveAssignedBuilding(barracks);
+        return IsActiveAssignedBuilding(station);
     }
 
     private static bool AreAssignmentCountsBalanced<TBuilding>(IDictionary<TBuilding, int> counts, Func<TBuilding, bool> includeBuilding)
@@ -601,9 +610,9 @@ public sealed partial class Cave : Graph
         return _miningPostAssignmentCounts.GetValueOrDefault(post, post.GetVolume());
     }
 
-    internal int GetBarracksAssignmentCount(Barracks barracks)
+    internal int GetStationAssignmentCount(StationBuilding station)
     {
-        return _barracksAssignmentCounts.GetValueOrDefault(barracks, barracks.GetVolume());
+        return _fighterStationAssignmentCounts.GetValueOrDefault(station, station.GetVolume());
     }
 
     internal void SyncMiningPostAssignmentCount(MiningPost post, int count)
@@ -617,14 +626,14 @@ public sealed partial class Cave : Graph
         SyncMiningPostBuildingsAddedState();
     }
 
-    internal void SyncBarracksAssignmentCount(Barracks barracks, int count)
+    internal void SyncStationAssignmentCount(StationBuilding station, int count)
     {
-        if (!_barracksAssignmentCounts.ContainsKey(barracks))
+        if (!_fighterStationAssignmentCounts.ContainsKey(station))
         {
             return;
         }
 
-        _barracksAssignmentCounts[barracks] = count;
+        _fighterStationAssignmentCounts[station] = count;
         SyncBarracksBuildingsAddedState();
     }
 
@@ -638,10 +647,9 @@ public sealed partial class Cave : Graph
 
     private void SyncBarracksBuildingsAddedState()
     {
-        if (BarracksBuildingsAdded && AreAssignmentCountsBalanced(_barracksAssignmentCounts, ShouldBalanceBarracks))
-        {
-            BarracksBuildingsAdded = false;
-        }
+        BarracksBuildingsAdded = EnumerateFighterStations()
+            .Where(ShouldBalanceStation)
+            .Any(ShouldRebalanceFighterAssignments);
     }
 
     internal void OnMiningPostAssignmentsAvailableChanged(MiningPost post, bool previousValue, bool currentValue)
@@ -674,15 +682,42 @@ public sealed partial class Cave : Graph
         return leastCount.HasValue && GetMiningPostAssignmentCount(currentPost) > leastCount.Value + 1;
     }
 
-    internal bool ShouldRebalanceBarracksAssignments(Barracks? currentBarracks)
+    internal bool ShouldRebalanceFighterStationAssignments(StationBuilding? currentStation)
     {
-        if (!BarracksBuildingsAdded || currentBarracks is null || !ShouldBalanceBarracks(currentBarracks))
+        if (!BarracksBuildingsAdded || currentStation is null)
         {
             return false;
         }
 
-        var leastCount = GetLeastAssignmentCount(_barracksAssignmentCounts, ShouldBalanceBarracks);
-        return leastCount.HasValue && GetBarracksAssignmentCount(currentBarracks) > leastCount.Value + 1;
+        return ShouldRebalanceFighterAssignments(currentStation);
+    }
+
+    private bool ShouldRebalanceFighterAssignments(StationBuilding currentStation)
+    {
+        if (!ShouldBalanceStation(currentStation))
+        {
+            return false;
+        }
+
+        var currentCount = GetStationAssignmentCount(currentStation);
+        if (currentCount <= 0)
+        {
+            return false;
+        }
+
+        if (EnumerateFighterStations().Any(station =>
+                ShouldBalanceStation(station) &&
+                station.FighterAssignmentPriority > currentStation.FighterAssignmentPriority &&
+                station.HasAssignmentSlot()))
+        {
+            return true;
+        }
+
+        var leastCount = GetLeastAssignmentCount(
+            _fighterStationAssignmentCounts,
+            station => ShouldBalanceStation(station) &&
+                       station.FighterAssignmentPriority == currentStation.FighterAssignmentPriority);
+        return leastCount.HasValue && currentCount > leastCount.Value + 1;
     }
 
     internal bool SyncMiningPostAssignmentAvailability()
@@ -717,6 +752,7 @@ public sealed partial class Cave : Graph
                     HasBlockingSurfaceFeature(tile) ||
                     tile.Base != "empty" ||
                     !tile.CreatureFits() ||
+                    tile.EnemyOccupant is not null ||
                     tile.Trilobites.Count > 0)
                 {
                     return false;
@@ -910,6 +946,12 @@ public sealed partial class Cave : Graph
         var affectedCreatures = new List<Creature>();
         foreach (var creature in GetCreatures().ToArray())
         {
+            if (building is StationBuilding stationBuilding && stationBuilding.IsCreatureStationed(creature))
+            {
+                creature.TakeDamage(creature.Health, source ?? building);
+                continue;
+            }
+
             var creatureWasAffected = false;
             if (creature is Trilobite trilobite && ReferenceEquals(trilobite.BuilderSourcePost, building))
             {
@@ -926,8 +968,8 @@ public sealed partial class Cave : Graph
                 case AlgaeFarm farm:
                     farm.RemoveAssignment(creature);
                     break;
-                case Barracks barracks:
-                    barracks.RemoveAssignment(creature);
+                case StationBuilding station:
+                    station.RemoveAssignment(creature);
                     break;
                 case Scaffolding scaffold:
                     scaffold.RemoveAssignment(creature);
@@ -1128,6 +1170,11 @@ public sealed partial class Cave
         return GetBuildingOwnershipFieldObject(_barracksOwnershipField, _barracks);
     }
 
+    public TurretOwnershipField GetTurretOwnershipFieldObject()
+    {
+        return GetBuildingOwnershipFieldObject(_turretOwnershipField, _turrets);
+    }
+
     public MiningPostOwnershipField MarkMiningPostOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
     {
         var field = GetMiningPostOwnershipFieldObject();
@@ -1149,11 +1196,19 @@ public sealed partial class Cave
         return field;
     }
 
+    public TurretOwnershipField MarkTurretOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetTurretOwnershipFieldObject();
+        field.MarkDirty(tileKeys, dirtyBuildings);
+        return field;
+    }
+
     public bool MarkAllBuildingOwnershipFieldsDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
     {
         MarkMiningPostOwnershipFieldDirty(tileKeys, dirtyBuildings);
         MarkAlgaeFarmOwnershipFieldDirty(tileKeys, dirtyBuildings);
         MarkBarracksOwnershipFieldDirty(tileKeys, dirtyBuildings);
+        MarkTurretOwnershipFieldDirty(tileKeys, dirtyBuildings);
         return true;
     }
 
@@ -1174,6 +1229,13 @@ public sealed partial class Cave
     public BarracksOwnershipField RefreshBarracksOwnershipField()
     {
         var field = GetBarracksOwnershipFieldObject();
+        field.Refresh();
+        return field;
+    }
+
+    public TurretOwnershipField RefreshTurretOwnershipField()
+    {
+        var field = GetTurretOwnershipFieldObject();
         field.Refresh();
         return field;
     }
@@ -1199,11 +1261,19 @@ public sealed partial class Cave
         return field;
     }
 
+    public TurretOwnershipField RebuildTurretOwnershipField()
+    {
+        var field = GetTurretOwnershipFieldObject();
+        field.Rebuild();
+        return field;
+    }
+
     public bool RebuildAllBuildingOwnershipFields()
     {
         RebuildMiningPostOwnershipField();
         RebuildAlgaeFarmOwnershipField();
         RebuildBarracksOwnershipField();
+        RebuildTurretOwnershipField();
         return true;
     }
 
@@ -1231,11 +1301,20 @@ public sealed partial class Cave
         return field;
     }
 
+    public TurretOwnershipField RebalanceTurretOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
+    {
+        var field = GetTurretOwnershipFieldObject();
+        field.MarkDirty(dirtyKeys, dirtyBuildings);
+        field.Refresh();
+        return field;
+    }
+
     public bool RebalanceAllBuildingOwnershipFields(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
     {
         RebalanceMiningPostOwnershipField(dirtyKeys, dirtyBuildings);
         RebalanceAlgaeFarmOwnershipField(dirtyKeys, dirtyBuildings);
         RebalanceBarracksOwnershipField(dirtyKeys, dirtyBuildings);
+        RebalanceTurretOwnershipField(dirtyKeys, dirtyBuildings);
         return true;
     }
 
@@ -1244,6 +1323,7 @@ public sealed partial class Cave
         GetMiningPostOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
         GetAlgaeFarmOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
         GetBarracksOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
+        GetTurretOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
         return true;
     }
 
@@ -1322,6 +1402,31 @@ public sealed partial class Cave
         return GetBarracksOwnershipFieldObject().GetAdjacencyGraph();
     }
 
+    public BuildingOwnership<Turret> GetTurretOwnership(GridPoint location)
+    {
+        return GetTurretOwnershipFieldObject().GetOwnership(location);
+    }
+
+    public Turret? GetNearestTurret(GridPoint location)
+    {
+        return GetTurretOwnershipFieldObject().GetOwner(location);
+    }
+
+    public int GetNearestTurretDistance(GridPoint location)
+    {
+        return GetTurretOwnershipFieldObject().GetDistance(location);
+    }
+
+    public IReadOnlyCollection<Turret> GetAdjacentTurrets(Turret turret)
+    {
+        return GetTurretOwnershipFieldObject().GetAdjacentBuildings(turret);
+    }
+
+    public IReadOnlyDictionary<Turret, IReadOnlyCollection<Turret>> GetTurretAdjacencyGraph()
+    {
+        return GetTurretOwnershipFieldObject().GetAdjacencyGraph();
+    }
+
     public IReadOnlyDictionary<string, Building> GetNearestBuildings(GridPoint location)
     {
         var nearestBuildings = new Dictionary<string, Building>(StringComparer.Ordinal);
@@ -1357,6 +1462,7 @@ public sealed partial class Cave
         AddBuildingOwnershipSnapshot(ownerships, GetMiningPostOwnershipFieldObject().BuildingName, GetMiningPostOwnershipFieldObject().GetOwnership(location));
         AddBuildingOwnershipSnapshot(ownerships, GetAlgaeFarmOwnershipFieldObject().BuildingName, GetAlgaeFarmOwnership(location));
         AddBuildingOwnershipSnapshot(ownerships, GetBarracksOwnershipFieldObject().BuildingName, GetBarracksOwnership(location));
+        AddBuildingOwnershipSnapshot(ownerships, GetTurretOwnershipFieldObject().BuildingName, GetTurretOwnership(location));
         return ownerships;
     }
 
@@ -2153,12 +2259,68 @@ public sealed partial class Cave
         return restoredCount;
     }
 
+    private static bool ContainsProjectedBuilding(IReadOnlyList<Building>? projections, Building building)
+    {
+        if (projections is null)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < projections.Count; index++)
+        {
+            if (ReferenceEquals(projections[index], building))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void NotifyProjectedRadiusExit(Creature creature, Tile? fromTile, Tile? toTile)
+    {
+        if (fromTile is null || fromTile.Projections.Count == 0)
+        {
+            return;
+        }
+
+        var toProjections = toTile?.Projections;
+        for (var index = 0; index < fromTile.Projections.Count; index++)
+        {
+            var building = fromTile.Projections[index];
+            if (!ContainsProjectedBuilding(toProjections, building))
+            {
+                building.TargetNoLongerInRadius(creature);
+            }
+        }
+    }
+
+    private static void NotifyProjectedRadiusEntry(Creature creature, Tile? fromTile, Tile? toTile)
+    {
+        if (toTile is null || toTile.Projections.Count == 0)
+        {
+            return;
+        }
+
+        var fromProjections = fromTile?.Projections;
+        for (var index = 0; index < toTile.Projections.Count; index++)
+        {
+            var building = toTile.Projections[index];
+            if (!ContainsProjectedBuilding(fromProjections, building))
+            {
+                building.TargetInRadius(creature);
+            }
+        }
+    }
+
     public bool SyncTrilobiteTileOccupancy(Creature creature, Tile? fromTile = null, Tile? toTile = null)
     {
         if (creature is Trilobite trilobite)
         {
             fromTile?.RemoveTrilobite(trilobite);
+            NotifyProjectedRadiusExit(creature, fromTile, toTile);
             toTile?.AddTrilobite(trilobite);
+            NotifyProjectedRadiusEntry(creature, fromTile, toTile);
             return true;
         }
 
@@ -2173,12 +2335,54 @@ public sealed partial class Cave
             _enemyOccupancy.Remove(fromTile.Key);
         }
 
+        NotifyProjectedRadiusExit(creature, fromTile, toTile);
+
         if (toTile is not null)
         {
             toTile.SetEnemyOccupant(enemy);
             _enemyOccupancy[toTile.Key] = enemy;
         }
 
+        NotifyProjectedRadiusEntry(creature, fromTile, toTile);
+
+        return true;
+    }
+
+    public bool RemoveCreatureFromTileSystem(Creature creature)
+    {
+        if (!creature.IsTrackedInTileSystem)
+        {
+            return true;
+        }
+
+        var currentTile = GetTile(creature.Location);
+        SyncTrilobiteTileOccupancy(creature, currentTile, null);
+        creature.LeaveTileSystem();
+        MarkCreatureBfsFieldsDirty(creature, currentTile?.Key);
+        return true;
+    }
+
+    public bool PlaceCreatureOnTile(Creature creature, GridPoint location, bool randomizeMovementOffset = false)
+    {
+        var tile = GetTile(location.ToString());
+        if (tile is null || !tile.CreatureFits())
+        {
+            return false;
+        }
+
+        if (creature is not Enemy && !IsTileReachable(tile))
+        {
+            return false;
+        }
+
+        var currentTile = creature.IsTrackedInTileSystem
+            ? GetTile(creature.Location)
+            : null;
+        creature.ReturnToTileSystem();
+        creature.Location = location;
+        SyncTrilobiteTileOccupancy(creature, currentTile, tile);
+        creature.UpdateMovementOffset(randomizeMovementOffset);
+        MarkCreatureBfsFieldsDirty(creature, currentTile?.Key, tile.Key);
         return true;
     }
 
@@ -2204,7 +2408,11 @@ public sealed partial class Cave
             _trilobiteList.Remove((Trilobite)creature);
         }
 
+        var currentTile = creature.IsTrackedInTileSystem
+            ? GetTile(creature.Location)
+            : null;
         creature.ClearActionQueue();
+        creature.NotifyTrackedByCreatureDied();
         creature.CleanupBeforeRemoval(source);
         foreach (var building in _buildingList)
         {
@@ -2217,8 +2425,8 @@ public sealed partial class Cave
                 case AlgaeFarm farm:
                     farm.RemoveAssignment(creature);
                     break;
-                case Barracks barracks:
-                    barracks.RemoveAssignment(creature);
+                case StationBuilding station:
+                    station.RemoveAssignment(creature);
                     break;
                 case Scaffolding scaffold:
                     scaffold.RemoveAssignment(creature);
@@ -2227,7 +2435,6 @@ public sealed partial class Cave
             }
         }
 
-        var currentTile = GetTile(creature.Location);
         SyncTrilobiteTileOccupancy(creature, currentTile, null);
 
         if (removedEnemy)
@@ -2240,7 +2447,12 @@ public sealed partial class Cave
             }
         }
 
-        MarkCreatureBfsFieldsDirty(creature, currentTile?.Key);
+        if (!(removedEnemy && !Session.Danger))
+        {
+            MarkCreatureBfsFieldsDirty(creature, currentTile?.Key);
+        }
+
+        creature.ReturnToTileSystem();
         creature.Location = GridPoint.Zero;
         creature.Cave = null;
         creature.UpdateMovementOffset(false);
@@ -2259,11 +2471,11 @@ public sealed partial class Cave
             return false;
         }
 
-        var currentTile = GetTile(creature.Location);
+        creature.ReturnToTileSystem();
         creature.Location = GridPoint.Parse(tile.Key);
-        SyncTrilobiteTileOccupancy(creature, currentTile, tile);
-        creature.UpdateMovementOffset(false);
         creature.Cave = this;
+        SyncTrilobiteTileOccupancy(creature, null, tile);
+        creature.UpdateMovementOffset(false);
 
         if (creature is Enemy enemy)
         {
@@ -2284,6 +2496,11 @@ public sealed partial class Cave
 
     public bool MoveCreature(Creature creature, GridPoint nextLocation)
     {
+        if (!creature.IsTrackedInTileSystem)
+        {
+            return false;
+        }
+
         var current = creature.Location;
         var nextTile = GetTile(nextLocation);
         if (nextTile is null || !nextTile.CreatureFits())

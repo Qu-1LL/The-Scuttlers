@@ -1,6 +1,8 @@
 using System.Text;
+using System.Numerics;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
@@ -109,6 +111,36 @@ public sealed class GameSession
         }
 
         DeathMistRequested?.Invoke(new DeathMistRequest(originTile, radius));
+    }
+
+    public Shared.State.ProjectileFlight? LaunchProjectile(Entities.Creature source, Entities.Creature target, Projectile projectile)
+    {
+        if (source is null ||
+            target is null ||
+            projectile is null ||
+            ReferenceEquals(source, target) ||
+            source.Cave is null ||
+            source.Health <= 0 ||
+            target.Health <= 0 ||
+            !ReferenceEquals(source.Cave, target.Cave))
+        {
+            return null;
+        }
+
+        var sourceWorldPosition = source.GetWorldPosition();
+        var targetWorldPosition = target.GetWorldPosition();
+        var delta = targetWorldPosition - sourceWorldPosition;
+        var angleDegrees = delta.LengthSquared() <= 0f
+            ? 0f
+            : MathF.Atan2(delta.Y, delta.X) * (180f / MathF.PI);
+        var flight = new Shared.State.ProjectileFlight(
+            projectile,
+            source,
+            target,
+            sourceWorldPosition,
+            angleDegrees);
+        Runtime.ActiveProjectileFlights.Add(flight);
+        return flight;
     }
 
     public FeatureTree? GetFeatureTree(string name)

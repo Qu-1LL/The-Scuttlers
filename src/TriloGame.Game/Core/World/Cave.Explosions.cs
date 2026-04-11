@@ -10,7 +10,9 @@ public sealed partial class Cave
 {
     public void TriggerDeathExplosion(Trilobite source, object? deathSource = null)
     {
-        var origin = source.Location;
+        var origin = !source.IsTrackedInTileSystem && source.HostedBuilding is not null
+            ? source.HostedBuilding.GetCenter()
+            : source.Location;
         var originTileKey = origin.ToString();
         var affectedTiles = GetExplosionTiles(origin, GameConstants.ExplosiveTraitBlastRadius);
         if (affectedTiles.Count == 0)
