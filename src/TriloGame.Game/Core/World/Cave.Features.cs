@@ -13,6 +13,12 @@ public sealed partial class Cave
     private readonly Dictionary<string, AntHole> _antHolesByTileKey = new(StringComparer.Ordinal);
     private readonly Dictionary<Enemy, AntHole> _antHoleByEnemy = [];
 
+    private bool IsEnemySpawnBlockedTile(Tile tile)
+    {
+        var queen = GetQueenBuilding();
+        return queen is not null && ContainsProjectedBuilding(tile.Projections, queen);
+    }
+
     public OpalNode? GetOpalNode() => GameConstants.EnableOpal ? _opalNode : null;
 
     public OpalNode? GetOpalNode(Tile tile)
@@ -113,6 +119,7 @@ public sealed partial class Cave
             .Where(tile =>
                 IsTileRevealed(tile) &&
                 CanPlaceAntHole(tile) &&
+                !IsEnemySpawnBlockedTile(tile) &&
                 GridPoint.ManhattanDistance(tile.Coordinates, queenCenter) >= GameConstants.AntHoleMinSpawnDistanceFromQueen)
             .ToArray();
 
@@ -280,7 +287,8 @@ public sealed partial class Cave
                 tile.Built is null &&
                 tile.Trilobites.Count == 0 &&
                 tile.EnemyOccupant is null &&
-                !HasBlockingSurfaceFeature(tile))
+                !HasBlockingSurfaceFeature(tile) &&
+                !IsEnemySpawnBlockedTile(tile))
             {
                 selectedTiles.Add(tile);
             }

@@ -115,4 +115,40 @@ public sealed class SurfaceFeatureTests
         Assert.False(session.Danger);
         Assert.Empty(cave.GetAntHoles());
     }
+
+    [Fact]
+    public void SpawnAntHole_DoesNotSpawnAntsInsideQueenEnemySpawnExclusionRadius()
+    {
+        var (_, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(10, 10));
+        var queenCenter = queen.GetCenter();
+        var blockedSpawnTile = cave.GetTile(new GridPoint(queenCenter.X + GameConstants.QueenEnemySpawnExclusionRadius, queenCenter.Y))
+            ?? throw new InvalidOperationException("Expected a blocked ant spawn tile to exist.");
+        var holeTile = cave.GetTile(new GridPoint(queenCenter.X + GameConstants.QueenEnemySpawnExclusionRadius + 1, queenCenter.Y))
+            ?? throw new InvalidOperationException("Expected an ant-hole tile to exist.");
+
+        Assert.Contains(blockedSpawnTile, queen.ProjectedTiles);
+
+        for (var x = holeTile.Coordinates.X - GameConstants.AntHoleSpawnRadius; x <= holeTile.Coordinates.X + GameConstants.AntHoleSpawnRadius; x++)
+        {
+            for (var y = holeTile.Coordinates.Y - GameConstants.AntHoleSpawnRadius; y <= holeTile.Coordinates.Y + GameConstants.AntHoleSpawnRadius; y++)
+            {
+                var tile = cave.GetTile(new GridPoint(x, y));
+                if (tile is null ||
+                    ReferenceEquals(tile, holeTile) ||
+                    ReferenceEquals(tile, blockedSpawnTile) ||
+                    GridPoint.ManhattanDistance(tile.Coordinates, holeTile.Coordinates) > GameConstants.AntHoleSpawnRadius)
+                {
+                    continue;
+                }
+
+                tile.SetBase("wall");
+                tile.CreatureCanFit = false;
+                tile.ConfigureWall(1);
+            }
+        }
+
+        Assert.False(cave.SpawnAntHole(holeTile, 1));
+        Assert.Empty(cave.Enemies);
+        Assert.Empty(cave.GetAntHoles());
+    }
 }

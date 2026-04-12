@@ -164,7 +164,12 @@ public sealed partial class Cave : Graph
         }
 
         var candidates = GetTiles()
-            .Where(tile => !IsTileRevealed(tile) && tile.CreatureFits() && tile.Trilobites.Count == 0 && tile.EnemyOccupant is null)
+            .Where(tile =>
+                !IsTileRevealed(tile) &&
+                tile.CreatureFits() &&
+                tile.Trilobites.Count == 0 &&
+                tile.EnemyOccupant is null &&
+                !IsEnemySpawnBlockedTile(tile))
             .ToArray();
         if (candidates.Length == 0)
         {
@@ -182,7 +187,11 @@ public sealed partial class Cave : Graph
         while (queue.Count > 0 && selectedTiles.Count < targetCount)
         {
             var current = queue.Dequeue();
-            if (current.CreatureFits() && !IsTileRevealed(current) && current.Trilobites.Count == 0 && current.EnemyOccupant is null)
+            if (current.CreatureFits() &&
+                !IsTileRevealed(current) &&
+                current.Trilobites.Count == 0 &&
+                current.EnemyOccupant is null &&
+                !IsEnemySpawnBlockedTile(current))
             {
                 selectedTiles.Add(current);
             }
@@ -193,7 +202,8 @@ public sealed partial class Cave : Graph
                     IsTileRevealed(neighbor) ||
                     !neighbor.CreatureFits() ||
                     neighbor.Trilobites.Count > 0 ||
-                    neighbor.EnemyOccupant is not null)
+                    neighbor.EnemyOccupant is not null ||
+                    IsEnemySpawnBlockedTile(neighbor))
                 {
                     continue;
                 }

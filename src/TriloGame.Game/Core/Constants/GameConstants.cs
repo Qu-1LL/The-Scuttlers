@@ -42,6 +42,7 @@ public static class GameConstants
     public const int WorkerEnemyFleeRadius = 3;
     public const int AntHoleBaseSpawnChanceDenominator = 500;
     public const int AntHoleMinSpawnDistanceFromQueen = 15;
+    public const int QueenEnemySpawnExclusionRadius = 10;
     public const int MinAmbientAntSpawnCount = 1;
     public const int MaxAmbientAntSpawnCount = 1;
     public const int MaxAmbientAntCount = 24;

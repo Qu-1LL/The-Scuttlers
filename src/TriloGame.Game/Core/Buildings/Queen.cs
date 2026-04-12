@@ -1,4 +1,5 @@
 using TriloGame.Game.Audio;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -20,6 +21,8 @@ public sealed class Queen : Building
         BroodlingCount = 1;
         Description = "The one and only Queen of your colony! Protect her at all costs!";
     }
+
+    public override int ProjectionRadius => GameConstants.QueenEnemySpawnExclusionRadius;
 
     public int AlgaeQuota { get; private set; }
 

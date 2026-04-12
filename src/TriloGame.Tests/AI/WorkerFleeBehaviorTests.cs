@@ -69,6 +69,26 @@ public sealed class WorkerFleeBehaviorTests
         });
     }
 
+    [Fact]
+    public void HiddenAnts_DoNotSpawnInsideQueenEnemySpawnExclusionRadius()
+    {
+        var (_, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(18, 18));
+        var blockedTiles = queen.ProjectedTiles
+            .Where(tile => tile.CreatureFits() && tile.Built is null)
+            .ToArray();
+
+        Assert.NotEmpty(blockedTiles);
+        foreach (var tile in blockedTiles)
+        {
+            cave.RevealedTiles.Remove(tile);
+        }
+
+        var spawned = cave.SpawnUndiscoveredAntCluster(3);
+
+        Assert.Equal(0, spawned);
+        Assert.Empty(cave.Enemies);
+    }
+
     private static int MinDistanceToQueen(GridPoint location, IEnumerable<TriloGame.Game.Core.World.Tile> queenFeedTiles)
     {
         return queenFeedTiles.Min(tile => GridPoint.ManhattanDistance(location, tile.Coordinates));
