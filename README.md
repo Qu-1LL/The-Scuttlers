@@ -1,18 +1,18 @@
 This game is an implementation of a game idea I've had for a while. If you are reading this, the game is in progress, and further documentation is on the way!
 
-The game is deployed to github pages here: https://qu-1ll.github.io/TriloGame/ Feel free to click around!
+An old version of the game is deployed to github pages here: https://qu-1ll.github.io/TriloGame/ Feel free to click around!
 
-Future versions will not be released to the browser, as we have moved the program to a C# build.
+Current versions are not yet released to the browser, as we have moved the program to a C# build. You can download the latest version from the "releases" tab on the right side of your screen. There are instructions below to actually start the game up.
 
-## Release Packaging
+ ## Release Packaging
 
 To use a downloaded release simply download the zipped files and unzip them. In the root of the release's directory there will be an application file named "TriloGame.Game.exe". Simply open that file and a window will open for the game!
 
-The game window may prompt you for two issues. First, if you dont have .NET 9 installed it will likely have you install it on your device. Next, it will likely tell you that the authors aren't trusted and you will need to give permission to run the program. When this window appears, simply press "More Info" and then press "Run Anyway" to run the application. (Unless you dont actually trust us, then feel free to close the window and delete the game files from your device.)
+The game window may prompt you for two issues. First, if you don't have .NET 9 installed it will likely have you install it on your device. Next, it may tell you that the authors aren't trusted and you will need to give permission to run the program. When this window appears, simply press "More Info" and then press "Run Anyway" to run the application. (Unless you dont actually trust us, then feel free to close the window and delete the game files from your device.)
 
 You can read the design and road map below, or check out the latest release notes for more information!
 
-We are also working on a much more detailed Wiki for the game's design and gameplay. This documentation is written in markdown, but you can open it with Obsidian to view it properly! See the "TrilobtesObsidian" folder above.
+We are also working on a much more detailed Wiki for the game's design and gameplay. This documentation is written in markdown, but you can open it with Obsidian to view it properly! See the "TrilobtesObsidian" folder above, and please mind the mess.
 
 # Game Mechanics and Design Plans
 
