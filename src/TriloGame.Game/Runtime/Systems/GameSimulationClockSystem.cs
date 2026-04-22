@@ -21,14 +21,15 @@ public sealed class GameSimulationClockSystem
         TickAccumulatorMs = 0d;
     }
 
-    public void RunSingleTick(GameSession session)
+    public void RunSingleTick(GameSession session, Action<GameSession>? afterTick = null)
     {
         session.Runtime.CurrentTickSpeedMs = TickSpeedMs;
         _projectileFlights.Advance(session, TickSpeedMs);
         TickRunner.RunTick(session, _tickProfilingObserver);
+        afterTick?.Invoke(session);
     }
 
-    public int Advance(GameSession session, double elapsedMs, Func<bool>? shouldStop = null)
+    public int Advance(GameSession session, double elapsedMs, Func<bool>? shouldStop = null, Action<GameSession>? afterTick = null)
     {
         if (IsPaused)
         {
@@ -56,6 +57,7 @@ public sealed class GameSimulationClockSystem
             TickRunner.RunTick(session, _tickProfilingObserver);
             TickAccumulatorMs -= TickSpeedMs;
             executedTicks++;
+            afterTick?.Invoke(session);
 
             if (shouldStop is not null && shouldStop())
             {

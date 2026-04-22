@@ -50,4 +50,15 @@ public sealed class SettingsMenuLayoutTests
         Assert.True(panelBounds.Contains(returnBounds));
         Assert.True(returnBounds.Bottom < hintBounds.Y);
     }
+
+    [Fact]
+    public void GetVolumeBarBounds_StaysInsidePanel()
+    {
+        var viewport = new Point(1440, 900);
+        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport);
+
+        var barBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
+
+        Assert.True(panelBounds.Contains(barBounds));
+    }
 }

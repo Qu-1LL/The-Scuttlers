@@ -149,7 +149,7 @@ public sealed partial class Cave
         }
 
         var antHole = new AntHole(holeTile.Key);
-        var spawnTiles = GetAntHoleSpawnTiles(holeTile, clampedCount);
+        var spawnTiles = PreviewAntHoleSpawnTiles(holeTile, clampedCount);
         foreach (var tile in spawnTiles)
         {
             var ant = new Enemy($"Ant {Session.Runtime.AllocateDebugEnemyId()}", tile.Coordinates, Session);
@@ -262,13 +262,13 @@ public sealed partial class Cave
         return removedCount;
     }
 
-    private IReadOnlyList<Tile> GetAntHoleSpawnTiles(Tile holeTile, int requestedCount)
+    public IReadOnlyList<Tile> PreviewAntHoleSpawnTiles(Tile holeTile, int requestedCount)
     {
         var selectedTiles = new List<Tile>(requestedCount);
         var queue = new Queue<(Tile Tile, int Distance)>();
         var visited = new HashSet<string>(StringComparer.Ordinal) { holeTile.Key };
 
-        foreach (var neighbor in RandomUtil.Shuffle(holeTile.Neighbors))
+        foreach (var neighbor in holeTile.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
         {
             queue.Enqueue((neighbor, 1));
             visited.Add(neighbor.Key);
@@ -298,7 +298,7 @@ public sealed partial class Cave
                 continue;
             }
 
-            foreach (var neighbor in RandomUtil.Shuffle(tile.Neighbors))
+            foreach (var neighbor in tile.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
             {
                 if (visited.Add(neighbor.Key))
                 {

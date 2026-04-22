@@ -98,6 +98,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             value => _session.Runtime.DisableEnemySpawns = value,
             value => _session.Runtime.NoCostBuildPlacement = value,
             PlayUiSelectSound);
+        _roundManager.RoundStarted += HandleRoundStarted;
+        _roundManager.RoundEnded += HandleRoundEnded;
+        _roundManager.DraftRequested += HandleRoundDraftRequested;
         _stopSimulationAfterTick = StopSimulationAfterTick;
         PlayApi = new GamePlayApi(this);
         Content.RootDirectory = "Content";
@@ -335,7 +338,16 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _menu.UpdateHover(_input.MousePoint, Window.ClientBounds.Size, _session);
 
         var settingsHandled = _input.LeftReleased && HandleSettingsClick(_input.MousePoint);
+        var roundWidgetHandled = _input.LeftReleased && !settingsHandled && HandleRoundDebugWidgetClick(_input.MousePoint);
         if (settingsHandled)
+        {
+            _leftPanActive = false;
+            _selectionDragActive = false;
+            _selectionDragMode = null;
+            _selectionBoxBounds = null;
+            _input.EndDrag();
+        }
+        else if (roundWidgetHandled)
         {
             _leftPanActive = false;
             _selectionDragActive = false;
@@ -457,7 +469,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             }
         }
 
-        if (_input.LeftReleased && !settingsHandled)
+        if (_input.LeftReleased && !settingsHandled && !roundWidgetHandled)
         {
             if (_selectionDragActive && _selectionDragMode == SelectionDragMode.MiningTiles && _input.Dragging)
             {
@@ -569,6 +581,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             {
                 DrawDebugMenuOverlay();
             }
+
+            DrawRoundDebugWidget();
         }
 
         _gumUiRenderer.EndFrame();
@@ -628,6 +642,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _appScreen = AppScreen.Gameplay;
         var bootstrap = _bootstrapper.CreateNewGame();
         _session = bootstrap.Session;
+        _session.Runtime.DisableEnemySpawns = false;
         _sessionAudioBridge.Attach(_session);
         _sessionScreenShakeBridge.Attach(_session);
         _sessionParticleBridge.Attach(_session);
@@ -653,6 +668,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _showRoleLabels = false;
         _simulationClock.ResetToDefaults(paused: false, tickSpeedMs: GameConstants.TickSpeedFast);
         _gameOverState.Reset();
+        ResetRoundSystems();
         _uiClockMs = 0d;
         _input.EndDrag();
         ClearPendingManualMove();
@@ -910,6 +926,8 @@ public sealed partial class GameApp
                 return;
             }
         }
+
+        HandleRoundDebugWidgetClick(_input.MousePoint);
     }
 
     private bool SettingsCoversPoint(Point point)
@@ -953,6 +971,9 @@ public sealed partial class GameApp
     private bool HandleSettingsPanelClick(Point point, bool allowQuitToMainMenu)
     {
         var panelBounds = SettingsMenuLayout.GetPanelBounds(Window.ClientBounds.Size, allowQuitToMainMenu);
+        var volumeDownBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
+        var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
+        var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
         if (SettingsMenuLayout.GetCloseButtonBounds(panelBounds).Contains(point) ||
             SettingsMenuLayout.GetBackButtonBounds(panelBounds).Contains(point))
         {
@@ -961,24 +982,21 @@ public sealed partial class GameApp
             return true;
         }
 
-        var downBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
-        if (downBounds.Contains(point))
+        if (volumeDownBounds.Contains(point))
         {
             ChangeVolumeSetting(-SettingsMenuLayout.VolumeStep);
             return true;
         }
 
-        var upBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
-        if (upBounds.Contains(point))
+        if (volumeUpBounds.Contains(point))
         {
             ChangeVolumeSetting(SettingsMenuLayout.VolumeStep);
             return true;
         }
 
-        var barBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
-        if (barBounds.Contains(point))
+        if (volumeBarBounds.Contains(point))
         {
-            SetVolumeSetting(SettingsMenuLayout.GetSnappedVolumeFromBar(barBounds, point.X));
+            SetVolumeSetting(SettingsMenuLayout.GetSnappedVolumeFromBar(volumeBarBounds, point.X));
             return true;
         }
 
@@ -1629,13 +1647,17 @@ public sealed partial class GameApp
 
     public void RunSingleTick()
     {
-        _simulationClock.RunSingleTick(_session);
+        _simulationClock.RunSingleTick(_session, HandleSimulationTickCompleted);
         RefreshBfsFieldDebug();
     }
 
     private void AdvanceSimulation(GameTime gameTime)
     {
-        _simulationClock.Advance(_session, gameTime.ElapsedGameTime.TotalMilliseconds, _stopSimulationAfterTick);
+        _simulationClock.Advance(
+            _session,
+            gameTime.ElapsedGameTime.TotalMilliseconds,
+            _stopSimulationAfterTick,
+            HandleSimulationTickCompleted);
     }
 
     private bool StopSimulationAfterTick()
@@ -2057,13 +2079,14 @@ public sealed partial class GameApp
         var backBounds = SettingsMenuLayout.GetBackButtonBounds(panelBounds);
         var titleBounds = new Rectangle(panelBounds.X + 20, panelBounds.Y + 16, panelBounds.Width - 40, 26);
         var valueBounds = SettingsMenuLayout.GetVolumeValueBounds(panelBounds);
-        var barBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
-        var downBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
-        var upBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
+        var volumeDownBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
+        var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
+        var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
+        var volumeFillBounds = SettingsMenuLayout.GetVolumeFillBounds(volumeBarBounds, _audio.VolumePercent);
         var returnBounds = !_mainMenuOpen ? SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds) : Rectangle.Empty;
-        var downHovered = downBounds.Contains(_input.MousePoint);
-        var upHovered = upBounds.Contains(_input.MousePoint);
-        var barHovered = barBounds.Contains(_input.MousePoint);
+        var volumeDownHovered = volumeDownBounds.Contains(_input.MousePoint);
+        var volumeUpHovered = volumeUpBounds.Contains(_input.MousePoint);
+        var volumeBarHovered = volumeBarBounds.Contains(_input.MousePoint);
         var closeHovered = closeBounds.Contains(_input.MousePoint);
         var backHovered = backBounds.Contains(_input.MousePoint);
         var returnHovered = !_mainMenuOpen && returnBounds.Contains(_input.MousePoint);
@@ -2086,29 +2109,29 @@ public sealed partial class GameApp
             _rendering.SmallFont,
             minScale: 0.72f);
 
-        DrawRoundedScreenFrame(barBounds, new Color(10, 22, 32), barHovered ? new Color(159, 209, 224) : new Color(74, 114, 132), 2, 9);
-        var innerBarBounds = new Rectangle(barBounds.X + 3, barBounds.Y + 3, Math.Max(0, barBounds.Width - 6), Math.Max(0, barBounds.Height - 6));
-        var fillBounds = SettingsMenuLayout.GetVolumeFillBounds(innerBarBounds, _audio.VolumePercent);
-        if (fillBounds.Width > 0 && fillBounds.Height > 0)
-        {
-            DrawRoundedScreenRect(fillBounds, new Color(120, 203, 226), Math.Min(7, fillBounds.Height / 2));
-        }
+        DrawRoundedScreenFrame(
+            volumeDownBounds,
+            volumeDownHovered ? new Color(36, 64, 82) : new Color(22, 44, 60),
+            volumeDownHovered ? new Color(188, 221, 234) : new Color(110, 149, 167),
+            2,
+            10);
+        DrawScreenTextFittedCentered("-", volumeDownBounds, Color.White, _rendering.UiFont, minScale: 0.9f);
 
         DrawRoundedScreenFrame(
-            downBounds,
-            downHovered ? new Color(32, 61, 80) : new Color(20, 43, 58),
-            downHovered ? new Color(180, 219, 233) : new Color(107, 151, 169),
+            volumeUpBounds,
+            volumeUpHovered ? new Color(36, 64, 82) : new Color(22, 44, 60),
+            volumeUpHovered ? new Color(188, 221, 234) : new Color(110, 149, 167),
             2,
-            12);
-        DrawScreenTextFittedCentered("-", downBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
+            10);
+        DrawScreenTextFittedCentered("+", volumeUpBounds, Color.White, _rendering.UiFont, minScale: 0.9f);
 
         DrawRoundedScreenFrame(
-            upBounds,
-            upHovered ? new Color(32, 61, 80) : new Color(20, 43, 58),
-            upHovered ? new Color(180, 219, 233) : new Color(107, 151, 169),
+            volumeBarBounds,
+            volumeBarHovered ? new Color(14, 29, 41) : new Color(10, 22, 32),
+            volumeBarHovered ? new Color(159, 209, 224) : new Color(74, 114, 132),
             2,
             12);
-        DrawScreenTextFittedCentered("+", upBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
+        DrawRoundedScreenRect(volumeFillBounds, new Color(143, 205, 226), 10);
 
         if (!_mainMenuOpen)
         {

@@ -8,6 +8,17 @@ public static class GameConstants
     public const double TickSpeedNormal = 250d;
     public const double TickSpeedFast = 100d;
     public const double TickSpeedFastest = 50d;
+    public const double GameTimePerSimulationTickMs = TickSpeedFast;
+    public const double RoundDurationMs = 5d * 60d * 1000d;
+    public const double RoundZeroGraceDurationMs = 2d * 60d * 1000d;
+    public const double RoundSpawnWindowDurationMs = 30d * 1000d;
+    public const int RoundBaseAntCount = 5;
+    public const int RoundAntGrowthPerRound = 3;
+    public const int RoundMinAntHolesPerSpawnEvent = 1;
+    public const int RoundMaxAntHolesPerSpawnEvent = 3;
+    public const int RoundSingleAntSpawnMaxRound = 5;
+    public const int RoundAntHoleMinDistanceFromQueen = 30;
+    public const int RoundAntHoleMaxDistanceFromQueen = 50;
     public const float ExplosionShakeMaxPixels = 20f;
     public const float ExplosionShakeFrequencyHz = 18f;
     public const float ExplosionShakeDecayPerSecond = 2.75f;

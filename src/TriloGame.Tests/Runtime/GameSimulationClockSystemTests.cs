@@ -46,6 +46,23 @@ public sealed class GameSimulationClockSystemTests
     }
 
     [Fact]
+    public void Advance_InvokesAfterTickCallbackOncePerExecutedTick()
+    {
+        var bootstrap = TestWorldFactory.CreateBootstrappedGame();
+        var system = new GameSimulationClockSystem();
+        system.ResetToDefaults();
+        var callbackCount = 0;
+
+        var executed = system.Advance(
+            bootstrap.Session,
+            GameConstants.TickSpeedFast * 2d,
+            afterTick: _ => callbackCount++);
+
+        Assert.Equal(2, executed);
+        Assert.Equal(2, callbackCount);
+    }
+
+    [Fact]
     public void RunSingleTick_RecordsProfilerSnapshotThroughRuntimeClock()
     {
         var bootstrap = TestWorldFactory.CreateBootstrappedGame();

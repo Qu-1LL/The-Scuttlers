@@ -1,7 +1,5 @@
 using TriloGame.Game.Core.Buildings;
-using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Simulation;
 
@@ -36,15 +34,6 @@ public static class TickRunner
             phaseObserver?.OnPhaseStarted(TickPhase.SurfaceFeatureTick);
             cave.TickSurfaceFeatures();
             phaseObserver?.OnPhaseCompleted(TickPhase.SurfaceFeatureTick);
-        }
-
-        if (cave.AllowsNaturalEnemySpawns() &&
-            cave.Enemies.Count < GameConstants.MaxAmbientAntCount &&
-            RandomUtil.NextInt(cave.GetAntHoleSpawnChanceDenominator()) == 0)
-        {
-            phaseObserver?.OnPhaseStarted(TickPhase.NaturalEnemySpawn);
-            cave.TrySpawnAntHole();
-            phaseObserver?.OnPhaseCompleted(TickPhase.NaturalEnemySpawn);
         }
 
         phaseObserver?.OnPhaseStarted(TickPhase.DangerRefresh);

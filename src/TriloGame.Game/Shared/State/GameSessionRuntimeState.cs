@@ -12,6 +12,8 @@ public sealed class GameSessionRuntimeState
 
     public double CurrentTickSpeedMs { get; set; } = GameConstants.TickSpeedFast;
 
+    public double RoundSpawnWindowDurationMs { get; set; } = GameConstants.RoundSpawnWindowDurationMs;
+
     public bool FreezeOpalProgression { get; set; }
 
     public bool DisableEnemySpawns { get; set; } = true;

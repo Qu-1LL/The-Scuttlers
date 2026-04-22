@@ -20,6 +20,13 @@ management inside `GameApp`.
   - is shared so runtime systems, crash diagnostics, and debug UI can read the same data model
 - `Runtime/Systems/GameOverStateSystem.cs`
   - owns queen-loss detection and continue/restart state
+- `Runtime/Systems/RoundManager.cs`
+  - owns round number, round elapsed game time, round start/end, and round-zero grace timing
+  - raises the round-end draft hook without implementing drafting yet
+- `Runtime/Systems/AntHandler.cs`
+  - receives round spawn requests
+  - schedules ant spawns across the round spawn window
+  - routes actual spawning through the ant-hole abstraction instead of `GameApp`
 - `Audio/OpalAudioSystem.cs`
   - owns the opal red-phase audio state machine
 - `Audio/SessionAudioBridge.cs`
@@ -37,6 +44,7 @@ The main goal is to make the game more scalable and more maintainable:
 - startup rules should not live in the render host
 - fixed-step orchestration should be reusable in tests
 - game-over state should not be a loose collection of booleans
+- round pacing and enemy-wave orchestration should not live in the render host
 - automation and test hooks should be explicit, not hidden in UI code
 
 ### Current dependency direction
