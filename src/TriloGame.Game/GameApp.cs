@@ -26,6 +26,7 @@ using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Input;
 using TriloGame.Game.UI.MainMenu;
 using TriloGame.Game.UI.Menu;
+using TriloGame.Game.UI.Research;
 using TriloGame.Game.UI.Selection;
 using TriloGame.Game.UI.Settings;
 
@@ -55,9 +56,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly DoubleClickTracker _manualMoveDoubleClick = new();
     private readonly CameraController _camera = new();
     private readonly MenuController _menu = new();
+    private readonly ResearchDraftController _researchDraft = new();
     private readonly GameSessionBootstrapper _bootstrapper = new();
     private readonly GameSimulationClockSystem _simulationClock = new();
     private readonly GameOverStateSystem _gameOverState = new();
+    private readonly ResearchDraftSystem _researchDraftSystem = new();
     private readonly DebugToggleControls _debugToggleControls;
     private readonly Func<bool> _stopSimulationAfterTick;
     private GameSession _session = new();
@@ -73,6 +76,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _debugMenuOpen;
     private bool _settingsMenuOpen;
     private bool _resumeSimulationAfterClosingSettings;
+    private bool _resumeSimulationAfterClosingResearchDraft;
     private bool _mainMenuOpen;
     private bool _showRoleLabels;
     private bool _debugAntHolePlacementMode;
@@ -157,6 +161,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"MainMenuOpen: {_mainMenuOpen}");
         builder.AppendLine($"DebugMenuOpen: {_debugMenuOpen}");
         builder.AppendLine($"SettingsMenuOpen: {_settingsMenuOpen}");
+        builder.AppendLine($"ResearchDraftOpen: {_researchDraft.IsOpen}");
         builder.AppendLine($"BuildMode: {BuildMode}");
         builder.AppendLine($"DebugAntHolePlacementMode: {_debugAntHolePlacementMode}");
         builder.AppendLine($"TickSpeedMs: {_tickSpeedMs}");
@@ -190,6 +195,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"MenuPanelOpen: {_menu.PanelOpen}");
         builder.AppendLine($"MenuActiveTab: {_menu.ActiveTab}");
         builder.AppendLine($"MenuAssignmentFilter: {_menu.AssignmentFilter}");
+        builder.AppendLine($"PendingResearchBranches: {_researchDraftSystem.PendingDraft?.Branches.Count ?? 0}");
         builder.AppendLine($"SelectedObject: {DescribeSelectedObject()}");
         builder.AppendLine($"SelectedTrilobites: {FormatSelectedTrilobites()}");
         builder.AppendLine($"FloatingBuilding: {DescribeFloatingBuilding()}");
@@ -325,6 +331,16 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             return;
         }
 
+        _researchDraft.UpdatePointer(_input.MousePoint);
+        if (_researchDraft.IsOpen)
+        {
+            HandleResearchDraftMenuInput();
+            SyncOpalAudioState(gameTime);
+            GumUi.Update(gameTime);
+            base.Update(gameTime);
+            return;
+        }
+
         if (_debugMenuOpen)
         {
             HandleDebugMenuInput();
@@ -337,9 +353,18 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         _menu.UpdateHover(_input.MousePoint, Window.ClientBounds.Size, _session);
 
-        var settingsHandled = _input.LeftReleased && HandleSettingsClick(_input.MousePoint);
-        var roundWidgetHandled = _input.LeftReleased && !settingsHandled && HandleRoundDebugWidgetClick(_input.MousePoint);
-        if (settingsHandled)
+        var researchHandled = _input.LeftReleased && HandleResearchDraftButtonClick(_input.MousePoint);
+        var settingsHandled = _input.LeftReleased && !researchHandled && HandleSettingsClick(_input.MousePoint);
+        var roundWidgetHandled = _input.LeftReleased && !researchHandled && !settingsHandled && HandleRoundDebugWidgetClick(_input.MousePoint);
+        if (researchHandled)
+        {
+            _leftPanActive = false;
+            _selectionDragActive = false;
+            _selectionDragMode = null;
+            _selectionBoxBounds = null;
+            _input.EndDrag();
+        }
+        else if (settingsHandled)
         {
             _leftPanActive = false;
             _selectionDragActive = false;
@@ -451,7 +476,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                 _selectionBoxBounds = null;
                 _input.EndDrag();
             }
-            else if (!_input.Dragging && !_menu.CoversScreenPoint(_input.MousePoint, Window.ClientBounds.Size) && !SettingsCoversPoint(_input.MousePoint))
+            else if (!_input.Dragging &&
+                     !_menu.CoversScreenPoint(_input.MousePoint, Window.ClientBounds.Size) &&
+                     !SettingsCoversPoint(_input.MousePoint) &&
+                     !ResearchDraftCoversPoint(_input.MousePoint))
             {
                 HandleWorldRightClick(_input.MousePoint);
                 _leftPanActive = false;
@@ -496,7 +524,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                 _selectionBoxBounds = null;
                 _input.EndDrag();
             }
-            else if (!_input.Dragging && !SettingsCoversPoint(_input.MousePoint) && !_menu.HandleClick(_input.MousePoint, Window.ClientBounds.Size, this, _session))
+            else if (!_input.Dragging &&
+                     !SettingsCoversPoint(_input.MousePoint) &&
+                     !ResearchDraftCoversPoint(_input.MousePoint) &&
+                     !_menu.HandleClick(_input.MousePoint, Window.ClientBounds.Size, this, _session))
             {
                 HandleWorldClick(_input.MousePoint);
                 _leftPanActive = false;
@@ -583,6 +614,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             }
 
             DrawRoundDebugWidget();
+            _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer);
         }
 
         _gumUiRenderer.EndFrame();
@@ -669,6 +701,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _simulationClock.ResetToDefaults(paused: false, tickSpeedMs: GameConstants.TickSpeedFast);
         _gameOverState.Reset();
         ResetRoundSystems();
+        _researchDraftSystem.Reset();
+        _researchDraft.Reset();
+        _resumeSimulationAfterClosingResearchDraft = false;
         _uiClockMs = 0d;
         _input.EndDrag();
         ClearPendingManualMove();
@@ -689,6 +724,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _isGameOver = false;
         _mainMenuOpen = true;
         _debugMenuOpen = false;
+        _researchDraftSystem.Reset();
+        _researchDraft.Reset();
+        _resumeSimulationAfterClosingResearchDraft = false;
         _tickAccumulatorMs = 0d;
         _input.EndDrag();
     }
@@ -701,6 +739,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
 
         CloseSettingsMenu();
+        ForceCloseResearchDraftMenu();
         _gamePaused = true;
         _debugMenuOpen = false;
         _selectionDragActive = false;
@@ -1474,14 +1513,16 @@ public sealed partial class GameApp
         return _roleRadialMenu is null
             && _selectionDragMode is null
             && !_menu.CoversScreenPoint(point, Window.ClientBounds.Size)
-            && !SettingsCoversPoint(point);
+            && !SettingsCoversPoint(point)
+            && !ResearchDraftCoversPoint(point);
     }
 
     private bool ShouldStartSelectionDrag(Point point)
     {
         return !BuildMode
             && !_menu.CoversScreenPoint(point, Window.ClientBounds.Size)
-            && !SettingsCoversPoint(point);
+            && !SettingsCoversPoint(point)
+            && !ResearchDraftCoversPoint(point);
     }
 
     private void FinalizeSelectionBox()
@@ -1662,13 +1703,13 @@ public sealed partial class GameApp
 
     private bool StopSimulationAfterTick()
     {
-        if (!HasLostQueen())
+        if (HasLostQueen())
         {
-            return false;
+            TriggerGameOver();
+            return true;
         }
 
-        TriggerGameOver();
-        return true;
+        return _gamePaused;
     }
 
     private void TogglePauseState()

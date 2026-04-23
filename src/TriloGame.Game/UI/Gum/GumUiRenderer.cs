@@ -79,6 +79,7 @@ public sealed class GumUiRenderer
         rectangle.Width = bounds.Width;
         rectangle.Height = bounds.Height;
         rectangle.Color = color;
+        rectangle.Rotation = 0f;
         Root.Children.Add(rectangle);
     }
 
@@ -139,6 +140,64 @@ public sealed class GumUiRenderer
         }
 
         AddRoundedRectangle(innerBounds, fill, Math.Max(0, radius - thickness));
+    }
+
+    public void AddLine(Vector2 start, Vector2 end, Color color, int thickness = 2)
+    {
+        if (color.A == 0 || thickness <= 0)
+        {
+            return;
+        }
+
+        var delta = end - start;
+        var distance = delta.Length();
+        if (distance <= 0f)
+        {
+            var singlePointBounds = new Rectangle(
+                (int)MathF.Round(start.X) - (thickness / 2),
+                (int)MathF.Round(start.Y) - (thickness / 2),
+                thickness,
+                thickness);
+            AddFilledRectangle(singlePointBounds, color);
+            return;
+        }
+
+        var layout = CreateLineLayout(start, end, thickness);
+        var rectangle = GetFilledRectangle(_filledRectangleCount++);
+        rectangle.Visible = true;
+        rectangle.X = layout.X;
+        rectangle.Y = layout.Y;
+        rectangle.Width = layout.Width;
+        rectangle.Height = layout.Height;
+        rectangle.Color = color;
+        rectangle.Rotation = layout.Rotation;
+        Root.Children.Add(rectangle);
+    }
+
+    internal static GumLineLayout CreateLineLayout(Vector2 start, Vector2 end, int thickness)
+    {
+        if (thickness <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(thickness), "Line thickness must be positive.");
+        }
+
+        var delta = end - start;
+        var distance = delta.Length();
+        if (distance <= 0f)
+        {
+            throw new ArgumentException("Line start and end points must differ.", nameof(end));
+        }
+
+        // Gum uses positive rotation as counterclockwise in screen space, so
+        // screen-space Y deltas need to be inverted when converting to an angle.
+        var rotationRadians = MathF.Atan2(-delta.Y, delta.X);
+        var halfThickness = thickness / 2f;
+        return new GumLineLayout(
+            start.X - (MathF.Sin(rotationRadians) * halfThickness),
+            start.Y - (MathF.Cos(rotationRadians) * halfThickness),
+            MathF.Max(1f, distance),
+            MathF.Max(1f, thickness),
+            MathHelper.ToDegrees(rotationRadians));
     }
 
     public void AddText(
@@ -290,3 +349,10 @@ public sealed class GumUiRenderer
         element.YOrigin = VerticalAlignment.Top;
     }
 }
+
+internal readonly record struct GumLineLayout(
+    float X,
+    float Y,
+    float Width,
+    float Height,
+    float Rotation);

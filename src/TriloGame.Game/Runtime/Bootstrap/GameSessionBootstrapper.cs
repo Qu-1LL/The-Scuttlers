@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
@@ -13,6 +14,7 @@ public sealed class GameSessionBootstrapper
     public GameBootstrapResult CreateNewGame()
     {
         var session = new GameSession();
+        InitializeSkillTreeRoot(session);
         PopulateUnlockedBuildings(session);
 
         var cave = new Cave(session);
@@ -49,6 +51,15 @@ public sealed class GameSessionBootstrapper
         }
 
         return new GameBootstrapResult(session, initialColony.QueenLocation, initialColony.MiningPostLocation);
+    }
+
+    private static void InitializeSkillTreeRoot(GameSession session)
+    {
+        var rootTemplate = new SkillNode(
+            "Hive Core",
+            "The colony's structural research anchor for drafted branches.");
+        var rootNode = session.SkillTree.SetRoot(session.SkillTree.IntakeSkillNode(rootTemplate, GridPoint.Zero));
+        rootNode.TryUnlock(session);
     }
 
     private static void PopulateUnlockedBuildings(GameSession session)

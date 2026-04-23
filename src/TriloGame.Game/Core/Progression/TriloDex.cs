@@ -1,7 +1,7 @@
 namespace TriloGame.Game.Core.Progression;
 
-// TriloDex is the global catalog for every hard-coded feature tree in the game.
-// The catalog is intentionally empty for now and will be filled as feature trees are authored.
+// TriloDex is the global catalog wrapper for hard-coded feature trees.
+// The authored tree data lives in FeatureTreeData so lookup stays separate from content.
 public sealed class TriloDex
 {
     private static readonly Lazy<TriloDex> GlobalInstance = new(CreateGlobal);
@@ -41,15 +41,7 @@ public sealed class TriloDex
 
     private static TriloDex CreateGlobal()
     {
-        return new TriloDex(BuildGlobalFeatureTrees());
-    }
-
-    private static IEnumerable<FeatureTree> BuildGlobalFeatureTrees()
-    {
-        FeatureTree[] myFeatureTrees = [];
-
-
-        return myFeatureTrees;
+        return new TriloDex(FeatureTreeData.BuildGlobalFeatureTrees());
     }
 
     private static Dictionary<string, FeatureTree> BuildFeatureTreeLookup(IEnumerable<FeatureTree> featureTrees)

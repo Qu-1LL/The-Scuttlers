@@ -22,11 +22,15 @@ management inside `GameApp`.
   - owns queen-loss detection and continue/restart state
 - `Runtime/Systems/RoundManager.cs`
   - owns round number, round elapsed game time, round start/end, and round-zero grace timing
-  - raises the round-end draft hook without implementing drafting yet
+  - raises the round-end draft hook used by the research draft flow
 - `Runtime/Systems/AntHandler.cs`
   - receives round spawn requests
   - schedules ant spawns across the round spawn window
   - routes actual spawning through the ant-hole abstraction instead of `GameApp`
+- `Runtime/Systems/ResearchDraftSystem.cs`
+  - generates three candidate research branches after a completed round when the queen survives
+  - preserves pending drafts until the player places one branch onto the live skill tree
+  - owns draft-offer state so the UI can reopen the research menu without rerolling branches
 - `Audio/OpalAudioSystem.cs`
   - owns the opal red-phase audio state machine
 - `Audio/SessionAudioBridge.cs`
@@ -45,6 +49,7 @@ The main goal is to make the game more scalable and more maintainable:
 - fixed-step orchestration should be reusable in tests
 - game-over state should not be a loose collection of booleans
 - round pacing and enemy-wave orchestration should not live in the render host
+- research-branch drafting and between-round progression offers should not live in the render host
 - automation and test hooks should be explicit, not hidden in UI code
 
 ### Current dependency direction

@@ -1,18 +1,26 @@
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Research;
+using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Progression;
 
 // BinarySkillNode is the local per-run copy of a feature-tree skill node.
 // Unlike SkillNode, it only supports a left child and a right child.
+// Each node also carries a relative grid delta plus an optional placed grid location.
 public sealed class BinarySkillNode
 {
     public BinarySkillNode(SkillNode sourceSkillNode, string? sourceFeatureTreeName = null)
+        : this(sourceSkillNode, GridPoint.Zero, sourceFeatureTreeName)
+    {
+    }
+
+    public BinarySkillNode(SkillNode sourceSkillNode, GridPoint nodeDelta, string? sourceFeatureTreeName = null)
     {
         SourceSkillNode = sourceSkillNode ?? throw new ArgumentNullException(nameof(sourceSkillNode));
         SourceFeatureTreeName = string.IsNullOrWhiteSpace(sourceFeatureTreeName)
             ? null
             : sourceFeatureTreeName.Trim();
+        NodeDelta = RequireNonNegativeGridPoint(nodeDelta, nameof(nodeDelta));
         Name = sourceSkillNode.Name;
         Description = sourceSkillNode.Description;
         EffectDescriptors = sourceSkillNode.EffectDescriptors.ToArray();
@@ -28,6 +36,12 @@ public sealed class BinarySkillNode
 
     public IReadOnlyList<ResearchEffectDescriptor> EffectDescriptors { get; }
 
+    public GridPoint NodeDelta { get; }
+
+    public GridPoint? NodeLocation { get; private set; }
+
+    public bool HasNodeLocation => NodeLocation is not null;
+
     public BinarySkillNode? Parent { get; private set; }
 
     public BinarySkillNode? Prerequisite => Parent;
@@ -36,7 +50,11 @@ public sealed class BinarySkillNode
 
     public BinarySkillNode? Right { get; private set; }
 
-    public bool IsAcquired { get; private set; }
+    public bool IsUnlocked { get; private set; }
+
+    public bool IsLocked => !IsUnlocked;
+
+    public bool IsAcquired => IsUnlocked;
 
     public bool IsRoot => Parent is null;
 
@@ -44,22 +62,42 @@ public sealed class BinarySkillNode
 
     public int Depth => Parent is null ? 0 : Parent.Depth + 1;
 
+    internal void SetNodeLocation(GridPoint nodeLocation)
+    {
+        NodeLocation = RequireNonNegativeGridPoint(nodeLocation, nameof(nodeLocation));
+    }
+
+    internal void ClearNodeLocation()
+    {
+        NodeLocation = null;
+    }
+
     public bool CanAcquire()
     {
-        return !IsAcquired && (Prerequisite is null || Prerequisite.IsAcquired);
+        return CanUnlock();
     }
 
     public bool TryAcquire(GameSession session)
     {
+        return TryUnlock(session);
+    }
+
+    public bool CanUnlock()
+    {
+        return !IsUnlocked && (Prerequisite is null || Prerequisite.IsUnlocked);
+    }
+
+    public bool TryUnlock(GameSession session)
+    {
         ArgumentNullException.ThrowIfNull(session);
 
-        if (!CanAcquire())
+        if (!CanUnlock())
         {
             return false;
         }
 
         session.GlobalResearch.Intake(this);
-        IsAcquired = true;
+        IsUnlocked = true;
         return true;
     }
 
@@ -170,5 +208,15 @@ public sealed class BinarySkillNode
         }
 
         return false;
+    }
+
+    private static GridPoint RequireNonNegativeGridPoint(GridPoint point, string parameterName)
+    {
+        if (point.X < 0 || point.Y < 0)
+        {
+            throw new ArgumentOutOfRangeException(parameterName, "Grid coordinates must be zero or positive.");
+        }
+
+        return point;
     }
 }

@@ -15,6 +15,7 @@ public sealed partial class GameApp
     private void ResetRoundSystems()
     {
         _antHandler.Reset();
+        _researchDraftSystem.Reset();
         _roundManager.Reset(_session);
     }
 
@@ -30,7 +31,30 @@ public sealed partial class GameApp
 
     private void HandleRoundDraftRequested(RoundInfo round)
     {
-        Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] TODO: Draft next branch from feature trees to the skill tree after round {round.RoundNumber}.");
+        if (HasLostQueen() || _isGameOver)
+        {
+            Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skipped research draft after round {round.RoundNumber} because the queen is gone.");
+            return;
+        }
+
+        if (_researchDraftSystem.HasPendingDraft)
+        {
+            _roundManager.DeferNextRoundStart();
+            Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Preserved the existing research draft instead of overwriting it after round {round.RoundNumber}.");
+            OpenResearchDraftMenu();
+            return;
+        }
+
+        var draft = _researchDraftSystem.CreateDraft(_session, round);
+        if (draft is null)
+        {
+            Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] No research draft could be generated after round {round.RoundNumber}.");
+            return;
+        }
+
+        _roundManager.DeferNextRoundStart();
+        Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Generated {draft.Branches.Count} research branches after round {round.RoundNumber}.");
+        OpenResearchDraftMenu();
     }
 
     private void HandleSimulationTickCompleted(GameSession session)

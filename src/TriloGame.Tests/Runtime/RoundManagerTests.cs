@@ -118,4 +118,40 @@ public sealed class RoundManagerTests
         Assert.Equal(1, manager.CurrentRoundNumber);
         Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
     }
+
+    [Fact]
+    public void DeferNextRoundStart_HoldsTheNextWaveUntilResearchIsResolved()
+    {
+        var session = new GameSession();
+        var manager = new RoundManager();
+        var startedRounds = new List<RoundInfo>();
+        RoundInfo? drafted = null;
+        manager.RoundStarted += round => startedRounds.Add(round);
+        manager.DraftRequested += round =>
+        {
+            drafted = round;
+            manager.DeferNextRoundStart();
+        };
+        manager.Reset(session);
+
+        manager.Advance(session, GameConstants.RoundDurationMs);
+
+        Assert.Equal(0, Assert.IsType<RoundInfo>(drafted).RoundNumber);
+        Assert.True(manager.HasDeferredNextRoundStart);
+        Assert.Single(startedRounds);
+        Assert.Equal(1, manager.CurrentRoundNumber);
+        Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
+
+        manager.Advance(session, 60000d);
+
+        Assert.Single(startedRounds);
+        Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
+
+        var startedDeferredRound = manager.TryStartDeferredNextRound(session);
+
+        Assert.True(startedDeferredRound);
+        Assert.False(manager.HasDeferredNextRoundStart);
+        Assert.Equal(2, startedRounds.Count);
+        Assert.Equal(1, startedRounds[1].RoundNumber);
+    }
 }

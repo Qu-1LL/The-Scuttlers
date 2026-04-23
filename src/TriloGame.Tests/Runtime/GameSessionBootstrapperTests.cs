@@ -31,4 +31,15 @@ public sealed class GameSessionBootstrapperTests
 
         Assert.True(result.Session.Runtime.DisableEnemySpawns);
     }
+
+    [Fact]
+    public void CreateNewGame_SeedsTheSkillTreeWithAnUnlockedRootAnchor()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame();
+
+        var root = Assert.IsType<TriloGame.Game.Core.Progression.BinarySkillNode>(result.Session.SkillTree.Root);
+        Assert.Equal("Hive Core", root.Name);
+        Assert.True(root.IsUnlocked);
+        Assert.Equal(1, result.Session.SkillTree.Count);
+    }
 }

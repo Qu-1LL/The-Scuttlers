@@ -12,6 +12,7 @@ The project is currently a single MonoGame game assembly with layered modules in
   - simulation clock orchestration
   - game-over state
   - round pacing and round-driven ant spawning orchestration
+  - between-round research draft generation and placement orchestration
   - play/test automation API
 - `UI`
   - menu, debug, selection, settings, Gum-backed controls
@@ -34,6 +35,7 @@ should not remain the long-term home for new gameplay rules or reusable orchestr
 - `Runtime/Systems/GameOverStateSystem.cs`
 - `Runtime/Systems/RoundManager.cs`
 - `Runtime/Systems/AntHandler.cs`
+- `Runtime/Systems/ResearchDraftSystem.cs`
 - `Audio/OpalAudioSystem.cs`
 - `Runtime/Automation/GamePlayApi.cs`
 

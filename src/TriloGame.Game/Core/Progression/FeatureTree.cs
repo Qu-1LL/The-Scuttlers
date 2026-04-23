@@ -8,15 +8,17 @@ public sealed class FeatureTree
         string name,
         string description,
         IEnumerable<string>? featuresAffected,
-        int startingRound,
+        int tier,
+        IEnumerable<string>? prerequisiteTrees = null,
         SkillNode? root = null)
     {
         Name = RequireText(name, nameof(name));
         Description = RequireText(description, nameof(description));
         FeaturesAffected = NormalizeFeatures(featuresAffected);
-        StartingRound = startingRound >= 0
-            ? startingRound
-            : throw new ArgumentOutOfRangeException(nameof(startingRound), "Starting round cannot be negative.");
+        Tier = tier >= 1
+            ? tier
+            : throw new ArgumentOutOfRangeException(nameof(tier), "Tier must be at least 1.");
+        PrerequisiteTrees = NormalizeTreeNames(prerequisiteTrees);
 
         if (root is not null)
         {
@@ -30,7 +32,11 @@ public sealed class FeatureTree
 
     public IReadOnlyList<string> FeaturesAffected { get; }
 
-    public int StartingRound { get; }
+    public int Tier { get; }
+
+    public IReadOnlyList<string> PrerequisiteTrees { get; }
+
+    public bool HasPrerequisites => PrerequisiteTrees.Count > 0;
 
     public SkillNode? Root { get; private set; }
 
@@ -134,6 +140,15 @@ public sealed class FeatureTree
         return featuresAffected?
             .Where(feature => !string.IsNullOrWhiteSpace(feature))
             .Select(feature => feature.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray() ?? [];
+    }
+
+    private static IReadOnlyList<string> NormalizeTreeNames(IEnumerable<string>? treeNames)
+    {
+        return treeNames?
+            .Where(treeName => !string.IsNullOrWhiteSpace(treeName))
+            .Select(treeName => treeName.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToArray() ?? [];
     }
