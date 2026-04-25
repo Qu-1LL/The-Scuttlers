@@ -7,7 +7,7 @@ namespace TriloGame.Tests.UI;
 public sealed class RoundDebugWidgetLayoutTests
 {
     [Fact]
-    public void Build_PlacesWidgetToTheRightOfSettingsButton()
+    public void Build_PlacesTimerAndRoundInTopHudRow()
     {
         var viewport = new Point(1440, 900);
 
@@ -15,14 +15,17 @@ public sealed class RoundDebugWidgetLayoutTests
         var layout = RoundDebugWidgetLayout.Build(viewport);
 
         Assert.True(layout.TimerBounds.Left > settingsBounds.Right);
+        Assert.Equal(settingsBounds.Size, layout.TimerBounds.Size);
+        Assert.Equal(settingsBounds.Size, layout.RoundBounds.Size);
         Assert.Equal(settingsBounds.Y, layout.TimerBounds.Y);
         Assert.Equal(settingsBounds.Y, layout.RoundBounds.Y);
+        Assert.True(layout.RoundBounds.Left > layout.TimerBounds.Right);
     }
 
     [Fact]
     public void Build_KeepsTimerAndRoundBoundsInsideViewport()
     {
-        var viewport = new Point(420, 240);
+        var viewport = new Point(800, 240);
 
         var layout = RoundDebugWidgetLayout.Build(viewport);
         var viewportBounds = new Rectangle(0, 0, viewport.X, viewport.Y);

@@ -6,13 +6,11 @@ namespace TriloGame.Tests.UI;
 public sealed class DebugMenuLayoutTests
 {
     [Fact]
-    public void Build_StacksTextCardsAndButtonRowsWithoutOverlap()
+    public void Build_StacksButtonRowsWithoutOverlap()
     {
         var layout = DebugMenuLayout.Build(new Point(1440, 900));
 
-        Assert.True(layout.HeaderBounds.Bottom <= layout.SummaryBounds.Top);
-        Assert.True(layout.SummaryBounds.Bottom <= layout.PerformanceBounds.Top);
-        Assert.True(layout.PerformanceBounds.Bottom <= layout.QuickControlsLabelBounds.Top);
+        Assert.True(layout.HeaderBounds.Bottom <= layout.QuickControlsLabelBounds.Top);
         Assert.True(layout.QuickControlsLabelBounds.Bottom <= layout.QuickControlsRowBounds.Top);
         Assert.True(layout.QuickControlsRowBounds.Bottom <= layout.SpeedLabelBounds.Top);
         Assert.True(layout.SpeedLabelBounds.Bottom <= layout.SpeedRowBounds.Top);

@@ -2041,7 +2041,7 @@ public sealed partial class Trilobite : Creature
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
 
-        if (!Building.IsMineableType(targetTile.Base) && !(Cave?.HasOpal(targetTile) ?? false))
+        if (!Building.IsMineableType(targetTile.Base))
         {
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
@@ -2113,20 +2113,12 @@ public sealed partial class Trilobite : Creature
             return MineTileResult.NotApplied;
         }
 
-        var isOpal = Cave?.HasOpal(tile) ?? false;
-        if (!isOpal && !Building.IsMineableType(tile.Base))
+        if (!Building.IsMineableType(tile.Base))
         {
             return MineTileResult.NotApplied;
         }
 
         var tileCoords = GridPoint.Parse(tileKey);
-        if (isOpal)
-        {
-            return Location == tileCoords
-                ? Session.MineTile(Cave!, tileKey, source: "creature")
-                : MineTileResult.NotApplied;
-        }
-
         if (tile.Base == "wall")
         {
             if (GridPoint.ManhattanDistance(Location, tileCoords) != 1 ||
@@ -2170,7 +2162,7 @@ public sealed partial class Trilobite : Creature
         }
 
         var targetTile = Cave?.GetTile(PendingMineTileKey);
-        if (targetTile is null || (!Building.IsMineableType(targetTile.Base) && !(Cave?.HasOpal(targetTile) ?? false)))
+        if (targetTile is null || !Building.IsMineableType(targetTile.Base))
         {
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
@@ -2235,7 +2227,7 @@ public sealed partial class Trilobite : Creature
                 continue;
             }
 
-            if (Cave.IsTileRevealed(tile) && !Cave.HasOpal(tile) && !Building.IsMineableType(tile.Base))
+            if (Cave.IsTileRevealed(tile) && !Building.IsMineableType(tile.Base))
             {
                 _manualMineTileKeys.RemoveAt(index);
                 index--;
@@ -2268,7 +2260,7 @@ public sealed partial class Trilobite : Creature
         {
             var tile = Cave.GetTile(_manualMineTileKeys[index]);
             if (tile is null ||
-                (Cave.IsTileRevealed(tile) && !Cave.HasOpal(tile) && !Building.IsMineableType(tile.Base)))
+                (Cave.IsTileRevealed(tile) && !Building.IsMineableType(tile.Base)))
             {
                 _manualMineTileKeys.RemoveAt(index);
             }

@@ -14,10 +14,12 @@ public sealed class GumUiRenderer
     private readonly List<RoundedRectangleRuntime> _roundedRectangles = [];
     private readonly List<TextRuntime> _texts = [];
     private readonly List<SpriteRuntime> _sprites = [];
+    private readonly List<ContainerRuntime> _clippingContainers = [];
     private int _filledRectangleCount;
     private int _roundedRectangleCount;
     private int _textCount;
     private int _spriteCount;
+    private int _clippingContainerCount;
 
     public GumUiRenderer()
     {
@@ -40,6 +42,7 @@ public sealed class GumUiRenderer
         _roundedRectangleCount = 0;
         _textCount = 0;
         _spriteCount = 0;
+        _clippingContainerCount = 0;
     }
 
     public void EndFrame()
@@ -62,6 +65,12 @@ public sealed class GumUiRenderer
         for (var index = _spriteCount; index < _sprites.Count; index++)
         {
             _sprites[index].Visible = false;
+        }
+
+        for (var index = _clippingContainerCount; index < _clippingContainers.Count; index++)
+        {
+            _clippingContainers[index].Visible = false;
+            _clippingContainers[index].Children.Clear();
         }
     }
 
@@ -113,6 +122,26 @@ public sealed class GumUiRenderer
         rectangle.Color = color;
         rectangle.IsFilled = true;
         rectangle.StrokeWidth = 1f;
+        Root.Children.Add(rectangle);
+    }
+
+    public void AddRoundedOutline(Rectangle bounds, Color color, int thickness, int radius)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0 || thickness <= 0 || color.A == 0)
+        {
+            return;
+        }
+
+        var rectangle = GetRoundedRectangle(_roundedRectangleCount++);
+        rectangle.Visible = true;
+        rectangle.X = bounds.X;
+        rectangle.Y = bounds.Y;
+        rectangle.Width = bounds.Width;
+        rectangle.Height = bounds.Height;
+        rectangle.CornerRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
+        rectangle.Color = color;
+        rectangle.IsFilled = false;
+        rectangle.StrokeWidth = thickness;
         Root.Children.Add(rectangle);
     }
 
@@ -232,6 +261,30 @@ public sealed class GumUiRenderer
 
     public void AddSprite(Rectangle bounds, Texture2D texture, Color? color = null)
     {
+        AddSprite(bounds, texture, new Rectangle(0, 0, texture.Width, texture.Height), color);
+    }
+
+    public void AddSprite(Rectangle bounds, Texture2D texture, Rectangle sourceRectangle, Color? color = null)
+    {
+        AddSprite(Root, bounds, texture, sourceRectangle, color);
+    }
+
+    public ContainerRuntime AddClippingContainer(Rectangle bounds)
+    {
+        var container = GetClippingContainer(_clippingContainerCount++);
+        container.Visible = true;
+        container.X = bounds.X;
+        container.Y = bounds.Y;
+        container.Width = bounds.Width;
+        container.Height = bounds.Height;
+        container.ClipsChildren = true;
+        container.Children.Clear();
+        Root.Children.Add(container);
+        return container;
+    }
+
+    public void AddSprite(ContainerRuntime parent, Rectangle bounds, Texture2D texture, Rectangle sourceRectangle, Color? color = null)
+    {
         if (bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
@@ -244,8 +297,9 @@ public sealed class GumUiRenderer
         sprite.Width = bounds.Width;
         sprite.Height = bounds.Height;
         sprite.Texture = texture;
+        sprite.SourceRectangle = sourceRectangle;
         sprite.Color = color ?? Color.White;
-        Root.Children.Add(sprite);
+        parent.Children.Add(sprite);
     }
 
     private ColoredRectangleRuntime GetFilledRectangle(int index)
@@ -306,6 +360,21 @@ public sealed class GumUiRenderer
         }
 
         return _sprites[index];
+    }
+
+    private ContainerRuntime GetClippingContainer(int index)
+    {
+        while (_clippingContainers.Count <= index)
+        {
+            var container = new ContainerRuntime
+            {
+                Visible = false
+            };
+            ConfigureElement(container);
+            _clippingContainers.Add(container);
+        }
+
+        return _clippingContainers[index];
     }
 
     private static void ConfigureElement(ContainerRuntime container)

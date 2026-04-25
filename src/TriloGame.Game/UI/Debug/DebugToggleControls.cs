@@ -1,6 +1,5 @@
 using Microsoft.Xna.Framework;
 using RenderingLibrary.Graphics;
-using TriloGame.Game.Core.Constants;
 using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Game.UI.Debug;
@@ -8,22 +7,22 @@ namespace TriloGame.Game.UI.Debug;
 public sealed class DebugToggleControls
 {
     private readonly Action<bool> _setRoleLabels;
-    private readonly Action<bool> _setFreezeOpal;
     private readonly Action<bool> _setDisableEnemySpawns;
     private readonly Action<bool> _setNoCostBuildPlacement;
+    private readonly Action<bool> _setInfiniteDraft;
     private readonly Action _playUiSelectSound;
 
     public DebugToggleControls(
         Action<bool> setRoleLabels,
-        Action<bool> setFreezeOpal,
         Action<bool> setDisableEnemySpawns,
         Action<bool> setNoCostBuildPlacement,
+        Action<bool> setInfiniteDraft,
         Action playUiSelectSound)
     {
         _setRoleLabels = setRoleLabels;
-        _setFreezeOpal = setFreezeOpal;
         _setDisableEnemySpawns = setDisableEnemySpawns;
         _setNoCostBuildPlacement = setNoCostBuildPlacement;
+        _setInfiniteDraft = setInfiniteDraft;
         _playUiSelectSound = playUiSelectSound;
     }
 
@@ -32,9 +31,9 @@ public sealed class DebugToggleControls
         Point point,
         bool debugMenuOpen,
         bool showRoleLabels,
-        bool freezeOpalProgression,
         bool disableEnemySpawns,
-        bool noCostBuildPlacement)
+        bool noCostBuildPlacement,
+        bool infiniteDraft)
     {
         if (!debugMenuOpen)
         {
@@ -49,25 +48,23 @@ public sealed class DebugToggleControls
             return true;
         }
 
-        if (GameConstants.EnableOpal && rows[1].Contains(point))
-        {
-            _setFreezeOpal(!freezeOpalProgression);
-            _playUiSelectSound();
-            return true;
-        }
-
-        var noCostBuildIndex = GameConstants.EnableOpal ? 2 : 1;
-        if (rows[noCostBuildIndex].Contains(point))
+        if (rows[1].Contains(point))
         {
             _setNoCostBuildPlacement(!noCostBuildPlacement);
             _playUiSelectSound();
             return true;
         }
 
-        var disableEnemyIndex = GameConstants.EnableOpal ? 3 : 2;
-        if (rows[disableEnemyIndex].Contains(point))
+        if (rows[2].Contains(point))
         {
             _setDisableEnemySpawns(!disableEnemySpawns);
+            _playUiSelectSound();
+            return true;
+        }
+
+        if (rows[3].Contains(point))
+        {
+            _setInfiniteDraft(!infiniteDraft);
             _playUiSelectSound();
             return true;
         }
@@ -80,9 +77,9 @@ public sealed class DebugToggleControls
         Point viewport,
         bool debugMenuOpen,
         bool showRoleLabels,
-        bool freezeOpalProgression,
         bool disableEnemySpawns,
         bool noCostBuildPlacement,
+        bool infiniteDraft,
         Point pointer)
     {
         if (!debugMenuOpen)
@@ -92,22 +89,15 @@ public sealed class DebugToggleControls
 
         var rows = GetToggleRows(viewport);
         DrawToggle(gumUi, rows[0], "Show Role Labels", showRoleLabels, rows[0].Contains(pointer));
-        if (GameConstants.EnableOpal)
-        {
-            DrawToggle(gumUi, rows[1], "Freeze Opal", freezeOpalProgression, rows[1].Contains(pointer));
-        }
-
-        var noCostBuildIndex = GameConstants.EnableOpal ? 2 : 1;
-        DrawToggle(gumUi, rows[noCostBuildIndex], "No Cost Build", noCostBuildPlacement, rows[noCostBuildIndex].Contains(pointer));
-
-        var disableEnemyIndex = GameConstants.EnableOpal ? 3 : 2;
-        DrawToggle(gumUi, rows[disableEnemyIndex], "Disable Enemy Spawns", disableEnemySpawns, rows[disableEnemyIndex].Contains(pointer));
+        DrawToggle(gumUi, rows[1], "No Cost Build", noCostBuildPlacement, rows[1].Contains(pointer));
+        DrawToggle(gumUi, rows[2], "Disable Enemy Spawns", disableEnemySpawns, rows[2].Contains(pointer));
+        DrawToggle(gumUi, rows[3], "Infinite Draft", infiniteDraft, rows[3].Contains(pointer));
     }
 
     private static IReadOnlyList<Rectangle> GetToggleRows(Point viewport)
     {
         var layout = DebugMenuLayout.Build(viewport);
-        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, GameConstants.EnableOpal ? 4 : 3, layout.ButtonGap);
+        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, 4, layout.ButtonGap);
     }
 
     private static void DrawToggle(GumUiRenderer gumUi, Rectangle bounds, string text, bool isChecked, bool hovered)

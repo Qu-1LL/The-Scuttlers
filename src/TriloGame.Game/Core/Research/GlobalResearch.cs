@@ -50,7 +50,7 @@ public sealed class GlobalResearch
         Intake(skillNode.Name, skillNode.EffectDescriptors);
     }
 
-    public void Intake(BinarySkillNode skillNode)
+    public void Intake(TreeInstanceNode skillNode)
     {
         ArgumentNullException.ThrowIfNull(skillNode);
         Intake(skillNode.Name, skillNode.EffectDescriptors);

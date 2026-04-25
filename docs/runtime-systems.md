@@ -31,8 +31,6 @@ management inside `GameApp`.
   - generates three candidate research branches after a completed round when the queen survives
   - preserves pending drafts until the player places one branch onto the live skill tree
   - owns draft-offer state so the UI can reopen the research menu without rerolling branches
-- `Audio/OpalAudioSystem.cs`
-  - owns the opal red-phase audio state machine
 - `Audio/SessionAudioBridge.cs`
   - attaches audio playback to session cue events
   - keeps the host from manually relaying simulation audio cues

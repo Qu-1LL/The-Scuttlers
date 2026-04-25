@@ -17,7 +17,6 @@ Put code in `Audio` when it is:
 
 ## Audio Runtime Contract
 
-- `OpalAudioSystem` owns opal warning audio state transitions.
 - `SessionAudioBridge` owns session audio cue subscription so `GameApp` does not need to manually
   subscribe and relay cue events.
 - Audio may observe `Core` state through session/runtime boundaries, but simulation logic must not

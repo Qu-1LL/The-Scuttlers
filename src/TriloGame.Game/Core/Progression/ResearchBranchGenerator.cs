@@ -117,54 +117,79 @@ public sealed class ResearchBranchGenerator
     {
         var branch = new ResearchBranch();
         var pool = weightedPool.ToList();
+        Shuffle(pool);
 
-        while (branch.Count < nodesPerBranch)
+        var rootEntry = SelectRootNode(pool, branch, registry, existingKeys, nodesPerBranch);
+        if (rootEntry is null)
         {
-            var availableSlots = branch.GetAvailableSlots();
-            if (pool.Count == 0 || availableSlots.Count == 0)
-            {
-                break;
-            }
+            return branch;
+        }
 
+        branch.SetRoot(new TreeInstanceNode(rootEntry.TemplateNode, rootEntry.FeatureTree.Name));
+        EnqueueChildren(pool, rootEntry, branch, existingKeys, registry);
+
+        while (branch.Count < nodesPerBranch && pool.Count > 0)
+        {
             Shuffle(pool);
-            var selected = SelectNextNode(pool, branch, registry, existingKeys);
+            var selected = SelectNextNode(pool, branch, registry, existingKeys, requireParentInBranch: false);
             if (selected is null)
             {
                 break;
             }
 
-            availableSlots = branch.GetAvailableSlots();
-            if (availableSlots.Count == 0)
-            {
-                break;
-            }
-
-            var slot = availableSlots[_random.Next(availableSlots.Count)];
-            var binaryNode = new BinarySkillNode(selected.TemplateNode, slot.Delta, selected.FeatureTree.Name);
-            if (slot.Parent is null)
-            {
-                branch.SetRoot(binaryNode, slot.Delta);
-            }
-            else if (slot.IsLeftChild)
-            {
-                branch.AddLeftChild(slot.Parent, binaryNode);
-            }
-            else
-            {
-                branch.AddRightChild(slot.Parent, binaryNode);
-            }
-
+            var branchParent = selected.ParentKey is TemplateNodeKey parentKey
+                ? branch.FindBySourceSkill(parentKey.FeatureTreeName, parentKey.SkillName) ?? branch.Nodes[_random.Next(branch.Count)]
+                : branch.Nodes[_random.Next(branch.Count)];
+            branch.AddChild(
+                branchParent,
+                new TreeInstanceNode(selected.TemplateNode, selected.FeatureTree.Name),
+                childIndex: _random.Next(branchParent.ChildCount + 1));
             EnqueueChildren(pool, selected, branch, existingKeys, registry);
         }
 
         return branch;
     }
 
+    private TemplateNodeEntry? SelectRootNode(
+        List<TemplateNodeKey> pool,
+        ResearchBranch branch,
+        IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> registry,
+        IReadOnlySet<TemplateNodeKey> existingKeys,
+        int nodesPerBranch)
+    {
+        TemplateNodeEntry? fallback = null;
+        while (pool.Count > 0)
+        {
+            var key = pool[0];
+            pool.RemoveAt(0);
+
+            if (existingKeys.Contains(key) ||
+                branch.ContainsSourceSkill(key.FeatureTreeName, key.SkillName) ||
+                !registry.TryGetValue(key, out var entry))
+            {
+                continue;
+            }
+
+            if (fallback is null)
+            {
+                fallback = entry;
+            }
+
+            if (nodesPerBranch <= 1 || HasExpandableChild(entry, registry, existingKeys))
+            {
+                return entry;
+            }
+        }
+
+        return fallback;
+    }
+
     private TemplateNodeEntry? SelectNextNode(
         List<TemplateNodeKey> pool,
         ResearchBranch branch,
         IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> registry,
-        IReadOnlySet<TemplateNodeKey> existingKeys)
+        IReadOnlySet<TemplateNodeKey> existingKeys,
+        bool requireParentInBranch)
     {
         while (pool.Count > 0)
         {
@@ -178,7 +203,16 @@ public sealed class ResearchBranchGenerator
                 continue;
             }
 
-            return entry;
+            if (!requireParentInBranch)
+            {
+                return entry;
+            }
+
+            if (entry.ParentKey is TemplateNodeKey parentKey &&
+                branch.ContainsSourceSkill(parentKey.FeatureTreeName, parentKey.SkillName))
+            {
+                return entry;
+            }
         }
 
         return null;
@@ -407,6 +441,23 @@ public sealed class ResearchBranchGenerator
             var swapIndex = _random.Next(index + 1);
             (values[index], values[swapIndex]) = (values[swapIndex], values[index]);
         }
+    }
+
+    private bool HasExpandableChild(
+        TemplateNodeEntry entry,
+        IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> registry,
+        IReadOnlySet<TemplateNodeKey> existingKeys)
+    {
+        foreach (var child in entry.TemplateNode.Children)
+        {
+            var childKey = new TemplateNodeKey(entry.FeatureTree.Name, child.Name);
+            if (!existingKeys.Contains(childKey) && registry.ContainsKey(childKey))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private readonly record struct TemplateNodeKey(string FeatureTreeName, string SkillName);

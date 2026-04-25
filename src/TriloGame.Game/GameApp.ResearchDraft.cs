@@ -42,6 +42,16 @@ public sealed partial class GameApp
                 _researchDraftSystem);
         }
 
+        if (_input.LeftPressed)
+        {
+            _researchDraft.HandlePointerDown(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
+        if (_input.LeftHeld)
+        {
+            _researchDraft.HandlePointerDrag(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
         if (!_input.LeftReleased)
         {
             return;
@@ -56,8 +66,12 @@ public sealed partial class GameApp
                 break;
             case ResearchDraftInteractionOutcome.BranchPlaced:
                 _roundManager.TryStartDeferredNextRound(_session);
+                if (_infiniteDraft)
+                {
+                    _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound);
+                }
+
                 PlayUiSelectSound();
-                CloseResearchDraftMenu();
                 break;
         }
     }

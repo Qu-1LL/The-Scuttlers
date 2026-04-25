@@ -109,10 +109,6 @@ public sealed partial class Cave
             }
         }
 
-        if (HasOpal(tile))
-        {
-            _opalNode = null;
-        }
     }
 
     private void DestroyMineableTile(Tile tile, string dropTargetTileKey, object? source, ISet<string> changedTileKeys)

@@ -5,10 +5,23 @@ namespace TriloGame.Game.UI.Settings;
 public static class SettingsMenuLayout
 {
     public const int VolumeStep = 5;
+    public const int TopHudButtonWidth = 132;
+    public const int TopHudButtonHeight = 44;
+    public const int TopHudButtonGap = 12;
 
     public static Rectangle GetSettingsButtonBounds(Point viewport)
     {
-        return new Rectangle(18, 18, 132, 44);
+        return GetTopHudButtonBounds(viewport, 0);
+    }
+
+    public static Rectangle GetTopHudButtonBounds(Point viewport, int index)
+    {
+        var safeIndex = Math.Max(0, index);
+        return new Rectangle(
+            18 + ((TopHudButtonWidth + TopHudButtonGap) * safeIndex),
+            18,
+            TopHudButtonWidth,
+            TopHudButtonHeight);
     }
 
     public static Rectangle GetPanelBounds(Point viewport)
@@ -19,7 +32,7 @@ public static class SettingsMenuLayout
     public static Rectangle GetPanelBounds(Point viewport, bool includeQuitToMainMenu)
     {
         var width = Math.Min(420, Math.Max(320, viewport.X - 56));
-        var height = includeQuitToMainMenu ? 286 : 236;
+        var height = includeQuitToMainMenu ? 334 : 284;
         return new Rectangle((viewport.X - width) / 2, (viewport.Y - height) / 2, width, height);
     }
 
@@ -57,12 +70,17 @@ public static class SettingsMenuLayout
 
     public static Rectangle GetReturnToMainMenuButtonBounds(Rectangle panelBounds)
     {
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204, panelBounds.Width - 48, 38);
+    }
+
+    public static Rectangle GetTrilodexButtonBounds(Rectangle panelBounds)
+    {
         return new Rectangle(panelBounds.X + 24, panelBounds.Y + 156, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetQuitToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 252, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetDismissHintBounds(Rectangle panelBounds)

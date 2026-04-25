@@ -36,7 +36,7 @@ should not remain the long-term home for new gameplay rules or reusable orchestr
 - `Runtime/Systems/RoundManager.cs`
 - `Runtime/Systems/AntHandler.cs`
 - `Runtime/Systems/ResearchDraftSystem.cs`
-- `Audio/OpalAudioSystem.cs`
+- `Audio/SessionAudioBridge.cs`
 - `Runtime/Automation/GamePlayApi.cs`
 
 These form the current “golden path” for adding structure without destabilizing the whole game.

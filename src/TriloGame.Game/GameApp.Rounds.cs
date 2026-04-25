@@ -115,21 +115,21 @@ public sealed partial class GameApp
 
         DrawRoundedScreenFrame(
             layout.TimerBounds,
-            timerHovered ? new Color(26, 60, 79) : new Color(14, 35, 50),
-            timerHovered ? new Color(188, 228, 242) : new Color(105, 147, 165),
+            timerHovered ? new Color(22, 50, 71) : new Color(16, 38, 54),
+            timerHovered ? new Color(125, 179, 196) : new Color(54, 88, 107),
             2,
-            12);
+            14);
         DrawRoundedScreenFrame(
             layout.RoundBounds,
             !canSkipRound ? new Color(33, 40, 44) : roundHovered ? new Color(74, 104, 87) : new Color(48, 74, 61),
             !canSkipRound ? new Color(92, 104, 112) : roundHovered ? new Color(207, 242, 220) : new Color(132, 173, 150),
             2,
-            12);
+            14);
 
         DrawScreenTextFittedCentered(
             "Next Round",
             layout.TimerLabelBounds,
-            new Color(182, 220, 234),
+            Color.White,
             _rendering.SmallFont,
             minScale: 0.7f);
         DrawScreenTextFittedCentered(

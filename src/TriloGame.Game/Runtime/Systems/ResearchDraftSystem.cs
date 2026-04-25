@@ -1,7 +1,5 @@
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
-using TriloGame.Game.Shared.Math;
-
 namespace TriloGame.Game.Runtime.Systems;
 
 public sealed class ResearchDraftSystem
@@ -39,9 +37,10 @@ public sealed class ResearchDraftSystem
         return PendingDraft;
     }
 
-    public bool TryPlaceBranch(GameSession session, int branchIndex, GridPoint anchorLocation, out string? failureReason)
+    public bool TryPlaceBranch(GameSession session, int branchIndex, TreeInstanceNode anchorNode, out string? failureReason)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(anchorNode);
 
         if (PendingDraft is null)
         {
@@ -56,7 +55,7 @@ public sealed class ResearchDraftSystem
         }
 
         var branch = PendingDraft.Branches[branchIndex];
-        if (!session.SkillTree.TryPlaceResearchBranch(branch, anchorLocation, out failureReason))
+        if (!session.SkillTree.TryPlaceResearchBranch(branch, anchorNode, out failureReason))
         {
             return false;
         }

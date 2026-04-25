@@ -43,6 +43,11 @@
 /processor:TextureProcessor
 /build:Textures/AlgaeTile.png
 
+#begin Textures/dark-rock-wall-seamless-texture-free-105.jpg
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/dark-rock-wall-seamless-texture-free-105.jpg
+
 #begin Textures/BackArrow.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -153,11 +158,6 @@
 /processor:TextureProcessor
 /build:Textures/OrePath.png
 
-#begin Textures/Opal.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/Opal.png
-
 #begin Textures/Path.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -247,21 +247,6 @@
 /importer:WavImporter
 /processor:SoundEffectProcessor
 /build:Audio/TrilobiteExplosion.wav
-
-#begin Audio/OpalChangeStart.wav
-/importer:WavImporter
-/processor:SoundEffectProcessor
-/build:Audio/OpalChangeStart.wav
-
-#begin Audio/OpalAlarm.wav
-/importer:WavImporter
-/processor:SoundEffectProcessor
-/build:Audio/OpalAlarm.wav
-
-#begin Audio/OpalRestore.wav
-/importer:WavImporter
-/processor:SoundEffectProcessor
-/build:Audio/OpalRestore.wav
 
 #begin Audio/BuildingPlace.mp3
 /importer:Mp3Importer

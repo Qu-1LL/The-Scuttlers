@@ -13,7 +13,6 @@ public sealed class GameSessionBootstrapperTests
         var queen = Assert.IsType<Queen>(cave.GetQueenBuilding());
 
         Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
-        Assert.Null(cave.GetOpalNode());
 
         var assignments = cave.GetTrilobiteList().ToDictionary(trilobite => trilobite.Name, trilobite => trilobite.Assignment, StringComparer.Ordinal);
         Assert.Equal("miner", assignments["Jeffery"]);
@@ -37,7 +36,7 @@ public sealed class GameSessionBootstrapperTests
     {
         var result = new GameSessionBootstrapper().CreateNewGame();
 
-        var root = Assert.IsType<TriloGame.Game.Core.Progression.BinarySkillNode>(result.Session.SkillTree.Root);
+        var root = Assert.IsType<TriloGame.Game.Core.Progression.TreeInstanceNode>(result.Session.SkillTree.Root);
         Assert.Equal("Hive Core", root.Name);
         Assert.True(root.IsUnlocked);
         Assert.Equal(1, result.Session.SkillTree.Count);

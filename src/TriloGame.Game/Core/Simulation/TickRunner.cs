@@ -29,12 +29,9 @@ public static class TickRunner
         session.TraitHandler.Tick();
         phaseObserver?.OnPhaseCompleted(TickPhase.TraitTick);
 
-        if (!session.Runtime.FreezeOpalProgression)
-        {
-            phaseObserver?.OnPhaseStarted(TickPhase.SurfaceFeatureTick);
-            cave.TickSurfaceFeatures();
-            phaseObserver?.OnPhaseCompleted(TickPhase.SurfaceFeatureTick);
-        }
+        phaseObserver?.OnPhaseStarted(TickPhase.SurfaceFeatureTick);
+        cave.TickSurfaceFeatures();
+        phaseObserver?.OnPhaseCompleted(TickPhase.SurfaceFeatureTick);
 
         phaseObserver?.OnPhaseStarted(TickPhase.DangerRefresh);
         cave.RefreshDangerState();

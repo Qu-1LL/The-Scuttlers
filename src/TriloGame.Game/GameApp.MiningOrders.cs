@@ -77,7 +77,7 @@ public sealed partial class GameApp
     {
         var cave = _session.Cave;
         return cave is not null &&
-               (cave.HasOpal(tile) || Building.IsMineableType(tile.Base) || !cave.IsTileRevealed(tile));
+               (Building.IsMineableType(tile.Base) || !cave.IsTileRevealed(tile));
     }
 
     private bool TryBeginLeftMiningSelectionDrag(Point point)
@@ -362,15 +362,7 @@ public sealed partial class GameApp
         }
 
         var lines = new List<string> { GetTileDisplayName(tile) };
-        if (cave.HasOpal(tile))
-        {
-            var opal = cave.GetOpalNode(tile);
-            if (opal is not null)
-            {
-                lines.Add($"Yield: {opal.RemainingYield}");
-            }
-        }
-        else if (tile.IsOreTile())
+        if (tile.IsOreTile())
         {
             lines.Add($"Yield: {tile.ResourceYield}");
         }
@@ -535,11 +527,6 @@ public sealed partial class GameApp
 
     private string GetTileDisplayName(Tile tile)
     {
-        if (_session.Cave?.HasOpal(tile) == true)
-        {
-            return "Opal";
-        }
-
         return tile.Base switch
         {
             "wall" => "Wall",

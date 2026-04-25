@@ -29,14 +29,10 @@
             "id": "967200f25ddc8ded",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Trilobites CSharp/04 Game Wiki/Skill Tree and Quest Overview.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "Skill Tree and Quest Overview"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           }
         ]
@@ -203,9 +199,9 @@
   },
   "active": "967200f25ddc8ded",
   "lastOpenFiles": [
+    "Trilobites CSharp/04 Game Wiki/Skill Tree and Quest Overview.md",
     "Trilobites CSharp/SkillLineExample.drawio.svg",
     "Trilobites CSharp/SkillBranchExample.drawio.svg",
-    "Trilobites CSharp/04 Game Wiki/Skill Tree and Quest Overview.md",
     "Trilobites CSharp/00 Home/Using This Vault.md",
     "Trilobites CSharp/02 Systems/Entities and Roles.md",
     "Trilobites CSharp/02 Systems/UI and Input.md",

@@ -1,5 +1,4 @@
 using TriloGame.Game.Core.Buildings;
-using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
@@ -45,11 +44,6 @@ public sealed class GameSessionBootstrapper
         cave.Spawn(sigma, cave.GetTile(new GridPoint(spawnX, spawnY + 2))!);
 
         cave.RevealCave();
-        if (GameConstants.EnableOpal)
-        {
-            cave.TrySpawnQueenOpal();
-        }
-
         return new GameBootstrapResult(session, initialColony.QueenLocation, initialColony.MiningPostLocation);
     }
 
@@ -58,7 +52,7 @@ public sealed class GameSessionBootstrapper
         var rootTemplate = new SkillNode(
             "Hive Core",
             "The colony's structural research anchor for drafted branches.");
-        var rootNode = session.SkillTree.SetRoot(session.SkillTree.IntakeSkillNode(rootTemplate, GridPoint.Zero));
+        var rootNode = session.SkillTree.SetRoot(session.SkillTree.IntakeSkillNode(rootTemplate));
         rootNode.TryUnlock(session);
     }
 

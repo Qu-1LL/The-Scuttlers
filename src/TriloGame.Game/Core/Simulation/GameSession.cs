@@ -185,11 +185,6 @@ public sealed class GameSession
             return MineTileResult.NotApplied;
         }
 
-        if (cave.HasOpal(tile))
-        {
-            return cave.MineOpal(tile);
-        }
-
         var tileType = tile.Base;
         if (string.Equals(tileType, "wall", StringComparison.Ordinal))
         {

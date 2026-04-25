@@ -7,15 +7,14 @@ public static class ResearchDraftLayout
 {
     public static Rectangle GetButtonBounds(Point viewport)
     {
-        var settingsBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
-        return new Rectangle(settingsBounds.X, settingsBounds.Bottom + 10, 188, 44);
+        return SettingsMenuLayout.GetTopHudButtonBounds(viewport, 3);
     }
 
     public static ResearchDraftLayoutInfo Build(Point viewport, int branchCardCount = 3)
     {
         var safeBranchCardCount = Math.Max(0, branchCardCount);
-        var width = Math.Min(1120, Math.Max(840, viewport.X - 64));
-        var height = Math.Min(760, Math.Max(560, viewport.Y - 64));
+        var width = Math.Min(1360, Math.Max(960, viewport.X - 36));
+        var height = Math.Min(880, Math.Max(640, viewport.Y - 36));
         var panelBounds = new Rectangle(
             (viewport.X - width) / 2,
             (viewport.Y - height) / 2,
@@ -25,19 +24,33 @@ public static class ResearchDraftLayout
         var titleBounds = new Rectangle(panelBounds.X + 24, panelBounds.Y + 18, panelBounds.Width - 100, 28);
         var subtitleBounds = new Rectangle(panelBounds.X + 24, panelBounds.Y + 50, panelBounds.Width - 48, 22);
 
-        var contentTop = panelBounds.Y + 84;
-        var contentBottom = panelBounds.Bottom - 52;
+        var contentTop = panelBounds.Y + 86;
+        var contentBottom = panelBounds.Bottom - 50;
         var contentHeight = Math.Max(120, contentBottom - contentTop);
         var contentWidth = panelBounds.Width - 48;
-        var treeWidth = Math.Max(360, (int)MathF.Round(contentWidth * 0.69f));
-        var treeBounds = new Rectangle(panelBounds.X + 24, contentTop, treeWidth, contentHeight);
+        var infoPanelWidth = Math.Clamp((int)MathF.Round(contentWidth * 0.25f), 220, 286);
+        var contentGap = 18;
+        var leftContentWidth = Math.Max(360, contentWidth - infoPanelWidth - contentGap);
+        var hasDraftArea = safeBranchCardCount > 0;
+        var draftAreaHeight = hasDraftArea
+            ? Math.Clamp((int)MathF.Round(contentHeight * 0.28f), 150, 186)
+            : 0;
+        var draftAreaBounds = hasDraftArea
+            ? new Rectangle(panelBounds.X + 24, contentTop, leftContentWidth, draftAreaHeight)
+            : Rectangle.Empty;
+        var draftHeaderBounds = hasDraftArea
+            ? new Rectangle(draftAreaBounds.X + 16, draftAreaBounds.Y + 10, draftAreaBounds.Width - 32, 20)
+            : Rectangle.Empty;
+        var treeTop = hasDraftArea ? draftAreaBounds.Bottom + contentGap : contentTop;
+        var treeBounds = new Rectangle(
+            panelBounds.X + 24,
+            treeTop,
+            leftContentWidth,
+            Math.Max(160, contentBottom - treeTop));
         var treeHeaderBounds = new Rectangle(treeBounds.X + 16, treeBounds.Y + 10, treeBounds.Width - 32, 20);
         var treeViewportBounds = new Rectangle(treeBounds.X + 14, treeBounds.Y + 38, treeBounds.Width - 28, treeBounds.Height - 52);
-        var hoverInfoBounds = BuildLeftHoverInfoBounds(viewport, panelBounds);
-        var rightHoverInfoBounds = BuildRightHoverInfoBounds(viewport, panelBounds);
-        var branchColumnBounds = new Rectangle(treeBounds.Right + 18, contentTop, panelBounds.Right - treeBounds.Right - 42, contentHeight);
-
-        var branchCards = BuildBranchCards(branchColumnBounds, safeBranchCardCount);
+        var infoPanelBounds = new Rectangle(treeBounds.Right + contentGap, contentTop, infoPanelWidth, contentHeight);
+        var branchCards = BuildBranchCards(draftAreaBounds, safeBranchCardCount);
         var footerBounds = new Rectangle(panelBounds.X + 24, panelBounds.Bottom - 36, panelBounds.Width - 48, 18);
 
         return new ResearchDraftLayoutInfo(
@@ -46,49 +59,17 @@ public static class ResearchDraftLayout
             closeButtonBounds,
             titleBounds,
             subtitleBounds,
+            draftAreaBounds,
+            draftHeaderBounds,
             treeBounds,
             treeHeaderBounds,
             treeViewportBounds,
-            hoverInfoBounds,
-            rightHoverInfoBounds,
-            branchColumnBounds,
+            infoPanelBounds,
             branchCards,
             footerBounds);
     }
 
-    private static Rectangle BuildLeftHoverInfoBounds(Point viewport, Rectangle panelBounds)
-    {
-        const int minimumWidth = 176;
-        const int maximumWidth = 220;
-        const int minimumHeight = 196;
-        const int screenInset = 12;
-        const int panelOverlap = 28;
-
-        var width = Math.Clamp(panelBounds.X + 96, minimumWidth, maximumWidth);
-        var height = Math.Max(minimumHeight, panelBounds.Height);
-        var x = Math.Max(screenInset, panelBounds.X - width + panelOverlap);
-        var y = Math.Clamp(panelBounds.Y, screenInset, Math.Max(screenInset, viewport.Y - height - screenInset));
-
-        return new Rectangle(x, y, width, height);
-    }
-
-    private static Rectangle BuildRightHoverInfoBounds(Point viewport, Rectangle panelBounds)
-    {
-        const int minimumWidth = 176;
-        const int maximumWidth = 220;
-        const int minimumHeight = 196;
-        const int screenInset = 12;
-        const int panelOverlap = 28;
-
-        var width = Math.Clamp((viewport.X - panelBounds.Right) + 96, minimumWidth, maximumWidth);
-        var height = Math.Max(minimumHeight, panelBounds.Height);
-        var x = Math.Min(viewport.X - width - screenInset, panelBounds.Right - panelOverlap);
-        var y = Math.Clamp(panelBounds.Y, screenInset, Math.Max(screenInset, viewport.Y - height - screenInset));
-
-        return new Rectangle(x, y, width, height);
-    }
-
-    private static IReadOnlyList<Rectangle> BuildBranchCards(Rectangle columnBounds, int branchCardCount)
+    private static IReadOnlyList<Rectangle> BuildBranchCards(Rectangle draftAreaBounds, int branchCardCount)
     {
         if (branchCardCount <= 0)
         {
@@ -96,14 +77,20 @@ public static class ResearchDraftLayout
         }
 
         const int gap = 16;
+        const int sidePadding = 14;
+        const int topPadding = 40;
+        const int bottomPadding = 14;
         var totalGap = gap * Math.Max(0, branchCardCount - 1);
-        var cardHeight = Math.Max(128, (columnBounds.Height - totalGap) / branchCardCount);
+        var availableWidth = Math.Max(120, draftAreaBounds.Width - (sidePadding * 2) - totalGap);
+        var cardWidth = Math.Max(120, availableWidth / branchCardCount);
+        var cardHeight = Math.Max(96, draftAreaBounds.Height - topPadding - bottomPadding);
         var cards = new List<Rectangle>(branchCardCount);
-        var y = columnBounds.Y;
+        var x = draftAreaBounds.X + sidePadding;
+        var y = draftAreaBounds.Y + topPadding;
         for (var index = 0; index < branchCardCount; index++)
         {
-            cards.Add(new Rectangle(columnBounds.X, y, columnBounds.Width, cardHeight));
-            y += cardHeight + gap;
+            cards.Add(new Rectangle(x, y, cardWidth, cardHeight));
+            x += cardWidth + gap;
         }
 
         return cards;
@@ -116,11 +103,11 @@ public readonly record struct ResearchDraftLayoutInfo(
     Rectangle CloseButtonBounds,
     Rectangle TitleBounds,
     Rectangle SubtitleBounds,
+    Rectangle DraftAreaBounds,
+    Rectangle DraftHeaderBounds,
     Rectangle TreeBounds,
     Rectangle TreeHeaderBounds,
     Rectangle TreeViewportBounds,
-    Rectangle HoverInfoBounds,
-    Rectangle RightHoverInfoBounds,
-    Rectangle BranchColumnBounds,
+    Rectangle InfoPanelBounds,
     IReadOnlyList<Rectangle> BranchCardBounds,
     Rectangle FooterBounds);

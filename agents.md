@@ -57,7 +57,7 @@ or note the assumption in the final response.
 - farm algae and feed the queen
 - build through scaffolding and recipes
 - defend against ants and ant holes
-- manage opal pressure and other world hazards
+- manage other world hazards
 
 The project already contains:
 
@@ -131,7 +131,6 @@ Repository-level guidance is split so agents can read the narrowest relevant con
 - `src/TriloGame.Game/Audio/AGENTS.md`
   - cue registration and playback boundaries
   - session audio bridge ownership
-  - opal warning audio state ownership
 - `src/TriloGame.Game/Rendering/AGENTS.md`
   - camera/render helper placement
   - world-space versus screen-space rendering boundary

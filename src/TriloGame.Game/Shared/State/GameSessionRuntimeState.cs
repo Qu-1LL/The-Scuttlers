@@ -14,8 +14,6 @@ public sealed class GameSessionRuntimeState
 
     public double RoundSpawnWindowDurationMs { get; set; } = GameConstants.RoundSpawnWindowDurationMs;
 
-    public bool FreezeOpalProgression { get; set; }
-
     public bool DisableEnemySpawns { get; set; } = true;
 
     public bool NoCostBuildPlacement { get; set; }

@@ -93,8 +93,8 @@ These are current live rules. If a task changes them, update tests and docs in t
 - Ore has finite yield, darkens as it depletes, and takes `1-5` hits per yielded unit.
 - Walls take `3` hits, drop sandstone, and miners haul dropped stone.
 - Queen death triggers a screen overlay rather than closing the app.
-- Opal and ant-hole systems are active world features.
-- Natural ant-hole spawning is governed by the opal grace/warning system.
+- Ant-hole systems are active world features.
+- Natural ant-hole spawning follows the current ambient spawn rules.
 
 ## Subsystem Reading Guide
 

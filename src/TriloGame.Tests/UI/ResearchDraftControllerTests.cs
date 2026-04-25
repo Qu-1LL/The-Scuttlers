@@ -2,7 +2,6 @@ using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Runtime.Bootstrap;
 using TriloGame.Game.Runtime.Systems;
-using TriloGame.Game.Shared.Math;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Tests.UI;
@@ -13,7 +12,7 @@ public sealed class ResearchDraftControllerTests
     public void BuildNodeHoverInfo_UsesFeatureTreeAndAffectedCategoriesWhenNoDescriptorsExist()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
-        var node = new BinarySkillNode(new SkillNode("Tooltip Node", "Tooltip description."), new GridPoint(1, 0), "B1");
+        var node = new TreeInstanceNode(new SkillNode("Tooltip Node", "Tooltip description."), "B1");
 
         var hoverInfo = ResearchDraftController.BuildNodeHoverInfo(session, node);
 
@@ -26,7 +25,7 @@ public sealed class ResearchDraftControllerTests
     public void BuildNodeAffectText_FallsBackToDescriptionWhenNoFeatureTreeDataExists()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
-        var node = new BinarySkillNode(new SkillNode("Core Anchor", "Root anchor."), GridPoint.Zero);
+        var node = new TreeInstanceNode(new SkillNode("Core Anchor", "Root anchor."));
 
         var affectText = ResearchDraftController.BuildNodeAffectText(session, node);
 
@@ -34,28 +33,31 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void ResolveHoverPlacement_UsesLeftRightAndBranchColumnTargetsAsExpected()
+    public void ResolveHoverPlacement_UsesSingleInfoPanelForTreeAndBranchHoverTargets()
     {
         Assert.Equal(
-            ResearchNodeHoverPlacement.LeftDock,
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: true, hasSkillTreeHover: true, hasBranchHover: false));
         Assert.Equal(
-            ResearchNodeHoverPlacement.RightDock,
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: true, hasSkillTreeHover: true, hasBranchHover: true));
         Assert.Equal(
-            ResearchNodeHoverPlacement.BranchColumn,
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: false, hasSkillTreeHover: true, hasBranchHover: false));
-        Assert.Null(
+        Assert.Equal(
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: false, hasSkillTreeHover: false, hasBranchHover: true));
+        Assert.Null(
+            ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: false, hasSkillTreeHover: false, hasBranchHover: false));
     }
 
     [Fact]
     public void GetSkillTreeConnectorColor_UsesWhiteForLockedNodesAndYellowForUnlockedNodes()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
-        var root = new BinarySkillNode(new SkillNode("Root", "Root"));
-        var child = new BinarySkillNode(new SkillNode("Child", "Child"));
-        root.SetLeft(child);
+        var root = new TreeInstanceNode(new SkillNode("Root", "Root"));
+        var child = new TreeInstanceNode(new SkillNode("Child", "Child"));
+        root.AddChild(child);
 
         var lockedColor = ResearchDraftController.GetSkillTreeConnectorColor(child);
         Assert.Equal(new Color(246, 251, 253), lockedColor);
@@ -68,16 +70,15 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void GetFeatureTreePrerequisiteSkillNames_UsesAuthoredFeatureTreeChainNotBinaryParents()
+    public void GetFeatureTreePrerequisiteSkillNames_UsesAuthoredFeatureTreeChainNotInstanceParents()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
         var featureTree = Assert.IsType<FeatureTree>(session.GetFeatureTree("B1"));
-        var hovered = new BinarySkillNode(
+        var hovered = new TreeInstanceNode(
             Assert.IsType<SkillNode>(featureTree.FindByName("B1-e")),
-            new GridPoint(1, 0),
             featureTree.Name);
-        var unrelatedAnchor = new BinarySkillNode(new SkillNode("Run Anchor", "Placed elsewhere."));
-        unrelatedAnchor.SetLeft(hovered);
+        var unrelatedAnchor = new TreeInstanceNode(new SkillNode("Run Anchor", "Placed elsewhere."));
+        unrelatedAnchor.AddChild(hovered);
 
         var prerequisiteNames = ResearchDraftController.GetFeatureTreePrerequisiteSkillNames(hovered);
 
@@ -89,19 +90,16 @@ public sealed class ResearchDraftControllerTests
     public void CalculateBranchCardPreviewLayout_ScalesBranchesToUseMostOfThePreviewBounds()
     {
         var branch = new ResearchBranch();
-        var root = branch.SetRoot(new BinarySkillNode(new SkillNode("Root", "Root"), new GridPoint(1, 0), "B1"), new GridPoint(1, 0));
-        var left = branch.AddLeftChild(root, new BinarySkillNode(new SkillNode("Left", "Left"), new GridPoint(2, 0), "B1"));
-        var right = branch.AddRightChild(root, new BinarySkillNode(new SkillNode("Right", "Right"), new GridPoint(1, 1), "B1"));
-        branch.AddRightChild(right, new BinarySkillNode(new SkillNode("Right Deep", "Right Deep"), new GridPoint(1, 2), "B1"));
-        branch.AddLeftChild(left, new BinarySkillNode(new SkillNode("Left Deep", "Left Deep"), new GridPoint(3, 0), "B1"));
+        var root = branch.SetRoot(new TreeInstanceNode(new SkillNode("Root", "Root"), "B1"));
+        var left = branch.AddChild(root, new TreeInstanceNode(new SkillNode("Left", "Left"), "B1"), childIndex: 0);
+        var right = branch.AddChild(root, new TreeInstanceNode(new SkillNode("Right", "Right"), "B1"));
+        branch.AddChild(right, new TreeInstanceNode(new SkillNode("Right Deep", "Right Deep"), "B1"));
+        branch.AddChild(left, new TreeInstanceNode(new SkillNode("Left Deep", "Left Deep"), "B1"));
 
         var bounds = new Rectangle(0, 0, 240, 180);
         var layout = ResearchDraftController.CalculateBranchCardPreviewLayout(branch, bounds);
-        var points = new List<Vector2> { layout.Origin };
-        foreach (var node in branch.Nodes)
-        {
-            points.Add(ResearchDraftController.GetTreePoint(layout.Origin, layout.StepX, layout.StepY, node.Delta));
-        }
+        var points = new List<Vector2> { layout.OriginPoint };
+        points.AddRange(layout.Nodes.Select(node => node.Position));
 
         var leftEdge = float.MaxValue;
         var rightEdge = float.MinValue;
@@ -119,24 +117,19 @@ public sealed class ResearchDraftControllerTests
         Assert.InRange(rightEdge, bounds.Left, bounds.Right);
         Assert.InRange(topEdge, bounds.Top, bounds.Bottom);
         Assert.InRange(bottomEdge, bounds.Top, bounds.Bottom);
-        Assert.True(rightEdge - leftEdge >= bounds.Width * 0.7f);
-        Assert.True(bottomEdge - topEdge >= bounds.Height * 0.55f);
+        Assert.True(rightEdge - leftEdge >= bounds.Width * 0.35f);
+        Assert.True(bottomEdge - topEdge >= bounds.Height * 0.35f);
     }
 
     [Fact]
-    public void GetTreePoint_ProjectsLeftAndRightChildrenWithExpectedScreenSlant()
+    public void UniversalTreeLayout_SpacesChildrenEvenlyInsideThePlusMinusNinetyDegreeRange()
     {
-        var origin = new Vector2(320f, 480f);
-        const float stepX = 40f;
-        var stepY = stepX * ResearchDraftController.TreeStepYRatio;
-
-        var leftChildPoint = ResearchDraftController.GetTreePoint(origin, stepX, stepY, new GridPoint(1, 0));
-        var rightChildPoint = ResearchDraftController.GetTreePoint(origin, stepX, stepY, new GridPoint(0, 1));
-
-        Assert.True(leftChildPoint.X > origin.X);
-        Assert.True(rightChildPoint.X < origin.X);
-        Assert.Equal(origin.Y - stepY, leftChildPoint.Y);
-        Assert.Equal(origin.Y - stepY, rightChildPoint.Y);
+        Assert.Equal(0f, UniversalTreeLayout.GetChildAngleDegrees(0, 1));
+        Assert.Equal(-30f, UniversalTreeLayout.GetChildAngleDegrees(0, 2));
+        Assert.Equal(30f, UniversalTreeLayout.GetChildAngleDegrees(1, 2));
+        Assert.Equal(-45f, UniversalTreeLayout.GetChildAngleDegrees(0, 3));
+        Assert.Equal(0f, UniversalTreeLayout.GetChildAngleDegrees(1, 3));
+        Assert.Equal(45f, UniversalTreeLayout.GetChildAngleDegrees(2, 3));
     }
 
     [Fact]
@@ -207,22 +200,16 @@ public sealed class ResearchDraftControllerTests
         const int sidePadding = 12;
         const int topPadding = 8;
         const int bottomPadding = 12;
-        const int scrollbarGap = 10;
-        const int scrollbarWidth = 6;
 
         var contentBounds = new Rectangle(
             layout.TreeViewportBounds.X + sidePadding,
             layout.TreeViewportBounds.Y + topPadding,
-            Math.Max(120, layout.TreeViewportBounds.Width - (sidePadding * 2) - scrollbarGap - scrollbarWidth),
+            Math.Max(120, layout.TreeViewportBounds.Width - (sidePadding * 2)),
             Math.Max(120, layout.TreeViewportBounds.Height - topPadding - bottomPadding));
-        var stepX = Math.Clamp(
-            (contentBounds.Width - 24f) / Math.Max(1f, TriloGame.Game.Core.Progression.SkillTree.MaxLateralDifference * 2f),
-            18f,
-            56f);
-        var nodeRadius = Math.Clamp((int)MathF.Round(stepX * 0.22f), 7, 14);
+        var nodeRadius = Math.Clamp((int)MathF.Round(76f * 0.18f), 9, 18);
 
         return new Point(
             contentBounds.Center.X,
-            contentBounds.Bottom - nodeRadius - 4);
+            contentBounds.Bottom - nodeRadius - 8);
     }
 }

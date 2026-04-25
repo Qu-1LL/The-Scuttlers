@@ -1,7 +1,5 @@
 using TriloGame.Game.Runtime.Bootstrap;
 using TriloGame.Game.Runtime.Systems;
-using TriloGame.Game.Shared.Math;
-
 namespace TriloGame.Tests.Runtime;
 
 public sealed class ResearchDraftSystemTests
@@ -29,7 +27,7 @@ public sealed class ResearchDraftSystemTests
         var round = new RoundInfo(0, 180000d, 180000d, 120000d, 30000d, 4, false);
         var draft = Assert.IsType<ResearchDraftOffer>(system.CreateDraft(session, round));
 
-        var placed = system.TryPlaceBranch(session, 0, GridPoint.Zero, out var failureReason);
+        var placed = system.TryPlaceBranch(session, 0, session.SkillTree.Root!, out var failureReason);
 
         Assert.True(placed);
         Assert.Null(failureReason);

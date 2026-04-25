@@ -51,7 +51,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly SessionAudioBridge _sessionAudioBridge;
     private readonly SessionScreenShakeBridge _sessionScreenShakeBridge;
     private readonly SessionParticleBridge _sessionParticleBridge;
-    private readonly OpalAudioSystem _opalAudioSystem;
     private readonly InputController _input = new();
     private readonly DoubleClickTracker _manualMoveDoubleClick = new();
     private readonly CameraController _camera = new();
@@ -74,6 +73,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private object? _selectedObject;
     private string? _activeBfsDebugField;
     private bool _debugMenuOpen;
+    private bool _debugMetricsOverlayVisible;
+    private bool _infiniteDraft;
     private bool _settingsMenuOpen;
     private bool _resumeSimulationAfterClosingSettings;
     private bool _resumeSimulationAfterClosingResearchDraft;
@@ -95,12 +96,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _sessionAudioBridge = new SessionAudioBridge(_audio);
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
         _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
-        _opalAudioSystem = new OpalAudioSystem(_audio);
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,
-            value => _session.Runtime.FreezeOpalProgression = value,
             value => _session.Runtime.DisableEnemySpawns = value,
             value => _session.Runtime.NoCostBuildPlacement = value,
+            value => _infiniteDraft = value,
             PlayUiSelectSound);
         _roundManager.RoundStarted += HandleRoundStarted;
         _roundManager.RoundEnded += HandleRoundEnded;
@@ -167,11 +167,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"TickSpeedMs: {_tickSpeedMs}");
         builder.AppendLine($"TickAccumulatorMs: {_tickAccumulatorMs:0.###}");
         builder.AppendLine($"ActiveBfsDebugField: {_activeBfsDebugField ?? "none"}");
-        if (GameConstants.EnableOpal)
-        {
-            builder.AppendLine($"FreezeOpalProgression: {_session.Runtime.FreezeOpalProgression}");
-        }
-
         builder.AppendLine($"DisableEnemySpawns: {_session.Runtime.DisableEnemySpawns}");
         builder.AppendLine($"TickTiming: {FormatTickProfile(_session.Runtime.TickProfiler.Last, "last")}");
         builder.AppendLine($"TickTimingAverage: {FormatTickProfile(_session.Runtime.TickProfiler.Average, "avg")}");
@@ -241,10 +236,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Sandstone", "Textures/SandTile");
         RegisterTexture(sprites, "Malachite", "Textures/MalachiteTile");
         RegisterTexture(sprites, "Magnetite", "Textures/MagnetiteTile");
-        if (GameConstants.EnableOpal)
-        {
-            RegisterTexture(sprites, "Opal", "Textures/Opal");
-        }
         RegisterTexture(sprites, "Perotene", "Textures/PeroteneTile");
         RegisterTexture(sprites, "Ilmenite", "Textures/IlmeniteTile");
         RegisterTexture(sprites, "Cochinium", "Textures/CochiniumTile");
@@ -264,6 +255,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "SelectedEdge", "Textures/SelectedEdge");
         RegisterTexture(sprites, "Path", "Textures/Path");
         RegisterTexture(sprites, "BackArrow", "Textures/BackArrow");
+        RegisterTexture(sprites, "TreeBackground", "Textures/dark-rock-wall-seamless-texture-free-105");
         TryRegisterTexture(sprites, "Rock", "Textures/Rock");
 
         _rendering = new RenderingContext
@@ -282,12 +274,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.BuildingFinished, Content.Load<SoundEffect>("Audio/BuildingFinished"));
         _audio.Register(GameAudioCue.AntHoleSpawn, Content.Load<SoundEffect>("Audio/AntHoleSpawn"));
         _audio.Register(GameAudioCue.TrilobiteExplosion, Content.Load<SoundEffect>("Audio/TrilobiteExplosion"));
-        if (GameConstants.EnableOpal)
-        {
-            _audio.Register(GameAudioCue.OpalChangeStart, Content.Load<SoundEffect>("Audio/OpalChangeStart"));
-            _audio.Register(GameAudioCue.OpalAlarm, Content.Load<SoundEffect>("Audio/OpalAlarm"));
-            _audio.Register(GameAudioCue.OpalRestore, Content.Load<SoundEffect>("Audio/OpalRestore"));
-        }
         _audio.Register(GameAudioCue.TrilobiteBirth, Content.Load<SoundEffect>("Audio/TrilobiteBirth"));
         _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/TrilobiteSelected"));
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/UiSelect"));
@@ -305,8 +291,16 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_mainMenuOpen)
         {
-            HandleMainMenuInput();
-            SyncOpalAudioState(gameTime);
+            _researchDraft.UpdatePointer(_input.MousePoint);
+            if (_researchDraft.IsOpen)
+            {
+                HandleResearchDraftMenuInput();
+            }
+            else
+            {
+                HandleMainMenuInput();
+            }
+
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -317,6 +311,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             ToggleDebugMenu();
         }
 
+        if (!_menu.IsRenamingSelectedTrilobite && _input.KeyPressed(Keys.F3))
+        {
+            _debugMetricsOverlayVisible = !_debugMetricsOverlayVisible;
+            PlayUiSelectSound();
+        }
+
         if (HasLostQueen())
         {
             TriggerGameOver();
@@ -325,7 +325,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_isGameOver)
         {
             HandleGameOverInput();
-            SyncOpalAudioState(gameTime);
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -335,7 +334,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_researchDraft.IsOpen)
         {
             HandleResearchDraftMenuInput();
-            SyncOpalAudioState(gameTime);
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -345,7 +343,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             HandleDebugMenuInput();
             AdvanceSimulation(gameTime);
-            SyncOpalAudioState(gameTime);
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -555,7 +552,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
 
         AdvanceSimulation(gameTime);
-        SyncOpalAudioState(gameTime);
         GumUi.Update(gameTime);
 
         base.Update(gameTime);
@@ -594,6 +590,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawMainMenuOverlayBackground();
             DrawMainMenuOverlayForeground();
             DrawSettingsMenu();
+            if (_researchDraft.IsOpen)
+            {
+                _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture());
+            }
         }
         else if (_isGameOver)
         {
@@ -608,17 +608,22 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawMiningOrderMenu();
             DrawMiningTileHoverLabel();
             DrawFocusHint();
+            DrawRoundDebugWidget();
+            _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture());
+
             if (_debugMenuOpen)
             {
                 DrawDebugMenuOverlay();
             }
-
-            DrawRoundDebugWidget();
-            _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer);
         }
 
         _gumUiRenderer.EndFrame();
         GumUi.Draw();
+        if (_debugMetricsOverlayVisible && !_mainMenuOpen)
+        {
+            DrawDebugMetricsOverlay();
+        }
+
         base.Draw(gameTime);
     }
 
@@ -661,7 +666,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _sessionAudioBridge.Detach();
         _sessionScreenShakeBridge.Detach();
         _sessionParticleBridge.Detach();
-        ResetOpalAudioState();
         ClearWorldParticles();
         CleanActive(true);
         _tickAccumulatorMs = 0d;
@@ -698,6 +702,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _debugMenuOpen = false;
         _settingsMenuOpen = false;
         _showRoleLabels = false;
+        _infiniteDraft = false;
         _simulationClock.ResetToDefaults(paused: false, tickSpeedMs: GameConstants.TickSpeedFast);
         _gameOverState.Reset();
         ResetRoundSystems();
@@ -708,13 +713,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _input.EndDrag();
         ClearPendingManualMove();
         _menu.ResetState();
-        ResetOpalAudioState();
         ClearWorldParticles();
     }
 
     private void ReturnToMainMenu()
     {
-        ResetOpalAudioState();
         ClearWorldParticles();
         CleanActive(true);
         CloseSettingsMenu();
@@ -783,6 +786,13 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             PlayUiSelectSound();
             OpenSettingsMenu(pauseSimulationIfNeeded: false);
+            return;
+        }
+
+        if (GetMainMenuTrilodexButtonBounds(viewport).Contains(_input.MousePoint))
+        {
+            PlayUiSelectSound();
+            OpenResearchDraftMenu(pauseSimulationIfNeeded: false);
             return;
         }
 
@@ -872,26 +882,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
 public sealed partial class GameApp
 {
-    private void SyncOpalAudioState(GameTime gameTime)
-    {
-        if (!GameConstants.EnableOpal)
-        {
-            return;
-        }
-
-        _opalAudioSystem.Update(_session, gameTime.ElapsedGameTime.TotalMilliseconds);
-    }
-
-    private void ResetOpalAudioState()
-    {
-        if (!GameConstants.EnableOpal)
-        {
-            return;
-        }
-
-        _opalAudioSystem.Reset();
-    }
-
     private bool HasLostQueen()
     {
         return _gameOverState.HasLostQueen(_session);
@@ -949,9 +939,9 @@ public sealed partial class GameApp
                 _input.MousePoint,
                 _debugMenuOpen,
                 _showRoleLabels,
-                _session.Runtime.FreezeOpalProgression,
                 _session.Runtime.DisableEnemySpawns,
-                _session.Runtime.NoCostBuildPlacement))
+                _session.Runtime.NoCostBuildPlacement,
+                _infiniteDraft))
         {
             return;
         }
@@ -1013,6 +1003,7 @@ public sealed partial class GameApp
         var volumeDownBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
         var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
         var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
+        var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
         if (SettingsMenuLayout.GetCloseButtonBounds(panelBounds).Contains(point) ||
             SettingsMenuLayout.GetBackButtonBounds(panelBounds).Contains(point))
         {
@@ -1036,6 +1027,13 @@ public sealed partial class GameApp
         if (volumeBarBounds.Contains(point))
         {
             SetVolumeSetting(SettingsMenuLayout.GetSnappedVolumeFromBar(volumeBarBounds, point.X));
+            return true;
+        }
+
+        if (trilodexBounds.Contains(point))
+        {
+            PlayUiSelectSound();
+            OpenResearchDraftMenu(pauseSimulationIfNeeded: !_mainMenuOpen);
             return true;
         }
 
@@ -2029,8 +2027,9 @@ public sealed partial class GameApp
         var cardBounds = MainMenuLayout.GetCardBounds(viewport);
         var titleBounds = MainMenuLayout.GetTitleBounds(cardBounds);
         var startBounds = MainMenuLayout.GetStartGameButtonBounds(cardBounds);
+        var settingsBounds = MainMenuLayout.GetSettingsButtonBounds(cardBounds);
+        var trilodexBounds = MainMenuLayout.GetTrilodexButtonBounds(cardBounds);
         var quitBounds = MainMenuLayout.GetQuitGameButtonBounds(cardBounds);
-        var comingSoonBounds = MainMenuLayout.GetComingSoonBounds(cardBounds);
 
         if (IsScreenUiBackgroundPass)
         {
@@ -2058,18 +2057,23 @@ public sealed partial class GameApp
             new Color(32, 90, 112),
             new Color(173, 229, 242));
         DrawMainMenuButton(
+            settingsBounds,
+            "Settings",
+            settingsBounds.Contains(_input.MousePoint),
+            new Color(33, 75, 95),
+            new Color(140, 207, 224));
+        DrawMainMenuButton(
+            trilodexBounds,
+            "Trilodex",
+            trilodexBounds.Contains(_input.MousePoint),
+            new Color(152, 125, 74),
+            new Color(233, 201, 143));
+        DrawMainMenuButton(
             quitBounds,
             "Quit Game",
             quitBounds.Contains(_input.MousePoint),
             new Color(86, 54, 42),
             new Color(231, 196, 174));
-
-        DrawScreenTextFittedCentered(
-            "Trilo-dex coming soon!",
-            comingSoonBounds,
-            new Color(181, 206, 217),
-            _rendering.SmallFont,
-            minScale: 0.7f);
     }
 
     private void DrawMainMenuButton(Rectangle bounds, string label, bool hovered, Color fill, Color border)
@@ -2093,12 +2097,12 @@ public sealed partial class GameApp
             var buttonBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
             var buttonHovered = buttonBounds.Contains(_input.MousePoint);
             var buttonFill = _settingsMenuOpen
-                ? buttonHovered ? new Color(39, 86, 109) : new Color(33, 75, 95)
-                : buttonHovered ? new Color(20, 48, 68) : new Color(13, 33, 48);
+                ? buttonHovered ? new Color(27, 65, 88) : new Color(27, 65, 88)
+                : buttonHovered ? new Color(22, 50, 71) : new Color(16, 38, 54);
             var buttonBorder = _settingsMenuOpen
-                ? buttonHovered ? new Color(160, 221, 237) : new Color(140, 207, 224)
-                : buttonHovered ? new Color(76, 116, 136) : new Color(53, 88, 106);
-            var buttonText = _settingsMenuOpen ? Color.White : new Color(214, 231, 239);
+                ? buttonHovered ? new Color(163, 217, 235) : new Color(163, 217, 235)
+                : buttonHovered ? new Color(125, 179, 196) : new Color(54, 88, 107);
+            var buttonText = Color.White;
 
             DrawRoundedScreenFrame(buttonBounds, buttonFill, buttonBorder, 2, 14);
             DrawGearIcon(new Rectangle(buttonBounds.X + 12, buttonBounds.Y + 10, 24, 24), buttonText);
@@ -2124,10 +2128,12 @@ public sealed partial class GameApp
         var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
         var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
         var volumeFillBounds = SettingsMenuLayout.GetVolumeFillBounds(volumeBarBounds, _audio.VolumePercent);
+        var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
         var returnBounds = !_mainMenuOpen ? SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds) : Rectangle.Empty;
         var volumeDownHovered = volumeDownBounds.Contains(_input.MousePoint);
         var volumeUpHovered = volumeUpBounds.Contains(_input.MousePoint);
         var volumeBarHovered = volumeBarBounds.Contains(_input.MousePoint);
+        var trilodexHovered = trilodexBounds.Contains(_input.MousePoint);
         var closeHovered = closeBounds.Contains(_input.MousePoint);
         var backHovered = backBounds.Contains(_input.MousePoint);
         var returnHovered = !_mainMenuOpen && returnBounds.Contains(_input.MousePoint);
@@ -2173,6 +2179,14 @@ public sealed partial class GameApp
             2,
             12);
         DrawRoundedScreenRect(volumeFillBounds, new Color(143, 205, 226), 10);
+
+        DrawRoundedScreenFrame(
+            trilodexBounds,
+            trilodexHovered ? new Color(180, 147, 92) : new Color(152, 125, 74),
+            trilodexHovered ? new Color(255, 229, 170) : new Color(233, 201, 143),
+            2,
+            12);
+        DrawScreenTextFittedCentered("Trilodex", trilodexBounds, new Color(18, 26, 34), _rendering.SmallFont, minScale: 0.72f);
 
         if (!_mainMenuOpen)
         {
@@ -2308,9 +2322,11 @@ public sealed partial class GameApp
         var overlayBounds = new Rectangle(0, 0, viewport.X, viewport.Y);
         var startBounds = GetMainMenuStartButtonBounds(viewport);
         var settingsBounds = GetMainMenuSettingsButtonBounds(viewport);
+        var trilodexBounds = GetMainMenuTrilodexButtonBounds(viewport);
         var quitBounds = GetMainMenuQuitButtonBounds(viewport);
         var startHovered = startBounds.Contains(_input.MousePoint);
         var settingsHovered = settingsBounds.Contains(_input.MousePoint);
+        var trilodexHovered = trilodexBounds.Contains(_input.MousePoint);
         var quitHovered = quitBounds.Contains(_input.MousePoint);
 
         DrawRoundedGumRect(overlayBounds, Color.Black, 0);
@@ -2327,6 +2343,12 @@ public sealed partial class GameApp
             2,
             14);
         DrawRoundedGumFrame(
+            trilodexBounds,
+            trilodexHovered ? new Color(180, 147, 92) : new Color(152, 125, 74),
+            trilodexHovered ? new Color(255, 229, 170) : new Color(233, 201, 143),
+            2,
+            14);
+        DrawRoundedGumFrame(
             quitBounds,
             quitHovered ? new Color(85, 121, 102) : new Color(67, 102, 84),
             quitHovered ? new Color(185, 232, 205) : new Color(137, 190, 161),
@@ -2340,13 +2362,91 @@ public sealed partial class GameApp
         var titleBounds = GetMainMenuTitleBounds(viewport);
         var startBounds = GetMainMenuStartButtonBounds(viewport);
         var settingsBounds = GetMainMenuSettingsButtonBounds(viewport);
+        var trilodexBounds = GetMainMenuTrilodexButtonBounds(viewport);
         var quitBounds = GetMainMenuQuitButtonBounds(viewport);
-        var comingSoonBounds = GetMainMenuComingSoonBounds(viewport);
         DrawScreenTextFittedCentered("Welcome to The Scuttlers", titleBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
         DrawScreenTextFittedCentered("Start Game", startBounds, new Color(10, 23, 34), _rendering.UiFont, minScale: 0.72f);
         DrawScreenTextFittedCentered("Settings", settingsBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
+        DrawScreenTextFittedCentered("Trilodex", trilodexBounds, new Color(18, 26, 34), _rendering.UiFont, minScale: 0.72f);
         DrawScreenTextFittedCentered("Quit Game", quitBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
-        DrawScreenTextFittedCentered("Trilodeck coming soon!", comingSoonBounds, new Color(171, 198, 208), _rendering.SmallFont, minScale: 0.72f);
+    }
+
+    private void DrawDebugMetricsOverlay()
+    {
+        var lines = BuildDebugMetricsOverlayLines();
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var font = _rendering.DebugFont;
+        var lineHeight = Math.Max(16, font.LineSpacing + 2);
+        var viewport = Window.ClientBounds.Size;
+        var totalHeight = lines.Count * lineHeight;
+        var start = new Vector2(12f, Math.Max(12f, viewport.Y - totalHeight - 12f));
+
+        _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
+        for (var index = 0; index < lines.Count; index++)
+        {
+            DrawOutlinedDebugText(lines[index], start + new Vector2(0f, index * lineHeight));
+        }
+
+        _spriteBatch.End();
+    }
+
+    private void DrawOutlinedDebugText(string text, Vector2 position)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var snapped = new Vector2(MathF.Round(position.X), MathF.Round(position.Y));
+        var outlineColor = new Color(0, 0, 0, 230);
+        var offsets = new[]
+        {
+            new Vector2(-1f, -1f),
+            new Vector2(0f, -1f),
+            new Vector2(1f, -1f),
+            new Vector2(-1f, 0f),
+            new Vector2(1f, 0f),
+            new Vector2(-1f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(1f, 1f)
+        };
+
+        foreach (var offset in offsets)
+        {
+            _spriteBatch.DrawString(_rendering.DebugFont, text, snapped + offset, outlineColor);
+        }
+
+        _spriteBatch.DrawString(_rendering.DebugFont, text, snapped, Color.White);
+    }
+
+    private Texture2D? GetTreeBackgroundTexture()
+    {
+        return _rendering.Sprites.TryGet("TreeBackground", out var texture)
+            ? texture
+            : null;
+    }
+
+    private IReadOnlyList<string> BuildDebugMetricsOverlayLines()
+    {
+        var lines = new List<string>
+        {
+            "RUN STATE"
+        };
+        lines.AddRange(BuildDebugSummaryLines());
+        lines.Add(string.Empty);
+        lines.Add("PERFORMANCE");
+        lines.Add(_session.Runtime.TickProfiler.Last.DescribeDominantWorkShort());
+
+        foreach (var row in BuildDebugPerformanceMetricRows())
+        {
+            lines.Add($"{row.Label}: {row.Value}");
+        }
+
+        return lines;
     }
 
     private void DrawDebugMenuOverlay()
@@ -2362,15 +2462,6 @@ public sealed partial class GameApp
         DrawScreenBorder(panelBounds, new Color(187, 163, 114), 2);
 
         DrawScreenTextFittedCentered("Debug", layout.HeaderBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
-        DrawDebugInfoCard(
-            layout.SummaryBounds,
-            "Run State",
-            BuildDebugSummaryLines(),
-            _rendering.DebugFont,
-            new Color(220, 228, 235),
-            new Color(10, 19, 28),
-            new Color(83, 121, 139));
-        DrawDebugPerformanceCard(layout.PerformanceBounds);
 
         DrawDebugSectionLabel(layout.QuickControlsLabelBounds, "Quick Controls");
         DrawDebugSectionLabel(layout.SpeedLabelBounds, "Game Loop Speed");
@@ -2382,12 +2473,12 @@ public sealed partial class GameApp
             viewport,
             _debugMenuOpen,
             _showRoleLabels,
-            _session.Runtime.FreezeOpalProgression,
             _session.Runtime.DisableEnemySpawns,
             _session.Runtime.NoCostBuildPlacement,
+            _infiniteDraft,
             pointer);
         DrawWrappedScreenText(
-            ["` closes this panel. Hotkeys still work."],
+            ["` closes this panel. F3 toggles metrics."],
             layout.FooterBounds,
             new Color(141, 183, 199),
             _rendering.SmallFont,
@@ -2435,62 +2526,12 @@ public sealed partial class GameApp
         DrawScreenTextFittedCentered(label, bounds, new Color(255, 214, 150), _rendering.SmallFont, minScale: 0.72f);
     }
 
-    private void DrawDebugInfoCard(
-        Rectangle bounds,
-        string title,
-        IReadOnlyList<string> lines,
-        SpriteFont font,
-        Color textColor,
-        Color fill,
-        Color border)
+    private IReadOnlyList<(string Label, string Value)> BuildDebugPerformanceMetricRows()
     {
-        _gumUiRenderer.AddFilledRectangle(bounds, fill);
-        DrawScreenBorder(bounds, border, 1);
-
-        var titleBounds = new Rectangle(bounds.X + 12, bounds.Y + 8, Math.Max(0, bounds.Width - 24), 20);
-        DrawScreenTextFittedCentered(title, titleBounds, new Color(255, 214, 150), _rendering.SmallFont, minScale: 0.72f);
-
-        var textBounds = new Rectangle(
-            bounds.X + 12,
-            titleBounds.Bottom + 8,
-            Math.Max(0, bounds.Width - 24),
-            Math.Max(0, bounds.Bottom - titleBounds.Bottom - 18));
-        DrawWrappedScreenText(lines, textBounds, textColor, font, lineGap: 1);
-    }
-
-    private void DrawDebugPerformanceCard(Rectangle bounds)
-    {
-        _gumUiRenderer.AddFilledRectangle(bounds, new Color(9, 17, 25));
-        DrawScreenBorder(bounds, new Color(74, 109, 125), 1);
-
-        var titleBounds = new Rectangle(bounds.X + 12, bounds.Y + 8, Math.Max(0, bounds.Width - 24), 20);
-        DrawScreenTextFittedCentered("Performance", titleBounds, new Color(255, 214, 150), _rendering.SmallFont, minScale: 0.72f);
-
-        var contentBounds = new Rectangle(
-            bounds.X + 12,
-            titleBounds.Bottom + 8,
-            Math.Max(0, bounds.Width - 24),
-            Math.Max(0, bounds.Bottom - titleBounds.Bottom - 18));
-
-        var workBounds = new Rectangle(contentBounds.X, contentBounds.Y, contentBounds.Width, Math.Min(24, contentBounds.Height));
-        DrawScreenTextFittedLeft(
-            _session.Runtime.TickProfiler.Last.DescribeDominantWorkShort(),
-            workBounds,
-            new Color(203, 224, 233),
-            _rendering.SmallFont,
-            minScale: 0.8f);
-
-        var metricsBounds = new Rectangle(
-            contentBounds.X,
-            workBounds.Bottom + 6,
-            contentBounds.Width,
-            Math.Max(0, contentBounds.Bottom - workBounds.Bottom - 6));
-        var rowCount = 9;
-        var rowHeight = Math.Max(18, metricsBounds.Height / rowCount);
         var average = _session.Runtime.TickProfiler.Average;
         var last = _session.Runtime.TickProfiler.Last;
-        var rows = new (string Label, string Value)[]
-        {
+        return
+        [
             ("Miner role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageMinerMsPerTrilobite, last.MinerTiming)),
             ("Builder role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageBuilderMsPerTrilobite, last.BuilderTiming)),
             ("Farmer role", FormatRoleTimingMetric(_session.Runtime.TickProfiler.AverageFarmerMsPerTrilobite, last.FarmerTiming)),
@@ -2500,33 +2541,7 @@ public sealed partial class GameApp
             ("Avg total", $"{average.TotalMs:0.00} ms"),
             ("Stats", $"Alloc {FormatByteCount(last.AllocatedBytes)}   GC {last.Gen0Collections}/{last.Gen1Collections}/{last.Gen2Collections}"),
             ("Counts", $"{last.TrilobiteCount} tri  {last.EnemyCount} ene  {last.BuildingCount} bld")
-        };
-
-        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
-        {
-            var rowY = metricsBounds.Y + (rowIndex * rowHeight);
-            var rowBounds = new Rectangle(
-                metricsBounds.X,
-                rowY,
-                metricsBounds.Width,
-                Math.Max(1, rowIndex == rowCount - 1 ? metricsBounds.Bottom - rowY : rowHeight));
-
-            DrawDebugMetricCell(rowBounds, rows[rowIndex].Label, rows[rowIndex].Value);
-        }
-    }
-
-    private void DrawDebugMetricCell(Rectangle bounds, string label, string value)
-    {
-        if (bounds.Width <= 0 || bounds.Height <= 0)
-        {
-            return;
-        }
-
-        var labelWidth = Math.Min(104, Math.Max(60, bounds.Width / 2));
-        var labelBounds = new Rectangle(bounds.X, bounds.Y, labelWidth, bounds.Height);
-        var valueBounds = new Rectangle(bounds.X + labelWidth + 6, bounds.Y, Math.Max(0, bounds.Width - labelWidth - 6), bounds.Height);
-        DrawScreenTextFittedLeft(label, labelBounds, new Color(156, 187, 199), _rendering.SmallFont, minScale: 0.8f);
-        DrawScreenTextFittedLeft(value, valueBounds, new Color(226, 236, 241), _rendering.SmallFont, minScale: 0.8f);
+        ];
     }
 
     private IReadOnlyList<string> BuildDebugSummaryLines()
@@ -2538,11 +2553,6 @@ public sealed partial class GameApp
             $"BFS View: {(_activeBfsDebugField ?? "none")} (visible while paused)",
             $"Role Labels: {(_showRoleLabels ? "On" : "Off")}    No Cost Build: {(_session.Runtime.NoCostBuildPlacement ? "On" : "Off")}"
         };
-
-        if (GameConstants.EnableOpal)
-        {
-            lines[3] += $"    Opal Frozen: {(_session.Runtime.FreezeOpalProgression ? "On" : "Off")}";
-        }
 
         return lines;
     }
@@ -2919,16 +2929,16 @@ public sealed partial class GameApp
         return new Rectangle(startBounds.X, startBounds.Bottom + 18, startBounds.Width, startBounds.Height);
     }
 
-    private static Rectangle GetMainMenuQuitButtonBounds(Point viewport)
+    private static Rectangle GetMainMenuTrilodexButtonBounds(Point viewport)
     {
         var settingsBounds = GetMainMenuSettingsButtonBounds(viewport);
         return new Rectangle(settingsBounds.X, settingsBounds.Bottom + 18, settingsBounds.Width, settingsBounds.Height);
     }
 
-    private static Rectangle GetMainMenuComingSoonBounds(Point viewport)
+    private static Rectangle GetMainMenuQuitButtonBounds(Point viewport)
     {
-        var quitBounds = GetMainMenuQuitButtonBounds(viewport);
-        return new Rectangle(quitBounds.X - 40, quitBounds.Bottom + 18, quitBounds.Width + 80, 28);
+        var trilodexBounds = GetMainMenuTrilodexButtonBounds(viewport);
+        return new Rectangle(trilodexBounds.X, trilodexBounds.Bottom + 18, trilodexBounds.Width, trilodexBounds.Height);
     }
 
     private Rectangle GetDebugMenuBounds(Point viewport)

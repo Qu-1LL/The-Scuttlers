@@ -7,7 +7,7 @@ public static class MainMenuLayout
     public static Rectangle GetCardBounds(Point viewport)
     {
         var width = Math.Min(640, Math.Max(420, viewport.X - 160));
-        var height = Math.Min(420, Math.Max(320, viewport.Y - 140));
+        var height = Math.Min(472, Math.Max(368, viewport.Y - 140));
         return new Rectangle((viewport.X - width) / 2, (viewport.Y - height) / 2, width, height);
     }
 
@@ -23,13 +23,19 @@ public static class MainMenuLayout
 
     public static Rectangle GetQuitGameButtonBounds(Rectangle cardBounds)
     {
+        var trilodexBounds = GetTrilodexButtonBounds(cardBounds);
+        return new Rectangle(trilodexBounds.X, trilodexBounds.Bottom + 18, trilodexBounds.Width, trilodexBounds.Height);
+    }
+
+    public static Rectangle GetSettingsButtonBounds(Rectangle cardBounds)
+    {
         var startBounds = GetStartGameButtonBounds(cardBounds);
         return new Rectangle(startBounds.X, startBounds.Bottom + 18, startBounds.Width, startBounds.Height);
     }
 
-    public static Rectangle GetComingSoonBounds(Rectangle cardBounds)
+    public static Rectangle GetTrilodexButtonBounds(Rectangle cardBounds)
     {
-        var quitBounds = GetQuitGameButtonBounds(cardBounds);
-        return new Rectangle(cardBounds.X + 40, quitBounds.Bottom + 28, cardBounds.Width - 80, 30);
+        var settingsBounds = GetSettingsButtonBounds(cardBounds);
+        return new Rectangle(settingsBounds.X, settingsBounds.Bottom + 18, settingsBounds.Width, settingsBounds.Height);
     }
 }

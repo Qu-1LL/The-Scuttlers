@@ -2,8 +2,6 @@ namespace TriloGame.Game.Core.Constants;
 
 public static class GameConstants
 {
-    public static readonly bool EnableOpal = false;
-
     public const double TickSpeedSlow = 500d;
     public const double TickSpeedNormal = 250d;
     public const double TickSpeedFast = 100d;
@@ -40,12 +38,6 @@ public static class GameConstants
     public const int ExplosiveTraitBlastRadius = 3;
     public const float ExplosiveTraitScreenShakeIntensity = 1f;
     public const int AlgaeHarvestYield = 5;
-    public const int OpalYield = 2000;
-    public const int OpalInitialGraceTicks = 500;
-    public const int OpalDormantTicks = 100;
-    public const int OpalWarningTicks = 500;
-    public const float OpalMaxRedness = 0.3f;
-    public const float OpalMaxShakePixels = 6f;
     public const int WallHitsRequired = 3;
     public const int WallDropAmount = 5;
     public const int WallDropCarryAmount = 1;
