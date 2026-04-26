@@ -39,20 +39,31 @@ public sealed partial class GameApp
 
         if (_researchDraftSystem.HasPendingDraft)
         {
-            _roundManager.DeferNextRoundStart();
+            if (!_infiniteDraft)
+            {
+                _roundManager.DeferNextRoundStart();
+            }
+
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Preserved the existing research draft instead of overwriting it after round {round.RoundNumber}.");
             OpenResearchDraftMenu();
             return;
         }
 
-        var draft = _researchDraftSystem.CreateDraft(_session, round);
+        var draft = _researchDraftSystem.CreateDraft(
+            _session,
+            round,
+            _infiniteDraft ? ResearchDraftSource.InfiniteDraft : ResearchDraftSource.RoundReward);
         if (draft is null)
         {
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] No research draft could be generated after round {round.RoundNumber}.");
             return;
         }
 
-        _roundManager.DeferNextRoundStart();
+        if (!_infiniteDraft)
+        {
+            _roundManager.DeferNextRoundStart();
+        }
+
         Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Generated {draft.Branches.Count} research branches after round {round.RoundNumber}.");
         OpenResearchDraftMenu();
     }

@@ -255,6 +255,12 @@ public sealed class SkillTree
             return false;
         }
 
+        if (IsCoreRoot(anchorNode) && anchorNode.ChildCount >= 1)
+        {
+            failureReason = "The core node can only support one direct research branch.";
+            return false;
+        }
+
         foreach (var branchNode in branch.Root.TraverseDepthFirst())
         {
             if (Contains(branchNode))
@@ -313,5 +319,10 @@ public sealed class SkillTree
         {
             throw new InvalidOperationException("The skill node already belongs to this skill tree.");
         }
+    }
+
+    private static bool IsCoreRoot(TreeInstanceNode node)
+    {
+        return node.IsRoot && string.IsNullOrWhiteSpace(node.SourceFeatureTreeName);
     }
 }

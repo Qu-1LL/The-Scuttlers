@@ -143,6 +143,36 @@ public sealed class SkillTreeTests
     }
 
     [Fact]
+    public void CanPlaceResearchBranch_RejectsASecondDirectBranchOnTheCoreRoot()
+    {
+        var skillTree = new SkillTree();
+        var root = skillTree.SetRoot(skillTree.IntakeSkillNode(new SkillNode("Hive Core", "Root anchor.")));
+        skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Existing Branch", "Existing branch."), "B1"));
+        var branch = new ResearchBranch();
+        branch.SetRoot(new TreeInstanceNode(new SkillNode("New Branch", "New branch."), "C1"));
+
+        var canPlace = skillTree.CanPlaceResearchBranch(branch, root, out var failureReason);
+
+        Assert.False(canPlace);
+        Assert.Equal("The core node can only support one direct research branch.", failureReason);
+    }
+
+    [Fact]
+    public void CanPlaceResearchBranch_AllowsAdditionalBranchesAwayFromTheCoreRoot()
+    {
+        var skillTree = new SkillTree();
+        var root = skillTree.SetRoot(skillTree.IntakeSkillNode(new SkillNode("Hive Core", "Root anchor.")));
+        var existingBranch = skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Existing Branch", "Existing branch."), "B1"));
+        var branch = new ResearchBranch();
+        branch.SetRoot(new TreeInstanceNode(new SkillNode("New Branch", "New branch."), "C1"));
+
+        var canPlace = skillTree.CanPlaceResearchBranch(branch, existingBranch, out var failureReason);
+
+        Assert.True(canPlace);
+        Assert.Null(failureReason);
+    }
+
+    [Fact]
     public void RemoveSubtree_DetachesDescendantsFromTheirParent()
     {
         var skillTree = new SkillTree();

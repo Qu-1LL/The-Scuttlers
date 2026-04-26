@@ -133,6 +133,78 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
+    public void BuildVisibleTreeContentBounds_UsesThePlacedTreeExtentsInsteadOfOnlyTheCoreNode()
+    {
+        var viewport = new Rectangle(100, 80, 620, 420);
+        var rootOnlyTree = CreateRootOnlySkillTree();
+        var expandedTree = CreateWideSkillTree();
+
+        var rootOnlyBounds = ResearchDraftController.BuildVisibleTreeContentBounds(viewport, rootOnlyTree);
+        var expandedBounds = ResearchDraftController.BuildVisibleTreeContentBounds(viewport, expandedTree);
+
+        Assert.True(expandedBounds.MinX < rootOnlyBounds.MinX - 20f);
+        Assert.True(expandedBounds.MaxX > rootOnlyBounds.MaxX + 20f);
+        Assert.True(expandedBounds.MinY < rootOnlyBounds.MinY - 20f);
+        Assert.True(expandedBounds.Width > rootOnlyBounds.Width);
+        Assert.True(expandedBounds.Height > rootOnlyBounds.Height);
+    }
+
+    [Fact]
+    public void ResolveTreePanAfterRelease_KeepsPanWhenTheTreeContentBoundsAreStillVisible()
+    {
+        var viewport = new Rectangle(100, 80, 620, 420);
+        var skillTree = CreateWideSkillTree();
+        var panOffset = new Vector2(36f, -24f);
+
+        var resolved = ResearchDraftController.ResolveTreePanAfterRelease(viewport, skillTree, panOffset, zoom: 1f);
+
+        Assert.Equal(panOffset, resolved);
+    }
+
+    [Fact]
+    public void ResolveTreePanAfterRelease_SnapsBackUsingTheFullTreeContentBounds()
+    {
+        var viewport = new Rectangle(100, 80, 620, 420);
+        var skillTree = CreateWideSkillTree();
+        var farOutsidePan = new Vector2(-10000f, 7200f);
+
+        var resolved = ResearchDraftController.ResolveTreePanAfterRelease(viewport, skillTree, farOutsidePan, zoom: 1f);
+        var baseBounds = ResearchDraftController.BuildVisibleTreeContentBounds(viewport, skillTree);
+        var pannedCenter = new Vector2(
+            ((baseBounds.MinX + baseBounds.MaxX) * 0.5f) + resolved.X,
+            ((baseBounds.MinY + baseBounds.MaxY) * 0.5f) + resolved.Y);
+
+        Assert.NotEqual(farOutsidePan, resolved);
+        Assert.InRange(pannedCenter.X, viewport.Center.X - 40f, viewport.Center.X + 40f);
+        Assert.InRange(pannedCenter.Y, viewport.Center.Y - 40f, viewport.Center.Y + 40f);
+    }
+
+    [Fact]
+    public void ClampTreeZoom_StaysWithinSensibleLimits()
+    {
+        Assert.Equal(0.55f, ResearchDraftController.ClampTreeZoom(0.1f));
+        Assert.Equal(1.25f, ResearchDraftController.ClampTreeZoom(1.25f));
+        Assert.Equal(2.25f, ResearchDraftController.ClampTreeZoom(9f));
+    }
+
+    [Fact]
+    public void CalculateTreeBackgroundStartCoordinate_AnchorsTilesToTheTreeSurfaceOrigin()
+    {
+        const int viewportLeft = 100;
+        const float treeSurfaceOrigin = 421f;
+
+        var normalZoomStart = ResearchDraftController.CalculateTreeBackgroundStartCoordinate(viewportLeft, treeSurfaceOrigin, tileLength: 64);
+        var zoomedInStart = ResearchDraftController.CalculateTreeBackgroundStartCoordinate(viewportLeft, treeSurfaceOrigin, tileLength: 96);
+
+        Assert.True(normalZoomStart <= viewportLeft);
+        Assert.True(zoomedInStart <= viewportLeft);
+        Assert.True(viewportLeft - normalZoomStart < 64);
+        Assert.True(viewportLeft - zoomedInStart < 96);
+        Assert.Equal(0, ((int)treeSurfaceOrigin - normalZoomStart) % 64);
+        Assert.Equal(0, ((int)treeSurfaceOrigin - zoomedInStart) % 96);
+    }
+
+    [Fact]
     public void HandlePointerUp_ClickingOutsideThePanelRequestsClose()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
@@ -211,5 +283,29 @@ public sealed class ResearchDraftControllerTests
         return new Point(
             contentBounds.Center.X,
             contentBounds.Bottom - nodeRadius - 8);
+    }
+
+    private static SkillTree CreateRootOnlySkillTree()
+    {
+        var skillTree = new SkillTree();
+        skillTree.SetRoot(skillTree.IntakeSkillNode(new SkillNode("Hive Core", "Root anchor.")));
+        return skillTree;
+    }
+
+    private static SkillTree CreateWideSkillTree()
+    {
+        var skillTree = CreateRootOnlySkillTree();
+        var root = skillTree.Root!;
+        var left = skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Left", "Left branch."), "B1"), childIndex: 0);
+        var upperLeft = skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Upper Left", "Upper left branch."), "C1"), childIndex: 1);
+        var upperRight = skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Upper Right", "Upper right branch."), "F1"), childIndex: 2);
+        var right = skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Right", "Right branch."), "M1"), childIndex: 3);
+
+        skillTree.AddChild(left, skillTree.IntakeSkillNode(new SkillNode("Left Deep", "Left deep branch."), "B2"));
+        skillTree.AddChild(upperLeft, skillTree.IntakeSkillNode(new SkillNode("Upper Deep", "Upper deep branch."), "C2"));
+        skillTree.AddChild(upperRight, skillTree.IntakeSkillNode(new SkillNode("Upper Right Deep", "Upper right deep branch."), "F2"));
+        skillTree.AddChild(right, skillTree.IntakeSkillNode(new SkillNode("Right Deep", "Right deep branch."), "M2"));
+
+        return skillTree;
     }
 }

@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System.Linq;
 using TriloGame.Game.Core.Research;
+using MonoGameGum.GueDeriving;
 using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
@@ -27,7 +28,7 @@ internal enum ResearchNodeHoverPlacement
 
 public sealed class ResearchDraftController
 {
-    private const string EmptyStatus = "No research branches are waiting. Finish a wave to generate a new set of branches.";
+    private const string EmptyStatus = "No research branches are waiting right now.";
     private const string PendingStatus = "Click a research branch, then click a valid spot on the skill tree to graft it.";
     private const string SelectedBranchStatus = "Move the selected branch over the skill tree and click to place it.";
     private static readonly Color BranchConnectorColor = new(255, 255, 255);
@@ -40,11 +41,14 @@ public sealed class ResearchDraftController
     private const float TreeDragThresholdPixels = 10f;
     private const float MinimumTreeEdgeLength = 80f;
     private const float MaximumTreeEdgeLength = 108f;
+    private const float MinimumTreeZoom = 0.55f;
+    private const float MaximumTreeZoom = 2.25f;
 
     private Point _pointerPoint;
     private Vector2 _treePanOffset;
     private Point _treePanStartPointer;
     private Vector2 _treePanStartOffset;
+    private float _treeZoom = 1f;
     private bool _treePanCandidate;
     private bool _treePanning;
     private int? _selectedBranchIndex;
@@ -58,6 +62,7 @@ public sealed class ResearchDraftController
         _treePanOffset = Vector2.Zero;
         _treePanStartPointer = Point.Zero;
         _treePanStartOffset = Vector2.Zero;
+        _treeZoom = 1f;
         _treePanCandidate = false;
         _treePanning = false;
         _selectedBranchIndex = null;
@@ -69,6 +74,7 @@ public sealed class ResearchDraftController
     {
         IsOpen = true;
         _treePanOffset = Vector2.Zero;
+        _treeZoom = 1f;
         _treePanCandidate = false;
         _treePanning = false;
         _statusMessage = BuildDefaultStatus(draftSystem);
@@ -77,6 +83,7 @@ public sealed class ResearchDraftController
     public void Close(ResearchDraftSystem draftSystem)
     {
         _treePanOffset = Vector2.Zero;
+        _treeZoom = 1f;
         _treePanCandidate = false;
         _treePanning = false;
         _selectedBranchIndex = null;
@@ -92,7 +99,37 @@ public sealed class ResearchDraftController
     public bool HandleWheel(Point point, int delta, Point viewport, GameSession session, ResearchDraftSystem draftSystem)
     {
         _pointerPoint = point;
-        return IsOpen && BuildLayout(viewport, draftSystem).PanelBounds.Contains(point);
+        if (!IsOpen)
+        {
+            return false;
+        }
+
+        var layout = BuildLayout(viewport, draftSystem);
+        if (!layout.PanelBounds.Contains(point))
+        {
+            return false;
+        }
+
+        if (!layout.TreeViewportBounds.Contains(point))
+        {
+            return true;
+        }
+
+        var previousZoom = _treeZoom;
+        _treeZoom = Math.Clamp(_treeZoom + (-delta * 0.0015f), MinimumTreeZoom, MaximumTreeZoom);
+        if (MathF.Abs(_treeZoom - previousZoom) <= float.Epsilon)
+        {
+            return true;
+        }
+
+        var metricsBefore = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree, previousZoom);
+        var pointToOrigin = point.ToVector2() - metricsBefore.Origin - _treePanOffset;
+        if (previousZoom > float.Epsilon)
+        {
+            _treePanOffset += pointToOrigin - (pointToOrigin * (_treeZoom / previousZoom));
+        }
+
+        return true;
     }
 
     public bool CoversScreenPoint(Point point, Point viewport)
@@ -133,7 +170,6 @@ public sealed class ResearchDraftController
             _treePanning = false;
             _treePanStartPointer = point;
             _treePanStartOffset = _treePanOffset;
-            _treePanOffset = ClampTreePanOffset(_treePanOffset, BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree));
         }
 
         return true;
@@ -148,7 +184,6 @@ public sealed class ResearchDraftController
         }
 
         var layout = BuildLayout(viewport, draftSystem);
-        var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
         var dragDelta = point - _treePanStartPointer;
         if (!_treePanning && dragDelta.ToVector2().Length() >= TreeDragThresholdPixels)
         {
@@ -160,9 +195,7 @@ public sealed class ResearchDraftController
             return;
         }
 
-        _treePanOffset = ClampTreePanOffset(
-            _treePanStartOffset + dragDelta.ToVector2(),
-            metrics);
+        _treePanOffset = _treePanStartOffset + dragDelta.ToVector2();
     }
 
     public ResearchDraftInteractionOutcome HandlePointerUp(
@@ -182,6 +215,11 @@ public sealed class ResearchDraftController
         _treePanning = false;
 
         var layout = BuildLayout(viewport, draftSystem);
+        if (wasPanning)
+        {
+            SnapTreeToContentBoundsIfNeeded(layout.TreeViewportBounds, session.SkillTree);
+        }
+
         if (!layout.PanelBounds.Contains(point))
         {
             _selectedBranchIndex = null;
@@ -323,7 +361,7 @@ public sealed class ResearchDraftController
             layout.SubtitleBounds,
             pendingDraft is null
                 ? "Review the colony's current run-specific skill tree."
-                : $"Round {pendingDraft.SourceRoundNumber} reward. Choose one branch and click a valid graft point on the tree.",
+                : BuildDraftSubtitle(pendingDraft),
             new Color(177, 203, 214),
             GumTextStyle.Small);
 
@@ -340,7 +378,8 @@ public sealed class ResearchDraftController
         }
 
         gumUi.AddRoundedFrame(layout.TreeBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        DrawTiledTreeBackground(gumUi, Inset(layout.TreeBounds, 2), treeBackgroundTexture, 14);
+        var treeMetrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
+        DrawTiledTreeBackground(gumUi, layout.TreeViewportBounds, treeBackgroundTexture, 0, _treePanOffset, _treeZoom, treeMetrics.Origin);
         AddText(
             gumUi,
             layout.TreeHeaderBounds,
@@ -374,7 +413,6 @@ public sealed class ResearchDraftController
         }
 
         var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
-        _treePanOffset = ClampTreePanOffset(_treePanOffset, metrics);
         var hoverInfo = DrawPlacedTree(session, metrics, gumUi);
 
         if (_selectedBranchIndex is int activeBranchIndex &&
@@ -404,7 +442,6 @@ public sealed class ResearchDraftController
             ? BuildDragPreview(_pointerPoint, layout, session, draftSystem, selectedBranchIndex)
             : ResearchDraftDragPreview.Empty;
         var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
-        _treePanOffset = ClampTreePanOffset(_treePanOffset, metrics);
 
         var skillTreeHoverInfo = GetPlacedTreeHoverInfo(session, metrics);
         ResearchNodeHoverInfo? branchHoverInfo = null;
@@ -685,17 +722,26 @@ public sealed class ResearchDraftController
             var point = origin + node.LocalPosition;
             if (node.Parent is null)
             {
-                DrawCrispConnector(gumUi, origin, point, lineColor, 3, 7f, metrics.NodeRadius + 2f);
+                DrawClippedConnector(gumUi, metrics, origin, point, lineColor, 3, 7f, metrics.NodeRadius + 2f);
                 continue;
             }
 
-            DrawCrispConnector(gumUi, origin + node.Parent.LocalPosition, point, lineColor, 3, metrics.NodeRadius + 2f, metrics.NodeRadius + 2f);
+            DrawClippedConnector(gumUi, metrics, origin + node.Parent.LocalPosition, point, lineColor, 3, metrics.NodeRadius + 2f, metrics.NodeRadius + 2f);
         }
 
-        DrawBranchOriginMarker(gumUi, origin, ghosted: true);
+        if (IsNodeVisible(metrics, origin, 5))
+        {
+            DrawBranchOriginMarker(gumUi, origin, ghosted: true);
+        }
+
         foreach (var node in branchLayout.Nodes)
         {
             var point = origin + node.LocalPosition;
+            if (!IsNodeVisible(metrics, point, metrics.NodeRadius))
+            {
+                continue;
+            }
+
             DrawTreeNode(
                 gumUi,
                 point,
@@ -744,18 +790,7 @@ public sealed class ResearchDraftController
         gumUi.AddRoundedOutline(bounds, new Color(55, 87, 103), 1, 10);
         var layout = CalculateBranchCardPreviewLayout(branch, bounds);
         var hoveredNode = TryGetHoveredBranchNode(layout, out _);
-        DrawCrispConnector(gumUi, layout.OriginPoint, layout.RootPoint, BranchConnectorColor, 2, 7f, layout.Radius + 2f);
-        DrawBranchOriginMarker(gumUi, layout.OriginPoint, ghosted: false);
-
-        foreach (var node in layout.Nodes)
-        {
-            if (node.Parent is not null)
-            {
-                DrawCrispConnector(gumUi, node.Parent.Position, node.Position, BranchConnectorColor, 2, layout.Radius + 2f, layout.Radius + 2f);
-            }
-
-            DrawTreeNode(gumUi, node.Position, layout.Radius, GetBranchNodePreviewColor(session, node.BranchNode), new Color(246, 251, 253));
-        }
+        ResearchTreePreviewRenderer.DrawPreview(gumUi, session, bounds, ResearchTreeViewNode.FromResearchBranch(branch));
 
         if (hoveredNode is TreeInstanceNode hoveredBranchNode)
         {
@@ -810,6 +845,11 @@ public sealed class ResearchDraftController
 
     private TreeDisplayMetrics BuildTreeMetrics(Rectangle bounds, SkillTree skillTree)
     {
+        return BuildTreeMetrics(bounds, skillTree, _treeZoom);
+    }
+
+    private static TreeDisplayMetrics BuildTreeMetrics(Rectangle bounds, SkillTree skillTree, float zoom)
+    {
         const int sidePadding = 12;
         const int topPadding = 8;
         const int bottomPadding = 12;
@@ -822,7 +862,7 @@ public sealed class ResearchDraftController
         var edgeLength = Math.Clamp(
             MathF.Min(contentBounds.Width, contentBounds.Height) * 0.18f,
             MinimumTreeEdgeLength,
-            MaximumTreeEdgeLength);
+            MaximumTreeEdgeLength) * Math.Clamp(zoom, MinimumTreeZoom, MaximumTreeZoom);
         var nodeRadius = Math.Clamp((int)MathF.Round(edgeLength * 0.18f), 9, 18);
         var origin = new Vector2(contentBounds.Center.X, contentBounds.Bottom - nodeRadius - 8f);
         var baseBounds = skillTree.Root is null
@@ -876,7 +916,6 @@ public sealed class ResearchDraftController
     {
         anchorNode = null;
         var metrics = BuildTreeMetrics(treeBounds, skillTree);
-        _treePanOffset = ClampTreePanOffset(_treePanOffset, metrics);
         if (!metrics.ContentBounds.Contains(point))
         {
             return false;
@@ -1045,7 +1084,10 @@ public sealed class ResearchDraftController
         GumUiRenderer gumUi,
         Rectangle bounds,
         Texture2D? texture,
-        int cornerRadius)
+        int cornerRadius,
+        Vector2 panOffset = default,
+        float zoom = 1f,
+        Vector2? surfaceOrigin = null)
     {
         if (texture is null || bounds.Width <= 0 || bounds.Height <= 0 || texture.Width <= 0 || texture.Height <= 0)
         {
@@ -1053,11 +1095,18 @@ public sealed class ResearchDraftController
         }
 
         var clipLayer = gumUi.AddClippingContainer(bounds);
-        var tileSize = CalculateTreeBackgroundTileSize(texture);
-        var columns = Math.Max(1, (int)MathF.Ceiling(bounds.Width / (float)tileSize.X));
-        var rows = Math.Max(1, (int)MathF.Ceiling(bounds.Height / (float)tileSize.Y));
-        var startX = bounds.X - Math.Max(0, ((columns * tileSize.X) - bounds.Width) / 2);
-        var startY = bounds.Y - Math.Max(0, ((rows * tileSize.Y) - bounds.Height) / 2);
+        var tileSize = CalculateTreeBackgroundTileSize(texture, zoom);
+        var columns = Math.Max(1, (int)MathF.Ceiling(bounds.Width / (float)tileSize.X) + 2);
+        var rows = Math.Max(1, (int)MathF.Ceiling(bounds.Height / (float)tileSize.Y) + 2);
+        var anchoredOrigin = (surfaceOrigin ?? bounds.Location.ToVector2()) + panOffset;
+        var startX = CalculateTreeBackgroundStartCoordinate(bounds.Left, anchoredOrigin.X, tileSize.X);
+        var startY = CalculateTreeBackgroundStartCoordinate(bounds.Top, anchoredOrigin.Y, tileSize.Y);
+
+        if (cornerRadius <= 0)
+        {
+            DrawFullBackgroundTiles(gumUi, clipLayer, bounds, texture, tileSize, columns, rows, startX, startY);
+            return;
+        }
 
         foreach (var maskBand in EnumerateRoundedClipBands(bounds, cornerRadius))
         {
@@ -1087,6 +1136,35 @@ public sealed class ResearchDraftController
                         CalculateTreeBackgroundSourceRectangle(texture, tileBounds, visibleBounds),
                         Color.White);
                 }
+            }
+        }
+    }
+
+    private static void DrawFullBackgroundTiles(
+        GumUiRenderer gumUi,
+        ContainerRuntime clipLayer,
+        Rectangle bounds,
+        Texture2D texture,
+        Point tileSize,
+        int columns,
+        int rows,
+        int startX,
+        int startY)
+    {
+        for (var row = 0; row < rows; row++)
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                gumUi.AddSprite(
+                    clipLayer,
+                    new Rectangle(
+                        startX + (column * tileSize.X) - bounds.X,
+                        startY + (row * tileSize.Y) - bounds.Y,
+                        tileSize.X,
+                        tileSize.Y),
+                    texture,
+                    new Rectangle(0, 0, texture.Width, texture.Height),
+                    Color.White);
             }
         }
     }
@@ -1153,9 +1231,26 @@ public sealed class ResearchDraftController
 
     private static Point CalculateTreeBackgroundTileSize(Texture2D texture)
     {
+        return CalculateTreeBackgroundTileSize(texture, 1f);
+    }
+
+    private static Point CalculateTreeBackgroundTileSize(Texture2D texture, float zoom)
+    {
+        var scale = Math.Clamp(zoom, MinimumTreeZoom, MaximumTreeZoom);
         return new Point(
-            Math.Max(1, texture.Width),
-            Math.Max(1, texture.Height));
+            Math.Max(1, (int)MathF.Round(texture.Width * scale)),
+            Math.Max(1, (int)MathF.Round(texture.Height * scale)));
+    }
+
+    internal static int CalculateTreeBackgroundStartCoordinate(int viewportMinimum, float surfaceOrigin, int tileLength)
+    {
+        if (tileLength <= 0)
+        {
+            return viewportMinimum;
+        }
+
+        var tileOffset = MathF.Floor((viewportMinimum - surfaceOrigin) / tileLength) * tileLength;
+        return (int)MathF.Round(surfaceOrigin + tileOffset);
     }
 
     private static Rectangle CalculateTreeBackgroundSourceRectangle(Texture2D texture, Rectangle tileBounds, Rectangle visibleBounds)
@@ -1183,6 +1278,82 @@ public sealed class ResearchDraftController
         return roundUp
             ? (int)MathF.Ceiling(sourceCoordinate)
             : (int)MathF.Floor(sourceCoordinate);
+    }
+
+    private void SnapTreeToContentBoundsIfNeeded(Rectangle treeBounds, SkillTree skillTree)
+    {
+        _treePanOffset = ResolveTreePanAfterRelease(treeBounds, skillTree, _treePanOffset, _treeZoom);
+    }
+
+    internal static Vector2 ResolveTreePanAfterRelease(
+        Rectangle treeBounds,
+        SkillTree skillTree,
+        Vector2 panOffset,
+        float zoom)
+    {
+        if (skillTree.Root is null)
+        {
+            return Vector2.Zero;
+        }
+
+        var metrics = BuildTreeMetrics(treeBounds, skillTree, zoom);
+        var pannedBounds = OffsetTreeBounds(BuildVisibleTreeContentBounds(metrics), panOffset);
+        if (TreeBoundsIntersects(metrics.ContentBounds, pannedBounds))
+        {
+            return panOffset;
+        }
+
+        return CalculateTreeCenteringPanOffset(metrics);
+    }
+
+    internal static TreeBounds BuildVisibleTreeContentBounds(Rectangle treeBounds, SkillTree skillTree, float zoom = 1f)
+    {
+        var metrics = BuildTreeMetrics(treeBounds, skillTree, zoom);
+        return BuildVisibleTreeContentBounds(metrics);
+    }
+
+    internal static float ClampTreeZoom(float zoom)
+    {
+        return Math.Clamp(zoom, MinimumTreeZoom, MaximumTreeZoom);
+    }
+
+    private static TreeBounds BuildVisibleTreeContentBounds(TreeDisplayMetrics metrics)
+    {
+        return ExpandTreeBounds(metrics.BaseBounds, metrics.NodeRadius);
+    }
+
+    private static TreeBounds ExpandTreeBounds(TreeBounds bounds, float padding)
+    {
+        return new TreeBounds(
+            bounds.MinX - padding,
+            bounds.MaxX + padding,
+            bounds.MinY - padding,
+            bounds.MaxY + padding);
+    }
+
+    private static TreeBounds OffsetTreeBounds(TreeBounds bounds, Vector2 offset)
+    {
+        return new TreeBounds(
+            bounds.MinX + offset.X,
+            bounds.MaxX + offset.X,
+            bounds.MinY + offset.Y,
+            bounds.MaxY + offset.Y);
+    }
+
+    private static bool TreeBoundsIntersects(Rectangle rectangle, TreeBounds bounds)
+    {
+        return bounds.MaxX >= rectangle.Left &&
+            bounds.MinX <= rectangle.Right &&
+            bounds.MaxY >= rectangle.Top &&
+            bounds.MinY <= rectangle.Bottom;
+    }
+
+    private static Vector2 CalculateTreeCenteringPanOffset(TreeDisplayMetrics metrics)
+    {
+        var treeCenter = new Vector2(
+            (metrics.BaseBounds.MinX + metrics.BaseBounds.MaxX) * 0.5f,
+            (metrics.BaseBounds.MinY + metrics.BaseBounds.MaxY) * 0.5f);
+        return metrics.ContentBounds.Center.ToVector2() - treeCenter;
     }
 
     private static void DrawCrispConnector(
@@ -1950,6 +2121,13 @@ public sealed class ResearchDraftController
         return draftSystem.HasPendingDraft ? PendingStatus : EmptyStatus;
     }
 
+    private static string BuildDraftSubtitle(ResearchDraftOffer pendingDraft)
+    {
+        return pendingDraft.Source == ResearchDraftSource.InfiniteDraft
+            ? "Infinite draft is active. Choose one branch and click a valid graft point on the tree."
+            : $"Round {pendingDraft.SourceRoundNumber} reward. Choose one branch and click a valid graft point on the tree.";
+    }
+
     private static ResearchDraftLayoutInfo BuildLayout(Point viewport, ResearchDraftSystem draftSystem)
     {
         var branchCardCount = draftSystem.PendingDraft?.Branches.Count ?? 0;
@@ -2048,7 +2226,7 @@ public sealed class ResearchDraftController
         int NodeRadius,
         TreeBounds BaseBounds);
 
-    private readonly record struct TreeBounds(
+    internal readonly record struct TreeBounds(
         float MinX,
         float MaxX,
         float MinY,

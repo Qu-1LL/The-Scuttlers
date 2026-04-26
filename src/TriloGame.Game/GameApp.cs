@@ -56,6 +56,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly CameraController _camera = new();
     private readonly MenuController _menu = new();
     private readonly ResearchDraftController _researchDraft = new();
+    private readonly TrilodexController _trilodex = new();
     private readonly GameSessionBootstrapper _bootstrapper = new();
     private readonly GameSimulationClockSystem _simulationClock = new();
     private readonly GameOverStateSystem _gameOverState = new();
@@ -78,6 +79,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _settingsMenuOpen;
     private bool _resumeSimulationAfterClosingSettings;
     private bool _resumeSimulationAfterClosingResearchDraft;
+    private bool _resumeSimulationAfterClosingTrilodex;
     private bool _mainMenuOpen;
     private bool _showRoleLabels;
     private bool _debugAntHolePlacementMode;
@@ -162,6 +164,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"DebugMenuOpen: {_debugMenuOpen}");
         builder.AppendLine($"SettingsMenuOpen: {_settingsMenuOpen}");
         builder.AppendLine($"ResearchDraftOpen: {_researchDraft.IsOpen}");
+        builder.AppendLine($"TrilodexOpen: {_trilodex.IsOpen}");
         builder.AppendLine($"BuildMode: {BuildMode}");
         builder.AppendLine($"DebugAntHolePlacementMode: {_debugAntHolePlacementMode}");
         builder.AppendLine($"TickSpeedMs: {_tickSpeedMs}");
@@ -292,7 +295,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_mainMenuOpen)
         {
             _researchDraft.UpdatePointer(_input.MousePoint);
-            if (_researchDraft.IsOpen)
+            _trilodex.UpdatePointer(_input.MousePoint);
+            if (_trilodex.IsOpen)
+            {
+                HandleTrilodexMenuInput();
+            }
+            else if (_researchDraft.IsOpen)
             {
                 HandleResearchDraftMenuInput();
             }
@@ -331,6 +339,15 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
 
         _researchDraft.UpdatePointer(_input.MousePoint);
+        _trilodex.UpdatePointer(_input.MousePoint);
+        if (_trilodex.IsOpen)
+        {
+            HandleTrilodexMenuInput();
+            GumUi.Update(gameTime);
+            base.Update(gameTime);
+            return;
+        }
+
         if (_researchDraft.IsOpen)
         {
             HandleResearchDraftMenuInput();
@@ -476,7 +493,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             else if (!_input.Dragging &&
                      !_menu.CoversScreenPoint(_input.MousePoint, Window.ClientBounds.Size) &&
                      !SettingsCoversPoint(_input.MousePoint) &&
-                     !ResearchDraftCoversPoint(_input.MousePoint))
+                     !ResearchDraftCoversPoint(_input.MousePoint) &&
+                     !TrilodexCoversPoint(_input.MousePoint))
             {
                 HandleWorldRightClick(_input.MousePoint);
                 _leftPanActive = false;
@@ -524,6 +542,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             else if (!_input.Dragging &&
                      !SettingsCoversPoint(_input.MousePoint) &&
                      !ResearchDraftCoversPoint(_input.MousePoint) &&
+                     !TrilodexCoversPoint(_input.MousePoint) &&
                      !_menu.HandleClick(_input.MousePoint, Window.ClientBounds.Size, this, _session))
             {
                 HandleWorldClick(_input.MousePoint);
@@ -590,6 +609,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawMainMenuOverlayBackground();
             DrawMainMenuOverlayForeground();
             DrawSettingsMenu();
+            _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, GetTreeBackgroundTexture());
             if (_researchDraft.IsOpen)
             {
                 _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture());
@@ -609,6 +629,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawMiningTileHoverLabel();
             DrawFocusHint();
             DrawRoundDebugWidget();
+            _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, GetTreeBackgroundTexture());
             _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture());
 
             if (_debugMenuOpen)
@@ -708,7 +729,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ResetRoundSystems();
         _researchDraftSystem.Reset();
         _researchDraft.Reset();
+        _trilodex.Reset();
         _resumeSimulationAfterClosingResearchDraft = false;
+        _resumeSimulationAfterClosingTrilodex = false;
         _uiClockMs = 0d;
         _input.EndDrag();
         ClearPendingManualMove();
@@ -729,7 +752,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _debugMenuOpen = false;
         _researchDraftSystem.Reset();
         _researchDraft.Reset();
+        _trilodex.Reset();
         _resumeSimulationAfterClosingResearchDraft = false;
+        _resumeSimulationAfterClosingTrilodex = false;
         _tickAccumulatorMs = 0d;
         _input.EndDrag();
     }
@@ -743,6 +768,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         CloseSettingsMenu();
         ForceCloseResearchDraftMenu();
+        ForceCloseTrilodexMenu();
         _gamePaused = true;
         _debugMenuOpen = false;
         _selectionDragActive = false;
@@ -792,7 +818,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (GetMainMenuTrilodexButtonBounds(viewport).Contains(_input.MousePoint))
         {
             PlayUiSelectSound();
-            OpenResearchDraftMenu(pauseSimulationIfNeeded: false);
+            OpenTrilodexMenu(pauseSimulationIfNeeded: false);
             return;
         }
 
@@ -1033,7 +1059,7 @@ public sealed partial class GameApp
         if (trilodexBounds.Contains(point))
         {
             PlayUiSelectSound();
-            OpenResearchDraftMenu(pauseSimulationIfNeeded: !_mainMenuOpen);
+            OpenTrilodexMenu(pauseSimulationIfNeeded: !_mainMenuOpen);
             return true;
         }
 
@@ -1512,7 +1538,8 @@ public sealed partial class GameApp
             && _selectionDragMode is null
             && !_menu.CoversScreenPoint(point, Window.ClientBounds.Size)
             && !SettingsCoversPoint(point)
-            && !ResearchDraftCoversPoint(point);
+            && !ResearchDraftCoversPoint(point)
+            && !TrilodexCoversPoint(point);
     }
 
     private bool ShouldStartSelectionDrag(Point point)
@@ -1520,7 +1547,8 @@ public sealed partial class GameApp
         return !BuildMode
             && !_menu.CoversScreenPoint(point, Window.ClientBounds.Size)
             && !SettingsCoversPoint(point)
-            && !ResearchDraftCoversPoint(point);
+            && !ResearchDraftCoversPoint(point)
+            && !TrilodexCoversPoint(point);
     }
 
     private void FinalizeSelectionBox()

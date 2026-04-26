@@ -12,7 +12,7 @@ The project is currently a single MonoGame game assembly with layered modules in
   - simulation clock orchestration
   - game-over state
   - round pacing and round-driven ant spawning orchestration
-  - between-round research draft generation and placement orchestration
+  - research draft generation and placement orchestration, including round rewards and infinite-draft follow-ups
   - play/test automation API
 - `UI`
   - menu, debug, selection, settings, Gum-backed controls

@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Game;
@@ -68,7 +70,7 @@ public sealed partial class GameApp
                 _roundManager.TryStartDeferredNextRound(_session);
                 if (_infiniteDraft)
                 {
-                    _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound);
+                    _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
                 }
 
                 PlayUiSelectSound();
@@ -78,7 +80,9 @@ public sealed partial class GameApp
 
     private void OpenResearchDraftMenu(bool pauseSimulationIfNeeded = true)
     {
+        EnsureInfiniteDraftOffer();
         CloseSettingsMenu();
+        ForceCloseTrilodexMenu();
         _debugMenuOpen = false;
         _roleRadialMenu = null;
         _leftPanActive = false;
@@ -122,6 +126,20 @@ public sealed partial class GameApp
 
         _researchDraft.Close(_researchDraftSystem);
         _resumeSimulationAfterClosingResearchDraft = false;
+    }
+
+    private void EnsureInfiniteDraftOffer()
+    {
+        if (!_infiniteDraft || _researchDraftSystem.HasPendingDraft)
+        {
+            return;
+        }
+
+        var createdDraft = _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
+        if (createdDraft is null)
+        {
+            Trace.WriteLine($"[ResearchDraft][Tick {_session.TickCount}] Infinite draft requested a new offer, but no draftable branches were available.");
+        }
     }
 
     private bool ResearchDraftCoversPoint(Point point)

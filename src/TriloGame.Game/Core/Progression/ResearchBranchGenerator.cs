@@ -274,7 +274,7 @@ public sealed class ResearchBranchGenerator
                 continue;
             }
 
-            if (!IsAvailable(entry, hasCompletedTierOneTree, hasCompletedTierTwoTree, unlockedCount, unlockedKeys))
+            if (!IsAvailable(entry, hasCompletedTierOneTree, hasCompletedTierTwoTree, unlockedCount, existingKeys, unlockedKeys))
             {
                 continue;
             }
@@ -290,6 +290,7 @@ public sealed class ResearchBranchGenerator
         bool hasCompletedTierOneTree,
         bool hasCompletedTierTwoTree,
         int unlockedCount,
+        IReadOnlySet<TemplateNodeKey> existingKeys,
         IReadOnlySet<TemplateNodeKey> unlockedKeys)
     {
         if (entry.ParentKey is not TemplateNodeKey parentKey)
@@ -303,7 +304,7 @@ public sealed class ResearchBranchGenerator
             };
         }
 
-        return unlockedKeys.Contains(parentKey);
+        return unlockedKeys.Contains(parentKey) || existingKeys.Contains(parentKey);
     }
 
     private bool HasCompletedTree(TriloDex dex, IReadOnlySet<TemplateNodeKey> unlockedKeys, int tier)

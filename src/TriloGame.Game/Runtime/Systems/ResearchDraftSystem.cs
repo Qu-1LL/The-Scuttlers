@@ -2,6 +2,12 @@ using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
 namespace TriloGame.Game.Runtime.Systems;
 
+public enum ResearchDraftSource
+{
+    RoundReward,
+    InfiniteDraft
+}
+
 public sealed class ResearchDraftSystem
 {
     public ResearchDraftOffer? PendingDraft { get; private set; }
@@ -13,7 +19,10 @@ public sealed class ResearchDraftSystem
         PendingDraft = null;
     }
 
-    public ResearchDraftOffer? CreateDraft(GameSession session, RoundInfo round)
+    public ResearchDraftOffer? CreateDraft(
+        GameSession session,
+        RoundInfo round,
+        ResearchDraftSource source = ResearchDraftSource.RoundReward)
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -33,7 +42,7 @@ public sealed class ResearchDraftSystem
             return null;
         }
 
-        PendingDraft = new ResearchDraftOffer(round.RoundNumber, seed, generation);
+        PendingDraft = new ResearchDraftOffer(round.RoundNumber, source, seed, generation);
         return PendingDraft;
     }
 
@@ -69,17 +78,21 @@ public sealed class ResearchDraftOffer
 {
     public ResearchDraftOffer(
         int sourceRoundNumber,
+        ResearchDraftSource source,
         int seed,
         ResearchBranchGenerationResult generation)
     {
         SourceRoundNumber = sourceRoundNumber >= 0
             ? sourceRoundNumber
             : throw new ArgumentOutOfRangeException(nameof(sourceRoundNumber), "Round number cannot be negative.");
+        Source = source;
         Seed = seed;
         Generation = generation ?? throw new ArgumentNullException(nameof(generation));
     }
 
     public int SourceRoundNumber { get; }
+
+    public ResearchDraftSource Source { get; }
 
     public int Seed { get; }
 

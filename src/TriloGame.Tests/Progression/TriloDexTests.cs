@@ -9,14 +9,15 @@ public sealed class TriloDexTests
     public void GlobalDex_ContainsTheAuthoredFeatureTreeCatalog()
     {
         Assert.Same(TriloDex.Global, TriloDex.Global);
-        Assert.Equal(28, TriloDex.GlobalFeatureTrees.Count);
-        Assert.Equal(28, TriloDex.Global.FeatureTrees.Count);
-        Assert.Equal(28, TriloDex.Global.Count);
+        Assert.Equal(18, TriloDex.GlobalFeatureTrees.Count);
+        Assert.Equal(18, TriloDex.Global.FeatureTrees.Count);
+        Assert.Equal(18, TriloDex.Global.Count);
         Assert.False(TriloDex.Global.IsEmpty);
 
         Assert.Equal(12, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 1));
-        Assert.Equal(12, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 2));
-        Assert.Equal(4, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 3));
+        Assert.Equal(5, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 2));
+        Assert.Equal(1, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 3));
+        Assert.All(TriloDex.GlobalFeatureTrees, tree => Assert.InRange(tree.Count, 10, 20));
     }
 
     [Fact]
