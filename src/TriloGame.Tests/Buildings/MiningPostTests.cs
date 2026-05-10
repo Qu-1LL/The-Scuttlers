@@ -27,6 +27,24 @@ public sealed class MiningPostTests
     }
 
     [Fact]
+    public void MiningPostInventoryChanges_UpdateGlobalAvailabilityCache()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
+        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+
+        Assert.True(post.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+
+        Assert.Equal(post.Capacity, post.Deposit("Sandstone", post.Capacity));
+        Assert.True(post.AssignmentsAvailable);
+        Assert.False(cave.HasAvailableMiningPostAssignments);
+
+        Assert.Equal(1, post.Withdraw("Sandstone", 1));
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+    }
+
+    [Fact]
     public void ExhaustedAssignmentsRemainFalse_AfterReservationReleaseAndInvalidation()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));

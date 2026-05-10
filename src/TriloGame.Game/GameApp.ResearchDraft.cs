@@ -8,15 +8,25 @@ public sealed partial class GameApp
 {
     private bool HandleResearchDraftButtonClick(Point point)
     {
-        var outcome = _researchDraft.HandleClosedButtonClick(point, Window.ClientBounds.Size);
-        if (outcome != ResearchDraftInteractionOutcome.RequestedOpen)
+        var outcome = _researchDraft.HandleClosedButtonClick(point, Window.ClientBounds.Size, CanSkipCurrentRoundGracePeriod());
+        switch (outcome)
         {
-            return false;
-        }
+            case ResearchDraftInteractionOutcome.RequestedOpen:
+                PlayUiSelectSound();
+                OpenResearchDraftMenu();
+                return true;
+            case ResearchDraftInteractionOutcome.RequestedSkipGracePeriod:
+                if (_roundManager.TrySkipCurrentGracePeriod(_session))
+                {
+                    PlayUiSelectSound();
+                }
 
-        PlayUiSelectSound();
-        OpenResearchDraftMenu();
-        return true;
+                return true;
+            case ResearchDraftInteractionOutcome.Consumed:
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void HandleResearchDraftMenuInput()
@@ -55,9 +65,9 @@ public sealed partial class GameApp
                 CloseResearchDraftMenu();
                 break;
             case ResearchDraftInteractionOutcome.BranchPlaced:
-                _roundManager.TryStartDeferredNextRound(_session);
                 PlayUiSelectSound();
                 CloseResearchDraftMenu();
+                _roundManager.TryStartDeferredNextRound(_session);
                 break;
         }
     }
@@ -113,5 +123,14 @@ public sealed partial class GameApp
     private bool ResearchDraftCoversPoint(Point point)
     {
         return _researchDraft.CoversScreenPoint(point, Window.ClientBounds.Size);
+    }
+
+    private bool CanSkipCurrentRoundGracePeriod()
+    {
+        return !_mainMenuOpen &&
+               !_isGameOver &&
+               !HasLostQueen() &&
+               !_roundManager.HasDeferredNextRoundStart &&
+               _roundManager.IsGracePeriodActive;
     }
 }

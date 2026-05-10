@@ -77,6 +77,10 @@ public sealed class MiningPost : Building
         var accepted = System.Math.Min(GetInventorySpace(), amount);
         _inventory[resourceType] += accepted;
         _inventoryTotal += accepted;
+        if (accepted > 0)
+        {
+            Cave?.SyncMiningPostAssignmentAvailability();
+        }
         return accepted;
     }
 
@@ -91,6 +95,10 @@ public sealed class MiningPost : Building
         var taken = System.Math.Min(_inventory[resourceType], amount);
         _inventory[resourceType] -= taken;
         _inventoryTotal -= taken;
+        if (taken > 0)
+        {
+            Cave?.SyncMiningPostAssignmentAvailability();
+        }
         return taken;
     }
 
@@ -154,6 +162,11 @@ public sealed class MiningPost : Building
         else
         {
             _materialReservations[creature] = reservation with { Amount = remaining };
+        }
+
+        if (taken > 0)
+        {
+            Cave?.SyncMiningPostAssignmentAvailability();
         }
 
         return new ResourceReservation(reservation.ResourceType, taken);

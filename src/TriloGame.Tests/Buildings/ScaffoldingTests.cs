@@ -51,6 +51,62 @@ public sealed class ScaffoldingTests
         Assert.False(cave.CanBuild(scaffolding, locationToBlock, preserveReachability: true));
     }
 
+    [Fact]
+    public void Scaffolding_BlocksTargetBuildingFootprintUntilConstructionCompletes()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var scaffolding = new Scaffolding(session, new Smith(session));
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+
+        var passableTile = cave.GetTile(new GridPoint(buildLocation.X + 1, buildLocation.Y + 1));
+        var blockedTile = cave.GetTile(buildLocation);
+
+        Assert.NotNull(passableTile);
+        Assert.NotNull(blockedTile);
+        Assert.False(passableTile!.CreatureFits());
+        Assert.False(blockedTile!.CreatureFits());
+        Assert.Same(scaffolding, passableTile.Built);
+        Assert.Same(scaffolding, blockedTile.Built);
+    }
+
+    [Fact]
+    public void CompletedScaffolding_WithPassableTargetTiles_ReplacesItselfWithTargetBuilding()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var targetBuilding = new Smith(session);
+        var scaffolding = new Scaffolding(session, targetBuilding);
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+
+        var requiredSandstone = scaffolding.GetRemainingRequirement("Sandstone");
+        Assert.Equal(requiredSandstone, scaffolding.Deposit("Sandstone", requiredSandstone));
+        Assert.Equal(scaffolding.ConstructionRequired, scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
+
+        Assert.DoesNotContain(scaffolding, cave.Buildings);
+        Assert.Contains(targetBuilding, cave.Buildings);
+        Assert.Equal(buildLocation, targetBuilding.Location);
+
+        var formerlyPassableScaffoldTile = cave.GetTile(new GridPoint(buildLocation.X + 1, buildLocation.Y + 1));
+        Assert.NotNull(formerlyPassableScaffoldTile);
+        Assert.True(formerlyPassableScaffoldTile!.CreatureFits());
+        Assert.Same(targetBuilding, formerlyPassableScaffoldTile.Built);
+    }
+
+    [Fact]
+    public void Scaffolding_OpenMap_PreservesNonFootprintCells()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var targetBuilding = new Turret(session);
+        var scaffolding = new Scaffolding(session, targetBuilding);
+
+        Assert.Equal(2, scaffolding.OpenMap[0][2]);
+        Assert.Equal(2, scaffolding.OpenMap[2][0]);
+        Assert.Equal(0, scaffolding.OpenMap[1][1]);
+    }
+
     private static void SetWallTile(TriloGame.Game.Core.World.Cave cave, GridPoint location)
     {
         var tile = cave.GetTile(location)

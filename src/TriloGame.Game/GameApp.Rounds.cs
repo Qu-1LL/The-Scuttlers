@@ -65,7 +65,12 @@ public sealed partial class GameApp
         }
 
         _roundManager.Advance(session, GameConstants.GameTimePerSimulationTickMs);
-        _antHandler.Advance(session, _roundManager.CurrentRound);
+        var currentRound = _roundManager.CurrentRound;
+        _antHandler.Advance(session, currentRound);
+        if (_antHandler.CanCompleteCurrentRound(session, currentRound))
+        {
+            _roundManager.CompleteCurrentRound(session);
+        }
     }
 
     private bool HandleRoundDebugWidgetClick(Point point)
@@ -82,7 +87,7 @@ public sealed partial class GameApp
         }
 
         var currentRound = _roundManager.CurrentRound;
-        if (!_antHandler.CanSkipCurrentRound(_session, currentRound))
+        if (!_antHandler.CanCompleteCurrentRound(_session, currentRound))
         {
             var remainingKills = _antHandler.GetRemainingKillsForRound(_session, currentRound);
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skip ignored for round {currentRound.RoundNumber}; remaining ants to defeat this round: {remainingKills}.");
@@ -108,7 +113,7 @@ public sealed partial class GameApp
         }
 
         var currentRound = _roundManager.CurrentRound;
-        var canSkipRound = _antHandler.CanSkipCurrentRound(_session, currentRound);
+        var canSkipRound = _antHandler.CanCompleteCurrentRound(_session, currentRound);
         var pointer = _input.MousePoint;
         var timerHovered = layout.TimerBounds.Contains(pointer);
         var roundHovered = canSkipRound && layout.RoundBounds.Contains(pointer);
@@ -127,13 +132,13 @@ public sealed partial class GameApp
             12);
 
         DrawScreenTextFittedCentered(
-            "Next Round",
+            currentRound.GracePeriodActive ? "Next Round" : "Status",
             layout.TimerLabelBounds,
             new Color(182, 220, 234),
             _rendering.SmallFont,
             minScale: 0.7f);
         DrawScreenTextFittedCentered(
-            FormatRoundCountdown(GetRoundWidgetCountdownMs(currentRound)),
+            GetRoundWidgetCountdownText(currentRound),
             layout.TimerValueBounds,
             Color.White,
             _rendering.SmallFont,
@@ -148,19 +153,17 @@ public sealed partial class GameApp
 
     private static string GetRoundBadgeLabel(RoundInfo round)
     {
-        return round.RoundNumber == 0 && round.GracePeriodActive
-            ? "Grace Period"
-            : $"Round {round.RoundNumber}";
+        return $"Round {round.RoundNumber}";
     }
 
-    private static double GetRoundWidgetCountdownMs(RoundInfo round)
+    private static string GetRoundWidgetCountdownText(RoundInfo round)
     {
-        if (round.RoundNumber == 0 && round.GracePeriodActive)
+        if (!round.GracePeriodActive)
         {
-            return Math.Max(0d, round.SpawnWindowStartMs - round.ElapsedGameTimeMs);
+            return "Defend!";
         }
 
-        return round.RemainingDurationMs;
+        return FormatRoundCountdown(round.RemainingDurationMs);
     }
 
     private static string FormatRoundCountdown(double remainingDurationMs)

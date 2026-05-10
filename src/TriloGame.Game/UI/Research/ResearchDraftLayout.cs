@@ -5,10 +5,26 @@ namespace TriloGame.Game.UI.Research;
 
 public static class ResearchDraftLayout
 {
-    public static Rectangle GetButtonBounds(Point viewport)
+    private const int ClosedButtonHeight = 44;
+    private const int SkillTreeButtonWidth = 188;
+    private const int SkipButtonWidth = 128;
+    private const int ClosedButtonGap = 10;
+
+    public static Rectangle GetSkillTreeButtonBounds(Point viewport)
     {
         var settingsBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
-        return new Rectangle(settingsBounds.X, settingsBounds.Bottom + 10, 188, 44);
+        return new Rectangle(settingsBounds.X, settingsBounds.Bottom + 10, SkillTreeButtonWidth, ClosedButtonHeight);
+    }
+
+    public static Rectangle GetSkipButtonBounds(Point viewport)
+    {
+        var skillTreeBounds = GetSkillTreeButtonBounds(viewport);
+        return new Rectangle(skillTreeBounds.Right + ClosedButtonGap, skillTreeBounds.Y, SkipButtonWidth, skillTreeBounds.Height);
+    }
+
+    public static Rectangle GetButtonBounds(Point viewport)
+    {
+        return GetSkillTreeButtonBounds(viewport);
     }
 
     public static ResearchDraftLayoutInfo Build(Point viewport, int branchCardCount = 3)
@@ -41,7 +57,8 @@ public static class ResearchDraftLayout
         var footerBounds = new Rectangle(panelBounds.X + 24, panelBounds.Bottom - 36, panelBounds.Width - 48, 18);
 
         return new ResearchDraftLayoutInfo(
-            GetButtonBounds(viewport),
+            GetSkillTreeButtonBounds(viewport),
+            GetSkipButtonBounds(viewport),
             panelBounds,
             closeButtonBounds,
             titleBounds,
@@ -111,7 +128,8 @@ public static class ResearchDraftLayout
 }
 
 public readonly record struct ResearchDraftLayoutInfo(
-    Rectangle ButtonBounds,
+    Rectangle SkillTreeButtonBounds,
+    Rectangle SkipButtonBounds,
     Rectangle PanelBounds,
     Rectangle CloseButtonBounds,
     Rectangle TitleBounds,

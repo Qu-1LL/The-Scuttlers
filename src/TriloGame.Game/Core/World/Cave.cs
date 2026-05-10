@@ -466,10 +466,7 @@ public sealed partial class Cave : Graph
                 _miningPosts.Add(post);
                 _miningPostAssignmentCounts[post] = post.GetVolume();
                 MiningPostBuildingsAdded = true;
-                if (post.Location is not null && post.TileArray.Count > 0 && post.AssignmentsAvailable)
-                {
-                    HasAvailableMiningPostAssignments = true;
-                }
+                SyncMiningPostAssignmentAvailability();
                 SyncMiningPostBuildingsAddedState();
                 break;
             case AlgaeFarm farm:
@@ -508,10 +505,7 @@ public sealed partial class Cave : Graph
                 _miningPosts.Remove(post);
                 _miningPostAssignmentCounts.Remove(post);
                 ForgetMiningPostMovementCache(post);
-                if (HasAvailableMiningPostAssignments && post.AssignmentsAvailable)
-                {
-                    HasAvailableMiningPostAssignments = _miningPosts.Any(other => other.Location is not null && other.TileArray.Count > 0 && other.AssignmentsAvailable);
-                }
+                SyncMiningPostAssignmentAvailability();
                 SyncMiningPostBuildingsAddedState();
                 break;
             case AlgaeFarm farm:
@@ -673,14 +667,7 @@ public sealed partial class Cave : Graph
 
     internal void OnMiningPostAssignmentsAvailableChanged(MiningPost post, bool previousValue, bool currentValue)
     {
-        if (currentValue)
-        {
-            HasAvailableMiningPostAssignments = true;
-        }
-        else if (previousValue && HasAvailableMiningPostAssignments)
-        {
-            HasAvailableMiningPostAssignments = _miningPosts.Any(other => other.Location is not null && other.TileArray.Count > 0 && other.AssignmentsAvailable);
-        }
+        SyncMiningPostAssignmentAvailability();
 
         if (!previousValue && currentValue && _miningPostAssignmentCounts.ContainsKey(post))
         {
@@ -739,14 +726,15 @@ public sealed partial class Cave : Graph
         return leastCount.HasValue && currentCount > leastCount.Value + 1;
     }
 
+    // This cache is only true while at least one active mining post still has
+    // mineable work and room to store the haul.
     internal bool SyncMiningPostAssignmentAvailability()
     {
-        if (!HasAvailableMiningPostAssignments)
-        {
-            return false;
-        }
-
-        HasAvailableMiningPostAssignments = _miningPosts.Any(post => post.Location is not null && post.TileArray.Count > 0 && post.AssignmentsAvailable);
+        HasAvailableMiningPostAssignments = _miningPosts.Any(post =>
+            post.Location is not null &&
+            post.TileArray.Count > 0 &&
+            post.AssignmentsAvailable &&
+            post.GetInventorySpace() > 0);
         return HasAvailableMiningPostAssignments;
     }
 

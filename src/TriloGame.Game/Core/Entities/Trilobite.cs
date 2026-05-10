@@ -1643,7 +1643,6 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        EnqueueAction(() => { MinerStep1(); });
         return true;
     }
 
@@ -1827,7 +1826,6 @@ public sealed partial class Trilobite : Creature
         if (GetAssignedMiningPost() is null && Cave is not null && !Cave.HasAvailableMiningPostAssignments)
         {
             ReleaseAssignedBuilding();
-            EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
@@ -1869,6 +1867,11 @@ public sealed partial class Trilobite : Creature
     public bool MinerStep1()
     {
         if (!EnsureMinerState())
+        {
+            return false;
+        }
+
+        if (Cave is null || !Cave.HasAvailableMiningPostAssignments)
         {
             return false;
         }

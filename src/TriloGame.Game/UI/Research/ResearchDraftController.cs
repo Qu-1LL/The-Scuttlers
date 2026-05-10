@@ -14,6 +14,7 @@ public enum ResearchDraftInteractionOutcome
     None,
     Consumed,
     RequestedOpen,
+    RequestedSkipGracePeriod,
     RequestedClose,
     BranchPlaced
 }
@@ -109,17 +110,30 @@ public sealed class ResearchDraftController
         var layout = ResearchDraftLayout.Build(viewport);
         return IsOpen
             ? layout.PanelBounds.Contains(point)
-            : layout.ButtonBounds.Contains(point);
+            : layout.SkillTreeButtonBounds.Contains(point) || layout.SkipButtonBounds.Contains(point);
     }
 
-    public ResearchDraftInteractionOutcome HandleClosedButtonClick(Point point, Point viewport)
+    public ResearchDraftInteractionOutcome HandleClosedButtonClick(Point point, Point viewport, bool canSkipGracePeriod)
     {
-        if (IsOpen || !ResearchDraftLayout.GetButtonBounds(viewport).Contains(point))
+        if (IsOpen)
         {
             return ResearchDraftInteractionOutcome.None;
         }
 
-        return ResearchDraftInteractionOutcome.RequestedOpen;
+        var layout = ResearchDraftLayout.Build(viewport);
+        if (layout.SkillTreeButtonBounds.Contains(point))
+        {
+            return ResearchDraftInteractionOutcome.RequestedOpen;
+        }
+
+        if (!layout.SkipButtonBounds.Contains(point))
+        {
+            return ResearchDraftInteractionOutcome.None;
+        }
+
+        return canSkipGracePeriod
+            ? ResearchDraftInteractionOutcome.RequestedSkipGracePeriod
+            : ResearchDraftInteractionOutcome.Consumed;
     }
 
     public bool HandlePointerDown(Point point, Point viewport, ResearchDraftSystem draftSystem)
@@ -187,10 +201,16 @@ public sealed class ResearchDraftController
         return ResearchDraftInteractionOutcome.RequestedClose;
     }
 
-    public void Draw(Point viewport, GameSession session, ResearchDraftSystem draftSystem, GumUiRenderer gumUi)
+    public void Draw(
+        Point viewport,
+        GameSession session,
+        ResearchDraftSystem draftSystem,
+        bool canSkipGracePeriod,
+        GumUiRenderer gumUi)
     {
         var layout = ResearchDraftLayout.Build(viewport);
-        DrawButton(layout.ButtonBounds, draftSystem.HasPendingDraft, gumUi);
+        DrawSkillTreeButton(layout.SkillTreeButtonBounds, draftSystem.HasPendingDraft, gumUi);
+        DrawSkipButton(layout.SkipButtonBounds, canSkipGracePeriod, gumUi);
 
         if (!IsOpen)
         {
@@ -226,7 +246,7 @@ public sealed class ResearchDraftController
         return ResearchDraftInteractionOutcome.BranchPlaced;
     }
 
-    private void DrawButton(Rectangle bounds, bool hasPendingDraft, GumUiRenderer gumUi)
+    private void DrawSkillTreeButton(Rectangle bounds, bool hasPendingDraft, GumUiRenderer gumUi)
     {
         var hovered = bounds.Contains(_pointerPoint);
         var fill = hasPendingDraft
@@ -241,7 +261,27 @@ public sealed class ResearchDraftController
         AddCenteredText(
             gumUi,
             new Rectangle(bounds.X + 12, bounds.Y, bounds.Width - 24, bounds.Height),
-            hasPendingDraft ? "Skill Tree Ready" : "Skill Tree",
+            "Skill Tree",
+            text,
+            GumTextStyle.Small);
+    }
+
+    private void DrawSkipButton(Rectangle bounds, bool canSkipGracePeriod, GumUiRenderer gumUi)
+    {
+        var hovered = canSkipGracePeriod && bounds.Contains(_pointerPoint);
+        var fill = !canSkipGracePeriod
+            ? new Color(33, 40, 44)
+            : hovered ? new Color(110, 84, 33) : new Color(84, 60, 20);
+        var border = !canSkipGracePeriod
+            ? new Color(92, 104, 112)
+            : hovered ? new Color(245, 223, 173) : new Color(214, 188, 128);
+        var text = canSkipGracePeriod ? Color.White : new Color(183, 191, 196);
+
+        gumUi.AddRoundedFrame(bounds, fill, border, 2, 14);
+        AddCenteredText(
+            gumUi,
+            new Rectangle(bounds.X + 10, bounds.Y, bounds.Width - 20, bounds.Height),
+            "Skip Wait",
             text,
             GumTextStyle.Small);
     }

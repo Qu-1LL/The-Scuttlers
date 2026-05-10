@@ -12,11 +12,24 @@ public sealed class ResearchDraftLayoutTests
         var viewport = new Point(1440, 900);
 
         var settingsBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
-        var buttonBounds = ResearchDraftLayout.GetButtonBounds(viewport);
+        var buttonBounds = ResearchDraftLayout.GetSkillTreeButtonBounds(viewport);
 
         Assert.Equal(settingsBounds.X, buttonBounds.X);
         Assert.True(buttonBounds.Width > settingsBounds.Width);
         Assert.True(buttonBounds.Top > settingsBounds.Bottom);
+    }
+
+    [Fact]
+    public void GetSkipButtonBounds_PlacesSkipButtonToTheRightOfTheSkillTreeButton()
+    {
+        var viewport = new Point(1440, 900);
+
+        var skillTreeButtonBounds = ResearchDraftLayout.GetSkillTreeButtonBounds(viewport);
+        var skipButtonBounds = ResearchDraftLayout.GetSkipButtonBounds(viewport);
+
+        Assert.Equal(skillTreeButtonBounds.Y, skipButtonBounds.Y);
+        Assert.Equal(skillTreeButtonBounds.Height, skipButtonBounds.Height);
+        Assert.True(skipButtonBounds.Left > skillTreeButtonBounds.Right);
     }
 
     [Fact]

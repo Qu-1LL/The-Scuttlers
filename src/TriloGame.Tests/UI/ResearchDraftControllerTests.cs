@@ -155,6 +155,48 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
+    public void HandleClosedButtonClick_ClickingSkillTreeButtonRequestsOpen()
+    {
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+
+        var outcome = controller.HandleClosedButtonClick(
+            GetCenter(ResearchDraftLayout.GetSkillTreeButtonBounds(viewport)),
+            viewport,
+            canSkipGracePeriod: false);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.RequestedOpen, outcome);
+    }
+
+    [Fact]
+    public void HandleClosedButtonClick_ClickingSkipButtonWhileGraceIsActiveRequestsGraceSkip()
+    {
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+
+        var outcome = controller.HandleClosedButtonClick(
+            GetCenter(ResearchDraftLayout.GetSkipButtonBounds(viewport)),
+            viewport,
+            canSkipGracePeriod: true);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.RequestedSkipGracePeriod, outcome);
+    }
+
+    [Fact]
+    public void HandleClosedButtonClick_ClickingSkipButtonDuringCombatIsConsumed()
+    {
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+
+        var outcome = controller.HandleClosedButtonClick(
+            GetCenter(ResearchDraftLayout.GetSkipButtonBounds(viewport)),
+            viewport,
+            canSkipGracePeriod: false);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.Consumed, outcome);
+    }
+
+    [Fact]
     public void HandlePointerUp_SelectsABranchAndPlacesItOnASecondClick()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;

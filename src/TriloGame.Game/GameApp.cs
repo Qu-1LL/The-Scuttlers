@@ -614,7 +614,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             }
 
             DrawRoundDebugWidget();
-            _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer);
+            _researchDraft.Draw(
+                Window.ClientBounds.Size,
+                _session,
+                _researchDraftSystem,
+                CanSkipCurrentRoundGracePeriod(),
+                _gumUiRenderer);
         }
 
         _gumUiRenderer.EndFrame();
@@ -1788,13 +1793,7 @@ public sealed partial class GameApp
         {
             if (building is Scaffolding scaffold)
             {
-                foreach (var tile in scaffold.TileArray.Where(cave.IsTileRevealed))
-                {
-                    var tilePoint = GridPoint.Parse(tile.Key);
-                    DrawWorldTextureNative(
-                        "Scaffold",
-                        new Vector2(tilePoint.X * TileConstants.TileSize, tilePoint.Y * TileConstants.TileSize));
-                }
+                DrawScaffold(scaffold, cave);
 
                 continue;
             }
@@ -1809,6 +1808,36 @@ public sealed partial class GameApp
                 GetPlacedBuildingWorldCenter(building),
                 building.GetDisplayRotationTurns() * MathF.PI / 2f,
                 GetPlacedBuildingOrigin(building));
+        }
+    }
+
+    private void DrawScaffold(Scaffolding scaffold, Cave cave)
+    {
+        if (scaffold.Location is not { } location)
+        {
+            return;
+        }
+
+        for (var x = 0; x < scaffold.Size.X; x++)
+        {
+            for (var y = 0; y < scaffold.Size.Y; y++)
+            {
+                if (scaffold.OpenMap[y][x] > 1)
+                {
+                    continue;
+                }
+
+                var tilePoint = new GridPoint(location.X + x, location.Y + y);
+                var tile = cave.GetTile(tilePoint);
+                if (tile is null || !cave.IsTileRevealed(tile))
+                {
+                    continue;
+                }
+
+                DrawWorldTextureNative(
+                    "Scaffold",
+                    new Vector2(tilePoint.X * TileConstants.TileSize, tilePoint.Y * TileConstants.TileSize));
+            }
         }
     }
 
