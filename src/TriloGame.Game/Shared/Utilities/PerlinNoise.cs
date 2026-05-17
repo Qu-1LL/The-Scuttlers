@@ -24,6 +24,7 @@ public static class PerlinNoise
 
     private static readonly int[] Lookup = BuildLookup();
 
+    // Sample two-dimensional Perlin noise at the requested coordinates.
     public static float Sample(float x, float y)
     {
         var xi = FastFloor(x) & 255;
@@ -45,6 +46,7 @@ public static class PerlinNoise
         return Lerp(x1, x2, v);
     }
 
+    // Duplicate the permutation table so wrapped lookups can skip an extra modulo.
     private static int[] BuildLookup()
     {
         var lookup = new int[512];
@@ -56,21 +58,25 @@ public static class PerlinNoise
         return lookup;
     }
 
+    // Floor negative values in the same way the original Perlin algorithm expects.
     private static int FastFloor(float value)
     {
         return value >= 0f ? (int)value : (int)value - 1;
     }
 
+    // Smooth interpolation inputs with the classic quintic easing curve.
     private static float Fade(float t)
     {
         return t * t * t * (t * (t * 6f - 15f) + 10f);
     }
 
+    // Blend between two samples using the provided interpolation factor.
     private static float Lerp(float a, float b, float t)
     {
         return a + (t * (b - a));
     }
 
+    // Resolve the gradient contribution for one hashed lattice corner.
     private static float Grad(int hash, float x, float y)
     {
         return (hash & 3) switch

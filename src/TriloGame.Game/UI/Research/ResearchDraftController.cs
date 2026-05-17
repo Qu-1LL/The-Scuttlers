@@ -39,10 +39,12 @@ public sealed class ResearchDraftController
     private static readonly Color UnlockedSkillTreeConnectorColor = new(247, 221, 92);
     private static readonly Color BranchOriginFillColor = new(238, 207, 106);
     private static readonly Color BranchOriginBorderColor = new(255, 247, 222);
+    private static readonly Color SelectedSkillTreeOutlineColor = new(247, 221, 92);
 
     private Point _pointerPoint;
     private float _treeScroll;
     private int? _selectedBranchIndex;
+    private BinarySkillNode? _selectedSkillTreeNode;
     private string _statusMessage = EmptyStatus;
 
     public bool IsOpen { get; private set; }
@@ -52,6 +54,7 @@ public sealed class ResearchDraftController
         _pointerPoint = Point.Zero;
         _treeScroll = 0f;
         _selectedBranchIndex = null;
+        _selectedSkillTreeNode = null;
         _statusMessage = EmptyStatus;
         IsOpen = false;
     }
@@ -60,6 +63,7 @@ public sealed class ResearchDraftController
     {
         IsOpen = true;
         _treeScroll = 0f;
+        _selectedSkillTreeNode = null;
         _statusMessage = BuildDefaultStatus(draftSystem);
     }
 
@@ -67,6 +71,7 @@ public sealed class ResearchDraftController
     {
         _treeScroll = 0f;
         _selectedBranchIndex = null;
+        _selectedSkillTreeNode = null;
         _statusMessage = BuildDefaultStatus(draftSystem);
         IsOpen = false;
     }
@@ -169,24 +174,30 @@ public sealed class ResearchDraftController
             return ResearchDraftInteractionOutcome.RequestedClose;
         }
 
-        if (draftSystem.PendingDraft is null)
+        if (TryHandleSelectedNodeUnlockClick(point, layout, session, draftSystem))
         {
             return ResearchDraftInteractionOutcome.Consumed;
         }
 
-        if (TryGetBranchCardSelection(point, layout, draftSystem.PendingDraft, out var selectedBranchIndex))
+        if (draftSystem.PendingDraft is not null &&
+            TryGetBranchCardSelection(point, layout, draftSystem.PendingDraft, out var selectedBranchIndex))
         {
             _selectedBranchIndex = selectedBranchIndex;
             _statusMessage = SelectedBranchStatus;
             return ResearchDraftInteractionOutcome.Consumed;
         }
 
-        if (_selectedBranchIndex is not int branchIndex)
+        if (_selectedBranchIndex is int branchIndex)
+        {
+            return TryPlaceSelectedBranch(point, layout, session, draftSystem, branchIndex);
+        }
+
+        if (TrySelectPlacedNode(layout, session, draftSystem))
         {
             return ResearchDraftInteractionOutcome.Consumed;
         }
 
-        return TryPlaceSelectedBranch(point, layout, session, draftSystem, branchIndex);
+        return ResearchDraftInteractionOutcome.Consumed;
     }
 
     public ResearchDraftInteractionOutcome HandleEscape(ResearchDraftSystem draftSystem)
@@ -246,6 +257,138 @@ public sealed class ResearchDraftController
         return ResearchDraftInteractionOutcome.BranchPlaced;
     }
 
+    private bool TryHandleSelectedNodeUnlockClick(
+        Point point,
+        ResearchDraftLayoutInfo layout,
+        GameSession session,
+        ResearchDraftSystem draftSystem)
+    {
+        var displayContext = GetSkillTreeDisplayContext(layout, session, draftSystem);
+        if (displayContext is not ResearchSkillTreeDisplayContext selectedDisplayContext)
+        {
+            return false;
+        }
+
+        var actionInfo = BuildSelectedNodeActionInfo(session, draftSystem, selectedDisplayContext);
+        if (actionInfo is not ResearchNodeActionInfo selectedActionInfo ||
+            !selectedActionInfo.HasUnlockButton)
+        {
+            return false;
+        }
+
+        var panelLayout = CalculateNodeInfoPanelLayout(
+            layout.BranchColumnBounds,
+            ResearchNodeHoverPlacement.BranchColumn,
+            hasActionStatus: true,
+            hasUnlockButton: true);
+        if (panelLayout.UnlockButtonBounds is not Rectangle unlockButtonBounds ||
+            !unlockButtonBounds.Contains(point))
+        {
+            return false;
+        }
+
+        if (!session.SkillTree.TryPurchaseNode(session, selectedDisplayContext.Node, out var failureReason))
+        {
+            _statusMessage = failureReason ?? "That skill node could not be unlocked.";
+            return true;
+        }
+
+        _statusMessage = $"Unlocked {selectedDisplayContext.Node.Name} for {BuildNodeCostText(selectedDisplayContext.Node)}.";
+        return true;
+    }
+
+    private bool TrySelectPlacedNode(
+        ResearchDraftLayoutInfo layout,
+        GameSession session,
+        ResearchDraftSystem draftSystem)
+    {
+        if (!layout.TreeViewportBounds.Contains(_pointerPoint))
+        {
+            return false;
+        }
+
+        var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree, draftSystem);
+        _treeScroll = Clamp(_treeScroll, 0f, metrics.MaxScroll);
+        metrics = metrics with { Scroll = _treeScroll };
+        var hoveredNode = TryGetHoveredPlacedNode(metrics, session.SkillTree, out _);
+        if (hoveredNode is null)
+        {
+            return false;
+        }
+
+        _selectedSkillTreeNode = hoveredNode;
+        _statusMessage = draftSystem.HasPendingDraft
+            ? $"Selected {hoveredNode.Name}. Place the pending research branch before unlocking nodes."
+            : hoveredNode.IsUnlocked
+                ? $"Selected {hoveredNode.Name}. This skill node is already unlocked."
+                : $"Selected {hoveredNode.Name}. Review the cost below to unlock it.";
+        return true;
+    }
+
+    private ResearchSkillTreeDisplayContext? GetSkillTreeDisplayContext(
+        ResearchDraftLayoutInfo layout,
+        GameSession session,
+        ResearchDraftSystem draftSystem)
+    {
+        var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree, draftSystem);
+        _treeScroll = Clamp(_treeScroll, 0f, metrics.MaxScroll);
+        metrics = metrics with { Scroll = _treeScroll };
+
+        var hoveredNode = TryGetHoveredPlacedNode(metrics, session.SkillTree, out _);
+        var selectedNode = GetSelectedPlacedNode(session.SkillTree);
+        var displayedNode = hoveredNode ?? selectedNode;
+        if (displayedNode is null)
+        {
+            return null;
+        }
+
+        return new ResearchSkillTreeDisplayContext(
+            displayedNode,
+            BuildNodeHoverInfo(session, displayedNode),
+            ReferenceEquals(displayedNode, selectedNode));
+    }
+
+    private BinarySkillNode? GetSelectedPlacedNode(SkillTree skillTree)
+    {
+        if (_selectedSkillTreeNode is null)
+        {
+            return null;
+        }
+
+        if (!skillTree.Contains(_selectedSkillTreeNode) || _selectedSkillTreeNode.NodeLocation is null)
+        {
+            _selectedSkillTreeNode = null;
+            return null;
+        }
+
+        return _selectedSkillTreeNode;
+    }
+
+    private static ResearchNodeActionInfo? BuildSelectedNodeActionInfo(
+        GameSession session,
+        ResearchDraftSystem draftSystem,
+        ResearchSkillTreeDisplayContext displayContext)
+    {
+        if (!displayContext.IsSelectedDisplay || draftSystem.HasPendingDraft)
+        {
+            return null;
+        }
+
+        if (displayContext.Node.IsUnlocked)
+        {
+            return new ResearchNodeActionInfo("Already unlocked.", HasUnlockButton: false, IsUnlockEnabled: false);
+        }
+
+        var canPurchase = session.SkillTree.CanPurchaseNode(session, displayContext.Node, out var failureReason);
+        var costText = BuildNodeCostText(displayContext.Node);
+        return new ResearchNodeActionInfo(
+            canPurchase
+                ? $"Spend {costText} to unlock this skill node."
+                : failureReason ?? "This skill node cannot be unlocked yet.",
+            HasUnlockButton: true,
+            IsUnlockEnabled: canPurchase);
+    }
+
     private void DrawSkillTreeButton(Rectangle bounds, bool hasPendingDraft, GumUiRenderer gumUi)
     {
         var hovered = bounds.Contains(_pointerPoint);
@@ -293,6 +436,7 @@ public sealed class ResearchDraftController
         GumUiRenderer gumUi)
     {
         var pendingDraft = draftSystem.PendingDraft;
+        var skillTreeDisplayContext = GetSkillTreeDisplayContext(layout, session, draftSystem);
         var hoverDisplay = GetHoveredNodeDisplay(layout, session, draftSystem);
         DrawDockedHoverInfoPanel(layout, hoverDisplay, gumUi);
 
@@ -326,11 +470,12 @@ public sealed class ResearchDraftController
 
         if (pendingDraft is null)
         {
-            if (hoverDisplay is { Placement: ResearchNodeHoverPlacement.BranchColumn } branchColumnHoverDisplay)
+            if (skillTreeDisplayContext is ResearchSkillTreeDisplayContext displayContext)
             {
                 DrawNodeInfoPanel(
                     layout.BranchColumnBounds,
-                    branchColumnHoverDisplay.HoverInfo,
+                    displayContext.HoverInfo,
+                    BuildSelectedNodeActionInfo(session, draftSystem, displayContext),
                     gumUi,
                     ResearchNodeHoverPlacement.BranchColumn);
             }
@@ -410,7 +555,7 @@ public sealed class ResearchDraftController
         var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree, draftSystem);
         metrics = metrics with { Scroll = Clamp(_treeScroll, 0f, metrics.MaxScroll) };
 
-        var skillTreeHoverInfo = GetPlacedTreeHoverInfo(session, metrics);
+        var skillTreeDisplayContext = GetSkillTreeDisplayContext(layout, session, draftSystem);
         ResearchNodeHoverInfo? branchHoverInfo = null;
         if (_selectedBranchIndex is int activeBranchIndex &&
             draftSystem.PendingDraft is not null &&
@@ -434,7 +579,7 @@ public sealed class ResearchDraftController
 
         var placement = ResolveHoverPlacement(
             draftSystem.PendingDraft is not null,
-            skillTreeHoverInfo is not null,
+            skillTreeDisplayContext is not null,
             branchHoverInfo is not null);
         if (placement is not ResearchNodeHoverPlacement resolvedPlacement)
         {
@@ -443,7 +588,7 @@ public sealed class ResearchDraftController
 
         return resolvedPlacement == ResearchNodeHoverPlacement.RightDock
             ? new ResearchNodeHoverDisplay(branchHoverInfo!.Value, resolvedPlacement)
-            : new ResearchNodeHoverDisplay(skillTreeHoverInfo!.Value, resolvedPlacement);
+            : new ResearchNodeHoverDisplay(skillTreeDisplayContext!.Value.HoverInfo, resolvedPlacement);
     }
 
     private void DrawDockedHoverInfoPanel(
@@ -458,11 +603,11 @@ public sealed class ResearchDraftController
 
         if (dockedHoverDisplay.Placement == ResearchNodeHoverPlacement.LeftDock)
         {
-            DrawNodeInfoPanel(layout.HoverInfoBounds, dockedHoverDisplay.HoverInfo, gumUi, dockedHoverDisplay.Placement);
+            DrawNodeInfoPanel(layout.HoverInfoBounds, dockedHoverDisplay.HoverInfo, null, gumUi, dockedHoverDisplay.Placement);
         }
         else if (dockedHoverDisplay.Placement == ResearchNodeHoverPlacement.RightDock)
         {
-            DrawNodeInfoPanel(layout.RightHoverInfoBounds, dockedHoverDisplay.HoverInfo, gumUi, dockedHoverDisplay.Placement);
+            DrawNodeInfoPanel(layout.RightHoverInfoBounds, dockedHoverDisplay.HoverInfo, null, gumUi, dockedHoverDisplay.Placement);
         }
     }
 
@@ -571,6 +716,7 @@ public sealed class ResearchDraftController
 
     private ResearchNodeHoverInfo? DrawPlacedTree(GameSession session, TreeDisplayMetrics metrics, GumUiRenderer gumUi)
     {
+        var selectedNode = GetSelectedPlacedNode(session.SkillTree);
         var hoveredNode = TryGetHoveredPlacedNode(metrics, session.SkillTree, out _);
         foreach (var node in session.SkillTree.TraverseDepthFirst())
         {
@@ -618,10 +764,25 @@ public sealed class ResearchDraftController
             DrawTreeNode(gumUi, point, metrics.NodeRadius, GetNodeFillColor(session, node), GetNodeBorderColor(session, node));
         }
 
+        if (selectedNode?.NodeLocation is GridPoint selectedLocation &&
+            !ReferenceEquals(selectedNode, hoveredNode))
+        {
+            var selectedPoint = GetTreePoint(metrics, selectedLocation);
+            if (IsNodeVisible(metrics, selectedPoint, metrics.NodeRadius))
+            {
+                DrawNodeOutline(gumUi, selectedPoint, metrics.NodeRadius, SelectedSkillTreeOutlineColor, 5, 2);
+            }
+        }
+
         if (hoveredNode is BinarySkillNode hovered)
         {
             DrawPlacedPrerequisiteHighlights(gumUi, metrics, session, hovered);
             return BuildNodeHoverInfo(session, hovered);
+        }
+
+        if (selectedNode is BinarySkillNode selected)
+        {
+            return BuildNodeHoverInfo(session, selected);
         }
 
         return null;
@@ -711,7 +872,7 @@ public sealed class ResearchDraftController
             preview.AnchorLocation is GridPoint activeAnchorLocation)
         {
             DrawAnchoredBranchPrerequisiteHighlights(gumUi, metrics, session, branch, hoveredBranchNode, activeAnchorLocation);
-            return BuildNodeHoverInfo(session, hoveredBranchNode.Node);
+            return BuildNodeHoverInfo(session, hoveredBranchNode.Node, GetAbsoluteLocation(activeAnchorLocation, hoveredBranchNode.Delta));
         }
 
         return null;
@@ -1202,6 +1363,7 @@ public sealed class ResearchDraftController
     private void DrawNodeInfoPanel(
         Rectangle bounds,
         ResearchNodeHoverInfo hoverInfo,
+        ResearchNodeActionInfo? actionInfo,
         GumUiRenderer gumUi,
         ResearchNodeHoverPlacement placement)
     {
@@ -1221,12 +1383,33 @@ public sealed class ResearchDraftController
 
         gumUi.AddRoundedFrame(bounds, new Color(9, 18, 28, 248), new Color(204, 228, 238), 2, 16);
 
-        var contentX = bounds.X + 14 + hiddenLeftInset;
-        var contentWidth = bounds.Width - 28 - hiddenLeftInset - hiddenRightInset;
-        AddText(gumUi, new Rectangle(contentX, bounds.Y + 12, contentWidth, 18), "Node Details", new Color(204, 228, 238), GumTextStyle.Compact);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 38, contentWidth, 44), "Node", hoverInfo.TitleText);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 88, contentWidth, 40), "Feature Tree", hoverInfo.FeatureTreeText);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 134, contentWidth, bounds.Height - 148), "Effect", hoverInfo.EffectText, maxLines: 10);
+        var panelLayout = CalculateNodeInfoPanelLayout(
+            bounds,
+            placement,
+            hasActionStatus: actionInfo is not null,
+            hasUnlockButton: actionInfo?.HasUnlockButton == true);
+        AddText(gumUi, panelLayout.TitleBounds, "Node Details", new Color(204, 228, 238), GumTextStyle.Compact);
+        DrawInfoSection(gumUi, panelLayout.NodeBounds, "Node", hoverInfo.TitleText);
+        DrawInfoSection(gumUi, panelLayout.FeatureTreeBounds, "Feature Tree", hoverInfo.FeatureTreeText);
+        DrawInfoSection(gumUi, panelLayout.EffectBounds, "Effect", hoverInfo.EffectText, maxLines: 10);
+        DrawInfoSection(gumUi, panelLayout.CostBounds, "Cost", hoverInfo.CostText, maxLines: 1);
+
+        if (actionInfo is ResearchNodeActionInfo nodeActionInfo)
+        {
+            gumUi.AddText(
+                panelLayout.ActionStatusBounds,
+                nodeActionInfo.StatusText,
+                nodeActionInfo.IsUnlockEnabled ? new Color(217, 231, 237) : new Color(233, 205, 170),
+                fontSize: GumTextLayout.GetMetrics(GumTextStyle.Compact).FontSize,
+                verticalAlignment: VerticalAlignment.Center,
+                maxLines: 2);
+
+            if (nodeActionInfo.HasUnlockButton &&
+                panelLayout.UnlockButtonBounds is Rectangle unlockButtonBounds)
+            {
+                DrawUnlockButton(unlockButtonBounds, nodeActionInfo.IsUnlockEnabled, gumUi);
+            }
+        }
     }
 
     private static void DrawInfoSection(
@@ -1249,6 +1432,75 @@ public sealed class ResearchDraftController
             fontSize: GumTextLayout.GetMetrics(GumTextStyle.Small).FontSize,
             verticalAlignment: VerticalAlignment.Top,
             maxLines: maxLines);
+    }
+
+    internal static NodeInfoPanelLayout CalculateNodeInfoPanelLayout(
+        Rectangle bounds,
+        ResearchNodeHoverPlacement placement,
+        bool hasActionStatus,
+        bool hasUnlockButton)
+    {
+        const int hiddenInset = 30;
+        const int actionStatusHeight = 32;
+        const int buttonHeight = 34;
+        const int sectionGap = 8;
+
+        var hiddenLeftInset = placement == ResearchNodeHoverPlacement.RightDock ? hiddenInset : 0;
+        var hiddenRightInset = placement == ResearchNodeHoverPlacement.LeftDock ? hiddenInset : 0;
+        var contentX = bounds.X + 14 + hiddenLeftInset;
+        var contentWidth = bounds.Width - 28 - hiddenLeftInset - hiddenRightInset;
+        var titleBounds = new Rectangle(contentX, bounds.Y + 12, contentWidth, 18);
+        var nodeBounds = new Rectangle(contentX, bounds.Y + 38, contentWidth, 44);
+        var featureTreeBounds = new Rectangle(contentX, bounds.Y + 88, contentWidth, 40);
+
+        var reservedActionHeight = 0;
+        if (hasActionStatus)
+        {
+            reservedActionHeight += actionStatusHeight + sectionGap;
+            if (hasUnlockButton)
+            {
+                reservedActionHeight += buttonHeight + sectionGap;
+            }
+        }
+
+        var effectTop = bounds.Y + 134;
+        var effectBottom = bounds.Bottom - 14 - 40 - reservedActionHeight - sectionGap;
+        var effectHeight = Math.Max(72, effectBottom - effectTop);
+        var effectBounds = new Rectangle(contentX, effectTop, contentWidth, effectHeight);
+        var costBounds = new Rectangle(contentX, effectBounds.Bottom + sectionGap, contentWidth, 40);
+
+        var actionStatusBounds = hasActionStatus
+            ? new Rectangle(contentX, costBounds.Bottom + sectionGap, contentWidth, actionStatusHeight)
+            : Rectangle.Empty;
+        Rectangle? unlockButtonBounds = null;
+        if (hasUnlockButton)
+        {
+            unlockButtonBounds = new Rectangle(contentX, actionStatusBounds.Bottom + sectionGap, contentWidth, buttonHeight);
+        }
+
+        return new NodeInfoPanelLayout(
+            titleBounds,
+            nodeBounds,
+            featureTreeBounds,
+            effectBounds,
+            costBounds,
+            actionStatusBounds,
+            unlockButtonBounds);
+    }
+
+    private void DrawUnlockButton(Rectangle bounds, bool isEnabled, GumUiRenderer gumUi)
+    {
+        var hovered = bounds.Contains(_pointerPoint);
+        var fill = !isEnabled
+            ? new Color(38, 43, 47)
+            : hovered ? new Color(181, 153, 75) : new Color(154, 128, 58);
+        var border = !isEnabled
+            ? new Color(93, 106, 114)
+            : hovered ? new Color(255, 232, 176) : new Color(239, 213, 146);
+        var text = isEnabled ? new Color(18, 26, 34) : new Color(188, 195, 200);
+
+        gumUi.AddRoundedFrame(bounds, fill, border, 2, 12);
+        AddCenteredText(gumUi, bounds, "Unlock", text, GumTextStyle.Small);
     }
 
     private BinarySkillNode? TryGetHoveredPlacedNode(TreeDisplayMetrics metrics, SkillTree skillTree, out Vector2 center)
@@ -1303,7 +1555,7 @@ public sealed class ResearchDraftController
             node => GetTreePoint(metrics, GetAbsoluteLocation(anchorLocation, node.Delta)),
             node => IsNodeVisible(metrics, GetTreePoint(metrics, GetAbsoluteLocation(anchorLocation, node.Delta)), metrics.NodeRadius),
             out _);
-        return hoveredNode is null ? null : BuildNodeHoverInfo(session, hoveredNode.Node);
+        return hoveredNode is null ? null : BuildNodeHoverInfo(session, hoveredNode.Node, GetAbsoluteLocation(anchorLocation, hoveredNode.Delta));
     }
 
     private ResearchNodeHoverInfo? GetCursorBoundBranchHoverInfo(
@@ -1559,13 +1811,19 @@ public sealed class ResearchDraftController
 
     internal static ResearchNodeHoverInfo BuildNodeHoverInfo(GameSession session, BinarySkillNode node)
     {
+        return BuildNodeHoverInfo(session, node, node.NodeLocation);
+    }
+
+    internal static ResearchNodeHoverInfo BuildNodeHoverInfo(GameSession session, BinarySkillNode node, GridPoint? resolvedLocation)
+    {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(node);
 
         return new ResearchNodeHoverInfo(
             node.Name,
             string.IsNullOrWhiteSpace(node.SourceFeatureTreeName) ? "Core" : node.SourceFeatureTreeName,
-            BuildNodeAffectText(session, node));
+            BuildNodeAffectText(session, node),
+            BuildNodeCostText(node, resolvedLocation));
     }
 
     internal static Color GetSkillTreeConnectorColor(BinarySkillNode child)
@@ -1618,6 +1876,16 @@ public sealed class ResearchDraftController
         }
 
         return node.Description;
+    }
+
+    internal static string BuildNodeCostText(BinarySkillNode node, GridPoint? resolvedLocation = null)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        var unlockLocation = resolvedLocation ?? node.NodeLocation;
+        return unlockLocation is GridPoint location
+            ? $"{SkillTree.CalculateNodeUnlockCost(location)} sandstone"
+            : "Depends on placement.";
     }
 
     internal static IReadOnlyList<string> GetFeatureTreePrerequisiteSkillNames(BinarySkillNode node)
@@ -1842,12 +2110,32 @@ public sealed class ResearchDraftController
         float StepY,
         int Radius);
 
+    internal readonly record struct NodeInfoPanelLayout(
+        Rectangle TitleBounds,
+        Rectangle NodeBounds,
+        Rectangle FeatureTreeBounds,
+        Rectangle EffectBounds,
+        Rectangle CostBounds,
+        Rectangle ActionStatusBounds,
+        Rectangle? UnlockButtonBounds);
+
     private readonly record struct ResearchNodeHoverDisplay(
         ResearchNodeHoverInfo HoverInfo,
         ResearchNodeHoverPlacement Placement);
 
+    private readonly record struct ResearchSkillTreeDisplayContext(
+        BinarySkillNode Node,
+        ResearchNodeHoverInfo HoverInfo,
+        bool IsSelectedDisplay);
+
+    private readonly record struct ResearchNodeActionInfo(
+        string StatusText,
+        bool HasUnlockButton,
+        bool IsUnlockEnabled);
+
     internal readonly record struct ResearchNodeHoverInfo(
         string TitleText,
         string FeatureTreeText,
-        string EffectText);
+        string EffectText,
+        string CostText);
 }

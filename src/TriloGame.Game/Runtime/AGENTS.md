@@ -71,6 +71,14 @@ systems, especially:
 - scenario bootstrapping
 - automation bridges
 
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial runtime methods when they coordinate timing,
+  orchestration, or state ownership
+- keep comments focused on lifecycle intent and cross-system contracts, not line-by-line narration
+- skip obvious accessors and tiny forwarders unless they hide important runtime meaning
+- add brief notes before complicated time-budget loops or branching state machines
+
 ## Golden Path Files
 
 These are the current reference files for the preferred structure:

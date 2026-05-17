@@ -84,6 +84,16 @@ Use `src/TriloGame.Tests` for unit, runtime, world, UI, performance, simulation,
 - `GameApp` is the MonoGame host and composition root, not the long-term home for new gameplay
   systems.
 
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial methods when the surrounding system intent is
+  not already obvious
+- keep comments at the ownership or invariant level instead of paraphrasing the code line by line
+- skip self-explanatory accessors and simple pass-through methods unless nearby context would be hard
+  to follow without them
+- add brief notes before complex loops or branch blocks when they encode placement, timing, or
+  selection rules
+
 ## Module Placement Guide
 
 When adding code, use this routing:

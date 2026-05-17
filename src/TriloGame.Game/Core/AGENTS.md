@@ -49,6 +49,17 @@ Prefer:
 - one-pass scoring over repeated sort-heavy selection
 - pooling only when justified by real hot-path pressure
 
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial methods in simulation code when the gameplay
+  intent or invariant is not obvious from the signature
+- keep comments focused on rules, ownership, and deterministic behavior rather than restating each
+  line
+- skip trivial accessors and simple mutators unless nearby hot-path logic would otherwise be hard to
+  follow
+- add brief notes before dense loops or conditionals when they preserve important sim invariants or
+  selection behavior
+
 ## Creature Tracking And Building Projections
 
 When adding buildings that care about nearby moving units, use the current projection/tracking

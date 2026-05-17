@@ -1,3 +1,6 @@
+using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Progression;
@@ -429,6 +432,127 @@ public sealed class SkillTree
         return true;
     }
 
+    public int GetNodeUnlockCost(BinarySkillNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        if (node.NodeLocation is not GridPoint location)
+        {
+            throw new InvalidOperationException("Only placed skill tree nodes have an unlock cost.");
+        }
+
+        return CalculateNodeUnlockCost(location);
+    }
+
+    public IReadOnlyDictionary<string, int> GetNodeUnlockCosts(BinarySkillNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        return BuildNodeUnlockCosts(GetNodeUnlockCost(node));
+    }
+
+    public bool CanPurchaseNode(GameSession session, BinarySkillNode node, out string? failureReason)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(node);
+
+        if (!Contains(node) || node.NodeLocation is not GridPoint location)
+        {
+            failureReason = "Only placed skill tree nodes can be unlocked.";
+            return false;
+        }
+
+        if (node.IsUnlocked)
+        {
+            failureReason = "That skill node is already unlocked.";
+            return false;
+        }
+
+        if (node.Prerequisite is not null && !node.Prerequisite.IsUnlocked)
+        {
+            failureReason = "The previous skill node must be unlocked first.";
+            return false;
+        }
+
+        var missingPrerequisites = GetMissingFeatureTreePrerequisiteSkillNames(node);
+        if (missingPrerequisites.Count > 0)
+        {
+            failureReason = BuildMissingFeatureTreePrerequisiteFailureReason(missingPrerequisites);
+            return false;
+        }
+
+        var costs = BuildNodeUnlockCosts(CalculateNodeUnlockCost(location));
+        if (ResourceCostComparer.TryFindFirstShortfall(session.Resources, costs, out var shortfall))
+        {
+            failureReason = BuildMissingStoredResourceFailureReason(shortfall);
+            return false;
+        }
+
+        failureReason = null;
+        return true;
+    }
+
+    public bool TryPurchaseNode(GameSession session, BinarySkillNode node, out string? failureReason)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(node);
+
+        if (!CanPurchaseNode(session, node, out failureReason))
+        {
+            return false;
+        }
+
+        var costs = GetNodeUnlockCosts(node);
+        if (!TrySpendStoredResources(session, costs, out failureReason))
+        {
+            return false;
+        }
+
+        if (!node.TryUnlock(session))
+        {
+            failureReason = "That skill node could not be unlocked.";
+            return false;
+        }
+
+        failureReason = null;
+        return true;
+    }
+
+    public IReadOnlyList<string> GetMissingFeatureTreePrerequisiteSkillNames(BinarySkillNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        if (string.IsNullOrWhiteSpace(node.SourceFeatureTreeName))
+        {
+            return [];
+        }
+
+        var missingPrerequisites = new List<string>();
+        for (var current = node.SourceSkillNode.Parent; current is not null; current = current.Parent)
+        {
+            var localPrerequisite = FindBySourceSkill(node.SourceFeatureTreeName, current.Name);
+            if (localPrerequisite is not null && localPrerequisite.IsUnlocked)
+            {
+                continue;
+            }
+
+            missingPrerequisites.Add(current.Name);
+        }
+
+        missingPrerequisites.Reverse();
+        return missingPrerequisites;
+    }
+
+    public static int CalculateNodeUnlockCost(GridPoint location)
+    {
+        if (!IsValidGridLocation(location))
+        {
+            throw new ArgumentOutOfRangeException(nameof(location), "Grid coordinates must be zero or positive.");
+        }
+
+        return checked((location.X + location.Y) * 100);
+    }
+
     private BinarySkillNode? CreateImportedNode(string featureTreeName, string skillName)
     {
         if (string.IsNullOrWhiteSpace(featureTreeName) || string.IsNullOrWhiteSpace(skillName))
@@ -563,5 +687,169 @@ public sealed class SkillTree
     private static GridPoint GetBranchNodeLocation(GridPoint anchorLocation, GridPoint branchDelta)
     {
         return new GridPoint(anchorLocation.X + branchDelta.X, anchorLocation.Y + branchDelta.Y);
+    }
+
+    private static string BuildMissingFeatureTreePrerequisiteFailureReason(IReadOnlyList<string> missingPrerequisites)
+    {
+        return missingPrerequisites.Count == 1
+            ? $"Unlock prerequisite skill {missingPrerequisites[0]} first."
+            : $"Unlock prerequisite skills {string.Join(", ", missingPrerequisites)} first.";
+    }
+
+    private static Dictionary<string, int> BuildNodeUnlockCosts(int sandstoneCost)
+    {
+        var costs = new Dictionary<string, int>(1, StringComparer.Ordinal)
+        {
+            [OreType.SANDSTONE.Name] = sandstoneCost
+        };
+        return costs;
+    }
+
+    private static string BuildMissingStoredResourceFailureReason(ResourceShortfall shortfall)
+    {
+        return $"Need {shortfall.MissingAmount} more {shortfall.ResourceType.ToLowerInvariant()} to unlock this node.";
+    }
+
+    private static bool TrySpendStoredResources(
+        GameSession session,
+        IReadOnlyDictionary<string, int> costs,
+        out string? failureReason)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(costs);
+
+        var hasPositiveCost = false;
+        foreach (var pair in costs)
+        {
+            if (pair.Value > 0 && !string.IsNullOrWhiteSpace(pair.Key))
+            {
+                hasPositiveCost = true;
+                break;
+            }
+        }
+
+        if (!hasPositiveCost)
+        {
+            failureReason = null;
+            return true;
+        }
+
+        var cave = session.Cave;
+        if (cave is null)
+        {
+            failureReason = "The session must have a cave before skill nodes can be purchased.";
+            return false;
+        }
+
+        var storages = GetStorageBuildings(cave);
+        if (storages.Count == 0)
+        {
+            failureReason = "The colony has no storage buildings holding materials.";
+            return false;
+        }
+
+        var storedResources = GetTotalStoredResources(storages);
+        if (ResourceCostComparer.TryFindFirstShortfall(storedResources, costs, out var shortfall))
+        {
+            failureReason = BuildMissingStoredResourceFailureReason(shortfall);
+            return false;
+        }
+
+        foreach (var pair in costs)
+        {
+            if (pair.Value <= 0 || string.IsNullOrWhiteSpace(pair.Key))
+            {
+                continue;
+            }
+
+            if (!SpendResourceAcrossStorages(storages, pair.Key, pair.Value))
+            {
+                failureReason = $"Unable to spend {pair.Value} {pair.Key.ToLowerInvariant()} from storage.";
+                return false;
+            }
+        }
+
+        failureReason = null;
+        return true;
+    }
+
+    private static List<IStorage> GetStorageBuildings(TriloGame.Game.Core.World.Cave cave)
+    {
+        var storages = new List<IStorage>();
+        foreach (var building in cave.GetBuildingList())
+        {
+            if (building is IStorage storage)
+            {
+                storages.Add(storage);
+            }
+        }
+
+        return storages;
+    }
+
+    private static Dictionary<string, int> GetTotalStoredResources(IReadOnlyList<IStorage> storages)
+    {
+        var totals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var storage in storages)
+        {
+            foreach (var pair in storage.GetInventory())
+            {
+                if (pair.Value <= 0)
+                {
+                    continue;
+                }
+
+                totals[pair.Key] = totals.GetValueOrDefault(pair.Key, 0) + pair.Value;
+            }
+        }
+
+        return totals;
+    }
+
+    private static bool SpendResourceAcrossStorages(IReadOnlyList<IStorage> storages, string resourceType, int amount)
+    {
+        if (amount <= 0 || string.IsNullOrWhiteSpace(resourceType))
+        {
+            return true;
+        }
+
+        var remaining = amount;
+        for (var index = 0; index < storages.Count && remaining > 0; index++)
+        {
+            var available = storages[index].GetInventory().GetValueOrDefault(resourceType, 0);
+            if (available <= 0)
+            {
+                continue;
+            }
+
+            var storagesRemainingWithResource = CountStoragesContainingResource(storages, resourceType, index);
+            var targetShare = remaining / storagesRemainingWithResource;
+            if ((remaining % storagesRemainingWithResource) != 0)
+            {
+                targetShare++;
+            }
+
+            var withdrawn = storages[index].Withdraw(resourceType, Math.Min(available, targetShare));
+            remaining -= withdrawn;
+        }
+
+        return remaining <= 0;
+    }
+
+    private static int CountStoragesContainingResource(
+        IReadOnlyList<IStorage> storages,
+        string resourceType,
+        int startIndex)
+    {
+        var count = 0;
+        for (var index = startIndex; index < storages.Count; index++)
+        {
+            if (storages[index].GetInventory().GetValueOrDefault(resourceType, 0) > 0)
+            {
+                count++;
+            }
+        }
+
+        return Math.Max(1, count);
     }
 }

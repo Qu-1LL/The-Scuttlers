@@ -184,6 +184,17 @@ Prefer:
 - one-pass scoring over repeated sort-heavy selection
 - pooling only when justified by real hot-path pressure
 
+## Documentation Comment Contract
+
+- add short one-line `//` comments before non-trivial methods when their system role or invariant is
+  not obvious from the signature alone
+- keep comments intent-focused rather than narrating each statement
+- skip boilerplate accessors, obvious mutators, and tiny forwarding methods unless local context would
+  otherwise be unclear
+- add brief comments before especially dense loops or conditionals only when they encode important
+  selection, timing, or invariant logic
+- when updating a subsystem, refresh nearby comments if the behavior or ownership has changed
+
 ## Testing Contract
 
 Minimum expectations for behavior changes:

@@ -20,6 +20,7 @@ public sealed class GlobalResearch
 
     public int Count => _descriptors.Count;
 
+    // Intake a skill node's descriptors once and retain them for future stat queries.
     public void Intake(string sourceSkillNodeName, IEnumerable<ResearchEffectDescriptor> descriptors)
     {
         if (string.IsNullOrWhiteSpace(sourceSkillNodeName))
@@ -44,18 +45,21 @@ public sealed class GlobalResearch
         _descriptors.AddRange(descriptorList);
     }
 
+    // Intake descriptors directly from an authored skill node.
     public void Intake(SkillNode skillNode)
     {
         ArgumentNullException.ThrowIfNull(skillNode);
         Intake(skillNode.Name, skillNode.EffectDescriptors);
     }
 
+    // Intake descriptors directly from a per-run binary skill node.
     public void Intake(BinarySkillNode skillNode)
     {
         ArgumentNullException.ThrowIfNull(skillNode);
         Intake(skillNode.Name, skillNode.EffectDescriptors);
     }
 
+    // Return the descriptors contributed by one named skill node, if any were unlocked.
     public IReadOnlyList<ResearchEffectDescriptor> GetDescriptorsForSkillNode(string sourceSkillNodeName)
     {
         if (string.IsNullOrWhiteSpace(sourceSkillNodeName))
@@ -68,10 +72,12 @@ public sealed class GlobalResearch
             : [];
     }
 
+    // Resolve a final stat value by applying set, flat, percent, and multiply effects in order.
     public double ResolveEffectiveValue(ResearchQuery query, double baseValue)
     {
         var matching = GetMatchingDescriptors(query);
 
+        // Only the last set operation overrides the incoming base value.
         var setOverride = matching.LastOrDefault(static d => d.Operation == ResearchOperation.Set);
         var value = setOverride is null ? baseValue : setOverride.Value;
 
@@ -93,6 +99,7 @@ public sealed class GlobalResearch
         return value;
     }
 
+    // Filter the unlocked descriptor pool down to effects that match one exact stat scope.
     public IReadOnlyList<ResearchEffectDescriptor> GetMatchingDescriptors(ResearchQuery query)
     {
         var statKey = query.StatKey;

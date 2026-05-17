@@ -1,12 +1,13 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class MiningPost : Building
+public sealed class MiningPost : Building, IStorage
 {
     private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
     private readonly Dictionary<Creature, string?> _assignments = [];
@@ -80,6 +81,7 @@ public sealed class MiningPost : Building
         if (accepted > 0)
         {
             Cave?.SyncMiningPostAssignmentAvailability();
+            EmitStorageInventoryChanged(resourceType, accepted);
         }
         return accepted;
     }
@@ -98,6 +100,7 @@ public sealed class MiningPost : Building
         if (taken > 0)
         {
             Cave?.SyncMiningPostAssignmentAvailability();
+            EmitStorageInventoryChanged(resourceType, -taken);
         }
         return taken;
     }
@@ -167,9 +170,54 @@ public sealed class MiningPost : Building
         if (taken > 0)
         {
             Cave?.SyncMiningPostAssignmentAvailability();
+            EmitStorageInventoryChanged(reservation.ResourceType, -taken);
         }
 
         return new ResourceReservation(reservation.ResourceType, taken);
+    }
+
+    public override void CleanupBeforeRemoval(object? source = null)
+    {
+        if (_inventoryTotal > 0)
+        {
+            foreach (var pair in _inventory)
+            {
+                if (pair.Value <= 0)
+                {
+                    continue;
+                }
+
+                EmitStorageInventoryChanged(pair.Key, -pair.Value);
+            }
+
+            _inventoryTotal = 0;
+            var resourceTypes = _inventory.Keys.ToArray();
+            for (var index = 0; index < resourceTypes.Length; index++)
+            {
+                _inventory[resourceTypes[index]] = 0;
+            }
+        }
+
+        base.CleanupBeforeRemoval(source);
+    }
+
+    private void EmitStorageInventoryChanged(string resourceType, int resourceDelta)
+    {
+        if (string.IsNullOrWhiteSpace(resourceType) || resourceDelta == 0)
+        {
+            return;
+        }
+
+        Session.Emit(
+            GameEvents.StorageInventoryChanged,
+            new GameEventPayload(
+                Cave,
+                null,
+                Location,
+                null,
+                resourceType,
+                this,
+                resourceDelta));
     }
 
     public void Assign(Creature creature, string? tileKey)

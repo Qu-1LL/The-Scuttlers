@@ -5,6 +5,7 @@ namespace TriloGame.Game.Core.Progression;
 // the template for the real progression content we will author later.
 internal static class FeatureTreeData
 {
+    // Author the full hard-coded feature-tree catalog used by the current progression prototype.
     public static IReadOnlyList<FeatureTree> BuildGlobalFeatureTrees()
     {
         var featureTrees = new List<FeatureTree>(28);

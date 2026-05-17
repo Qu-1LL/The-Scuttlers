@@ -20,6 +20,7 @@ public sealed class ResearchDraftControllerTests
         Assert.Equal("Tooltip Node", hoverInfo.TitleText);
         Assert.Equal("B1", hoverInfo.FeatureTreeText);
         Assert.Equal("Building", hoverInfo.EffectText);
+        Assert.Equal("Depends on placement.", hoverInfo.CostText);
     }
 
     [Fact]
@@ -239,6 +240,37 @@ public sealed class ResearchDraftControllerTests
         Assert.Equal(1 + draft.Branches[1].Count, session.SkillTree.Count);
     }
 
+    [Fact]
+    public void HandlePointerUp_SelectedPlacedNodeCanBeUnlockedFromTheBranchColumn()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        controller.Open(draftSystem);
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        var root = Assert.IsType<BinarySkillNode>(session.SkillTree.Root);
+        var featureTree = Assert.IsType<FeatureTree>(session.GetFeatureTree("B1"));
+        var node = session.SkillTree.AddLeftChild(root, session.SkillTree.IntakeSkillNode(featureTree.Root!, GridPoint.Zero, featureTree.Name));
+        session.SkillTree.SetNodeLocation(node, new GridPoint(1, 0));
+        var miningPost = Assert.Single(Assert.IsType<TriloGame.Game.Core.World.Cave>(session.Cave).GetMiningPosts());
+        Assert.Equal(100, miningPost.Deposit("Sandstone", 100));
+
+        var selectOutcome = controller.HandlePointerUp(GetTreeNodePoint(layout, new GridPoint(1, 0)), viewport, session, draftSystem);
+        var buttonLayout = ResearchDraftController.CalculateNodeInfoPanelLayout(
+            layout.BranchColumnBounds,
+            ResearchNodeHoverPlacement.BranchColumn,
+            hasActionStatus: true,
+            hasUnlockButton: true);
+        var unlockOutcome = controller.HandlePointerUp(GetCenter(buttonLayout.UnlockButtonBounds!.Value), viewport, session, draftSystem);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.Consumed, selectOutcome);
+        Assert.Equal(ResearchDraftInteractionOutcome.Consumed, unlockOutcome);
+        Assert.True(node.IsUnlocked);
+        Assert.Equal(0, session.GetStoredResourceTotal("Sandstone"));
+        Assert.Equal(0, miningPost.GetInventory()["Sandstone"]);
+    }
+
     private static Point GetCenter(Rectangle bounds)
     {
         return new Point(bounds.Center.X, bounds.Center.Y);
@@ -266,5 +298,31 @@ public sealed class ResearchDraftControllerTests
         return new Point(
             contentBounds.Center.X,
             contentBounds.Bottom - nodeRadius - 4);
+    }
+
+    private static Point GetTreeNodePoint(ResearchDraftLayoutInfo layout, GridPoint location)
+    {
+        const int sidePadding = 12;
+        const int topPadding = 8;
+        const int bottomPadding = 12;
+        const int scrollbarGap = 10;
+        const int scrollbarWidth = 6;
+
+        var contentBounds = new Rectangle(
+            layout.TreeViewportBounds.X + sidePadding,
+            layout.TreeViewportBounds.Y + topPadding,
+            Math.Max(120, layout.TreeViewportBounds.Width - (sidePadding * 2) - scrollbarGap - scrollbarWidth),
+            Math.Max(120, layout.TreeViewportBounds.Height - topPadding - bottomPadding));
+        var stepX = Math.Clamp(
+            (contentBounds.Width - 24f) / Math.Max(1f, TriloGame.Game.Core.Progression.SkillTree.MaxLateralDifference * 2f),
+            18f,
+            56f);
+        var stepY = stepX * ResearchDraftController.TreeStepYRatio;
+        var nodeRadius = Math.Clamp((int)MathF.Round(stepX * 0.22f), 7, 14);
+        var origin = new Vector2(
+            contentBounds.Center.X,
+            contentBounds.Bottom - nodeRadius - 4f);
+        var point = ResearchDraftController.GetTreePoint(origin, stepX, stepY, location);
+        return new Point((int)MathF.Round(point.X), (int)MathF.Round(point.Y));
     }
 }

@@ -10,11 +10,13 @@ public sealed class ResearchDraftSystem
 
     public bool HasPendingDraft => PendingDraft is not null;
 
+    // Clear any unplaced research offer between runs or resets.
     public void Reset()
     {
         PendingDraft = null;
     }
 
+    // Generate one round-scoped research offer and keep it stable until placement resolves it.
     public ResearchDraftOffer? CreateDraft(GameSession session, RoundInfo round)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -39,6 +41,7 @@ public sealed class ResearchDraftSystem
         return PendingDraft;
     }
 
+    // Place one branch from the pending offer and clear the offer on success.
     public bool TryPlaceBranch(GameSession session, int branchIndex, GridPoint anchorLocation, out string? failureReason)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -68,6 +71,7 @@ public sealed class ResearchDraftSystem
 
 public sealed class ResearchDraftOffer
 {
+    // Capture the generated research options and the seed that produced them.
     public ResearchDraftOffer(
         int sourceRoundNumber,
         int seed,

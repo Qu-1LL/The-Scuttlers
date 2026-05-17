@@ -135,7 +135,7 @@ public sealed partial class MenuController
         var assignmentText = SelectedObject switch
         {
             Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
-            MiningPost miningPost => $"Stored: {miningPost.GetInventoryTotal()}/{miningPost.Capacity}",
+            IStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
             _ => $"Type: {title}"
         };
         var buildingAssignmentText = SelectedObject is Building selectedBuilding
@@ -256,7 +256,7 @@ public sealed partial class MenuController
             }
         }
 
-        if (SelectedObject is MiningPost miningPostSelected && layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
+        if (SelectedObject is IStorage storageSelected && layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
         {
             DrawFrame(context, inventoryFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
             DrawTextFitted(
@@ -266,7 +266,7 @@ public sealed partial class MenuController
                 new Color(159, 195, 210));
             DrawTextFittedRight(
                 context,
-                $"{miningPostSelected.GetInventoryTotal()}/{miningPostSelected.Capacity}",
+                $"{storageSelected.GetInventoryTotal()}/{storageSelected.Capacity}",
                 new Rectangle(inventoryFrameBounds.Right - 120, inventoryFrameBounds.Y + 8, 108, 20),
                 new Color(210, 228, 236));
 

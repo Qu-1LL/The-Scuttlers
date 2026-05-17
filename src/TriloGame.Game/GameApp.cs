@@ -620,6 +620,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                 _researchDraftSystem,
                 CanSkipCurrentRoundGracePeriod(),
                 _gumUiRenderer);
+            DrawStoredResourceTotals();
         }
 
         _gumUiRenderer.EndFrame();

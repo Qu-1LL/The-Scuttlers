@@ -225,9 +225,28 @@ public sealed class GumUiRenderer
         textRuntime.VerticalAlignment = verticalAlignment;
         textRuntime.FontScale = 1f;
         textRuntime.FontSize = fontSize;
-        textRuntime.MaxNumberOfLines = maxLines;
+        textRuntime.MaxNumberOfLines = ResolveMaxNumberOfLines(text, maxLines);
         textRuntime.Text = text;
         Root.Children.Add(textRuntime);
+    }
+
+    internal static int ResolveMaxNumberOfLines(string text, int maxLines)
+    {
+        if (maxLines > 0)
+        {
+            return maxLines;
+        }
+
+        var lineCount = 1;
+        foreach (var character in text)
+        {
+            if (character == '\n')
+            {
+                lineCount++;
+            }
+        }
+
+        return lineCount;
     }
 
     public void AddSprite(Rectangle bounds, Texture2D texture, Color? color = null)

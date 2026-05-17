@@ -8,11 +8,13 @@ public sealed class OpalAudioSystem
     private bool _opalWasInWarningPhase;
     private double _opalAlarmDelayMs;
 
+    // Hold the shared audio service used to drive opal warning cues.
     public OpalAudioSystem(AudioService audio)
     {
         _audio = audio;
     }
 
+    // Clear warning-phase state and silence any active opal loop.
     public void Reset()
     {
         _opalWasInWarningPhase = false;
@@ -20,11 +22,13 @@ public sealed class OpalAudioSystem
         _audio.StopLoop(GameAudioCue.OpalAlarm);
     }
 
+    // Transition the opal audio state machine based on the latest warning progress.
     public void Update(GameSession session, double elapsedMs)
     {
         var opal = session.Cave?.GetOpalNode();
         var warningActive = opal is not null && opal.GetWarningProgress() > 0f;
 
+        // Start the warning transition once when the opal first enters its danger phase.
         if (warningActive && !_opalWasInWarningPhase)
         {
             _audio.Play(GameAudioCue.OpalChangeStart);
@@ -42,6 +46,7 @@ public sealed class OpalAudioSystem
             _opalAlarmDelayMs = 0d;
         }
 
+        // Delay the alarm loop until the transition stinger has had time to play.
         if (warningActive)
         {
             if (!_audio.IsLoopPlaying(GameAudioCue.OpalAlarm))

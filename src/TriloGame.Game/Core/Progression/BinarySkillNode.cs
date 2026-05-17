@@ -9,11 +9,13 @@ namespace TriloGame.Game.Core.Progression;
 // Each node also carries a relative grid delta plus an optional placed grid location.
 public sealed class BinarySkillNode
 {
+    // Create a branch-ready copy that starts at the invisible origin delta.
     public BinarySkillNode(SkillNode sourceSkillNode, string? sourceFeatureTreeName = null)
         : this(sourceSkillNode, GridPoint.Zero, sourceFeatureTreeName)
     {
     }
 
+    // Copy authored skill data into a per-run binary node with an assigned branch delta.
     public BinarySkillNode(SkillNode sourceSkillNode, GridPoint nodeDelta, string? sourceFeatureTreeName = null)
     {
         SourceSkillNode = sourceSkillNode ?? throw new ArgumentNullException(nameof(sourceSkillNode));
@@ -62,31 +64,37 @@ public sealed class BinarySkillNode
 
     public int Depth => Parent is null ? 0 : Parent.Depth + 1;
 
+    // Record the placed grid location once this node is inserted into the live tree.
     internal void SetNodeLocation(GridPoint nodeLocation)
     {
         NodeLocation = RequireNonNegativeGridPoint(nodeLocation, nameof(nodeLocation));
     }
 
+    // Clear any placed grid location when the node leaves the live tree.
     internal void ClearNodeLocation()
     {
         NodeLocation = null;
     }
 
+    // Preserve the skill-node acquisition terminology while reusing unlock rules.
     public bool CanAcquire()
     {
         return CanUnlock();
     }
 
+    // Preserve the skill-node acquisition terminology while reusing unlock behavior.
     public bool TryAcquire(GameSession session)
     {
         return TryUnlock(session);
     }
 
+    // Allow unlocks only when this node is still locked and its prerequisite is satisfied.
     public bool CanUnlock()
     {
         return !IsUnlocked && (Prerequisite is null || Prerequisite.IsUnlocked);
     }
 
+    // Apply this node's research effects exactly once when it becomes unlocked.
     public bool TryUnlock(GameSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -101,16 +109,19 @@ public sealed class BinarySkillNode
         return true;
     }
 
+    // Attach a child into the left binary branch slot.
     public void SetLeft(BinarySkillNode child)
     {
         AttachChild(child, isLeftChild: true);
     }
 
+    // Attach a child into the right binary branch slot.
     public void SetRight(BinarySkillNode child)
     {
         AttachChild(child, isLeftChild: false);
     }
 
+    // Detach and return the current left child if one is present.
     public BinarySkillNode? RemoveLeft()
     {
         var removed = Left;
@@ -123,6 +134,7 @@ public sealed class BinarySkillNode
         return removed;
     }
 
+    // Detach and return the current right child if one is present.
     public BinarySkillNode? RemoveRight()
     {
         var removed = Right;
@@ -135,6 +147,7 @@ public sealed class BinarySkillNode
         return removed;
     }
 
+    // Traverse this branch in parent-before-children order.
     public IEnumerable<BinarySkillNode> TraverseDepthFirst()
     {
         yield return this;
@@ -156,6 +169,7 @@ public sealed class BinarySkillNode
         }
     }
 
+    // Enforce binary-slot, detachment, and cycle rules before wiring a child node in.
     private void AttachChild(BinarySkillNode child, bool isLeftChild)
     {
         ArgumentNullException.ThrowIfNull(child);
@@ -197,6 +211,7 @@ public sealed class BinarySkillNode
         }
     }
 
+    // Detect ancestor relationships so attach operations cannot introduce cycles.
     private bool IsAncestorOf(BinarySkillNode node)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
@@ -210,6 +225,7 @@ public sealed class BinarySkillNode
         return false;
     }
 
+    // Keep authored branch deltas and placed locations in the non-negative grid space.
     private static GridPoint RequireNonNegativeGridPoint(GridPoint point, string parameterName)
     {
         if (point.X < 0 || point.Y < 0)

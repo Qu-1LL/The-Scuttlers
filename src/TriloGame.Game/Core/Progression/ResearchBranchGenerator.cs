@@ -6,11 +6,13 @@ public sealed class ResearchBranchGenerator
 {
     private readonly Random _random;
 
+    // Use the supplied RNG when tests need determinism, otherwise fall back to the shared helper.
     public ResearchBranchGenerator(Random? random = null)
     {
         _random = random ?? RandomUtil.Shared;
     }
 
+    // Build a set of draft branches from the currently available progression candidates.
     public ResearchBranchGenerationResult Generate(
         SkillTree skillTree,
         int branchCount = 3,
@@ -47,6 +49,7 @@ public sealed class ResearchBranchGenerator
         return new ResearchBranchGenerationResult(branches, candidateScores, availableNodeCount);
     }
 
+    // Score each available template node so higher-value options appear more often in the pool.
     private IReadOnlyList<ResearchBranchCandidateScore> ScoreCandidates(
         IReadOnlyList<TemplateNodeEntry> availableCandidates,
         int availableNodeCount,
@@ -55,6 +58,7 @@ public sealed class ResearchBranchGenerator
         IReadOnlySet<TemplateNodeKey> unlockedKeys)
     {
         var scores = new List<ResearchBranchCandidateScore>(availableCandidates.Count);
+        // Start from tier weight, then bias toward underrepresented features and unlocked chains.
         foreach (var candidate in availableCandidates)
         {
             var score = candidate.FeatureTree.Tier;
@@ -79,6 +83,7 @@ public sealed class ResearchBranchGenerator
         return scores;
     }
 
+    // Favor feature trees that currently lag behind the rest of the unlocked portfolio.
     private int CalculateFeatureBalanceAdjustment(
         TemplateNodeEntry candidate,
         IReadOnlyList<string> allFeatureNames,
@@ -89,6 +94,7 @@ public sealed class ResearchBranchGenerator
         var affectedCount = 0;
         var unaffectedCount = 0;
 
+        // Compare the candidate's affected feature families against everything it does not touch.
         foreach (var featureName in allFeatureNames)
         {
             var count = unlockedFeatureCounts.GetValueOrDefault(featureName);
@@ -109,6 +115,7 @@ public sealed class ResearchBranchGenerator
         return (int)Math.Floor(unaffectedAverage - affectedAverage);
     }
 
+    // Assemble one research draft by repeatedly pulling legal nodes from the weighted pool.
     private ResearchBranch BuildBranch(
         int nodesPerBranch,
         IReadOnlyList<TemplateNodeKey> weightedPool,
@@ -118,6 +125,7 @@ public sealed class ResearchBranchGenerator
         var branch = new ResearchBranch();
         var pool = weightedPool.ToList();
 
+        // Keep drafting until the branch is full or no legal slot/candidate pair remains.
         while (branch.Count < nodesPerBranch)
         {
             var availableSlots = branch.GetAvailableSlots();
@@ -160,6 +168,7 @@ public sealed class ResearchBranchGenerator
         return branch;
     }
 
+    // Pull the next registry entry that is not already present in the live tree or this draft.
     private TemplateNodeEntry? SelectNextNode(
         List<TemplateNodeKey> pool,
         ResearchBranch branch,
@@ -184,6 +193,7 @@ public sealed class ResearchBranchGenerator
         return null;
     }
 
+    // Seed the pool with children of the selected node so the draft can continue along that tree.
     private void EnqueueChildren(
         List<TemplateNodeKey> pool,
         TemplateNodeEntry selected,
@@ -191,6 +201,7 @@ public sealed class ResearchBranchGenerator
         IReadOnlySet<TemplateNodeKey> existingKeys,
         IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> registry)
     {
+        // Weight children by tree tier so later-tier follow-ups remain visible in the pool.
         foreach (var child in selected.TemplateNode.Children)
         {
             var childKey = new TemplateNodeKey(selected.FeatureTree.Name, child.Name);
@@ -208,6 +219,7 @@ public sealed class ResearchBranchGenerator
         }
     }
 
+    // Expand scored candidates into a simple weighted draw pool.
     private IReadOnlyList<TemplateNodeKey> BuildWeightedPool(IReadOnlyList<ResearchBranchCandidateScore> candidateScores)
     {
         var pool = new List<TemplateNodeKey>();
@@ -222,6 +234,7 @@ public sealed class ResearchBranchGenerator
         return pool;
     }
 
+    // Collect every template node that is not already present and satisfies unlock gating.
     private IReadOnlyList<TemplateNodeEntry> CollectAvailableCandidates(
         SkillTree skillTree,
         IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> registry,
@@ -233,6 +246,7 @@ public sealed class ResearchBranchGenerator
         var unlockedCount = unlockedKeys.Count;
         var available = new List<TemplateNodeEntry>();
 
+        // Filter the registry down to nodes the current run is actually allowed to draft next.
         foreach (var entry in registry.Values)
         {
             if (existingKeys.Contains(entry.Key))
@@ -251,6 +265,7 @@ public sealed class ResearchBranchGenerator
         return available;
     }
 
+    // Gate root availability by tier progression, while child nodes follow unlocked parents.
     private bool IsAvailable(
         TemplateNodeEntry entry,
         bool hasCompletedTierOneTree,
@@ -272,6 +287,7 @@ public sealed class ResearchBranchGenerator
         return unlockedKeys.Contains(parentKey);
     }
 
+    // Check whether an entire authored tree at the requested tier has been unlocked this run.
     private bool HasCompletedTree(TriloDex dex, IReadOnlySet<TemplateNodeKey> unlockedKeys, int tier)
     {
         foreach (var featureTree in dex.FeatureTrees)
@@ -300,6 +316,7 @@ public sealed class ResearchBranchGenerator
         return false;
     }
 
+    // Count how many unlocked trees currently contribute to each feature family.
     private IReadOnlyDictionary<string, int> CountUnlockedFeatures(
         TriloDex dex,
         IReadOnlySet<TemplateNodeKey> unlockedKeys)
@@ -310,6 +327,7 @@ public sealed class ResearchBranchGenerator
             counts[featureName] = 0;
         }
 
+        // Count a feature family once per tree when that tree has at least one unlocked node.
         foreach (var featureTree in dex.FeatureTrees)
         {
             var treeHasUnlockedNode = false;
@@ -336,6 +354,7 @@ public sealed class ResearchBranchGenerator
         return counts;
     }
 
+    // Snapshot every template skill already imported into the live skill tree.
     private IReadOnlySet<TemplateNodeKey> CollectExistingKeys(SkillTree skillTree)
     {
         var keys = new HashSet<TemplateNodeKey>();
@@ -352,6 +371,7 @@ public sealed class ResearchBranchGenerator
         return keys;
     }
 
+    // Snapshot only the imported template skills that have actually been unlocked so far.
     private IReadOnlySet<TemplateNodeKey> CollectUnlockedKeys(SkillTree skillTree)
     {
         var keys = new HashSet<TemplateNodeKey>();
@@ -368,9 +388,11 @@ public sealed class ResearchBranchGenerator
         return keys;
     }
 
+    // Flatten the authored progression catalog into a lookup keyed by tree name and skill name.
     private IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> BuildRegistry(TriloDex dex)
     {
         var registry = new Dictionary<TemplateNodeKey, TemplateNodeEntry>();
+        // Preserve parent links so availability checks can follow authored prerequisites.
         foreach (var featureTree in dex.FeatureTrees)
         {
             foreach (var node in featureTree.TraverseDepthFirst())
@@ -386,6 +408,7 @@ public sealed class ResearchBranchGenerator
         return registry;
     }
 
+    // Gather every distinct feature-family tag referenced by the authored progression catalog.
     private IReadOnlyList<string> CollectAllFeatureNames(TriloDex dex)
     {
         var featureNames = new HashSet<string>(StringComparer.Ordinal);
@@ -400,6 +423,7 @@ public sealed class ResearchBranchGenerator
         return featureNames.ToArray();
     }
 
+    // Shuffle the candidate pool in place before each branch-selection attempt.
     private void Shuffle<T>(IList<T> values)
     {
         for (var index = values.Count - 1; index > 0; index--)
@@ -437,6 +461,7 @@ public sealed class ResearchBranchGenerator
 
 public sealed class ResearchBranchGenerationResult
 {
+    // Capture the generated branches and the scoring data that produced them.
     public ResearchBranchGenerationResult(
         IEnumerable<ResearchBranch> branches,
         IEnumerable<ResearchBranchCandidateScore> candidateScores,
@@ -458,6 +483,7 @@ public sealed class ResearchBranchGenerationResult
 
 public sealed class ResearchBranchCandidateScore
 {
+    // Store the final draft weight for one candidate template node.
     public ResearchBranchCandidateScore(
         string featureTreeName,
         string skillName,
@@ -482,6 +508,7 @@ public sealed class ResearchBranchCandidateScore
 
     public int Points { get; }
 
+    // Reject blank authored lookup keys before scoring data is stored.
     private static string RequireText(string value, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))

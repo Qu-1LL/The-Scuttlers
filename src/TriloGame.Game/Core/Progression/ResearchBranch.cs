@@ -24,6 +24,7 @@ public sealed class ResearchBranch
 
     public int Count => _nodes.Count;
 
+    // Install the visible branch root in one of the two entry slots beside the hidden origin.
     public ResearchBranchNode SetRoot(BinarySkillNode node, GridPoint delta)
     {
         ArgumentNullException.ThrowIfNull(node);
@@ -43,6 +44,7 @@ public sealed class ResearchBranch
         return root;
     }
 
+    // Add a left child by advancing one column from the parent branch delta.
     public ResearchBranchNode AddLeftChild(ResearchBranchNode parent, BinarySkillNode node)
     {
         ArgumentNullException.ThrowIfNull(parent);
@@ -52,6 +54,7 @@ public sealed class ResearchBranch
         return AddNode(node, delta, parent, isLeftChild: true);
     }
 
+    // Add a right child by advancing one row from the parent branch delta.
     public ResearchBranchNode AddRightChild(ResearchBranchNode parent, BinarySkillNode node)
     {
         ArgumentNullException.ThrowIfNull(parent);
@@ -61,6 +64,7 @@ public sealed class ResearchBranch
         return AddNode(node, delta, parent, isLeftChild: false);
     }
 
+    // Report every currently open placement slot in the preview branch grid.
     public IReadOnlyList<ResearchBranchSlot> GetAvailableSlots()
     {
         if (Root is null)
@@ -73,6 +77,7 @@ public sealed class ResearchBranch
         }
 
         var slotsByDelta = new Dictionary<GridPoint, ResearchBranchSlot>();
+        // Collect each open child delta once so branch previews never overlap on the grid.
         foreach (var node in Root.TraverseDepthFirst())
         {
             if (node.Left is null)
@@ -91,16 +96,19 @@ public sealed class ResearchBranch
         return slotsByDelta.Values.ToArray();
     }
 
+    // Resolve a preview node by its branch-relative grid delta.
     public ResearchBranchNode? FindByDelta(GridPoint delta)
     {
         return _nodesByDelta.GetValueOrDefault(delta);
     }
 
+    // Check whether the preview already occupies the requested branch delta.
     public bool ContainsDelta(GridPoint delta)
     {
         return _nodesByDelta.ContainsKey(delta);
     }
 
+    // Prevent duplicate template skills from appearing twice in the same branch preview.
     public bool ContainsSourceSkill(string featureTreeName, string skillName)
     {
         if (string.IsNullOrWhiteSpace(featureTreeName) || string.IsNullOrWhiteSpace(skillName))
@@ -120,6 +128,7 @@ public sealed class ResearchBranch
         return false;
     }
 
+    // Create and register a preview node after validating its grid slot and parent link.
     private ResearchBranchNode AddNode(
         BinarySkillNode node,
         GridPoint delta,
@@ -154,6 +163,7 @@ public sealed class ResearchBranch
         return branchNode;
     }
 
+    // Register an open preview slot only once for a given branch delta.
     private void AddAvailableSlot(
         Dictionary<GridPoint, ResearchBranchSlot> slotsByDelta,
         ResearchBranchNode parent,
@@ -178,6 +188,7 @@ public readonly record struct ResearchBranchSlot(
 // generated research branch preview.
 public sealed class ResearchBranchNode
 {
+    // Pair a binary skill node with its preview-grid location inside a draft branch.
     public ResearchBranchNode(BinarySkillNode node, GridPoint delta)
     {
         Node = node ?? throw new ArgumentNullException(nameof(node));
@@ -194,6 +205,7 @@ public sealed class ResearchBranchNode
 
     public ResearchBranchNode? Right { get; private set; }
 
+    // Traverse the preview branch in parent-before-children order.
     public IEnumerable<ResearchBranchNode> TraverseDepthFirst()
     {
         yield return this;
@@ -215,16 +227,19 @@ public sealed class ResearchBranchNode
         }
     }
 
+    // Attach a preview child into the left branch slot.
     internal void AttachLeft(ResearchBranchNode child)
     {
         AttachChild(child, isLeftChild: true);
     }
 
+    // Attach a preview child into the right branch slot.
     internal void AttachRight(ResearchBranchNode child)
     {
         AttachChild(child, isLeftChild: false);
     }
 
+    // Enforce detachment and slot-occupancy rules before wiring a preview child in.
     private void AttachChild(ResearchBranchNode child, bool isLeftChild)
     {
         if (child.Parent is not null)

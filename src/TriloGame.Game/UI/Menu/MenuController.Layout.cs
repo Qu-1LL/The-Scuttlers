@@ -132,7 +132,7 @@ public sealed partial class MenuController
             Math.Min((int)MathF.Round(240f * buildingScale), selectedBounds.Width - 32),
             (int)MathF.Round(50f * selectedScale));
 
-        if (SelectedObject is MiningPost miningPost)
+        if (SelectedObject is IStorage storage)
         {
             selectedInventoryFrameBounds = new Rectangle(
                 selectedBounds.X + 16,
@@ -144,7 +144,7 @@ public sealed partial class MenuController
                 selectedInventoryFrameBounds.Value.Y + 38,
                 selectedInventoryFrameBounds.Value.Width - 20,
                 Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
-            var inventoryEntries = BuildInventoryEntries(miningPost);
+            var inventoryEntries = BuildInventoryEntries(storage);
             selectedInventoryEntries = BuildInventoryLayout(
                 selectedInventoryViewportBounds.Value,
                 inventoryEntries,
@@ -390,10 +390,10 @@ public sealed partial class MenuController
         return rows;
     }
 
-    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(MiningPost miningPost)
+    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IStorage storage)
     {
         var result = new List<InventoryEntryData>();
-        foreach (var pair in miningPost.GetInventory())
+        foreach (var pair in storage.GetInventory())
         {
             if (pair.Value <= 0)
             {

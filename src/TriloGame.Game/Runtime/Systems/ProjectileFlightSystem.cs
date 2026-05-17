@@ -4,6 +4,7 @@ namespace TriloGame.Game.Runtime.Systems;
 
 public sealed class ProjectileFlightSystem
 {
+    // Advance active projectile travel and resolve any impacts that reach their targets.
     public int Advance(GameSession session, double elapsedMs)
     {
         if (elapsedMs <= 0d)
@@ -13,6 +14,7 @@ public sealed class ProjectileFlightSystem
 
         var flights = session.Runtime.ActiveProjectileFlights;
         var resolvedImpacts = 0;
+        // Walk backward so finished or invalid flights can be removed in place.
         for (var index = flights.Count - 1; index >= 0; index--)
         {
             var flight = flights[index];
