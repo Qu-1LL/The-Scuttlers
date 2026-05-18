@@ -668,6 +668,19 @@ public sealed class BfsField
         _queue.Enqueue(tile.Id);
     }
 
+    // Distance increases need a temporary invalidation step so disconnected pockets
+    // collapse to infinity instead of ratcheting upward forever through cycles.
+    private void InvalidateTileValue(Tile tile)
+    {
+        _values[tile.Id] = int.MaxValue;
+        foreach (var neighbor in tile.Neighbors)
+        {
+            EnqueueTile(neighbor);
+        }
+
+        EnqueueTile(tile);
+    }
+
     private Dictionary<string, int> CommitCurrentField()
     {
         RebuildNextStepCache();
@@ -851,6 +864,12 @@ public sealed class BfsField
             var nextValue = ComputeValue(currentTile);
             if (_values[currentId] == nextValue)
             {
+                continue;
+            }
+
+            if (_values[currentId] != int.MaxValue && nextValue > _values[currentId])
+            {
+                InvalidateTileValue(currentTile);
                 continue;
             }
 

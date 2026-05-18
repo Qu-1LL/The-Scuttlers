@@ -172,4 +172,39 @@ public sealed class BfsFieldTests
         Assert.True(mined.TileDepleted);
         Assert.Equal(expectedValue + 1, field.GetFieldValue(wallLocation, refresh: false));
     }
+
+    [Fact]
+    public void ColonyField_RebalanceClearsDisconnectedRevealedPocket()
+    {
+        var (_, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(10, 6, new GridPoint(1, 1));
+        var field = cave.GetBfsFieldObject("colony")
+            ?? throw new InvalidOperationException("Expected the colony BFS field to exist.");
+        field.Rebuild();
+
+        var isolatedLocation = new GridPoint(8, 3);
+        Assert.NotEqual(int.MaxValue, field.GetFieldValue(isolatedLocation, refresh: false));
+
+        var dirtyKeys = new HashSet<string>(StringComparer.Ordinal);
+        for (var y = 0; y < 6; y++)
+        {
+            var wallTile = cave.GetTile(new GridPoint(5, y))
+                ?? throw new InvalidOperationException("Expected wall-barrier tile to exist.");
+            wallTile.SetBase("wall");
+            wallTile.CreatureCanFit = false;
+            wallTile.ConfigureWall(1);
+            dirtyKeys.Add(wallTile.Key);
+        }
+
+        var reachability = cave.RefreshReachableTiles();
+        foreach (var changedKey in reachability.ChangedKeys)
+        {
+            dirtyKeys.Add(changedKey);
+        }
+
+        field.MarkDirty(dirtyKeys, [], []);
+        field.Refresh();
+
+        Assert.True(field.IsUpdated());
+        Assert.Equal(int.MaxValue, field.GetFieldValue(isolatedLocation, refresh: false));
+    }
 }

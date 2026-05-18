@@ -121,6 +121,41 @@ public sealed class WallTests
         Assert.True(cave.CanBuild(scaffolding, entranceTile, preserveReachability: true));
     }
 
+    [Fact]
+    public void WallScaffoldingPlacement_CutOffStorageFieldBecomesUnreachableWithoutHanging()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(16, 10, new GridPoint(1, 1));
+        var existingStorage = new Storage(session);
+        Assert.True(cave.Build(existingStorage, new GridPoint(11, 4)));
+
+        foreach (var location in new[]
+                 {
+                     new GridPoint(10, 3), new GridPoint(11, 3), new GridPoint(12, 3), new GridPoint(13, 3),
+                     new GridPoint(10, 5), new GridPoint(10, 6), new GridPoint(11, 6), new GridPoint(12, 6), new GridPoint(13, 6),
+                     new GridPoint(13, 4), new GridPoint(13, 5)
+                 })
+        {
+            SetWallTile(cave, location);
+        }
+
+        cave.RefreshReachableTiles();
+
+        var accessLocation = new GridPoint(9, 4);
+        var field = cave.GetBuildingBfsFieldObject(existingStorage);
+        field.Rebuild();
+        Assert.NotEqual(int.MaxValue, field.GetFieldValue(accessLocation, refresh: false));
+
+        var scaffolding = new Scaffolding(session, new Wall(session));
+        var entranceTile = new GridPoint(10, 4);
+
+        Assert.True(cave.CanBuild(scaffolding, entranceTile, preserveReachability: true));
+        Assert.True(cave.Build(scaffolding, entranceTile));
+        field.Refresh();
+
+        Assert.True(field.IsUpdated());
+        Assert.Equal(int.MaxValue, field.GetFieldValue(accessLocation, refresh: false));
+    }
+
     private static void SetWallTile(TriloGame.Game.Core.World.Cave cave, GridPoint location)
     {
         var tile = cave.GetTile(location)
