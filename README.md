@@ -29,3 +29,70 @@ While players develop their city and fight wave after wave of enemies, they will
 In the game's current state, we only have a few buildings and some pretty basic visuals to go along with it. Since this game is meant to stand out based on game design, we will be fleshing that aspect of the game out first and foremost. Currently, we are working on the first few chunks of the skill tree. We intend for the "skill lines" to be small constellations of 5-10 skills that can be combined with other skill lines in each run's patchworked skill tree. We will also be working on a similar semi-linear tree for quest lines as well.
 
 As we decide on which skill trees we want to add, how they should work, and which ones we plan to add first, we will be adding them to a proper road map below. Until then just let your imagine wander in how cool this game will be one day!
+
+## macOS — Build and Run
+
+These instructions describe what is required to compile and run the game on macOS when using the DesktopGL build (macOS/Unix environments). The MonoGame content pipeline (`mgcb`) requires a 64-bit Wine prefix for effect (shader) compilation; follow the steps below exactly.
+
+Prerequisites
+- Install .NET SDK 9 (or the SDK matching the repository `TargetFramework`).
+- Install Homebrew (recommended) for easy package installation.
+- Install Wine (64-bit) and `winetricks`.
+
+Quick install and setup
+
+1) Install Homebrew (if you don't have it):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+2) Install Wine and winetricks:
+
+```bash
+brew install --cask wine-stable
+brew install winetricks
+```
+
+3) Create a dedicated 64-bit Wine prefix for the MonoGame effect compiler and initialize it:
+
+```bash
+export WINEARCH=win64
+export WINEPREFIX="$HOME/.wine-mgfxc"
+wineboot --init
+```
+
+4) Install the Windows components required by MonoGame's MGFXC (shader/effect compiler):
+
+```bash
+WINEARCH=win64 WINEPREFIX="$HOME/.wine-mgfxc" winetricks -q d3dcompiler_47 dotnet8
+```
+
+5) Point the MonoGame MGFXC helper to the Wine prefix by setting `MGFXC_WINE_PATH` in your environment. For a single terminal session:
+
+```bash
+export MGFXC_WINE_PATH="$HOME/.wine-mgfxc"
+```
+
+To make this persistent, add the line to your shell profile (for example `~/.zshrc` or `~/.bash_profile`):
+
+```bash
+echo 'export MGFXC_WINE_PATH="$HOME/.wine-mgfxc"' >> ~/.zshrc
+```
+
+6) Build and run the game (example):
+
+```bash
+cd src/TriloGame.Game
+export MGFXC_WINE_PATH="$HOME/.wine-mgfxc"
+dotnet build
+dotnet run
+```
+
+Notes & troubleshooting
+- If you installed a different Wine binary (for example `/Applications/Wine Stable.app`), ensure the Wine prefix you initialize and point `MGFXC_WINE_PATH` to matches that installation. The prefix path can be any directory; just set `MGFXC_WINE_PATH` accordingly.
+- If `dotnet build` fails during content build with messages about `MGFXC` or `effect compiler requires a valid Wine installation`, confirm `WINEARCH` is `win64` and that `d3dcompiler_47` and `dotnet8` are installed in the prefix.
+- You can test that `mgcb` is available by running `dotnet mgcb --help`.
+- The MonoGame content builder may auto-restore the `mgcb` tool; if it doesn't, install it globally with `dotnet tool install --global dotnet-mgcb` or run `dotnet tool restore` in affected projects.
+
+If you'd like, I can also add a short macOS troubleshooting doc under `docs/` or include a script to create the Wine prefix automatically.
