@@ -6,6 +6,9 @@ Future versions will not be released to the browser, as we have moved the progra
 
 ## Build and Run
 
+For macOS setup, including prerequisites and shell-safe commands, see
+[docs/mac-setup.md](docs/mac-setup.md).
+
 Install the .NET 9 SDK, open a terminal in the repository root, and use either:
 
 ```powershell
@@ -28,6 +31,8 @@ You can also call the wrappers directly:
 ```
 
 `dotnet launch` is not a reliable repo-local command by itself. The `dotnet` CLI only resolves custom verbs when `dotnet-launch` is installed in a place the `dotnet` host can discover, which is outside what a normal checked-in batch file can guarantee.
+
+On macOS, use the direct `dotnet` commands instead of the checked-in `.cmd` wrappers.
 
 The direct fallback is:
 

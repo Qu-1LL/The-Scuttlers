@@ -1,7 +1,5 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using MonoGameGum.GueDeriving;
-using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.UI.Gum;
@@ -63,7 +61,7 @@ public sealed class TrilodexController
 
     public bool CoversScreenPoint(Point point, Point viewport)
     {
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count, _gridScroll);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
         return IsOpen && layout.PanelBounds.Contains(point);
     }
 
@@ -96,7 +94,7 @@ public sealed class TrilodexController
             return false;
         }
 
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count, _gridScroll);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
         if (!layout.PanelBounds.Contains(point))
         {
             return false;
@@ -110,16 +108,17 @@ public sealed class TrilodexController
             }
 
             var previousZoom = _treeZoom;
-            _treeZoom = ResearchTreePreviewRenderer.ClampZoom(_treeZoom + (-delta * 0.0015f));
+            _treeZoom = ResearchTreeUiRenderer.ClampZoom(_treeZoom + (-delta * 0.0015f));
             if (MathF.Abs(_treeZoom - previousZoom) <= float.Epsilon)
             {
                 return true;
             }
 
-            var metricsBefore = ResearchTreePreviewRenderer.CalculateDetailMetrics(
+            var metricsBefore = ResearchTreeUiRenderer.CalculateDetailMetrics(
                 layout.DetailTreeViewportBounds,
                 _selectedTreeRoot,
-                previousZoom);
+                previousZoom,
+                ResearchTreeUiRenderer.ReadOnlyDetailConfig);
             var pointToOrigin = point.ToVector2() - metricsBefore.Origin - _treePanOffset;
             if (previousZoom > float.Epsilon)
             {
@@ -129,7 +128,7 @@ public sealed class TrilodexController
             return true;
         }
 
-        if (layout.GridFrameBounds.Contains(point))
+        if (layout.CatalogFrameBounds.Contains(point))
         {
             _gridScroll = Math.Clamp(_gridScroll + delta, 0f, layout.MaxScroll);
         }
@@ -145,7 +144,7 @@ public sealed class TrilodexController
             return false;
         }
 
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count, _gridScroll);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
         if (!layout.PanelBounds.Contains(point))
         {
             return false;
@@ -194,14 +193,15 @@ public sealed class TrilodexController
         _treePanCandidate = false;
         _treePanning = false;
 
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count, _gridScroll);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
         if (wasPanning && _selectedTreeRoot is not null)
         {
-            _treePanOffset = ResearchTreePreviewRenderer.ResolvePanAfterRelease(
+            _treePanOffset = ResearchTreeUiRenderer.ResolvePanAfterRelease(
                 layout.DetailTreeViewportBounds,
                 _selectedTreeRoot,
                 _treePanOffset,
-                _treeZoom);
+                _treeZoom,
+                ResearchTreeUiRenderer.ReadOnlyDetailConfig);
             return TrilodexInteractionOutcome.Consumed;
         }
 
@@ -239,23 +239,112 @@ public sealed class TrilodexController
         GumUiRenderer gumUi,
         Texture2D? treeBackgroundTexture = null)
     {
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count, _gridScroll);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
         if (!IsOpen)
         {
             return;
         }
 
         gumUi.AddFilledRectangle(new Rectangle(0, 0, viewport.X, viewport.Y), new Color(5, 11, 17, 164));
-        gumUi.AddRoundedFrame(layout.PanelBounds, new Color(9, 18, 27, 248), new Color(83, 125, 145), 3, 20);
-        DrawChrome(layout, gumUi);
+        ResearchTreeMenuRenderer.Draw(
+            gumUi,
+            session,
+            BuildMenuModel(layout, session, treeBackgroundTexture),
+            _pointerPoint);
+    }
 
-        if (_selectedTree is not null && _selectedTreeRoot is not null)
+    private ResearchTreeMenuModel BuildMenuModel(
+        ResearchDraftTreeCatalogLayoutInfo layout,
+        GameSession session,
+        Texture2D? treeBackgroundTexture)
+    {
+        var detailOpen = _selectedTree is not null && _selectedTreeRoot is not null;
+        return detailOpen
+            ? BuildDetailMenuModel(layout, treeBackgroundTexture)
+            : BuildCatalogMenuModel(layout);
+    }
+
+    private ResearchTreeMenuModel BuildCatalogMenuModel(ResearchDraftTreeCatalogLayoutInfo layout)
+    {
+        return new ResearchTreeMenuModel(
+            ResearchTreeMenuMode.TrilodexCatalog,
+            new ResearchTreeMenuConfig(
+                ShowBackButton: false,
+                ShowCloseButton: true,
+                CardAreaMode: ResearchTreeCardAreaMode.CatalogGrid,
+                ShowTreeViewport: false,
+                ShowInfoPanel: false,
+                ShowFooter: false,
+                EnablePanZoom: false,
+                EnableNodeHover: true,
+                EnableNodeSelection: true,
+                EnableBranchDrafting: false,
+                EnablePlacementPreview: false,
+                EnableReadOnlyPreview: true,
+                ShowRootNode: true,
+                CanPlaceBranches: false),
+            ResearchTreeMenuRenderer.FromCatalogLayout(layout, detailOpen: false),
+            "Trilodex",
+            "Curated research trees discovered by the colony.",
+            CardHeaderText: string.Empty,
+            TreeHeaderText: string.Empty,
+            BuildCatalogCardModels(layout),
+            new ResearchTreeViewportModel(Root: null, Vector2.Zero, Zoom: 1f, BackgroundTexture: null),
+            new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details."),
+            FooterText: string.Empty);
+    }
+
+    private ResearchTreeMenuModel BuildDetailMenuModel(
+        ResearchDraftTreeCatalogLayoutInfo layout,
+        Texture2D? treeBackgroundTexture)
+    {
+        return new ResearchTreeMenuModel(
+            ResearchTreeMenuMode.ReadOnlyDetail,
+            new ResearchTreeMenuConfig(
+                ShowBackButton: true,
+                ShowCloseButton: true,
+                CardAreaMode: ResearchTreeCardAreaMode.None,
+                ShowTreeViewport: true,
+                ShowInfoPanel: true,
+                ShowFooter: false,
+                EnablePanZoom: true,
+                EnableNodeHover: true,
+                EnableNodeSelection: true,
+                EnableBranchDrafting: false,
+                EnablePlacementPreview: false,
+                EnableReadOnlyPreview: true,
+                ShowRootNode: true,
+                CanPlaceBranches: false),
+            ResearchTreeMenuRenderer.FromCatalogLayout(layout, detailOpen: true),
+            _selectedTree?.Name ?? "Trilodex",
+            _selectedTree is null
+                ? "Curated research trees discovered by the colony."
+                : $"Tier {_selectedTree.Tier} curated tree. Read-only preview.",
+            CardHeaderText: string.Empty,
+            TreeHeaderText: string.Empty,
+            Cards: [],
+            new ResearchTreeViewportModel(_selectedTreeRoot, _treePanOffset, _treeZoom, treeBackgroundTexture),
+            new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details."),
+            FooterText: string.Empty);
+    }
+
+    private IReadOnlyList<ResearchTreeCardModel> BuildCatalogCardModels(ResearchDraftTreeCatalogLayoutInfo layout)
+    {
+        var trees = TriloDex.Global.FeatureTrees;
+        var cards = new List<ResearchTreeCardModel>(trees.Count);
+        for (var index = 0; index < trees.Count; index++)
         {
-            DrawDetail(layout, session, gumUi, treeBackgroundTexture);
-            return;
+            var tree = trees[index];
+            var hovered = index < layout.CardBounds.Count && layout.CardBounds[index].Contains(_pointerPoint);
+            cards.Add(new ResearchTreeCardModel(
+                tree.Name,
+                $"Tier {tree.Tier}",
+                tree.Root is null ? null : ResearchTreeViewNode.FromFeatureTree(tree),
+                hovered,
+                IsSelected: false));
         }
 
-        DrawGrid(layout, session, gumUi);
+        return cards;
     }
 
     private void OpenDetail(FeatureTree featureTree)
@@ -281,161 +370,7 @@ public sealed class TrilodexController
         _treePanning = false;
     }
 
-    private void DrawChrome(TrilodexLayoutInfo layout, GumUiRenderer gumUi)
-    {
-        gumUi.AddRoundedFrame(
-            layout.CloseButtonBounds,
-            layout.CloseButtonBounds.Contains(_pointerPoint) ? new Color(29, 55, 72) : new Color(20, 42, 58),
-            layout.CloseButtonBounds.Contains(_pointerPoint) ? new Color(183, 223, 237) : new Color(114, 154, 172),
-            2,
-            12);
-        AddCenteredText(gumUi, layout.CloseButtonBounds, "X", Color.White, GumTextStyle.Small);
-
-        if (_selectedTree is not null)
-        {
-            gumUi.AddRoundedFrame(
-                layout.BackButtonBounds,
-                layout.BackButtonBounds.Contains(_pointerPoint) ? new Color(29, 55, 72) : new Color(20, 42, 58),
-                layout.BackButtonBounds.Contains(_pointerPoint) ? new Color(183, 223, 237) : new Color(114, 154, 172),
-                2,
-                12);
-            AddCenteredText(gumUi, layout.BackButtonBounds, "<", Color.White, GumTextStyle.Ui);
-        }
-
-        AddCenteredText(gumUi, layout.TitleBounds, _selectedTree?.Name ?? "Trilodex", Color.White, GumTextStyle.UiLarge);
-        AddCenteredText(
-            gumUi,
-            layout.SubtitleBounds,
-            _selectedTree is null
-                ? "Curated research trees discovered by the colony."
-                : $"Tier {_selectedTree.Tier} curated tree. Read-only preview.",
-            new Color(177, 203, 214),
-            GumTextStyle.Small);
-    }
-
-    private void DrawGrid(TrilodexLayoutInfo layout, GameSession session, GumUiRenderer gumUi)
-    {
-        gumUi.AddRoundedFrame(layout.GridFrameBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        var clipLayer = gumUi.AddClippingContainer(layout.GridViewportBounds);
-        var trees = TriloDex.Global.FeatureTrees;
-        for (var index = 0; index < Math.Min(layout.CardBounds.Count, trees.Count); index++)
-        {
-            var bounds = layout.CardBounds[index];
-            if (bounds.Bottom < layout.GridViewportBounds.Top || bounds.Top > layout.GridViewportBounds.Bottom)
-            {
-                continue;
-            }
-
-            DrawCard(clipLayer, layout.GridViewportBounds, bounds, trees[index], session, gumUi);
-        }
-
-        if (layout.MaxScroll > 0f)
-        {
-            gumUi.AddRoundedRectangle(layout.ScrollbarTrackBounds, new Color(10, 22, 32, 210), 3);
-            gumUi.AddRoundedRectangle(layout.ScrollbarThumbBounds, new Color(92, 137, 154), 3);
-        }
-    }
-
-    private void DrawCard(
-        ContainerRuntime clipLayer,
-        Rectangle viewportBounds,
-        Rectangle bounds,
-        FeatureTree featureTree,
-        GameSession session,
-        GumUiRenderer gumUi)
-    {
-        var localBounds = new Rectangle(bounds.X - viewportBounds.X, bounds.Y - viewportBounds.Y, bounds.Width, bounds.Height);
-        var hovered = bounds.Contains(_pointerPoint);
-        gumUi.AddRoundedFrame(
-            clipLayer,
-            localBounds,
-            hovered ? new Color(20, 45, 63) : new Color(13, 30, 44),
-            hovered ? new Color(132, 181, 198) : new Color(66, 101, 118),
-            2,
-            14);
-
-        var titleBounds = new Rectangle(localBounds.X + 12, localBounds.Y + 8, localBounds.Width - 24, 20);
-        var tierBounds = new Rectangle(localBounds.X + 12, localBounds.Y + 30, localBounds.Width - 24, 18);
-        var previewBounds = new Rectangle(localBounds.X + 10, localBounds.Y + 54, localBounds.Width - 20, localBounds.Height - 64);
-        AddText(clipLayer, gumUi, titleBounds, featureTree.Name, Color.White, GumTextStyle.Small);
-        AddText(clipLayer, gumUi, tierBounds, $"Tier {featureTree.Tier}", new Color(184, 206, 216), GumTextStyle.Compact);
-        if (featureTree.Root is not null)
-        {
-            ResearchTreePreviewRenderer.DrawPreview(gumUi, clipLayer, session, previewBounds, ResearchTreeViewNode.FromFeatureTree(featureTree));
-        }
-    }
-
-    private void DrawDetail(
-        TrilodexLayoutInfo layout,
-        GameSession session,
-        GumUiRenderer gumUi,
-        Texture2D? treeBackgroundTexture)
-    {
-        gumUi.AddRoundedFrame(layout.DetailTreeFrameBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        var hoveredNode = ResearchTreePreviewRenderer.DrawDetail(
-            gumUi,
-            session,
-            layout.DetailTreeViewportBounds,
-            _selectedTreeRoot!,
-            _treePanOffset,
-            _treeZoom,
-            treeBackgroundTexture,
-            _pointerPoint);
-        DrawInfoPanel(layout.DetailInfoPanelBounds, hoveredNode, session, gumUi);
-    }
-
-    private void DrawInfoPanel(
-        Rectangle bounds,
-        ResearchTreeViewNode? hoveredNode,
-        GameSession session,
-        GumUiRenderer gumUi)
-    {
-        if (hoveredNode is null)
-        {
-            gumUi.AddRoundedFrame(bounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-            AddText(gumUi, new Rectangle(bounds.X + 14, bounds.Y + 12, bounds.Width - 28, 18), "Info", new Color(204, 228, 238), GumTextStyle.Compact);
-            AddCenteredText(
-                gumUi,
-                new Rectangle(bounds.X + 18, bounds.Y + 46, bounds.Width - 36, bounds.Height - 64),
-                "Hover a tree node for details.",
-                new Color(177, 203, 214),
-                GumTextStyle.Small);
-            return;
-        }
-
-        var info = ResearchTreePreviewRenderer.BuildNodeInfo(session, hoveredNode);
-        gumUi.AddRoundedFrame(bounds, new Color(9, 18, 28, 248), new Color(204, 228, 238), 2, 16);
-        var contentX = bounds.X + 14;
-        var contentWidth = bounds.Width - 28;
-        AddText(gumUi, new Rectangle(contentX, bounds.Y + 12, contentWidth, 18), "Node Details", new Color(204, 228, 238), GumTextStyle.Compact);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 38, contentWidth, 44), "Node", info.TitleText);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 88, contentWidth, 40), "Feature Tree", info.FeatureTreeText);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 134, contentWidth, bounds.Height - 148), "Effect", info.EffectText, maxLines: 10);
-    }
-
-    private static void DrawInfoSection(
-        GumUiRenderer gumUi,
-        Rectangle bounds,
-        string label,
-        string value,
-        int maxLines = 2)
-    {
-        gumUi.AddText(
-            new Rectangle(bounds.X, bounds.Y, bounds.Width, 14),
-            label,
-            new Color(153, 194, 211),
-            fontSize: GumTextLayout.GetMetrics(GumTextStyle.Compact).FontSize,
-            verticalAlignment: VerticalAlignment.Top);
-        gumUi.AddText(
-            new Rectangle(bounds.X, bounds.Y + 16, bounds.Width, Math.Max(20, bounds.Height - 16)),
-            value,
-            Color.White,
-            fontSize: GumTextLayout.GetMetrics(GumTextStyle.Small).FontSize,
-            verticalAlignment: VerticalAlignment.Top,
-            maxLines: maxLines);
-    }
-
-    private static bool TryGetCardIndex(Point point, TrilodexLayoutInfo layout, out int index)
+    private static bool TryGetCardIndex(Point point, ResearchDraftTreeCatalogLayoutInfo layout, out int index)
     {
         for (var i = 0; i < layout.CardBounds.Count; i++)
         {
@@ -450,35 +385,5 @@ public sealed class TrilodexController
 
         index = -1;
         return false;
-    }
-
-    private static void AddText(GumUiRenderer gumUi, Rectangle bounds, string text, Color color, GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        gumUi.AddText(bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
-    }
-
-    private static void AddText(
-        ContainerRuntime parent,
-        GumUiRenderer gumUi,
-        Rectangle bounds,
-        string text,
-        Color color,
-        GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        gumUi.AddText(parent, bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
-    }
-
-    private static void AddCenteredText(GumUiRenderer gumUi, Rectangle bounds, string text, Color color, GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        gumUi.AddText(
-            bounds,
-            text,
-            color,
-            HorizontalAlignment.Center,
-            VerticalAlignment.Center,
-            metrics.FontSize);
     }
 }

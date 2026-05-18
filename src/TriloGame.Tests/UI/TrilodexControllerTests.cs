@@ -12,7 +12,7 @@ public sealed class TrilodexControllerTests
         var controller = new TrilodexController();
         var viewport = new Point(1440, 900);
         controller.Open();
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count);
 
         var outcome = controller.HandlePointerUp(layout.CardBounds[0].Center, viewport);
 
@@ -26,7 +26,7 @@ public sealed class TrilodexControllerTests
         var controller = new TrilodexController();
         var viewport = new Point(1440, 900);
         controller.Open();
-        var layout = TrilodexLayout.Build(viewport, TriloDex.Global.Count);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count);
         controller.HandlePointerUp(layout.CardBounds[0].Center, viewport);
 
         var backOutcome = controller.HandlePointerUp(layout.BackButtonBounds.Center, viewport);

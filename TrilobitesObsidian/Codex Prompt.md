@@ -1,0 +1,2 @@
+
+Use a data driven approach for reasearch draft controller and layout. Research tree preview should not exist and should use the research draft controller code and ui to render nodes. The current approach that has been take make use of unnecessary lines of code. Use Booleans to enable or disable certain ui features like a back button for previewing trees, and disabling and enabling the root node. New adaption tree draftable branches should use the same ui element as the trilodex entries for the trees.

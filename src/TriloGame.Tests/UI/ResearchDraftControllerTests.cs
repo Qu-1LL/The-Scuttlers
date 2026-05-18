@@ -87,7 +87,7 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void CalculateBranchCardPreviewLayout_ScalesBranchesToUseMostOfThePreviewBounds()
+    public void CalculateCardTreeLayout_ScalesDraftBranchesToUseMostOfTheCardBounds()
     {
         var branch = new ResearchBranch();
         var root = branch.SetRoot(new TreeInstanceNode(new SkillNode("Root", "Root"), "B1"));
@@ -97,9 +97,11 @@ public sealed class ResearchDraftControllerTests
         branch.AddChild(left, new TreeInstanceNode(new SkillNode("Left Deep", "Left Deep"), "B1"));
 
         var bounds = new Rectangle(0, 0, 240, 180);
-        var layout = ResearchDraftController.CalculateBranchCardPreviewLayout(branch, bounds);
-        var points = new List<Vector2> { layout.OriginPoint };
-        points.AddRange(layout.Nodes.Select(node => node.Position));
+        var layout = ResearchTreeUiRenderer.CalculateCardTreeLayout(
+            ResearchTreeViewNode.FromResearchBranch(branch),
+            bounds,
+            ResearchTreeUiRenderer.TreeEntryCardConfig);
+        var points = layout.Nodes.Select(node => node.Position).ToList();
 
         var leftEdge = float.MaxValue;
         var rightEdge = float.MinValue;

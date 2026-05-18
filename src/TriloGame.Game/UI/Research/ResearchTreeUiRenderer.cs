@@ -9,7 +9,7 @@ using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Game.UI.Research;
 
-internal static class ResearchTreePreviewRenderer
+internal static class ResearchTreeUiRenderer
 {
     public const float MinimumZoom = 0.55f;
     public const float MaximumZoom = 2.25f;
@@ -17,12 +17,29 @@ internal static class ResearchTreePreviewRenderer
     private static readonly Color ConnectorColor = new(246, 251, 253);
     private static readonly Color UnlockedConnectorColor = new(247, 221, 92);
 
-    public static ResearchTreePreviewLayout CalculatePreviewLayout(ResearchTreeViewNode root, Rectangle bounds)
+    public static readonly ResearchTreeRenderConfig TreeEntryCardConfig = new(
+        ShowBackButton: false,
+        ShowRootNode: true,
+        EnableNodeSelection: true,
+        EnableBranchDrafting: false,
+        EnablePlacementPreview: false);
+
+    public static readonly ResearchTreeRenderConfig ReadOnlyDetailConfig = new(
+        ShowBackButton: true,
+        ShowRootNode: true,
+        EnableNodeSelection: true,
+        EnableBranchDrafting: false,
+        EnablePlacementPreview: false);
+
+    public static ResearchTreeViewLayout CalculateCardTreeLayout(
+        ResearchTreeViewNode root,
+        Rectangle bounds,
+        ResearchTreeRenderConfig config = default)
     {
         ArgumentNullException.ThrowIfNull(root);
 
         const float padding = 14f;
-        var layout = BuildLayout(root, edgeLength: 1f);
+        var layout = BuildLayout(root, edgeLength: 1f, config);
         var availableWidth = Math.Max(60f, bounds.Width - (padding * 2f));
         var availableHeight = Math.Max(60f, bounds.Height - (padding * 2f));
         var scale = MathF.Min(
@@ -36,69 +53,117 @@ internal static class ResearchTreePreviewRenderer
             bounds.X + padding + radius + ((availableWidth - (radius * 2f) - layoutWidth) / 2f) - (layout.Bounds.MinX * scale),
             bounds.Y + padding + radius + ((availableHeight - (radius * 2f) - layoutHeight) / 2f) - (layout.Bounds.MinY * scale));
 
-        var nodes = new List<ResearchTreePreviewNode>(layout.Nodes.Count);
+        var nodes = new List<ResearchTreeViewLayoutNode>(layout.Nodes.Count);
         foreach (var node in layout.Nodes)
         {
-            nodes.Add(new ResearchTreePreviewNode(
+            nodes.Add(new ResearchTreeViewLayoutNode(
                 node.Node,
                 node.Parent is null ? null : nodes.First(existing => ReferenceEquals(existing.Node, node.Parent.Node)),
                 (node.LocalPosition * scale) + offset));
         }
 
-        return new ResearchTreePreviewLayout(nodes, radius, bounds);
+        return new ResearchTreeViewLayout(nodes, radius, bounds);
     }
 
-    public static void DrawPreview(
+    public static ResearchTreeViewNode? DrawTreeEntryCard(
         GumUiRenderer gumUi,
         GameSession session,
-        Rectangle bounds,
-        ResearchTreeViewNode root)
+        ResearchTreeCardData card,
+        ResearchTreeRenderConfig config,
+        Point pointerPoint)
     {
-        DrawPreviewCore(gumUi, parent: null, session, bounds, root);
+        return DrawTreeEntryCard(gumUi, parent: null, session, card, config, pointerPoint);
     }
 
-    public static void DrawPreview(
-        GumUiRenderer gumUi,
-        ContainerRuntime parent,
-        GameSession session,
-        Rectangle bounds,
-        ResearchTreeViewNode root)
-    {
-        DrawPreviewCore(gumUi, parent, session, bounds, root);
-    }
-
-    private static void DrawPreviewCore(
+    public static ResearchTreeViewNode? DrawTreeEntryCard(
         GumUiRenderer gumUi,
         ContainerRuntime? parent,
         GameSession session,
-        Rectangle bounds,
-        ResearchTreeViewNode root)
+        ResearchTreeCardData card,
+        ResearchTreeRenderConfig config,
+        Point pointerPoint)
     {
-        AddRoundedOutline(gumUi, parent, bounds, new Color(55, 87, 103), 1, 10);
-        var preview = CalculatePreviewLayout(root, bounds);
-        foreach (var node in preview.Nodes)
+        var fill = card.IsSelected
+            ? new Color(34, 70, 92)
+            : card.IsHovered ? new Color(20, 45, 63) : new Color(13, 30, 44);
+        var border = card.IsSelected
+            ? new Color(214, 236, 244)
+            : card.IsHovered ? new Color(132, 181, 198) : new Color(66, 101, 118);
+
+        AddRoundedFrame(gumUi, parent, card.Bounds, fill, border, 2, 14);
+        AddText(
+            gumUi,
+            parent,
+            new Rectangle(card.Bounds.X + 12, card.Bounds.Y + 8, card.Bounds.Width - 24, 20),
+            card.Title,
+            Color.White,
+            GumTextStyle.Small);
+        AddText(
+            gumUi,
+            parent,
+            new Rectangle(card.Bounds.X + 12, card.Bounds.Y + 30, card.Bounds.Width - 24, 18),
+            card.Subtitle,
+            new Color(184, 206, 216),
+            GumTextStyle.Compact);
+
+        var previewBounds = new Rectangle(card.Bounds.X + 10, card.Bounds.Y + 54, card.Bounds.Width - 20, card.Bounds.Height - 64);
+        if (card.Root is null)
         {
-            if (node.Parent is null)
+            AddCenteredText(gumUi, parent, previewBounds, "Unavailable", new Color(191, 204, 211), GumTextStyle.Small);
+            return null;
+        }
+
+        DrawCardTree(gumUi, parent, session, previewBounds, card.Root, config);
+        if (!config.EnableNodeSelection)
+        {
+            return null;
+        }
+
+        var hoveredNode = TryGetHoveredCardNode(card.Root, previewBounds, pointerPoint, config, out var hoveredCenter);
+        if (hoveredNode is not null)
+        {
+            var layout = CalculateCardTreeLayout(card.Root, previewBounds, config);
+            DrawNodeOutline(gumUi, parent, hoveredCenter, layout.Radius, new Color(255, 255, 255, 240), 6, 2);
+        }
+
+        return hoveredNode;
+    }
+
+    public static ResearchTreeViewNode? TryGetHoveredCardNode(
+        ResearchTreeViewNode root,
+        Rectangle bounds,
+        Point pointerPoint,
+        ResearchTreeRenderConfig config,
+        out Vector2 center)
+    {
+        center = Vector2.Zero;
+        var layout = CalculateCardTreeLayout(root, bounds, config);
+        var hitRadius = layout.Radius + 6;
+        var hitRadiusSquared = hitRadius * hitRadius;
+        var bestDistanceSquared = float.MaxValue;
+        ResearchTreeViewNode? hovered = null;
+        var pointer = pointerPoint.ToVector2();
+        foreach (var node in layout.Nodes)
+        {
+            var distanceSquared = Vector2.DistanceSquared(node.Position, pointer);
+            if (distanceSquared > hitRadiusSquared || distanceSquared >= bestDistanceSquared)
             {
                 continue;
             }
 
-            DrawCrispConnector(gumUi, parent, node.Parent.Position, node.Position, ConnectorColor, 2, preview.Radius + 2f, preview.Radius + 2f);
+            bestDistanceSquared = distanceSquared;
+            hovered = node.Node;
+            center = node.Position;
         }
 
-        foreach (var node in preview.Nodes)
-        {
-            DrawTreeNode(
-                gumUi,
-                parent,
-                node.Position,
-                preview.Radius,
-                GetNodeFillColor(session, node.Node),
-                GetNodeBorderColor(session, node.Node));
-        }
+        return hovered;
     }
 
-    public static ResearchTreeDetailMetrics CalculateDetailMetrics(Rectangle bounds, ResearchTreeViewNode root, float zoom)
+    public static ResearchTreeDetailMetrics CalculateDetailMetrics(
+        Rectangle bounds,
+        ResearchTreeViewNode root,
+        float zoom,
+        ResearchTreeRenderConfig config = default)
     {
         ArgumentNullException.ThrowIfNull(root);
         var safeZoom = ClampZoom(zoom);
@@ -106,7 +171,7 @@ internal static class ResearchTreePreviewRenderer
         var edgeLength = BaseDetailEdgeLength * safeZoom;
         var nodeRadius = Math.Clamp((int)MathF.Round(edgeLength * 0.18f), 9, 18);
         var origin = new Vector2(contentBounds.Center.X, contentBounds.Bottom - nodeRadius - 8f);
-        var layout = BuildLayout(root, edgeLength);
+        var layout = BuildLayout(root, edgeLength, config);
         var baseBounds = new ResearchTreeBounds(
             origin.X + layout.Bounds.MinX - nodeRadius,
             origin.X + layout.Bounds.MaxX + nodeRadius,
@@ -116,9 +181,14 @@ internal static class ResearchTreePreviewRenderer
         return new ResearchTreeDetailMetrics(bounds, contentBounds, origin, edgeLength, nodeRadius, baseBounds);
     }
 
-    public static Vector2 ResolvePanAfterRelease(Rectangle bounds, ResearchTreeViewNode root, Vector2 panOffset, float zoom)
+    public static Vector2 ResolvePanAfterRelease(
+        Rectangle bounds,
+        ResearchTreeViewNode root,
+        Vector2 panOffset,
+        float zoom,
+        ResearchTreeRenderConfig config = default)
     {
-        var metrics = CalculateDetailMetrics(bounds, root, zoom);
+        var metrics = CalculateDetailMetrics(bounds, root, zoom, config);
         var pannedBounds = metrics.BaseBounds.Offset(panOffset);
         if (pannedBounds.Intersects(metrics.ContentBounds))
         {
@@ -141,13 +211,14 @@ internal static class ResearchTreePreviewRenderer
         Vector2 panOffset,
         float zoom,
         Texture2D? backgroundTexture,
-        Point pointerPoint)
+        Point pointerPoint,
+        ResearchTreeRenderConfig config)
     {
-        var metrics = CalculateDetailMetrics(bounds, root, zoom);
+        var metrics = CalculateDetailMetrics(bounds, root, zoom, config);
         DrawTiledBackground(gumUi, metrics.ContentBounds, backgroundTexture, panOffset, zoom, metrics.Origin);
         gumUi.AddRoundedOutline(metrics.ContentBounds, new Color(74, 115, 134), 1, 12);
 
-        var layout = BuildLayout(root, metrics.EdgeLength);
+        var layout = BuildLayout(root, metrics.EdgeLength, config);
         var nodes = new List<ResearchTreeDetailNode>(layout.Nodes.Count);
         foreach (var node in layout.Nodes)
         {
@@ -157,7 +228,10 @@ internal static class ResearchTreePreviewRenderer
                 metrics.Origin + panOffset + node.LocalPosition));
         }
 
-        var hoveredNode = TryGetHoveredDetailNode(metrics, nodes, pointerPoint, out var hoveredPosition);
+        var hoveredPosition = Vector2.Zero;
+        var hoveredNode = config.EnableNodeSelection
+            ? TryGetHoveredDetailNode(metrics, nodes, pointerPoint, out hoveredPosition)
+            : null;
         foreach (var node in nodes)
         {
             if (node.Parent is null)
@@ -210,6 +284,38 @@ internal static class ResearchTreePreviewRenderer
             BuildNodeAffectText(session, node));
     }
 
+    private static void DrawCardTree(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        GameSession session,
+        Rectangle bounds,
+        ResearchTreeViewNode root,
+        ResearchTreeRenderConfig config)
+    {
+        AddRoundedOutline(gumUi, parent, bounds, new Color(55, 87, 103), 1, 10);
+        var preview = CalculateCardTreeLayout(root, bounds, config);
+        foreach (var node in preview.Nodes)
+        {
+            if (node.Parent is null)
+            {
+                continue;
+            }
+
+            DrawCrispConnector(gumUi, parent, node.Parent.Position, node.Position, ConnectorColor, 2, preview.Radius + 2f, preview.Radius + 2f);
+        }
+
+        foreach (var node in preview.Nodes)
+        {
+            DrawTreeNode(
+                gumUi,
+                parent,
+                node.Position,
+                preview.Radius,
+                GetNodeFillColor(session, node.Node),
+                GetNodeBorderColor(session, node.Node));
+        }
+    }
+
     private static string BuildNodeAffectText(GameSession session, ResearchTreeViewNode node)
     {
         if (node.EffectDescriptors.Count > 0)
@@ -235,24 +341,48 @@ internal static class ResearchTreePreviewRenderer
         return node.Description;
     }
 
-    private static ResearchTreeLayout BuildLayout(ResearchTreeViewNode root, float edgeLength)
+    private static ResearchTreeLayout BuildLayout(
+        ResearchTreeViewNode root,
+        float edgeLength,
+        ResearchTreeRenderConfig config)
     {
-        var layout = UniversalTreeLayout.Layout(BuildRenderNode(root), new UniversalTreeLayoutSettings(edgeLength));
+        var layoutRoot = config.ShowRootNode || root.Children.Count == 0
+            ? BuildRenderNode(root)
+            : BuildRenderForestRoot(root);
+        var layout = UniversalTreeLayout.Layout(layoutRoot, new UniversalTreeLayoutSettings(edgeLength));
         var nodes = new List<ResearchTreeLayoutNode>(layout.Nodes.Count);
         foreach (var node in layout.Nodes)
         {
+            if (!config.ShowRootNode && node.Payload.IsSynthetic)
+            {
+                continue;
+            }
+
             nodes.Add(new ResearchTreeLayoutNode(
-                node.Payload,
-                node.Parent is null ? null : nodes.First(existing => ReferenceEquals(existing.Node, node.Parent.Payload)),
+                node.Payload.Node,
+                node.Parent is null || node.Parent.Payload.IsSynthetic
+                    ? null
+                    : nodes.First(existing => ReferenceEquals(existing.Node, node.Parent.Payload.Node)),
                 node.LocalPosition));
         }
 
         return new ResearchTreeLayout(nodes, new ResearchTreeBounds(layout.MinX, layout.MaxX, layout.MinY, layout.MaxY));
     }
 
-    private static TreeRenderNode<ResearchTreeViewNode> BuildRenderNode(ResearchTreeViewNode source)
+    private static TreeRenderNode<ResearchTreeRenderPayload> BuildRenderNode(ResearchTreeViewNode source)
     {
-        var node = new TreeRenderNode<ResearchTreeViewNode>(source);
+        var node = new TreeRenderNode<ResearchTreeRenderPayload>(new ResearchTreeRenderPayload(source, IsSynthetic: false));
+        foreach (var child in source.Children)
+        {
+            node.AddChild(BuildRenderNode(child));
+        }
+
+        return node;
+    }
+
+    private static TreeRenderNode<ResearchTreeRenderPayload> BuildRenderForestRoot(ResearchTreeViewNode source)
+    {
+        var node = new TreeRenderNode<ResearchTreeRenderPayload>(new ResearchTreeRenderPayload(source, IsSynthetic: true));
         foreach (var child in source.Children)
         {
             node.AddChild(BuildRenderNode(child));
@@ -395,23 +525,6 @@ internal static class ResearchTreePreviewRenderer
     {
         if (!TryInsetConnector(ref start, ref end, startInset, endInset) ||
             !TryClipLineToBounds(bounds, ref start, ref end))
-        {
-            return;
-        }
-
-        DrawCrispLine(gumUi, start, end, color, thickness);
-    }
-
-    private static void DrawCrispConnector(
-        GumUiRenderer gumUi,
-        Vector2 start,
-        Vector2 end,
-        Color color,
-        int thickness,
-        float startInset,
-        float endInset)
-    {
-        if (!TryInsetConnector(ref start, ref end, startInset, endInset))
         {
             return;
         }
@@ -584,12 +697,24 @@ internal static class ResearchTreePreviewRenderer
 
     private static void DrawNodeOutline(GumUiRenderer gumUi, Vector2 center, int radius, Color border, int padding, int thickness)
     {
+        DrawNodeOutline(gumUi, parent: null, center, radius, border, padding, thickness);
+    }
+
+    private static void DrawNodeOutline(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Vector2 center,
+        int radius,
+        Color border,
+        int padding,
+        int thickness)
+    {
         var bounds = new Rectangle(
             (int)MathF.Round(center.X - radius - padding),
             (int)MathF.Round(center.Y - radius - padding),
             (radius + padding) * 2,
             (radius + padding) * 2);
-        gumUi.AddRoundedFrame(bounds, new Color(255, 255, 255, 1), border, thickness, radius + padding);
+        AddRoundedFrame(gumUi, parent, bounds, new Color(255, 255, 255, 1), border, thickness, radius + padding);
     }
 
     private static void DrawCrispLine(GumUiRenderer gumUi, Vector2 start, Vector2 end, Color color, int thickness)
@@ -645,6 +770,60 @@ internal static class ResearchTreePreviewRenderer
         }
 
         gumUi.AddRoundedOutline(parent, bounds, color, thickness, radius);
+    }
+
+    private static void AddRoundedFrame(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        Color fill,
+        Color border,
+        int thickness,
+        int radius)
+    {
+        if (parent is null)
+        {
+            gumUi.AddRoundedFrame(bounds, fill, border, thickness, radius);
+            return;
+        }
+
+        gumUi.AddRoundedFrame(parent, bounds, fill, border, thickness, radius);
+    }
+
+    private static void AddText(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        string text,
+        Color color,
+        GumTextStyle style)
+    {
+        var metrics = GumTextLayout.GetMetrics(style);
+        if (parent is null)
+        {
+            gumUi.AddText(bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
+            return;
+        }
+
+        gumUi.AddText(parent, bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
+    }
+
+    private static void AddCenteredText(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        string text,
+        Color color,
+        GumTextStyle style)
+    {
+        var metrics = GumTextLayout.GetMetrics(style);
+        if (parent is null)
+        {
+            gumUi.AddText(bounds, text, color, HorizontalAlignment.Center, VerticalAlignment.Center, metrics.FontSize);
+            return;
+        }
+
+        gumUi.AddText(parent, bounds, text, color, HorizontalAlignment.Center, VerticalAlignment.Center, metrics.FontSize);
     }
 
     private static Vector2 PixelSnap(Vector2 point)
@@ -724,16 +903,33 @@ internal static class ResearchTreePreviewRenderer
     private sealed record ResearchTreeLayoutNode(ResearchTreeViewNode Node, ResearchTreeLayoutNode? Parent, Vector2 LocalPosition);
 
     private sealed record ResearchTreeDetailNode(ResearchTreeViewNode Node, ResearchTreeDetailNode? Parent, Vector2 Position);
+
+    private readonly record struct ResearchTreeRenderPayload(ResearchTreeViewNode Node, bool IsSynthetic);
 }
 
-internal readonly record struct ResearchTreePreviewLayout(
-    IReadOnlyList<ResearchTreePreviewNode> Nodes,
+internal readonly record struct ResearchTreeRenderConfig(
+    bool ShowBackButton = false,
+    bool ShowRootNode = true,
+    bool EnableNodeSelection = true,
+    bool EnableBranchDrafting = false,
+    bool EnablePlacementPreview = false);
+
+internal readonly record struct ResearchTreeCardData(
+    string Title,
+    string Subtitle,
+    Rectangle Bounds,
+    ResearchTreeViewNode? Root,
+    bool IsHovered,
+    bool IsSelected);
+
+internal readonly record struct ResearchTreeViewLayout(
+    IReadOnlyList<ResearchTreeViewLayoutNode> Nodes,
     int Radius,
     Rectangle Bounds);
 
-internal sealed record ResearchTreePreviewNode(
+internal sealed record ResearchTreeViewLayoutNode(
     ResearchTreeViewNode Node,
-    ResearchTreePreviewNode? Parent,
+    ResearchTreeViewLayoutNode? Parent,
     Vector2 Position);
 
 internal readonly record struct ResearchTreeDetailMetrics(

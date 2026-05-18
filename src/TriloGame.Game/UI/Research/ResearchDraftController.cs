@@ -343,59 +343,89 @@ public sealed class ResearchDraftController
         GumUiRenderer gumUi,
         Texture2D? treeBackgroundTexture)
     {
+        ResearchTreeMenuRenderer.Draw(
+            gumUi,
+            session,
+            BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture),
+            _pointerPoint);
+    }
+
+    private ResearchTreeMenuModel BuildDraftMenuModel(
+        ResearchDraftLayoutInfo layout,
+        GameSession session,
+        ResearchDraftSystem draftSystem,
+        Texture2D? treeBackgroundTexture)
+    {
         var pendingDraft = draftSystem.PendingDraft;
         var hoverDisplay = GetHoveredNodeDisplay(layout, session, draftSystem);
+        var treeMetrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
 
-        gumUi.AddRoundedFrame(layout.PanelBounds, new Color(9, 18, 27, 248), new Color(83, 125, 145), 3, 20);
-        gumUi.AddRoundedFrame(
-            layout.CloseButtonBounds,
-            layout.CloseButtonBounds.Contains(_pointerPoint) ? new Color(29, 55, 72) : new Color(20, 42, 58),
-            layout.CloseButtonBounds.Contains(_pointerPoint) ? new Color(183, 223, 237) : new Color(114, 154, 172),
-            2,
-            12);
-        AddCenteredText(gumUi, layout.CloseButtonBounds, "X", Color.White, GumTextStyle.Small);
-
-        AddText(gumUi, layout.TitleBounds, "Skill Tree Research", Color.White, GumTextStyle.Ui);
-        AddText(
-            gumUi,
-            layout.SubtitleBounds,
+        return new ResearchTreeMenuModel(
+            ResearchTreeMenuMode.Drafting,
+            new ResearchTreeMenuConfig(
+                ShowBackButton: false,
+                ShowCloseButton: true,
+                CardAreaMode: pendingDraft is null ? ResearchTreeCardAreaMode.None : ResearchTreeCardAreaMode.DraftRow,
+                ShowTreeViewport: true,
+                ShowInfoPanel: true,
+                ShowFooter: true,
+                EnablePanZoom: true,
+                EnableNodeHover: true,
+                EnableNodeSelection: true,
+                EnableBranchDrafting: pendingDraft is not null,
+                EnablePlacementPreview: _selectedBranchIndex is not null,
+                EnableReadOnlyPreview: false,
+                ShowRootNode: true,
+                CanPlaceBranches: pendingDraft is not null),
+            ResearchTreeMenuRenderer.FromDraftLayout(layout),
+            "Skill Tree Research",
             pendingDraft is null
                 ? "Review the colony's current run-specific skill tree."
                 : BuildDraftSubtitle(pendingDraft),
-            new Color(177, 203, 214),
-            GumTextStyle.Small);
+            "Draftable Branches",
+            "Global Skill Tree",
+            pendingDraft is null ? [] : BuildDraftCardModels(layout.BranchCardBounds, pendingDraft.Branches, session),
+            new ResearchTreeViewportModel(
+                Root: null,
+                _treePanOffset,
+                _treeZoom,
+                treeBackgroundTexture,
+                DrawCustomContent: ui =>
+                {
+                    DrawTiledTreeBackground(ui, layout.TreeViewportBounds, treeBackgroundTexture, 0, _treePanOffset, _treeZoom, treeMetrics.Origin);
+                    DrawSkillTreePanel(layout, session, draftSystem, ui);
+                }),
+            new ResearchTreeInfoPanelModel(
+                hoverDisplay is ResearchNodeHoverDisplay display ? ToTreeNodeInfo(display.HoverInfo) : null,
+                "Info",
+                pendingDraft is not null
+                    ? "Hover a branch or tree node for details."
+                    : "Hover a tree node for details."),
+            _statusMessage);
+    }
 
-        if (pendingDraft is not null)
+    private IReadOnlyList<ResearchTreeCardModel> BuildDraftCardModels(
+        IReadOnlyList<Rectangle> cardBounds,
+        IReadOnlyList<ResearchBranch> branches,
+        GameSession session)
+    {
+        var cards = new List<ResearchTreeCardModel>(cardBounds.Count);
+        for (var index = 0; index < cardBounds.Count; index++)
         {
-            gumUi.AddRoundedFrame(layout.DraftAreaBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-            AddText(
-                gumUi,
-                layout.DraftHeaderBounds,
-                "Draftable Branches",
-                new Color(204, 228, 238),
-                GumTextStyle.Small);
-            DrawBranchCards(layout.BranchCardBounds, pendingDraft.Branches, session, gumUi, treeBackgroundTexture);
+            var branch = index < branches.Count ? branches[index] : null;
+            var hovered = cardBounds[index].Contains(_pointerPoint);
+            var selected = _selectedBranchIndex == index;
+            cards.Add(branch is null || branch.Count == 0
+                ? new ResearchTreeCardModel($"Branch {index + 1}", "Unavailable", Root: null, hovered, selected)
+                : new ResearchTreeCardModel(
+                    BuildBranchCardTitle(branch, index),
+                    BuildBranchCardSubtitle(session, branch),
+                    ResearchTreeViewNode.FromResearchBranch(branch),
+                    hovered,
+                    selected));
         }
 
-        gumUi.AddRoundedFrame(layout.TreeBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        var treeMetrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
-        DrawTiledTreeBackground(gumUi, layout.TreeViewportBounds, treeBackgroundTexture, 0, _treePanOffset, _treeZoom, treeMetrics.Origin);
-        AddText(
-            gumUi,
-            layout.TreeHeaderBounds,
-            "Global Skill Tree",
-            new Color(204, 228, 238),
-            GumTextStyle.Small);
-        DrawSkillTreePanel(layout, session, draftSystem, gumUi);
-
-        DrawInfoPanel(layout, hoverDisplay, pendingDraft is not null, gumUi);
-
-        AddText(
-            gumUi,
-            layout.FooterBounds,
-            _statusMessage,
-            new Color(223, 233, 239),
-            GumTextStyle.Compact);
+        return cards;
     }
 
     private ResearchNodeHoverInfo? DrawSkillTreePanel(
@@ -477,101 +507,6 @@ public sealed class ResearchDraftController
         return branchHoverInfo is not null
             ? new ResearchNodeHoverDisplay(branchHoverInfo.Value, resolvedPlacement)
             : new ResearchNodeHoverDisplay(skillTreeHoverInfo!.Value, resolvedPlacement);
-    }
-
-    private void DrawInfoPanel(
-        ResearchDraftLayoutInfo layout,
-        ResearchNodeHoverDisplay? hoverDisplay,
-        bool hasPendingDraft,
-        GumUiRenderer gumUi)
-    {
-        if (hoverDisplay is ResearchNodeHoverDisplay dockedHoverDisplay)
-        {
-            DrawNodeInfoPanel(layout.InfoPanelBounds, dockedHoverDisplay.HoverInfo, gumUi, dockedHoverDisplay.Placement);
-            return;
-        }
-
-        gumUi.AddRoundedFrame(layout.InfoPanelBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        AddText(
-            gumUi,
-            new Rectangle(layout.InfoPanelBounds.X + 14, layout.InfoPanelBounds.Y + 12, layout.InfoPanelBounds.Width - 28, 18),
-            "Info",
-            new Color(204, 228, 238),
-            GumTextStyle.Compact);
-        AddCenteredText(
-            gumUi,
-            new Rectangle(layout.InfoPanelBounds.X + 18, layout.InfoPanelBounds.Y + 46, layout.InfoPanelBounds.Width - 36, layout.InfoPanelBounds.Height - 64),
-            hasPendingDraft
-                ? "Hover a branch or tree node for details."
-                : "Hover a tree node for details.",
-            new Color(177, 203, 214),
-            GumTextStyle.Small,
-            maxLines: 3);
-    }
-
-    private ResearchNodeHoverInfo? DrawBranchCards(
-        IReadOnlyList<Rectangle> cardBounds,
-        IReadOnlyList<ResearchBranch> branches,
-        GameSession session,
-        GumUiRenderer gumUi,
-        Texture2D? treeBackgroundTexture)
-    {
-        ResearchNodeHoverInfo? hoverInfo = null;
-        for (var index = 0; index < cardBounds.Count; index++)
-        {
-            var bounds = cardBounds[index];
-            var branch = index < branches.Count ? branches[index] : null;
-            var hovered = bounds.Contains(_pointerPoint);
-            var selected = _selectedBranchIndex == index;
-        var fill = selected
-            ? new Color(34, 70, 92)
-            : hovered ? new Color(20, 45, 63) : new Color(13, 30, 44);
-            var border = selected
-                ? new Color(214, 236, 244)
-                : hovered ? new Color(132, 181, 198) : new Color(66, 101, 118);
-
-            gumUi.AddRoundedFrame(bounds, fill, border, 2, 14);
-            var previewBounds = new Rectangle(bounds.X + 10, bounds.Y + 48, bounds.Width - 20, bounds.Height - 58);
-
-            if (branch is null || branch.Count == 0)
-            {
-                AddText(
-                    gumUi,
-                    new Rectangle(bounds.X + 12, bounds.Y + 8, bounds.Width - 24, 18),
-                    $"Branch {index + 1}",
-                    Color.White,
-                    GumTextStyle.Small);
-                AddCenteredText(
-                    gumUi,
-                    previewBounds,
-                    "Unavailable",
-                    new Color(191, 204, 211),
-                    GumTextStyle.Small);
-                continue;
-            }
-
-            DrawTiledTreeBackground(gumUi, Inset(bounds, 2), treeBackgroundTexture, 12);
-            AddText(
-                gumUi,
-                new Rectangle(bounds.X + 12, bounds.Y + 8, bounds.Width - 24, 18),
-                $"Branch {index + 1}",
-                Color.White,
-                GumTextStyle.Small);
-            AddText(
-                gumUi,
-                new Rectangle(bounds.X + 12, bounds.Y + 28, bounds.Width - 24, 16),
-                $"{branch.Count} nodes",
-                new Color(184, 206, 216),
-                GumTextStyle.Compact);
-            hoverInfo = DrawBranchCardPreview(
-                branch,
-                session,
-                previewBounds,
-                gumUi,
-                treeBackgroundTexture) ?? hoverInfo;
-        }
-
-        return hoverInfo;
     }
 
     private ResearchNodeHoverInfo? DrawPlacedTree(GameSession session, TreeDisplayMetrics metrics, GumUiRenderer gumUi)
@@ -773,74 +708,6 @@ public sealed class ResearchDraftController
         }
 
         return null;
-    }
-
-    private ResearchNodeHoverInfo? DrawBranchCardPreview(
-        ResearchBranch branch,
-        GameSession session,
-        Rectangle bounds,
-        GumUiRenderer gumUi,
-        Texture2D? treeBackgroundTexture)
-    {
-        if (branch.Root is null)
-        {
-            return null;
-        }
-
-        gumUi.AddRoundedOutline(bounds, new Color(55, 87, 103), 1, 10);
-        var layout = CalculateBranchCardPreviewLayout(branch, bounds);
-        var hoveredNode = TryGetHoveredBranchNode(layout, out _);
-        ResearchTreePreviewRenderer.DrawPreview(gumUi, session, bounds, ResearchTreeViewNode.FromResearchBranch(branch));
-
-        if (hoveredNode is TreeInstanceNode hoveredBranchNode)
-        {
-            DrawFloatingBranchPrerequisiteHighlights(gumUi, layout, branch, hoveredBranchNode);
-            return BuildNodeHoverInfo(session, hoveredBranchNode);
-        }
-
-        return null;
-    }
-
-    internal static BranchCardPreviewLayout CalculateBranchCardPreviewLayout(ResearchBranch branch, Rectangle bounds)
-    {
-        ArgumentNullException.ThrowIfNull(branch);
-        if (branch.Root is null)
-        {
-            throw new ArgumentException("Branch preview layout requires a visible root.", nameof(branch));
-        }
-
-        const float padding = 14f;
-        var layout = BuildBranchLayout(branch, 1f);
-        var availableWidth = Math.Max(60f, bounds.Width - (padding * 2f));
-        var availableHeight = Math.Max(60f, bounds.Height - (padding * 2f));
-        var scale = MathF.Min(
-            availableWidth / MathF.Max(1f, layout.Bounds.Width),
-            availableHeight / MathF.Max(1f, layout.Bounds.Height));
-        scale = MathF.Max(18f, scale);
-        var radius = Math.Clamp((int)MathF.Round(scale * 0.18f), 6, 14);
-        var left = bounds.X + padding + radius;
-        var top = bounds.Y + padding + radius;
-        var layoutWidth = layout.Bounds.Width * scale;
-        var layoutHeight = layout.Bounds.Height * scale;
-        var offset = new Vector2(
-            left + ((availableWidth - (radius * 2f) - layoutWidth) / 2f) - (layout.Bounds.MinX * scale),
-            top + ((availableHeight - (radius * 2f) - layoutHeight) / 2f) - (layout.Bounds.MinY * scale));
-
-        var nodes = new List<BranchCardPreviewNode>(layout.Nodes.Count);
-        foreach (var node in layout.Nodes)
-        {
-            nodes.Add(new BranchCardPreviewNode(
-                node.BranchNode,
-                node.Parent is null ? null : nodes.First(existing => ReferenceEquals(existing.BranchNode, node.Parent.BranchNode)),
-                (node.LocalPosition * scale) + offset));
-        }
-
-        return new BranchCardPreviewLayout(
-            nodes,
-            offset,
-            offset + (layout.RootLocalPosition * scale),
-            radius,
-            bounds);
     }
 
     private TreeDisplayMetrics BuildTreeMetrics(Rectangle bounds, SkillTree skillTree)
@@ -1544,44 +1411,6 @@ public sealed class ResearchDraftController
         return layout.Nodes.FirstOrDefault(existing => ReferenceEquals(existing.SkillNode, node));
     }
 
-    private void DrawNodeInfoPanel(
-        Rectangle bounds,
-        ResearchNodeHoverInfo hoverInfo,
-        GumUiRenderer gumUi,
-        ResearchNodeHoverPlacement placement)
-    {
-        gumUi.AddRoundedFrame(bounds, new Color(9, 18, 28, 248), new Color(204, 228, 238), 2, 16);
-
-        var contentX = bounds.X + 14;
-        var contentWidth = bounds.Width - 28;
-        AddText(gumUi, new Rectangle(contentX, bounds.Y + 12, contentWidth, 18), "Node Details", new Color(204, 228, 238), GumTextStyle.Compact);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 38, contentWidth, 44), "Node", hoverInfo.TitleText);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 88, contentWidth, 40), "Feature Tree", hoverInfo.FeatureTreeText);
-        DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 134, contentWidth, bounds.Height - 148), "Effect", hoverInfo.EffectText, maxLines: 10);
-    }
-
-    private static void DrawInfoSection(
-        GumUiRenderer gumUi,
-        Rectangle bounds,
-        string label,
-        string value,
-        int maxLines = 2)
-    {
-        gumUi.AddText(
-            new Rectangle(bounds.X, bounds.Y, bounds.Width, 14),
-            label,
-            new Color(153, 194, 211),
-            fontSize: GumTextLayout.GetMetrics(GumTextStyle.Compact).FontSize,
-            verticalAlignment: VerticalAlignment.Top);
-        gumUi.AddText(
-            new Rectangle(bounds.X, bounds.Y + 16, bounds.Width, Math.Max(20, bounds.Height - 16)),
-            value,
-            Color.White,
-            fontSize: GumTextLayout.GetMetrics(GumTextStyle.Small).FontSize,
-            verticalAlignment: VerticalAlignment.Top,
-            maxLines: maxLines);
-    }
-
     private TreeInstanceNode? TryGetHoveredPlacedNode(TreeDisplayMetrics metrics, PlacedTreeRenderLayout layout, out Vector2 center)
     {
         center = Vector2.Zero;
@@ -1686,10 +1515,14 @@ public sealed class ResearchDraftController
             return null;
         }
 
-        var layout = CalculateBranchCardPreviewLayout(branch, bounds);
-        var hoveredNode = TryGetHoveredBranchNode(layout, out _);
+        var hoveredNode = ResearchTreeUiRenderer.TryGetHoveredCardNode(
+            ResearchTreeViewNode.FromResearchBranch(branch),
+            bounds,
+            _pointerPoint,
+            ResearchTreeUiRenderer.TreeEntryCardConfig,
+            out _);
 
-        return hoveredNode is null ? null : BuildNodeHoverInfo(session, hoveredNode);
+        return hoveredNode is null ? null : ToDraftHoverInfo(ResearchTreeUiRenderer.BuildNodeInfo(session, hoveredNode));
     }
 
     private TreeInstanceNode? TryGetHoveredBranchNode(
@@ -1711,30 +1544,6 @@ public sealed class ResearchDraftController
                 continue;
             }
 
-            var distanceSquared = Vector2.DistanceSquared(point, _pointerPoint.ToVector2());
-            if (distanceSquared > hitRadiusSquared || distanceSquared >= bestDistanceSquared)
-            {
-                continue;
-            }
-
-            bestDistanceSquared = distanceSquared;
-            hovered = node.BranchNode;
-            center = point;
-        }
-
-        return hovered;
-    }
-
-    private TreeInstanceNode? TryGetHoveredBranchNode(BranchCardPreviewLayout layout, out Vector2 center)
-    {
-        center = Vector2.Zero;
-        var hitRadius = layout.Radius + 6;
-        var hitRadiusSquared = hitRadius * hitRadius;
-        var bestDistanceSquared = float.MaxValue;
-        TreeInstanceNode? hovered = null;
-        foreach (var node in layout.Nodes)
-        {
-            var point = node.Position;
             var distanceSquared = Vector2.DistanceSquared(point, _pointerPoint.ToVector2());
             if (distanceSquared > hitRadiusSquared || distanceSquared >= bestDistanceSquared)
             {
@@ -1890,42 +1699,6 @@ public sealed class ResearchDraftController
         }
     }
 
-    private static void DrawFloatingBranchPrerequisiteHighlights(
-        GumUiRenderer gumUi,
-        BranchCardPreviewLayout layout,
-        ResearchBranch branch,
-        TreeInstanceNode hoveredNode)
-    {
-        var hoveredLayoutNode = layout.Nodes.FirstOrDefault(node => ReferenceEquals(node.BranchNode, hoveredNode));
-        if (hoveredLayoutNode is null)
-        {
-            return;
-        }
-
-        DrawNodeOutline(gumUi, hoveredLayoutNode.Position, layout.Radius, new Color(255, 255, 255, 240), 6, 2);
-        if (string.IsNullOrWhiteSpace(hoveredNode.SourceFeatureTreeName))
-        {
-            return;
-        }
-
-        for (var current = hoveredNode.SourceSkillNode.Parent; current is not null; current = current.Parent)
-        {
-            var prerequisiteNode = FindBranchNodeBySourceSkill(branch, hoveredNode.SourceFeatureTreeName, current.Name);
-            if (prerequisiteNode is null)
-            {
-                continue;
-            }
-
-            var prerequisiteLayoutNode = layout.Nodes.FirstOrDefault(node => ReferenceEquals(node.BranchNode, prerequisiteNode));
-            if (prerequisiteLayoutNode is null)
-            {
-                continue;
-            }
-
-            DrawNodeOutline(gumUi, prerequisiteLayoutNode.Position, layout.Radius, new Color(255, 255, 255, 216), 4, 2);
-        }
-    }
-
     private static TreeInstanceNode? FindBranchNodeBySourceSkill(
         ResearchBranch branch,
         string featureTreeName,
@@ -1962,6 +1735,16 @@ public sealed class ResearchDraftController
             node.Name,
             string.IsNullOrWhiteSpace(node.SourceFeatureTreeName) ? "Core" : node.SourceFeatureTreeName,
             BuildNodeAffectText(session, node));
+    }
+
+    private static ResearchNodeHoverInfo ToDraftHoverInfo(ResearchTreeNodeInfo info)
+    {
+        return new ResearchNodeHoverInfo(info.TitleText, info.FeatureTreeText, info.EffectText);
+    }
+
+    private static ResearchTreeNodeInfo ToTreeNodeInfo(ResearchNodeHoverInfo info)
+    {
+        return new ResearchTreeNodeInfo(info.TitleText, info.FeatureTreeText, info.EffectText);
     }
 
     internal static Color GetSkillTreeConnectorColor(TreeInstanceNode child)
@@ -2082,12 +1865,6 @@ public sealed class ResearchDraftController
         return builder.ToString();
     }
 
-    private static void AddText(GumUiRenderer gumUi, Rectangle bounds, string text, Color color, GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        gumUi.AddText(bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
-    }
-
     private static void AddCenteredText(
         GumUiRenderer gumUi,
         Rectangle bounds,
@@ -2126,6 +1903,26 @@ public sealed class ResearchDraftController
         return pendingDraft.Source == ResearchDraftSource.InfiniteDraft
             ? "Infinite draft is active. Choose one branch and click a valid graft point on the tree."
             : $"Round {pendingDraft.SourceRoundNumber} reward. Choose one branch and click a valid graft point on the tree.";
+    }
+
+    private static string BuildBranchCardTitle(ResearchBranch branch, int branchIndex)
+    {
+        var sourceTreeName = branch.Root?.SourceFeatureTreeName;
+        return string.IsNullOrWhiteSpace(sourceTreeName)
+            ? $"Branch {branchIndex + 1}"
+            : sourceTreeName;
+    }
+
+    private static string BuildBranchCardSubtitle(GameSession session, ResearchBranch branch)
+    {
+        var sourceTreeName = branch.Root?.SourceFeatureTreeName;
+        if (!string.IsNullOrWhiteSpace(sourceTreeName) &&
+            session.GetFeatureTree(sourceTreeName) is FeatureTree featureTree)
+        {
+            return $"Tier {featureTree.Tier}";
+        }
+
+        return $"{branch.Count} nodes";
     }
 
     private static ResearchDraftLayoutInfo BuildLayout(Point viewport, ResearchDraftSystem draftSystem)
@@ -2246,13 +2043,6 @@ public sealed class ResearchDraftController
         public static ResearchDraftDragPreview Empty => new(null, false, false, string.Empty);
     }
 
-    internal readonly record struct BranchCardPreviewLayout(
-        IReadOnlyList<BranchCardPreviewNode> Nodes,
-        Vector2 OriginPoint,
-        Vector2 RootPoint,
-        int Radius,
-        Rectangle Bounds);
-
     private sealed record PlacedTreeRenderNode(
         TreeInstanceNode SkillNode,
         PlacedTreeRenderNode? Parent,
@@ -2272,11 +2062,6 @@ public sealed class ResearchDraftController
         IReadOnlyList<BranchRenderNode> Nodes,
         Vector2 RootLocalPosition,
         TreeBounds Bounds);
-
-    internal sealed record BranchCardPreviewNode(
-        TreeInstanceNode BranchNode,
-        BranchCardPreviewNode? Parent,
-        Vector2 Position);
 
     private readonly record struct ResearchNodeHoverDisplay(
         ResearchNodeHoverInfo HoverInfo,
