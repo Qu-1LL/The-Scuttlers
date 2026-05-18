@@ -20,12 +20,6 @@ start
 
 These repo-root commands restore, build, and run `src/TriloGame.Game/TriloGame.Game.csproj`.
 
-On macOS, use:
-
-```bash
-bash ./dotnet-launch.sh
-```
-
 You can also call the wrappers directly:
 
 ```powershell
