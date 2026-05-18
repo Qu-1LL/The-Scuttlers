@@ -233,57 +233,57 @@
 /processor:TextureProcessor
 /build:Textures/window_5x4.png
 
-#begin Audio/BuildingFinished.wav
+#begin Audio/Effects/BuildingFinished.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/BuildingFinished.wav
+/build:Audio/Effects/BuildingFinished.wav
 
-#begin Audio/AntHoleSpawn.wav
+#begin Audio/Effects/AntHoleSpawn.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/AntHoleSpawn.wav
+/build:Audio/Effects/AntHoleSpawn.wav
 
-#begin Audio/TrilobiteExplosion.wav
+#begin Audio/Effects/TrilobiteExplosion.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/TrilobiteExplosion.wav
+/build:Audio/Effects/TrilobiteExplosion.wav
 
-#begin Audio/OpalChangeStart.wav
+#begin Audio/Effects/OpalChangeStart.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/OpalChangeStart.wav
+/build:Audio/Effects/OpalChangeStart.wav
 
-#begin Audio/OpalAlarm.wav
+#begin Audio/Effects/OpalAlarm.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/OpalAlarm.wav
+/build:Audio/Effects/OpalAlarm.wav
 
-#begin Audio/OpalRestore.wav
+#begin Audio/Effects/OpalRestore.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/OpalRestore.wav
+/build:Audio/Effects/OpalRestore.wav
 
-#begin Audio/BuildingPlace.mp3
+#begin Audio/Effects/BuildingPlace.mp3
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
-/build:Audio/BuildingPlace.mp3
+/build:Audio/Effects/BuildingPlace.mp3
 
-#begin Audio/TrilobiteBirth.wav
+#begin Audio/Effects/TrilobiteBirth.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/TrilobiteBirth.wav
+/build:Audio/Effects/TrilobiteBirth.wav
 
-#begin Audio/TrilobiteSelected.wav
+#begin Audio/Effects/TrilobiteSelected.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/TrilobiteSelected.wav
+/build:Audio/Effects/TrilobiteSelected.wav
 
-#begin Audio/UiSelect.wav
+#begin Audio/Effects/UiSelect.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/UiSelect.wav
+/build:Audio/Effects/UiSelect.wav
 
-#begin Audio/VolumeSound.wav
+#begin Audio/Effects/VolumeSound.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/VolumeSound.wav
+/build:Audio/Effects/VolumeSound.wav
