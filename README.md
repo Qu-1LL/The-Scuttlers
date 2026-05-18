@@ -95,4 +95,3 @@ Notes & troubleshooting
 - You can test that `mgcb` is available by running `dotnet mgcb --help`.
 - The MonoGame content builder may auto-restore the `mgcb` tool; if it doesn't, install it globally with `dotnet tool install --global dotnet-mgcb` or run `dotnet tool restore` in affected projects.
 
-If you'd like, I can also add a short macOS troubleshooting doc under `docs/` or include a script to create the Wine prefix automatically.
