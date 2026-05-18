@@ -7,6 +7,7 @@ public static class GameEvents
 {
     public const string TileMined = "tileMined";
     public const string WallMined = "wallMined";
+    public const string StorageInventoryChanged = "storageInventoryChanged";
     public const string AlgaeMined = "AlgaeMined";
     public const string SandstoneMined = "SandstoneMined";
     public const string MagnetiteMined = "MagnetiteMined";
@@ -22,4 +23,5 @@ public sealed record GameEventPayload(
     GridPoint? Location,
     string? MinedType,
     string? ResourceType,
-    object? Source);
+    object? Source,
+    int ResourceDelta = 0);

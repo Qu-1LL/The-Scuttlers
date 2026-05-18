@@ -4,6 +4,8 @@ public sealed class Tile
 {
     private readonly HashSet<Tile> _adjacent = [];
     private readonly List<Entities.Trilobite> _trilobites = [];
+    private readonly Dictionary<string, int> _droppedResources = new(StringComparer.Ordinal);
+    private readonly List<Buildings.Building> _projections = [];
 
     public Tile(int id, string key)
     {
@@ -22,6 +24,12 @@ public sealed class Tile
 
     public string Base { get; private set; }
 
+    public int ResourceYield { get; private set; }
+
+    public int HitsPerYield { get; private set; }
+
+    public int HitsRemaining { get; private set; }
+
     public Buildings.Building? Built { get; private set; }
 
     public Entities.Enemy? EnemyOccupant { get; private set; }
@@ -31,6 +39,10 @@ public sealed class Tile
     public IReadOnlyCollection<Tile> Neighbors => _adjacent;
 
     public IReadOnlyList<Entities.Trilobite> Trilobites => _trilobites;
+
+    public IReadOnlyDictionary<string, int> DroppedResources => _droppedResources;
+
+    public IReadOnlyList<Buildings.Building> Projections => _projections;
 
     public void AddNeighbor(Tile tile)
     {
@@ -56,6 +68,115 @@ public sealed class Tile
     public void SetBase(string tileBase)
     {
         Base = tileBase;
+        if (!string.Equals(tileBase, "wall", StringComparison.Ordinal))
+        {
+            HitsRemaining = 0;
+        }
+
+        if (string.Equals(tileBase, "empty", StringComparison.Ordinal))
+        {
+            ClearResourceState();
+        }
+    }
+
+    public void ConfigureOre(int yield, int hitsPerYield)
+    {
+        ResourceYield = Math.Max(0, yield);
+        HitsPerYield = Math.Max(1, hitsPerYield);
+        HitsRemaining = ResourceYield > 0 ? HitsPerYield : 0;
+    }
+
+    public void ConfigureWall(int hitsRequired)
+    {
+        ClearResourceState();
+        HitsRemaining = Math.Max(1, hitsRequired);
+    }
+
+    public void ClearResourceState()
+    {
+        ResourceYield = 0;
+        HitsPerYield = 0;
+        HitsRemaining = 0;
+    }
+
+    public bool IsOreTile() => ResourceYield > 0 && HitsPerYield > 0 && !string.Equals(Base, "wall", StringComparison.Ordinal);
+
+    public bool ApplyOreMineHit(out bool depleted)
+    {
+        depleted = false;
+        if (!IsOreTile() || HitsRemaining <= 0)
+        {
+            return false;
+        }
+
+        HitsRemaining--;
+        if (HitsRemaining > 0)
+        {
+            return false;
+        }
+
+        ResourceYield = Math.Max(0, ResourceYield - 1);
+        depleted = ResourceYield <= 0;
+        if (!depleted)
+        {
+            HitsRemaining = HitsPerYield;
+        }
+
+        return true;
+    }
+
+    public bool ApplyWallMineHit()
+    {
+        if (!string.Equals(Base, "wall", StringComparison.Ordinal) || HitsRemaining <= 0)
+        {
+            return false;
+        }
+
+        HitsRemaining--;
+        return HitsRemaining <= 0;
+    }
+
+    public int GetDroppedResourceCount(string resourceType)
+    {
+        return string.IsNullOrWhiteSpace(resourceType) ? 0 : _droppedResources.GetValueOrDefault(resourceType, 0);
+    }
+
+    public int AddDroppedResource(string resourceType, int amount)
+    {
+        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        {
+            return 0;
+        }
+
+        _droppedResources[resourceType] = GetDroppedResourceCount(resourceType) + amount;
+        return amount;
+    }
+
+    public int TakeDroppedResource(string resourceType, int amount)
+    {
+        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        {
+            return 0;
+        }
+
+        var available = GetDroppedResourceCount(resourceType);
+        var taken = Math.Min(available, amount);
+        if (taken <= 0)
+        {
+            return 0;
+        }
+
+        var remaining = available - taken;
+        if (remaining <= 0)
+        {
+            _droppedResources.Remove(resourceType);
+        }
+        else
+        {
+            _droppedResources[resourceType] = remaining;
+        }
+
+        return taken;
     }
 
     public void SetBuilt(Buildings.Building? building)
@@ -64,6 +185,13 @@ public sealed class Tile
     }
 
     public bool CreatureFits() => CreatureCanFit;
+
+    public bool EnemyFits() => CreatureCanFit && Built is not Buildings.Wall;
+
+    public bool CreatureFits(Entities.Creature creature)
+    {
+        return creature is Entities.Enemy ? EnemyFits() : CreatureFits();
+    }
 
     public bool AddTrilobite(Entities.Trilobite trilobite)
     {
@@ -79,6 +207,36 @@ public sealed class Tile
     public bool RemoveTrilobite(Entities.Trilobite trilobite)
     {
         return _trilobites.Remove(trilobite);
+    }
+
+    public bool AddProjection(Buildings.Building building)
+    {
+        for (var index = 0; index < _projections.Count; index++)
+        {
+            if (ReferenceEquals(_projections[index], building))
+            {
+                return false;
+            }
+        }
+
+        _projections.Add(building);
+        return true;
+    }
+
+    public bool RemoveProjection(Buildings.Building building)
+    {
+        for (var index = 0; index < _projections.Count; index++)
+        {
+            if (!ReferenceEquals(_projections[index], building))
+            {
+                continue;
+            }
+
+            _projections.RemoveAt(index);
+            return true;
+        }
+
+        return false;
     }
 
     public void SetEnemyOccupant(Entities.Enemy? enemy)

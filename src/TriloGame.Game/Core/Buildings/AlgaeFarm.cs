@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -7,7 +8,24 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class AlgaeFarm : Building
 {
+    private sealed class TraversalNode
+    {
+        public TraversalNode(GridPoint location)
+        {
+            Location = location;
+        }
+
+        public GridPoint Location { get; }
+
+        public TraversalNode? Next { get; set; }
+    }
+
+    private static readonly int[][] DefaultTraversalPath = [[6, 1], [5, 2], [4, 3]];
     private readonly HashSet<Creature> _assignments = [];
+    private readonly Dictionary<string, TraversalNode> _traversalNodes = new(StringComparer.Ordinal);
+    private readonly List<GridPoint> _traversalCycle = [];
+    private Dictionary<string, World.Tile>? _passableTileMapCache;
+    private TraversalNode? _traversalHead;
 
     public AlgaeFarm(GameSession session)
         : base("Algae Farm", new GridPoint(2, 3), [[1, 1], [1, 1], [1, 1]], session, false)
@@ -15,9 +33,11 @@ public sealed class AlgaeFarm : Building
         TextureKey = "AlgaeFarm";
         Period = 30;
         Growth = 0;
-        HarvestYield = 5;
+        HarvestYield = GameConstants.AlgaeHarvestYield;
+        MaxTrilobites = 2;
+        TraversalPath = CloneOpenMap(DefaultTraversalPath);
         Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
-        Description = $"A passable algae farm. Worker trilobites harvest {HarvestYield} algae when random < growth/period.";
+        Description = $"A passable algae farm. Up to {MaxTrilobites} worker trilobites harvest {HarvestYield} algae when random < growth/period.";
     }
 
     public int Period { get; }
@@ -26,39 +46,125 @@ public sealed class AlgaeFarm : Building
 
     public int HarvestYield { get; }
 
-    public void Assign(Creature creature) => _assignments.Add(creature);
+    public int MaxTrilobites { get; private set; }
 
-    public void RemoveAssignment(Creature creature) => _assignments.Remove(creature);
+    public int AssignmentCapacity => MaxTrilobites;
+
+    public int[][] TraversalPath { get; private set; }
+
+    public IReadOnlyCollection<Creature> Assignments => _assignments;
+
+    public override int[][] RotateMap()
+    {
+        TraversalPath = RotateTraversalPath(TraversalPath, Size);
+        InvalidateTraversalCaches();
+        return base.RotateMap();
+    }
+
+    public override void OnBuilt(World.Cave cave)
+    {
+        base.OnBuilt(cave);
+        RebuildTraversalRing();
+    }
+
+    public bool HasAssignmentSlot(Creature? creature = null)
+    {
+        return (creature is not null && _assignments.Contains(creature)) || _assignments.Count < MaxTrilobites;
+    }
+
+    public bool CanAssign(Creature creature)
+    {
+        return HasAssignmentSlot(creature);
+    }
+
+    public bool Assign(Creature creature)
+    {
+        if (!HasAssignmentSlot(creature))
+        {
+            Cave?.RefreshOpenAlgaeFarmAvailability();
+            return false;
+        }
+
+        var added = _assignments.Add(creature);
+        if (added)
+        {
+            TrackCreature(creature);
+        }
+
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+        return added || _assignments.Contains(creature);
+    }
+
+    public bool RemoveAssignment(Creature creature)
+    {
+        var removed = _assignments.Remove(creature);
+        if (removed)
+        {
+            UntrackCreature(creature);
+        }
+
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+        return removed;
+    }
+
+    public override void TrackedCreatureDied(Creature creature)
+    {
+        RemoveAssignment(creature);
+    }
 
     public int GetVolume() => _assignments.Count;
 
+    public int GetAvailableAssignmentSlots()
+    {
+        return Math.Max(0, MaxTrilobites - _assignments.Count);
+    }
+
+    public void SetAssignmentCapacity(int capacity)
+    {
+        MaxTrilobites = Math.Max(1, capacity);
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+    }
+
+    public void IncreaseAssignmentCapacity(int amount = 1)
+    {
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        MaxTrilobites += amount;
+        Cave?.RefreshOpenAlgaeFarmAvailability();
+    }
+
     public Dictionary<string, World.Tile> GetPassableTileMap()
     {
-        return TileArray
+        _passableTileMapCache ??= TileArray
             .Where(tile => tile.CreatureFits())
             .ToDictionary(tile => tile.Key, StringComparer.Ordinal);
+        return _passableTileMapCache;
     }
 
     public bool IsLocationOnFarm(GridPoint location)
     {
-        return GetPassableTileMap().ContainsKey(location.ToString());
+        return _traversalNodes.ContainsKey(location.ToString());
     }
 
     public GridPoint? GetApproachTile(GridPoint? startLocation)
     {
-        var passableTiles = GetPassableTileMap().Values.ToArray();
-        if (passableTiles.Length == 0)
+        var passableTiles = GetPassableTileMap().Values;
+        using var enumerator = passableTiles.GetEnumerator();
+        if (!enumerator.MoveNext())
         {
             return null;
         }
 
-        var origin = startLocation ?? GridPoint.Parse(passableTiles[0].Key);
-        var bestTile = passableTiles[0];
-        var bestDistance = GridPoint.SquaredDistance(origin, GridPoint.Parse(bestTile.Key));
+        var bestTile = enumerator.Current;
+        var origin = startLocation ?? bestTile.Coordinates;
+        var bestDistance = GridPoint.SquaredDistance(origin, bestTile.Coordinates);
 
         foreach (var tile in passableTiles)
         {
-            var distance = GridPoint.SquaredDistance(origin, GridPoint.Parse(tile.Key));
+            var distance = GridPoint.SquaredDistance(origin, tile.Coordinates);
             if (distance < bestDistance)
             {
                 bestDistance = distance;
@@ -66,134 +172,120 @@ public sealed class AlgaeFarm : Building
             }
         }
 
-        return GridPoint.Parse(bestTile.Key);
+        return bestTile.Coordinates;
     }
 
-    private List<string>? FindFarmPath(string startKey, string goalKey, Dictionary<string, World.Tile> passableTileMap)
+    internal GridPoint? GetNextTraversalLocation(GridPoint currentLocation)
     {
-        if (!passableTileMap.ContainsKey(startKey) || !passableTileMap.ContainsKey(goalKey))
-        {
-            return null;
-        }
-
-        if (startKey == goalKey)
-        {
-            return [startKey];
-        }
-
-        var queue = new Queue<string>();
-        var visited = new HashSet<string>(StringComparer.Ordinal) { startKey };
-        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
-        queue.Enqueue(startKey);
-
-        while (queue.Count > 0)
-        {
-            var currentKey = queue.Dequeue();
-            if (currentKey == goalKey)
-            {
-                var path = new List<string>();
-                string? key = goalKey;
-                while (key is not null)
-                {
-                    path.Add(key);
-                    key = cameFrom.GetValueOrDefault(key);
-                }
-
-                path.Reverse();
-                return path;
-            }
-
-            var currentTile = passableTileMap[currentKey];
-            foreach (var neighbor in currentTile.Neighbors)
-            {
-                if (!passableTileMap.ContainsKey(neighbor.Key) || !visited.Add(neighbor.Key))
-                {
-                    continue;
-                }
-
-                cameFrom[neighbor.Key] = currentKey;
-                queue.Enqueue(neighbor.Key);
-            }
-        }
-
-        return null;
+        return _traversalNodes.TryGetValue(currentLocation.ToString(), out var node)
+            ? node.Next?.Location
+            : null;
     }
 
-    private string? FindNextUnvisitedKey(string currentKey, HashSet<string> unvisitedKeys, Dictionary<string, World.Tile> passableTileMap)
-    {
-        string? bestKey = null;
-        var bestLength = int.MaxValue;
-        foreach (var candidateKey in unvisitedKeys)
-        {
-            var candidatePath = FindFarmPath(currentKey, candidateKey, passableTileMap);
-            if (candidatePath is null)
-            {
-                continue;
-            }
+    internal GridPoint? GetTraversalStartLocation() => _traversalHead?.Location;
 
-            if (candidatePath.Count < bestLength)
-            {
-                bestLength = candidatePath.Count;
-                bestKey = candidateKey;
-            }
+    public bool TryGetNextHarvestStep(GridPoint currentPositionOnFarm, out GridPoint nextLocation)
+    {
+        var next = GetNextTraversalLocation(currentPositionOnFarm);
+        if (next is null)
+        {
+            nextLocation = default;
+            return false;
         }
 
-        return bestKey;
+        nextLocation = next.Value;
+        return true;
     }
 
-    public List<GridPoint> GetPath(GridPoint currentPositionOnFarm)
+    public List<GridPoint> GetPath(GridPoint currentPositionOnFarm, Creature? creature = null)
     {
-        var passableTileMap = GetPassableTileMap();
-        if (passableTileMap.Count == 0)
+        if (_traversalCycle.Count == 0)
         {
             return [];
         }
 
-        var originKey = currentPositionOnFarm.ToString();
-        if (!passableTileMap.ContainsKey(originKey))
+        var start = IsLocationOnFarm(currentPositionOnFarm)
+            ? currentPositionOnFarm
+            : GetApproachTile(currentPositionOnFarm) ?? _traversalCycle[0];
+        var startIndex = _traversalCycle.FindIndex(location => location == start);
+        if (startIndex < 0)
         {
-            originKey = GetApproachTile(currentPositionOnFarm)?.ToString() ?? passableTileMap.Keys.First();
+            startIndex = 0;
+            start = _traversalCycle[0];
         }
 
-        var route = new List<string> { originKey };
-        var unvisited = new HashSet<string>(passableTileMap.Keys, StringComparer.Ordinal);
-        unvisited.Remove(originKey);
-        var currentKey = originKey;
-
-        while (unvisited.Count > 0)
+        var path = new List<GridPoint>(_traversalCycle.Count + 1);
+        for (var offset = 0; offset < _traversalCycle.Count; offset++)
         {
-            var nextKey = FindNextUnvisitedKey(currentKey, unvisited, passableTileMap);
-            if (nextKey is null)
-            {
-                break;
-            }
-
-            var segment = FindFarmPath(currentKey, nextKey, passableTileMap);
-            if (segment is null || segment.Count < 2)
-            {
-                unvisited.Remove(nextKey);
-                continue;
-            }
-
-            foreach (var key in segment.Skip(1))
-            {
-                route.Add(key);
-                unvisited.Remove(key);
-            }
-
-            currentKey = route[^1];
+            path.Add(_traversalCycle[(startIndex + offset) % _traversalCycle.Count]);
         }
 
-        if (!string.Equals(currentKey, originKey, StringComparison.Ordinal))
+        path.Add(start);
+        return path;
+    }
+
+    private void InvalidateTraversalCaches()
+    {
+        _passableTileMapCache = null;
+        _traversalNodes.Clear();
+        _traversalCycle.Clear();
+        _traversalHead = null;
+    }
+
+    private void RebuildTraversalRing()
+    {
+        InvalidateTraversalCaches();
+
+        if (Location is null || TileArray.Count == 0)
         {
-            var returnPath = FindFarmPath(currentKey, originKey, passableTileMap);
-            if (returnPath is not null && returnPath.Count > 1)
+            return;
+        }
+
+        var passableTiles = GetPassableTileMap();
+        if (passableTiles.Count == 0)
+        {
+            return;
+        }
+
+        var orderedLocations = new List<(int Order, GridPoint Location)>();
+        for (var y = 0; y < TraversalPath.Length; y++)
+        {
+            for (var x = 0; x < TraversalPath[y].Length; x++)
             {
-                route.AddRange(returnPath.Skip(1));
+                var order = TraversalPath[y][x];
+                if (order <= 0)
+                {
+                    continue;
+                }
+
+                var location = new GridPoint(Location.Value.X + x, Location.Value.Y + y);
+                if (!passableTiles.ContainsKey(location.ToString()))
+                {
+                    continue;
+                }
+
+                orderedLocations.Add((order, location));
             }
         }
 
-        return route.Select(GridPoint.Parse).ToList();
+        var orderedNodes = orderedLocations
+            .OrderBy(entry => entry.Order)
+            .Select(entry => new TraversalNode(entry.Location))
+            .ToArray();
+        if (orderedNodes.Length == 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < orderedNodes.Length; index++)
+        {
+            var node = orderedNodes[index];
+            node.Next = orderedNodes[(index + 1) % orderedNodes.Length];
+            _traversalNodes[node.Location.ToString()] = node;
+            _traversalCycle.Add(node.Location);
+        }
+
+        _traversalHead = orderedNodes[0];
     }
 
     public bool TryHarvest(Trilobite creature)
@@ -212,5 +304,22 @@ public sealed class AlgaeFarm : Building
 
         Growth = 0;
         return true;
+    }
+
+    private static int[][] RotateTraversalPath(int[][] traversalPath, GridPoint size)
+    {
+        var rotated = new int[size.X][];
+        for (var column = 0; column < size.X; column++)
+        {
+            rotated[column] = new int[size.Y];
+            var targetIndex = 0;
+            for (var row = size.Y - 1; row >= 0; row--)
+            {
+                rotated[column][targetIndex] = traversalPath[row][column];
+                targetIndex++;
+            }
+        }
+
+        return rotated;
     }
 }

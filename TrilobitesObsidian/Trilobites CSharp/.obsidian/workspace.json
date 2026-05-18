@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "04 Game Wiki/Buildings and Placement.md",
+                "file": "04 Game Wiki/Skill Tree and Quest Overview.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Buildings and Placement"
+              "title": "Skill Tree and Quest Overview"
             }
           }
         ]
@@ -185,6 +185,8 @@
   },
   "active": "cf292799a0539fa1",
   "lastOpenFiles": [
+    "04 Game Wiki/Trilobite Roles.md",
+    "04 Game Wiki/Buildings and Placement.md",
     "04 Game Wiki/Controls and Shortcuts.md",
     "04 Game Wiki/Core Loop and Colony Growth.md",
     "04 Game Wiki/Features Overview.md",
@@ -192,7 +194,6 @@
     "02 Systems/UI and Input.md",
     "02 Systems/World Tiles and Cave.md",
     "02 Systems/Buildings.md",
-    "04 Game Wiki/Buildings and Placement.md",
     "04 Game Wiki/Game Wiki Home.md",
     "04 Game Wiki/Getting Started and How to Play.md",
     "00 Home/Using This Vault.md",

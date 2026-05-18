@@ -27,6 +27,9 @@ Linked notes: [[Trilobites CSharp Home]] - [[Boot and Game Root]] - [[World Tile
 - `Resources`
 - `BfsFields`
 - `UnlockedBuildings`
+- `ProgressionDex`
+- `FeatureTrees`
+- `SkillTree`
 - `Cave`
 - `Danger`
 - `TickCount`
@@ -49,6 +52,7 @@ Linked notes: [[Trilobites CSharp Home]] - [[Boot and Game Root]] - [[World Tile
 - `Emit(...)`
 - `On(...)`
 - `RequestAudioCue(...)`
+- `GetFeatureTree(...)`
 - `MineTile(...)`
 - `MineWallTile(...)`
 - `EmitMineEvents(...)`

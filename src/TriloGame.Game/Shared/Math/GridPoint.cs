@@ -7,6 +7,7 @@ public readonly record struct GridPoint(int X, int Y)
 {
     public static GridPoint Zero => new(0, 0);
 
+    // Parse a serialized tile key and throw when the format is invalid.
     public static GridPoint Parse(string key)
     {
         if (TryParse(key, out var point))
@@ -17,6 +18,7 @@ public readonly record struct GridPoint(int X, int Y)
         throw new FormatException($"Invalid grid key '{key}'.");
     }
 
+    // Try to parse a serialized tile key in the form "x,y".
     public static bool TryParse(string? key, out GridPoint point)
     {
         point = default;
@@ -41,6 +43,7 @@ public readonly record struct GridPoint(int X, int Y)
         return true;
     }
 
+    // Measure Euclidean distance without paying for a square root.
     public static int SquaredDistance(GridPoint a, GridPoint b)
     {
         var dx = a.X - b.X;
@@ -48,11 +51,13 @@ public readonly record struct GridPoint(int X, int Y)
         return (dx * dx) + (dy * dy);
     }
 
+    // Measure grid distance using orthogonal movement only.
     public static int ManhattanDistance(GridPoint a, GridPoint b)
     {
         return System.Math.Abs(a.X - b.X) + System.Math.Abs(a.Y - b.Y);
     }
 
+    // Convert the integer grid coordinate into a MonoGame vector.
     public Vector2 ToVector2()
     {
         return new Vector2(X, Y);

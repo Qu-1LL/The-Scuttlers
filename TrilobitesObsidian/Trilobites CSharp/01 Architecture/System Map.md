@@ -22,6 +22,7 @@ Linked notes: [[Trilobites CSharp Home]] - [[Runtime Flow]] - [[File Structure]]
 | Pathfinding | `Core/Pathfinding/BfsField.cs`, `PathBuilder.cs` | Maintain BFS fields for colony, enemies, buildings, and point destinations | [[Pathfinding and BFS]], [[Entities and Roles]] |
 | Creatures | `Core/Entities/Creature.cs`, `Trilobite.cs`, `Enemy.cs` | Implement unit state, movement, role logic, combat, and manual movement | [[Entities and Roles]], [[World Tiles and Cave]] |
 | Buildings | `Core/Buildings/*.cs`, `Factory.cs` | Implement structures, recipes, scaffolding, storage, production, assignment targets, and reveal behavior | [[Buildings]], [[Resources Events and Stats]] |
+| Progression | `Core/Progression/*.cs` | Model feature trees and unlockable skill nodes without wiring them into gameplay yet | [[Progression and Feature Trees]], [[Skill Tree and Quest Overview]] |
 | Resources and events | `Core/Economy/*.cs`, `Core/Events/*.cs` | Track resources, reservations, mining events, and statistics | [[Resources Events and Stats]], [[Simulation and Ticks]] |
 | Input and gameplay UI | `UI/Input/*.cs`, `UI/Menu/*.cs`, `UI/Selection/*.cs`, `UI/Settings/*.cs`, `UI/ViewModels/*.cs` | Poll input, manage menus, selection, settings, and layout helpers | [[UI and Input]], [[Rendering]] |
 | Rendering | `Rendering/*.cs`, `GameApp.cs`, `UI/Gum/GumShapePool.cs` | Convert world state into screen-space drawing, camera transforms, sprite registration, Gum-backed rounded UI chrome | [[Rendering]], [[UI and Input]] |

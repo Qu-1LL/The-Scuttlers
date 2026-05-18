@@ -53,6 +53,13 @@ This section verifies behavior described in [[Pathfinding and BFS]].
 
 - `Pathfinding/BfsFieldTests.cs` - BFS rebuild, rebalance, and field behavior
 
+## Progression
+
+This section verifies behavior described in [[Progression and Feature Trees]].
+
+- `Progression/SkillTreeTests.cs` - per-session skill-tree import and isolation behavior
+- `Progression/TriloDexTests.cs` - global progression-catalog accessors and empty-catalog defaults
+
 ## Simulation
 
 This section verifies behavior described in [[Simulation and Ticks]].
@@ -83,6 +90,7 @@ This section verifies behavior described in [[World Tiles and Cave]].
 
 - `AI/` mirrors `Core/Entities/`
 - `Buildings/` mirrors `Core/Buildings/`
+- `Progression/` mirrors `Core/Progression/`
 - `Pathfinding/` mirrors `Core/Pathfinding/`
 - `Simulation/` mirrors `Core/Simulation/`
 - `UI/` mirrors `UI/`

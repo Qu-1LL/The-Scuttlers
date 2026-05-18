@@ -6,15 +6,25 @@ namespace TriloGame.Tests.UI;
 public sealed class SettingsMenuLayoutTests
 {
     [Fact]
-    public void GetPanelBounds_AnchorsBelowTopLeftSettingsButton()
+    public void GetPanelBounds_IsCenteredInViewport()
     {
         var viewport = new Point(1440, 900);
 
-        var buttonBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
         var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport);
 
-        Assert.Equal(buttonBounds.X, panelBounds.X);
-        Assert.True(panelBounds.Y > buttonBounds.Bottom);
+        Assert.Equal((viewport.X - panelBounds.Width) / 2, panelBounds.X);
+        Assert.Equal((viewport.Y - panelBounds.Height) / 2, panelBounds.Y);
+    }
+
+    [Fact]
+    public void GetPanelBounds_WithoutQuitToMainMenu_IsShorter()
+    {
+        var viewport = new Point(1440, 900);
+
+        var panelWithQuit = SettingsMenuLayout.GetPanelBounds(viewport, includeQuitToMainMenu: true);
+        var panelWithoutQuit = SettingsMenuLayout.GetPanelBounds(viewport, includeQuitToMainMenu: false);
+
+        Assert.True(panelWithQuit.Height > panelWithoutQuit.Height);
     }
 
     [Fact]
@@ -39,5 +49,16 @@ public sealed class SettingsMenuLayoutTests
 
         Assert.True(panelBounds.Contains(returnBounds));
         Assert.True(returnBounds.Bottom < hintBounds.Y);
+    }
+
+    [Fact]
+    public void GetVolumeBarBounds_StaysInsidePanel()
+    {
+        var viewport = new Point(1440, 900);
+        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport);
+
+        var barBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
+
+        Assert.True(panelBounds.Contains(barBounds));
     }
 }

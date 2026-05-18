@@ -33,6 +33,11 @@
 /processor:TextureProcessor
 /build:Textures/AlgaeFarm.png
 
+#begin Textures/AntHole.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/AntHole.png
+
 #begin Textures/AlgaeTile.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -53,6 +58,36 @@
 /processor:TextureProcessor
 /build:Textures/CaveWall.png
 
+#begin Textures/wall_0.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_0.png
+
+#begin Textures/wall_1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_1.png
+
+#begin Textures/wall_2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_2.png
+
+#begin Textures/wall_2_bent.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_2_bent.png
+
+#begin Textures/wall_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_3.png
+
+#begin Textures/wall_4.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/wall_4.png
+
 #begin Textures/CochiniumTile.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -67,6 +102,21 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Enemy.png
+
+#begin Textures/HealingMist1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HealingMist1.png
+
+#begin Textures/HealingMist2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HealingMist2.png
+
+#begin Textures/HealingMist3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/HealingMist3.png
 
 #begin Textures/HowDoIGetHimOff.png
 /importer:TextureImporter
@@ -102,6 +152,11 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/OrePath.png
+
+#begin Textures/Opal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Opal.png
 
 #begin Textures/Path.png
 /importer:TextureImporter
@@ -158,6 +213,11 @@
 /processor:TextureProcessor
 /build:Textures/Trilobite.png
 
+#begin Textures/Turret.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Turret.png
+
 #begin Textures/window_3x1.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -177,6 +237,31 @@
 /importer:WavImporter
 /processor:SoundEffectProcessor
 /build:Audio/BuildingFinished.wav
+
+#begin Audio/AntHoleSpawn.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/AntHoleSpawn.wav
+
+#begin Audio/TrilobiteExplosion.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/TrilobiteExplosion.wav
+
+#begin Audio/OpalChangeStart.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/OpalChangeStart.wav
+
+#begin Audio/OpalAlarm.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/OpalAlarm.wav
+
+#begin Audio/OpalRestore.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/OpalRestore.wav
 
 #begin Audio/BuildingPlace.mp3
 /importer:Mp3Importer

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 
@@ -6,11 +5,16 @@ namespace TriloGame.Game.Core.Simulation;
 
 public static class TickRunner
 {
-    private static readonly List<Trilobite> TrilobiteBuffer = [];
-    private static readonly List<Enemy> EnemyBuffer = [];
-    private static readonly List<Building> BuildingBuffer = [];
+    [ThreadStatic]
+    private static List<Trilobite>? _trilobiteBuffer;
 
-    public static void RunTick(GameSession session)
+    [ThreadStatic]
+    private static List<Enemy>? _enemyBuffer;
+
+    [ThreadStatic]
+    private static List<Building>? _buildingBuffer;
+
+    public static void RunTick(GameSession session, ITickPhaseObserver? phaseObserver = null)
     {
         var cave = session.Cave;
         if (cave is null)
@@ -19,74 +23,67 @@ public static class TickRunner
         }
 
         session.TickCount++;
+        phaseObserver?.OnTickStarted(session);
 
-        var tickStart = Stopwatch.GetTimestamp();
-        var phaseStart = tickStart;
-        var allocatedStart = GC.GetTotalAllocatedBytes(false);
-        var gen0Start = GC.CollectionCount(0);
-        var gen1Start = GC.CollectionCount(1);
-        var gen2Start = GC.CollectionCount(2);
-        var enemyBfsMs = 0d;
-        var trilobiteMoveMs = 0d;
-        var colonyBfsMs = 0d;
-        var enemyMoveMs = 0d;
-        var buildingTickMs = 0d;
+        phaseObserver?.OnPhaseStarted(TickPhase.TraitTick);
+        session.TraitHandler.Tick();
+        phaseObserver?.OnPhaseCompleted(TickPhase.TraitTick);
+
+        if (!session.Runtime.FreezeOpalProgression)
+        {
+            phaseObserver?.OnPhaseStarted(TickPhase.SurfaceFeatureTick);
+            cave.TickSurfaceFeatures();
+            phaseObserver?.OnPhaseCompleted(TickPhase.SurfaceFeatureTick);
+        }
+
+        phaseObserver?.OnPhaseStarted(TickPhase.DangerRefresh);
+        cave.RefreshDangerState();
+        phaseObserver?.OnPhaseCompleted(TickPhase.DangerRefresh);
 
         if (session.Danger)
         {
+            phaseObserver?.OnPhaseStarted(TickPhase.EnemyBfs);
             cave.RefreshBfsField("enemy");
-            enemyBfsMs = ConsumeElapsedMs(ref phaseStart);
+            phaseObserver?.OnPhaseCompleted(TickPhase.EnemyBfs);
         }
 
-        CopySnapshot(TrilobiteBuffer, cave.GetTrilobiteList());
-        foreach (var creature in TrilobiteBuffer)
+        phaseObserver?.OnPhaseStarted(TickPhase.TrilobiteMove);
+        var trilobiteBuffer = GetTrilobiteBuffer();
+        CopySnapshot(trilobiteBuffer, cave.GetTrilobiteList());
+        foreach (var creature in trilobiteBuffer)
         {
+            var assignment = creature.Assignment;
+            phaseObserver?.OnTrilobiteMoveStarted(assignment);
             creature.Move();
+            phaseObserver?.OnTrilobiteMoveCompleted(assignment);
         }
-        trilobiteMoveMs = ConsumeElapsedMs(ref phaseStart);
+        phaseObserver?.OnPhaseCompleted(TickPhase.TrilobiteMove);
 
         if (session.Danger)
         {
+            phaseObserver?.OnPhaseStarted(TickPhase.ColonyBfs);
             cave.RefreshBfsField("colony");
-            colonyBfsMs = ConsumeElapsedMs(ref phaseStart);
+            phaseObserver?.OnPhaseCompleted(TickPhase.ColonyBfs);
 
-            CopySnapshot(EnemyBuffer, cave.GetEnemyList());
-            foreach (var creature in EnemyBuffer)
+            phaseObserver?.OnPhaseStarted(TickPhase.EnemyMove);
+            var enemyBuffer = GetEnemyBuffer();
+            CopySnapshot(enemyBuffer, cave.GetEnemyList());
+            foreach (var creature in enemyBuffer)
             {
                 creature.Move();
             }
-            enemyMoveMs = ConsumeElapsedMs(ref phaseStart);
+            phaseObserver?.OnPhaseCompleted(TickPhase.EnemyMove);
         }
 
-        CopySnapshot(BuildingBuffer, cave.GetBuildingList());
-        foreach (var building in BuildingBuffer)
+        phaseObserver?.OnPhaseStarted(TickPhase.BuildingTick);
+        var buildingBuffer = GetBuildingBuffer();
+        CopySnapshot(buildingBuffer, cave.GetBuildingList());
+        foreach (var building in buildingBuffer)
         {
             building.Tick(cave);
         }
-        buildingTickMs = ConsumeElapsedMs(ref phaseStart);
-
-        session.TickProfiler.Record(new TickTimingSnapshot(
-            Stopwatch.GetElapsedTime(tickStart).TotalMilliseconds,
-            enemyBfsMs,
-            trilobiteMoveMs,
-            colonyBfsMs,
-            enemyMoveMs,
-            buildingTickMs,
-            GC.GetTotalAllocatedBytes(false) - allocatedStart,
-            GC.CollectionCount(0) - gen0Start,
-            GC.CollectionCount(1) - gen1Start,
-            GC.CollectionCount(2) - gen2Start,
-            cave.GetTrilobiteList().Count,
-            cave.GetEnemyList().Count,
-            cave.GetBuildingList().Count));
-    }
-
-    private static double ConsumeElapsedMs(ref long phaseStart)
-    {
-        var now = Stopwatch.GetTimestamp();
-        var elapsed = Stopwatch.GetElapsedTime(phaseStart, now).TotalMilliseconds;
-        phaseStart = now;
-        return elapsed;
+        phaseObserver?.OnPhaseCompleted(TickPhase.BuildingTick);
+        phaseObserver?.OnTickCompleted(session);
     }
 
     private static void CopySnapshot<T>(List<T> buffer, IReadOnlyList<T> source)
@@ -101,5 +98,20 @@ public static class TickRunner
         {
             buffer.Add(source[index]);
         }
+    }
+
+    private static List<Trilobite> GetTrilobiteBuffer()
+    {
+        return _trilobiteBuffer ??= [];
+    }
+
+    private static List<Enemy> GetEnemyBuffer()
+    {
+        return _enemyBuffer ??= [];
+    }
+
+    private static List<Building> GetBuildingBuffer()
+    {
+        return _buildingBuffer ??= [];
     }
 }

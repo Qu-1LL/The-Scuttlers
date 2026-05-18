@@ -1,5 +1,4 @@
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
@@ -65,11 +64,96 @@ public sealed partial class MenuController
         BuildGridScroll = Clamp(BuildGridScroll, 0f, buildGridMaxScroll);
 
         var selectedBounds = contentBounds;
+        var selectedScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
+        var selectedRenameFieldBounds = Rectangle.Empty;
+        Rectangle? selectedRenamePrimaryButtonBounds = null;
+        Rectangle? selectedRenameSecondaryButtonBounds = null;
+        Rectangle? selectedTraitSummaryBounds = null;
+        Rectangle? selectedInventoryFrameBounds = null;
+        Rectangle? selectedInventoryViewportBounds = null;
+        IReadOnlyList<InventoryEntryRect> selectedInventoryEntries = [];
+        float selectedInventoryMaxScroll = 0f;
+        Rectangle? selectedInventoryScrollbarTrackBounds = null;
+        Rectangle? selectedInventoryScrollbarThumbBounds = null;
+        var selectedDescriptionBounds = new Rectangle(
+            selectedBounds.X + 16,
+            selectedBounds.Y + 132,
+            selectedBounds.Width - 32,
+            Math.Max(60, selectedBounds.Height - 220));
+        if (SelectedObject is Trilobite)
+        {
+            var traitTop = selectedBounds.Y + (int)MathF.Round(122f * selectedScale);
+            var traitLineHeight = (int)MathF.Round(18f * selectedScale);
+            var traitLineGap = (int)MathF.Round(6f * selectedScale);
+            selectedTraitSummaryBounds = new Rectangle(
+                selectedBounds.X + 16,
+                traitTop,
+                selectedBounds.Width - 32,
+                traitLineHeight);
+
+            var renameRowY = selectedTraitSummaryBounds.Value.Bottom + traitLineGap + (int)MathF.Round(16f * selectedScale);
+            var renameRowHeight = (int)MathF.Round(44f * selectedScale);
+            var renameGap = (int)MathF.Round(10f * selectedScale);
+            var buttonWidth = Math.Min((int)MathF.Round(112f * selectedScale), Math.Max(92, selectedBounds.Width / 4));
+            var cancelWidth = _renamingSelectedTrilobite
+                ? Math.Min((int)MathF.Round(96f * selectedScale), Math.Max(84, selectedBounds.Width / 4))
+                : 0;
+            var trailingWidth = buttonWidth + (_renamingSelectedTrilobite ? renameGap + cancelWidth : 0);
+            selectedRenameFieldBounds = new Rectangle(
+                selectedBounds.X + 16,
+                renameRowY,
+                Math.Max(120, selectedBounds.Width - 32 - trailingWidth - renameGap),
+                renameRowHeight);
+            selectedRenamePrimaryButtonBounds = new Rectangle(
+                selectedRenameFieldBounds.Right + renameGap,
+                renameRowY,
+                buttonWidth,
+                renameRowHeight);
+            if (_renamingSelectedTrilobite)
+            {
+                selectedRenameSecondaryButtonBounds = new Rectangle(
+                    selectedRenamePrimaryButtonBounds.Value.Right + renameGap,
+                    renameRowY,
+                    cancelWidth,
+                    renameRowHeight);
+            }
+
+            var descriptionTop = renameRowY + renameRowHeight + (int)MathF.Round(18f * selectedScale);
+            selectedDescriptionBounds = new Rectangle(
+                selectedBounds.X + 16,
+                descriptionTop,
+                selectedBounds.Width - 32,
+                Math.Max(60, selectedBounds.Bottom - descriptionTop - (int)MathF.Round(84f * selectedScale)));
+        }
+
         var deleteSelectedBounds = new Rectangle(
             selectedBounds.X + 16,
-            selectedBounds.Bottom - (int)MathF.Round(68f * buildingScale),
+            selectedBounds.Bottom - (int)MathF.Round(68f * selectedScale),
             Math.Min((int)MathF.Round(240f * buildingScale), selectedBounds.Width - 32),
-            (int)MathF.Round(50f * buildingScale));
+            (int)MathF.Round(50f * selectedScale));
+
+        if (SelectedObject is IStorage storage)
+        {
+            selectedInventoryFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBounds.Y + 132,
+                selectedBounds.Width - 32,
+                Math.Max(120, deleteSelectedBounds.Y - selectedBounds.Y - 150));
+            selectedInventoryViewportBounds = new Rectangle(
+                selectedInventoryFrameBounds.Value.X + 10,
+                selectedInventoryFrameBounds.Value.Y + 38,
+                selectedInventoryFrameBounds.Value.Width - 20,
+                Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
+            var inventoryEntries = BuildInventoryEntries(storage);
+            selectedInventoryEntries = BuildInventoryLayout(
+                selectedInventoryViewportBounds.Value,
+                inventoryEntries,
+                selectedScale,
+                out selectedInventoryMaxScroll,
+                out selectedInventoryScrollbarTrackBounds,
+                out selectedInventoryScrollbarThumbBounds);
+            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+        }
 
         var assignmentScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
         var filterTabHeight = (int)MathF.Round(38f * assignmentScale);
@@ -159,6 +243,17 @@ public sealed partial class MenuController
             buildGridScrollbarTrack,
             buildGridScrollbarThumb,
             selectedBounds,
+            selectedRenameFieldBounds,
+            selectedRenamePrimaryButtonBounds,
+            selectedRenameSecondaryButtonBounds,
+            selectedTraitSummaryBounds,
+            selectedInventoryFrameBounds,
+            selectedInventoryViewportBounds,
+            selectedInventoryEntries,
+            selectedInventoryMaxScroll,
+            selectedInventoryScrollbarTrackBounds,
+            selectedInventoryScrollbarThumbBounds,
+            selectedDescriptionBounds,
             deleteSelectedBounds,
             assignmentFilters,
             assignmentActiveBounds,
@@ -295,6 +390,86 @@ public sealed partial class MenuController
         return rows;
     }
 
+    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IStorage storage)
+    {
+        var result = new List<InventoryEntryData>();
+        foreach (var pair in storage.GetInventory())
+        {
+            if (pair.Value <= 0)
+            {
+                continue;
+            }
+
+            result.Add(new InventoryEntryData(pair.Key, pair.Value, GetInventoryTextureKey(pair.Key)));
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<InventoryEntryRect> BuildInventoryLayout(
+        Rectangle viewportBounds,
+        IReadOnlyList<InventoryEntryData> entries,
+        float layoutScale,
+        out float maxScroll,
+        out Rectangle? scrollbarTrackBounds,
+        out Rectangle? scrollbarThumbBounds)
+    {
+        const int columns = 4;
+        var columnGap = (int)MathF.Round(10f * layoutScale);
+        var rowGap = (int)MathF.Round(10f * layoutScale);
+        var scrollbarGutter = 10;
+        var cardWidth = Math.Max(
+            76,
+            (int)MathF.Floor((viewportBounds.Width - scrollbarGutter - (columnGap * (columns - 1))) / (float)columns));
+        var cardHeight = Math.Max((int)MathF.Round(132f * layoutScale), cardWidth + (int)MathF.Round(34f * layoutScale));
+        var rowCount = (int)MathF.Ceiling(entries.Count / (float)columns);
+        var contentHeight = rowCount == 0 ? 0 : (rowCount * cardHeight) + (Math.Max(0, rowCount - 1) * rowGap);
+        maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
+        SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, maxScroll);
+
+        var cards = new List<InventoryEntryRect>(entries.Count);
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var column = index % columns;
+            var row = index / columns;
+            var x = viewportBounds.X + ((cardWidth + columnGap) * column);
+            var y = viewportBounds.Y + ((cardHeight + rowGap) * row) - (int)MathF.Round(SelectedInventoryScroll);
+            var bounds = new Rectangle(x, y, cardWidth, cardHeight);
+            if (bounds.Bottom < viewportBounds.Top || bounds.Top > viewportBounds.Bottom)
+            {
+                continue;
+            }
+
+            cards.Add(new InventoryEntryRect(entries[index].ResourceType, entries[index].TextureKey, entries[index].Quantity, bounds));
+        }
+
+        if (maxScroll <= 0f)
+        {
+            scrollbarTrackBounds = null;
+            scrollbarThumbBounds = null;
+            return cards;
+        }
+
+        var trackHeight = viewportBounds.Height;
+        var thumbHeight = Math.Max(32f, (viewportBounds.Height / (float)contentHeight) * trackHeight);
+        var travel = Math.Max(0f, trackHeight - thumbHeight);
+        var ratio = maxScroll <= 0f ? 0f : SelectedInventoryScroll / maxScroll;
+        var thumbY = viewportBounds.Y + (int)MathF.Round(ratio * travel);
+        var scrollbarX = viewportBounds.Right - 6;
+        scrollbarTrackBounds = new Rectangle(scrollbarX, viewportBounds.Y, 6, trackHeight);
+        scrollbarThumbBounds = new Rectangle(scrollbarX, thumbY, 6, (int)MathF.Round(thumbHeight));
+        return cards;
+    }
+
+    private static string GetInventoryTextureKey(string resourceType)
+    {
+        return resourceType switch
+        {
+            "wall" => "wall",
+            _ => resourceType
+        };
+    }
+
     private static MenuMetrics GetMetrics(Point viewport)
     {
         var layoutScale = Clamp(viewport.Y / 920f, 0.82f, 1.16f);
@@ -329,71 +504,15 @@ public sealed partial class MenuController
         return MathF.Max(min, MathF.Min(max, value));
     }
 
-    private static IReadOnlyList<string> WrapText(SpriteFont font, string text, int maxWidth, int maxLines = int.MaxValue)
-    {
-        if (string.IsNullOrWhiteSpace(text) || maxWidth <= 0)
-        {
-            return [];
-        }
-
-        var lines = new List<string>();
-        foreach (var paragraph in text.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n'))
-        {
-            var words = paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length == 0)
-            {
-                lines.Add(string.Empty);
-                continue;
-            }
-
-            var current = string.Empty;
-            for (var index = 0; index < words.Length; index++)
-            {
-                var word = words[index];
-                if (string.IsNullOrEmpty(current))
-                {
-                    if (font.MeasureString(word).X > maxWidth)
-                    {
-                        lines.Add(FitTextToWidth(font, word, maxWidth));
-                        continue;
-                    }
-
-                    current = word;
-                    continue;
-                }
-
-                var candidate = $"{current} {word}";
-                if (font.MeasureString(candidate).X <= maxWidth)
-                {
-                    current = candidate;
-                    continue;
-                }
-
-                lines.Add(current);
-                current = word;
-            }
-
-            if (!string.IsNullOrEmpty(current))
-            {
-                lines.Add(current);
-            }
-        }
-
-        if (lines.Count > maxLines)
-        {
-            var clipped = lines.Take(maxLines).ToArray();
-            clipped[^1] = FitTextToWidth(font, $"{clipped[^1].TrimEnd()}...", maxWidth);
-            return clipped;
-        }
-
-        return lines;
-    }
-
     private readonly record struct LabeledRect(string Key, string Label, Rectangle Bounds);
 
     private readonly record struct BuildCardRect(Factory Factory, Rectangle Bounds);
 
     private readonly record struct AssignmentRowRect(string FromAssignment, string ToAssignment, AssignmentEntryViewModel Entry, Rectangle Bounds);
+
+    private readonly record struct InventoryEntryData(string ResourceType, int Quantity, string TextureKey);
+
+    private readonly record struct InventoryEntryRect(string ResourceType, string TextureKey, int Quantity, Rectangle Bounds);
 
     private readonly record struct MenuMetrics(
         float LayoutScale,
@@ -426,6 +545,17 @@ public sealed partial class MenuController
         Rectangle? BuildGridScrollbarTrackBounds,
         Rectangle? BuildGridScrollbarThumbBounds,
         Rectangle SelectedBounds,
+        Rectangle SelectedRenameFieldBounds,
+        Rectangle? SelectedRenamePrimaryButtonBounds,
+        Rectangle? SelectedRenameSecondaryButtonBounds,
+        Rectangle? SelectedTraitSummaryBounds,
+        Rectangle? SelectedInventoryFrameBounds,
+        Rectangle? SelectedInventoryViewportBounds,
+        IReadOnlyList<InventoryEntryRect> SelectedInventoryEntries,
+        float SelectedInventoryMaxScroll,
+        Rectangle? SelectedInventoryScrollbarTrackBounds,
+        Rectangle? SelectedInventoryScrollbarThumbBounds,
+        Rectangle SelectedDescriptionBounds,
         Rectangle DeleteSelectedBounds,
         IReadOnlyList<LabeledRect> AssignmentFilters,
         Rectangle AssignmentActiveBounds,
