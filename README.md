@@ -30,7 +30,7 @@ In the game's current state, we only have a few buildings and some pretty basic 
 
 As we decide on which skill trees we want to add, how they should work, and which ones we plan to add first, we will be adding them to a proper road map below. Until then just let your imagine wander in how cool this game will be one day!
 
-## macOS — Build and Run
+# macOS — Build and Run
 
 These instructions describe what is required to compile and run the game on macOS when using the DesktopGL build (macOS/Unix environments). The MonoGame content pipeline (`mgcb`) requires a 64-bit Wine prefix for effect (shader) compilation; follow the steps below exactly.
 
