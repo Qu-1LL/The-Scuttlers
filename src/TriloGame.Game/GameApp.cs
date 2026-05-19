@@ -2,6 +2,7 @@ using System.Text;
 using Gum.Forms;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Media;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -48,6 +49,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private GumService GumUi => GumService.Default;
     private readonly GraphicsDeviceManager _graphics;
     private readonly AudioService _audio = new();
+    private readonly MusicService _ost = new();
     private readonly SessionAudioBridge _sessionAudioBridge;
     private readonly SessionScreenShakeBridge _sessionScreenShakeBridge;
     private readonly SessionParticleBridge _sessionParticleBridge;
@@ -292,6 +294,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/Effects/TrilobiteSelected"));
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/Effects/UiSelect"));
         _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/Effects/VolumeSound"));
+
+        _ost.Register(MusicTrack.PlaceholderTrack, Content.Load<Song>("Audio/Music/cheerwine_diddy_party"));
     }
 
     protected override void Update(GameTime gameTime)
@@ -716,6 +720,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _menu.ResetState();
         ResetOpalAudioState();
         ClearWorldParticles();
+
+        
+        _ost.Play(MusicTrack.PlaceholderTrack);
     }
 
     private void ReturnToMainMenu()
@@ -1064,7 +1071,7 @@ public sealed partial class GameApp
     private void SetVolumeSetting(int volumePercent)
     {
         PlayUiSelectSound();
-        if (_audio.SetVolumePercent(volumePercent))
+        if (_audio.SetVolumePercent(volumePercent) | _ost.SetVolumePercent(volumePercent))
         {
             _audio.Play(GameAudioCue.VolumeSound);
         }

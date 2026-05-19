@@ -287,3 +287,13 @@
 /importer:WavImporter
 /processor:SoundEffectProcessor
 /build:Audio/Effects/VolumeSound.wav
+
+#begin Audio/Music/Daybreaker.wav
+/importer:WavImporter
+/processor:SongProcessor
+/build:Audio/Music/Daybreaker.wav
+
+#begin Audio/Music/cheerwine_diddy_party.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/build:Audio/Music/cheerwine_diddy_party.mp3
