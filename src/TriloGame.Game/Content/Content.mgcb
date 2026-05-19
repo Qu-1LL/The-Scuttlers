@@ -288,12 +288,17 @@
 /processor:SoundEffectProcessor
 /build:Audio/Effects/VolumeSound.wav
 
-#begin Audio/Music/Daybreaker.wav
-/importer:WavImporter
-/processor:SongProcessor
-/build:Audio/Music/Daybreaker.wav
-
 #begin Audio/Music/cheerwine_diddy_party.mp3
 /importer:Mp3Importer
-/processor:SongProcessor
+/processor:SoundEffectProcessor
 /build:Audio/Music/cheerwine_diddy_party.mp3
+
+#begin Audio/Music/cts.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/cts.mp3
+
+#begin Audio/Music/cts_acapella.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/cts_acapella.mp3

@@ -295,7 +295,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/Effects/UiSelect"));
         _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/Effects/VolumeSound"));
 
-        _ost.Register(MusicTrack.PlaceholderTrack, Content.Load<Song>("Audio/Music/cheerwine_diddy_party"));
+        _ost.Register(MusicTrack.PlaceholderTrack, Content.Load<SoundEffect>("Audio/Music/cheerwine_diddy_party"));
+        _ost.Register(MusicTrack.AdaptiveTest1, Content.Load<SoundEffect>("Audio/Music/cts"));
+        _ost.Register(MusicTrack.AdaptiveTest2, Content.Load<SoundEffect>("Audio/Music/cts_acapella"));
+        
     }
 
     protected override void Update(GameTime gameTime)
@@ -303,6 +306,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
         _camera.Update(gameTime);
+        _ost.Update(gameTime);
         UpdateWorldParticles(gameTime);
         ExpirePendingManualMove();
         SyncSelectionIfRemoved();
@@ -722,7 +726,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ClearWorldParticles();
 
         
-        _ost.Play(MusicTrack.PlaceholderTrack);
+        _ost.Start(MusicTrack.AdaptiveTest1);
     }
 
     private void ReturnToMainMenu()
@@ -731,6 +735,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ClearWorldParticles();
         CleanActive(true);
         CloseSettingsMenu();
+        _ost.Stop();
         _camera.ClearShake();
         _appScreen = AppScreen.MainMenu;
         _gamePaused = true;
@@ -1089,6 +1094,8 @@ public sealed partial class GameApp
             return;
         }
 
+        _ost.CrossfadeTo(MusicTrack.AdaptiveTest2, TimeSpan.FromSeconds(0.5));
+
         _settingsMenuOpen = true;
         _roleRadialMenu = null;
         _selectionDragActive = false;
@@ -1110,6 +1117,8 @@ public sealed partial class GameApp
         {
             return;
         }
+
+        _ost.CrossfadeTo(MusicTrack.AdaptiveTest1, TimeSpan.FromSeconds(0.5));
 
         _settingsMenuOpen = false;
         if (_resumeSimulationAfterClosingSettings)
