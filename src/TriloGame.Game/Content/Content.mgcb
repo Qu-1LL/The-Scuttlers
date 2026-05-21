@@ -53,6 +53,16 @@
 /processor:TextureProcessor
 /build:Textures/Barracks.png
 
+#begin Textures/Garage.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Garage.png
+
+#begin Textures/Plow.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Plow.png
+
 #begin Textures/CaveWall.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -202,6 +212,21 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Smith.png
+
+#begin Textures/SoilTile_1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_1.png
+
+#begin Textures/SoilTile_2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_2.png
+
+#begin Textures/SoilTile_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_3.png
 
 #begin Textures/Storage.png
 /importer:TextureImporter

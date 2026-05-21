@@ -76,12 +76,15 @@ public static class TickRunner
         }
 
         phaseObserver?.OnPhaseStarted(TickPhase.BuildingTick);
+        cave.RollTickGrowthMin();
         var buildingBuffer = GetBuildingBuffer();
         CopySnapshot(buildingBuffer, cave.GetBuildingList());
         foreach (var building in buildingBuffer)
         {
             building.Tick(cave);
         }
+        cave.TickRanches();
+        cave.TickVehicles();
         phaseObserver?.OnPhaseCompleted(TickPhase.BuildingTick);
         phaseObserver?.OnTickCompleted(session);
     }

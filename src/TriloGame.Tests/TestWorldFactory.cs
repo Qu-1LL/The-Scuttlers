@@ -145,6 +145,28 @@ internal static class TestWorldFactory
         return post;
     }
 
+    public static Garage BuildGarage(Cave cave, GameSession session, GridPoint location)
+    {
+        var garage = new Garage(session);
+        if (!cave.Build(garage, location))
+        {
+            throw new InvalidOperationException($"Failed to build a garage at {location}.");
+        }
+
+        return garage;
+    }
+
+    public static Soil BuildSoil(Cave cave, GameSession session, GridPoint location)
+    {
+        var soil = new Soil(session);
+        if (!cave.Build(soil, location))
+        {
+            throw new InvalidOperationException($"Failed to build soil at {location}.");
+        }
+
+        return soil;
+    }
+
     public static AlgaeFarm BuildAlgaeFarm(Cave cave, GameSession session, GridPoint location)
     {
         var farm = new AlgaeFarm(session);

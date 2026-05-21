@@ -4,6 +4,7 @@ using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -25,6 +26,7 @@ public sealed partial class Cave : Graph
     private const int OreDist = 8;
     private readonly List<Trilobite> _trilobiteList = [];
     private readonly List<Enemy> _enemyList = [];
+    private readonly List<Vehicle> _vehicles = [];
     private readonly List<Building> _buildingList = [];
     private readonly List<MiningPost> _miningPosts = [];
     private readonly List<AlgaeFarm> _algaeFarms = [];
@@ -33,6 +35,7 @@ public sealed partial class Cave : Graph
     private readonly List<Wall> _walls = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Vehicle> _vehicleOccupancy = new(StringComparer.Ordinal);
     private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
     private readonly Dictionary<MiningPost, int> _miningPostAssignmentCounts = [];
     private readonly Dictionary<StationBuilding, int> _fighterStationAssignmentCounts = [];
@@ -86,6 +89,8 @@ public sealed partial class Cave : Graph
     public IReadOnlyList<Trilobite> GetTrilobiteList() => _trilobiteList;
 
     public IReadOnlyList<Enemy> GetEnemyList() => _enemyList;
+
+    public IReadOnlyList<Vehicle> GetVehicles() => _vehicles;
 
     public IReadOnlyList<Building> GetBuildingList() => _buildingList;
 
@@ -462,6 +467,12 @@ public sealed partial class Cave : Graph
             case Queen queen:
                 _queenBuilding = queen;
                 break;
+            case Garage garage:
+                _garages.Add(garage);
+                break;
+            case Soil soil:
+                _soilTiles.Add(soil);
+                break;
             case MiningPost post:
                 _miningPosts.Add(post);
                 _miningPostAssignmentCounts[post] = post.GetVolume();
@@ -500,6 +511,12 @@ public sealed partial class Cave : Graph
         {
             case Queen queen when ReferenceEquals(_queenBuilding, queen):
                 _queenBuilding = null;
+                break;
+            case Garage garage:
+                _garages.Remove(garage);
+                break;
+            case Soil soil:
+                _soilTiles.Remove(soil);
                 break;
             case MiningPost post:
                 _miningPosts.Remove(post);
@@ -772,6 +789,11 @@ public sealed partial class Cave : Graph
             }
         }
 
+        if (!CanPlaceRanchBuilding(building, location))
+        {
+            return false;
+        }
+
         if (preserveReachability && requireReachableTiles && !SimulatedBuildPreservesReachability(building, location))
         {
             return false;
@@ -937,6 +959,7 @@ public sealed partial class Cave : Graph
 
         building.OnBuilt(this);
         RegisterBuilding(building);
+        OnRanchBuildingBuilt(building);
         AdvanceTopologyVersion();
 
         var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
@@ -998,6 +1021,9 @@ public sealed partial class Cave : Graph
                 case AlgaeFarm farm:
                     farm.RemoveAssignment(creature);
                     break;
+                case Ranch ranch:
+                    ranch.RemoveAssignment(creature);
+                    break;
                 case StationBuilding station:
                     station.RemoveAssignment(creature);
                     break;
@@ -1037,6 +1063,7 @@ public sealed partial class Cave : Graph
             tile.CreatureCanFit = true;
         }
 
+        OnRanchBuildingRemoved(building);
         building.CleanupBeforeRemoval(source);
         AdvanceTopologyVersion();
         var reachability = RefreshReachableTiles();
@@ -2512,6 +2539,9 @@ public sealed partial class Cave
                     break;
                 case AlgaeFarm farm:
                     farm.RemoveAssignment(creature);
+                    break;
+                case Ranch ranch:
+                    ranch.RemoveAssignment(creature);
                     break;
                 case StationBuilding station:
                     station.RemoveAssignment(creature);

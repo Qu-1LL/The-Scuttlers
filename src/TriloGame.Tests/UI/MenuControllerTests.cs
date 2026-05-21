@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.UI.Menu;
 
@@ -148,6 +149,42 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
+    public void SetSelectedObject_CreatureSelectionSwitchesToSelectedTab()
+    {
+        var session = new GameSession();
+        var menu = new MenuController();
+
+        menu.OpenPanel("assignments");
+        menu.SetSelectedObject(new Enemy("Ant", GridPoint.Zero, session));
+
+        Assert.Equal("selected", menu.ActiveTab);
+    }
+
+    [Fact]
+    public void SetSelectedObject_BuildingSelectionSwitchesToSelectedTab()
+    {
+        var session = new GameSession();
+        var menu = new MenuController();
+
+        menu.OpenPanel("assignments");
+        menu.SetSelectedObject(new Storage(session));
+
+        Assert.Equal("selected", menu.ActiveTab);
+    }
+
+    [Fact]
+    public void SetSelectedObject_VehicleSelectionSwitchesToSelectedTab()
+    {
+        var session = new GameSession();
+        var menu = new MenuController();
+
+        menu.OpenPanel("assignments");
+        menu.SetSelectedObject(new Plow(session));
+
+        Assert.Equal("selected", menu.ActiveTab);
+    }
+
+    [Fact]
     public void HandleClick_DeleteSelectedBuilding_ClearsSelectionAfterRemoval()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
@@ -167,6 +204,29 @@ public sealed class MenuControllerTests
         Assert.True(handled);
         Assert.Null(menu.SelectedObject);
         Assert.Null(miningPost.Cave);
+    }
+
+    [Fact]
+    public void HandleClick_DeleteSelectedVehicle_ClearsSelectionAfterRemoval()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
+        var plow = new Plow(session);
+        var menu = new MenuController();
+        var viewport = new Point(1440, 900);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        Assert.True(cave.SpawnVehicle(plow, new GridPoint(5, 6)));
+        menu.OpenPanel("selected");
+        menu.SetSelectedObject(plow);
+
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var deleteBounds = (Rectangle)layout!.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
+
+        var handled = menu.HandleClick(deleteBounds.Center, viewport, null!, session);
+
+        Assert.True(handled);
+        Assert.Null(menu.SelectedObject);
+        Assert.Null(plow.Cave);
     }
 
     [Fact]

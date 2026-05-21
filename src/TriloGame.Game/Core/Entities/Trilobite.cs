@@ -237,7 +237,9 @@ public sealed partial class Trilobite : Creature
 
         if (IsFarmer())
         {
-            if (GetAssignedBuilding() is not null && GetAssignedAlgaeFarm() is null)
+            if (GetAssignedBuilding() is not null &&
+                GetAssignedAlgaeFarm() is null &&
+                GetAssignedRanch() is null)
             {
                 ReleaseAssignedBuilding();
             }
@@ -245,7 +247,7 @@ public sealed partial class Trilobite : Creature
             return true;
         }
 
-        if (GetAssignedAlgaeFarm() is not null)
+        if (GetAssignedAlgaeFarm() is not null || GetAssignedRanch() is not null)
         {
             ReleaseAssignedBuilding();
         }
@@ -389,6 +391,8 @@ public sealed partial class Trilobite : Creature
 
     public AlgaeFarm? GetAssignedAlgaeFarm() => AssignedBuilding as AlgaeFarm;
 
+    public Ranch? GetAssignedRanch() => AssignedBuilding as Ranch;
+
     public MiningPost? GetAssignedMiningPost() => AssignedBuilding as MiningPost;
 
     public StationBuilding? GetAssignedFighterStation() => AssignedBuilding as StationBuilding;
@@ -427,6 +431,9 @@ public sealed partial class Trilobite : Creature
                 break;
             case AlgaeFarm farm:
                 farm.RemoveAssignment(this);
+                break;
+            case Ranch ranch:
+                ranch.RemoveAssignment(this);
                 break;
             case StationBuilding station:
                 if (ReferenceEquals(HostedBuilding, station))
@@ -1183,6 +1190,128 @@ public sealed partial class Trilobite : Creature
                turret.IsCreatureStationed(this);
     }
 
+    private bool IsSelectableRanch(Ranch? ranch)
+    {
+        return ranch is not null &&
+               ranch.Garage is not null &&
+               ranch.Garage.Location is not null &&
+               ranch.Garage.TileArray.Count > 0 &&
+               ranch.HasAssignmentSlot(this);
+    }
+
+    private bool CanReachRanch(Ranch ranch)
+    {
+        return Cave is not null &&
+               ranch.Garage is not null &&
+               Cave.GetBuildingBfsFieldValue(ranch.Garage, Location) != int.MaxValue;
+    }
+
+    internal Ranch? SelectRanch(Ranch? preferredRanch = null)
+    {
+        if (IsSelectableRanch(preferredRanch) && CanReachRanch(preferredRanch!))
+        {
+            return preferredRanch;
+        }
+
+        if (Cave is null)
+        {
+            return null;
+        }
+
+        Ranch? bestRanch = null;
+        var bestPriority = int.MinValue;
+        var bestDistance = int.MaxValue;
+        var ranches = Cave.GetRanches();
+        for (var index = 0; index < ranches.Count; index++)
+        {
+            var ranch = ranches[index];
+            if (!IsSelectableRanch(ranch) || ranch.Garage is null)
+            {
+                continue;
+            }
+
+            var distance = Cave.GetBuildingBfsFieldValue(ranch.Garage, Location);
+            if (distance == int.MaxValue)
+            {
+                continue;
+            }
+
+            if (ranch.FarmerAssignmentPriority > bestPriority ||
+                (ranch.FarmerAssignmentPriority == bestPriority && distance < bestDistance))
+            {
+                bestRanch = ranch;
+                bestPriority = ranch.FarmerAssignmentPriority;
+                bestDistance = distance;
+            }
+        }
+
+        return bestRanch;
+    }
+
+    public bool TryNavigateRanches()
+    {
+        if (!EnsureFarmerState())
+        {
+            return false;
+        }
+
+        var ranch = SelectRanch(GetAssignedRanch());
+        if (ranch is null)
+        {
+            return false;
+        }
+
+        SetAssignedBuilding(ranch);
+        if (!ranch.Assign(this))
+        {
+            ReleaseAssignedBuilding();
+            return false;
+        }
+
+        return FarmerRanchStep2();
+    }
+
+    public bool FarmerRanchStep2()
+    {
+        if (!EnsureFarmerState())
+        {
+            return false;
+        }
+
+        var ranch = GetAssignedRanch();
+        var garage = ranch?.Garage;
+        if (ranch is null || garage is null)
+        {
+            ReleaseAssignedBuilding();
+            EnqueueAction(() => { FarmerStep1(); });
+            return false;
+        }
+
+        if (ranch.IsHandlingFarmer(this))
+        {
+            return true;
+        }
+
+        if (IsAtBuildingNavigationTarget(garage))
+        {
+            return ranch.TryBeginGarageWait(this);
+        }
+
+        var navFallback = new Action(() =>
+        {
+            ReleaseAssignedBuilding();
+            FarmerStep1();
+        });
+
+        if (!NavigateToBuilding(garage, navFallback))
+        {
+            return false;
+        }
+
+        EnqueueAction(() => { FarmerRanchStep2(); });
+        return true;
+    }
+
     public List<AlgaeFarm> GetAlgaeFarmPriorityList()
     {
         return EnumerateAlgaeFarmCandidates(GetAssignedAlgaeFarm())
@@ -1345,6 +1474,17 @@ public sealed partial class Trilobite : Creature
             }
 
             ClearInventory();
+        }
+
+        var assignedRanch = GetAssignedRanch();
+        if (assignedRanch?.IsHandlingFarmer(this) == true)
+        {
+            return true;
+        }
+
+        if (SelectRanch(assignedRanch) is not null)
+        {
+            return TryNavigateRanches();
         }
 
         if (SelectAlgaeFarm(GetAssignedAlgaeFarm()) is null)

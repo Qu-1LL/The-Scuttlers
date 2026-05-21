@@ -4,6 +4,7 @@ using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.UI.Gum;
 
@@ -127,24 +128,49 @@ public sealed partial class MenuController
     {
         DrawFrame(context, layout.SelectedBounds, new Color(18, 37, 52), new Color(74, 114, 132));
 
-        var title = SelectedObject is Creature creature ? creature.Name : (SelectedObject as Core.Buildings.Building)?.Name ?? "No Selection";
-        var objectType = SelectedObject is Creature ? "Trilobite" : "Building";
-        var healthText = SelectedObject is Creature selectedHealthCreature
-            ? $"Health: {selectedHealthCreature.Health}/{selectedHealthCreature.MaxHealth}"
-            : null;
-        var assignmentText = SelectedObject switch
+        var title = SelectedObject switch
+        {
+            Creature creature => creature.Name,
+            IVehicle vehicle => vehicle.Name,
+            Building building => building.Name,
+            _ => "No Selection"
+        };
+        var objectType = SelectedObject switch
+        {
+            Trilobite => "Trilobite",
+            Ranch => "Ranch",
+            Creature => "Creature",
+            IVehicle => "Vehicle",
+            _ => "Building"
+        };
+        var healthText = SelectedObject switch
+        {
+            Creature selectedHealthCreature => $"Health: {selectedHealthCreature.Health}/{selectedHealthCreature.MaxHealth}",
+            IVehicle selectedVehicle => $"Health: {selectedVehicle.Health}/{selectedVehicle.MaxHealth}",
+            _ => null
+        };
+        var detailText = SelectedObject switch
         {
             Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
+            IVehicle selectedVehicle => $"Assignment: {selectedVehicle.AssignmentClassification}",
             IStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
             _ => $"Type: {title}"
         };
-        var buildingAssignmentText = SelectedObject is Building selectedBuilding
-            ? $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}"
-            : null;
+        var supplementalText = SelectedObject switch
+        {
+            Building selectedBuilding => $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}",
+            IVehicle selectedVehicle => $"Stationed Trilobites: {selectedVehicle.StationedCreatures.Count}/{selectedVehicle.MaxStationedCreatures}",
+            _ => null
+        };
         var canRename = SelectedObject is Trilobite;
-        var bodyText = SelectedObject is Creature
-            ? "Kill this trilobite immediately."
-            : "Delete this building from the cave immediately.";
+        var bodyText = SelectedObject switch
+        {
+            Trilobite => "Kill this trilobite immediately.",
+            Creature => "Kill this creature immediately.",
+            IVehicle => "Delete this vehicle from the cave immediately.",
+            Ranch => "Delete this ranch, including its garage and connected soil tiles.",
+            _ => "Delete this building from the cave immediately."
+        };
         var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
         var healthBounds = healthText is null
             ? Rectangle.Empty
@@ -179,14 +205,14 @@ public sealed partial class MenuController
             new Color(135, 173, 187));
         DrawTextFitted(
             context,
-            assignmentText,
+            detailText,
             new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
             new Color(135, 173, 187));
-        if (buildingAssignmentText is not null)
+        if (supplementalText is not null)
         {
             DrawTextFitted(
                 context,
-                buildingAssignmentText,
+                supplementalText,
                 new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 124, layout.SelectedBounds.Width - 32, 20),
                 new Color(135, 173, 187));
         }
@@ -301,7 +327,14 @@ public sealed partial class MenuController
         DrawButton(
             context,
             layout.DeleteSelectedBounds,
-            SelectedObject is Creature ? "Kill Trilobite" : "Delete Building",
+            SelectedObject switch
+            {
+                Trilobite => "Kill Trilobite",
+                Creature => "Kill Creature",
+                IVehicle => "Delete Vehicle",
+                Ranch => "Delete Ranch",
+                _ => "Delete Building"
+            },
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),
             hovered ? new Color(255, 195, 188) : new Color(242, 176, 170),
             Color.White);

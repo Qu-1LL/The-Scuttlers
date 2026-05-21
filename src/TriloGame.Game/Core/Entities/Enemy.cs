@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -79,9 +80,22 @@ public sealed class Enemy : Creature
         return building;
     }
 
+    public Vehicle? GetHostileVehicleAtTileKey(string? tileKey)
+    {
+        if (Cave is null || string.IsNullOrWhiteSpace(tileKey))
+        {
+            return null;
+        }
+
+        var vehicle = Cave.GetVehicleAtTileKey(tileKey);
+        return vehicle is not null && vehicle.Health > 0 ? vehicle : null;
+    }
+
     public object? GetHostileTargetAtTileKey(string? tileKey, bool includeWalls = true)
     {
-        return (object?)GetHostileAtTileKey(tileKey) ?? GetHostileBuildingAtTileKey(tileKey, includeWalls);
+        return (object?)GetHostileAtTileKey(tileKey) ??
+               GetHostileVehicleAtTileKey(tileKey) ??
+               (object?)GetHostileBuildingAtTileKey(tileKey, includeWalls);
     }
 
     public bool IsAdjacentToTileKey(string tileKey, GridPoint? location = null)
@@ -105,7 +119,9 @@ public sealed class Enemy : Creature
                 return neighbor.Key;
             }
 
-            if (adjacentBuildingTileKey is null && GetHostileBuildingAtTileKey(neighbor.Key, includeWalls) is not null)
+            if (adjacentBuildingTileKey is null &&
+                (GetHostileVehicleAtTileKey(neighbor.Key) is not null ||
+                 GetHostileBuildingAtTileKey(neighbor.Key, includeWalls) is not null))
             {
                 adjacentBuildingTileKey = neighbor.Key;
             }

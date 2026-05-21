@@ -13,6 +13,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.Runtime.Automation;
@@ -254,6 +255,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Scaffold", "Textures/Scaffold");
         RegisterTexture(sprites, "Queen", "Textures/Queen");
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
+        RegisterTexture(sprites, "SoilTile_1", "Textures/SoilTile_1");
+        RegisterTexture(sprites, "SoilTile_2", "Textures/SoilTile_2");
+        RegisterTexture(sprites, "SoilTile_3", "Textures/SoilTile_3");
+        RegisterTexture(sprites, "Garage", "Textures/Garage");
+        RegisterTexture(sprites, "Plow", "Textures/Plow");
         RegisterTexture(sprites, "Storage", "Textures/Storage");
         RegisterTexture(sprites, "Smith", "Textures/Smith");
         RegisterTexture(sprites, "MiningPost", "Textures/MiningPost");
@@ -573,6 +579,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawDroppedResources(_session.Cave);
             DrawBuildings(_session.Cave);
             DrawCreatures(_session.Cave);
+            DrawVehicles(_session.Cave);
             DrawProjectiles();
             DrawWorldParticles();
             DrawSelection();
@@ -1194,6 +1201,10 @@ public sealed partial class GameApp
         {
             CleanActive();
         }
+        else if (_selectedObject is Vehicle vehicle && vehicle.Cave is null)
+        {
+            CleanActive();
+        }
         else if (_selectedObject is Trilobite trilobite && trilobite.Cave is null)
         {
             if (_selectedTrilobites.Count > 0)
@@ -1356,16 +1367,29 @@ public sealed partial class GameApp
             return;
         }
 
+        if (TryHitVehicle(point, out var vehicle))
+        {
+            ClearPendingManualMove();
+            ClearMiningTileSelection();
+            if (!BuildMode)
+            {
+                SetSelectedObject(ReferenceEquals(_selectedObject, vehicle) ? null : vehicle);
+            }
+
+            return;
+        }
+
         if (TryHitBuilding(point, out var building))
         {
             ClearPendingManualMove();
             ClearMiningTileSelection();
             if (!BuildMode)
             {
+                var selectionTarget = RanchBuildingSelection.Resolve(building, _selectedObject);
                 CleanActive();
-                if (building.CanBeSelected())
+                if (selectionTarget.CanBeSelected())
                 {
-                    SetSelectedObject(building);
+                    SetSelectedObject(selectionTarget);
                 }
             }
 
@@ -1812,6 +1836,23 @@ public sealed partial class GameApp
         }
     }
 
+    private void DrawVehicles(Cave cave)
+    {
+        foreach (var vehicle in cave.GetVehicles())
+        {
+            if (vehicle.Location is null)
+            {
+                continue;
+            }
+
+            DrawWorldTextureNative(
+                vehicle.TextureKey,
+                ToFrameworkVector(vehicle.GetWorldCenter()),
+                vehicle.GetDisplayRotationTurns() * MathF.PI / 2f,
+                GetPlacedVehicleOrigin(vehicle));
+        }
+    }
+
     private void DrawScaffold(Scaffolding scaffold, Cave cave)
     {
         if (scaffold.Location is not { } location)
@@ -1846,6 +1887,11 @@ public sealed partial class GameApp
     {
         foreach (var trilobite in cave.Trilobites)
         {
+            if (!trilobite.IsVisible)
+            {
+                continue;
+            }
+
             DrawWorldTextureNative(
                 "Trilobite",
                 GetCreatureWorldPosition(trilobite),
@@ -1854,6 +1900,11 @@ public sealed partial class GameApp
 
         foreach (var enemy in cave.Enemies)
         {
+            if (!enemy.IsVisible)
+            {
+                continue;
+            }
+
             DrawWorldTextureNative(
                 "Enemy",
                 GetCreatureWorldPosition(enemy),
@@ -1943,31 +1994,41 @@ public sealed partial class GameApp
                     MathF.Max(2f, _camera.CurrentScale * 2f));
             }
 
-            foreach (var tile in building.TileArray)
-            {
-                var tilePoint = GridPoint.Parse(tile.Key);
-                foreach (var neighbor in tile.Neighbors)
-                {
-                    if (building.TileArray.Contains(neighbor))
-                    {
-                        continue;
-                    }
+            DrawTileSelectionOutline(building.TileArray);
+        }
+        else if (_selectedObject is Vehicle vehicle)
+        {
+            DrawTileSelectionOutline(vehicle.TileArray);
+        }
+    }
 
-                    var neighborPoint = GridPoint.Parse(neighbor.Key);
-                    var dx = neighborPoint.X - tilePoint.X;
-                    var dy = neighborPoint.Y - tilePoint.Y;
-                    var midpoint = new Vector2(
-                        (tilePoint.X * TileConstants.TileSize) + (dx * TileConstants.TileHalfSize),
-                        (tilePoint.Y * TileConstants.TileSize) + (dy * TileConstants.TileHalfSize));
-                    var origin = dy < 0 || dx < 0
-                        ? new Vector2(TileConstants.TileHalfSize, 4f)
-                        : new Vector2(TileConstants.TileHalfSize, 0f);
-                    DrawWorldTextureNative(
-                        "SelectedEdge",
-                        midpoint,
-                        dy == 0 ? MathF.PI / 2f : 0f,
-                        origin);
+    private void DrawTileSelectionOutline(IEnumerable<Tile> tiles)
+    {
+        var tileList = tiles as IReadOnlyCollection<Tile> ?? tiles.ToArray();
+        foreach (var tile in tileList)
+        {
+            var tilePoint = GridPoint.Parse(tile.Key);
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (tileList.Contains(neighbor))
+                {
+                    continue;
                 }
+
+                var neighborPoint = GridPoint.Parse(neighbor.Key);
+                var dx = neighborPoint.X - tilePoint.X;
+                var dy = neighborPoint.Y - tilePoint.Y;
+                var midpoint = new Vector2(
+                    (tilePoint.X * TileConstants.TileSize) + (dx * TileConstants.TileHalfSize),
+                    (tilePoint.Y * TileConstants.TileSize) + (dy * TileConstants.TileHalfSize));
+                var origin = dy < 0 || dx < 0
+                    ? new Vector2(TileConstants.TileHalfSize, 4f)
+                    : new Vector2(TileConstants.TileHalfSize, 0f);
+                DrawWorldTextureNative(
+                    "SelectedEdge",
+                    midpoint,
+                    dy == 0 ? MathF.PI / 2f : 0f,
+                    origin);
             }
         }
     }
@@ -2881,6 +2942,12 @@ public sealed partial class GameApp
         return new Vector2(baseSize.X * TileConstants.TileHalfSize, baseSize.Y * TileConstants.TileHalfSize);
     }
 
+    private static Vector2 GetPlacedVehicleOrigin(Vehicle vehicle)
+    {
+        var baseSize = vehicle.Size;
+        return new Vector2(baseSize.X * TileConstants.TileHalfSize, baseSize.Y * TileConstants.TileHalfSize);
+    }
+
     private static Vector2 GetFloatingBuildingOrigin(Scaffolding scaffolding)
     {
         var pivotBaseSize = scaffolding.TargetBuilding.GetDisplayPivotBaseSize();
@@ -3169,7 +3236,7 @@ public sealed partial class GameApp
             return _selectedTrilobites.First();
         }
 
-        return _selectedObject is Trilobite or Building ? _selectedObject : null;
+        return _selectedObject is Creature or Building or Vehicle ? _selectedObject : null;
     }
 
     private bool TryGetFocusHintTarget(out object focusTarget, out Vector2 screenPosition)
@@ -3186,6 +3253,8 @@ public sealed partial class GameApp
             case Creature creature when creature.Cave is null:
             case Building { Cave: null }:
             case Building { Location: null }:
+            case Vehicle { Cave: null }:
+            case Vehicle { Location: null }:
                 return false;
         }
 
@@ -3206,6 +3275,7 @@ public sealed partial class GameApp
         {
             Creature creature => GetCreatureWorldPosition(creature),
             Building building when building.Location is not null => GetPlacedBuildingWorldCenter(building),
+            Vehicle vehicle when vehicle.Location is not null => ToFrameworkVector(vehicle.GetWorldCenter()),
             _ => Vector2.Zero
         };
     }
@@ -3293,6 +3363,7 @@ public sealed partial class GameApp
             Trilobite trilobite => $"Trilobite:{trilobite.Name}@{trilobite.Location}",
             Creature creature => $"Creature:{creature.Name}@{creature.Location}",
             Building building => $"Building:{building.Name}@{building.Location?.ToString() ?? "none"}",
+            Vehicle vehicle => $"Vehicle:{vehicle.Name}@{vehicle.Location?.ToString() ?? "none"}",
             null => "none",
             _ => _selectedObject.GetType().Name
         };
@@ -3511,6 +3582,25 @@ public sealed partial class GameApp
         }
 
         building = null!;
+        return false;
+    }
+
+    private bool TryHitVehicle(Point point, out Vehicle vehicle)
+    {
+        foreach (var candidate in _session.Cave?.GetVehicles() ?? [])
+        {
+            if (candidate.TileArray.Any(tile =>
+            {
+                var tilePoint = GridPoint.Parse(tile.Key);
+                return GetTileHitBounds(tilePoint).Contains(point);
+            }))
+            {
+                vehicle = candidate;
+                return true;
+            }
+        }
+
+        vehicle = null!;
         return false;
     }
 

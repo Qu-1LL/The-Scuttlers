@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -29,6 +30,7 @@ public class Creature
         MovementOffset = Vector2.Zero;
         RotationRadians = 0f;
         IsTrackedInTileSystem = true;
+        IsVisible = true;
         PathPreview = [];
     }
 
@@ -50,7 +52,11 @@ public class Creature
 
     public bool IsTrackedInTileSystem { get; private set; }
 
+    public bool IsVisible { get; set; }
+
     public Building? HostedBuilding { get; private set; }
+
+    public IVehicle? HostedVehicle { get; private set; }
 
     public Vector2? HostedWorldPosition { get; private set; }
 
@@ -72,13 +78,31 @@ public class Creature
                (building is null || ReferenceEquals(HostedBuilding, building));
     }
 
+    public bool IsHostedOnVehicle(IVehicle? vehicle = null)
+    {
+        return HostedVehicle is not null &&
+               (vehicle is null || ReferenceEquals(HostedVehicle, vehicle));
+    }
+
     public void HostOnBuilding(Building building, Vector2 worldPosition)
     {
         // Hosted creatures keep their last tile `Location` as a restoration hint while
         // world-space consumers render and fire from `HostedWorldPosition`/`GetWorldPosition`.
         HostedBuilding = building;
+        HostedVehicle = null;
         HostedWorldPosition = worldPosition;
         IsTrackedInTileSystem = false;
+        MovementOffset = Vector2.Zero;
+        ClearBfsTraversal();
+    }
+
+    public void HostOnVehicle(IVehicle vehicle, Vector2 worldPosition)
+    {
+        HostedBuilding = null;
+        HostedVehicle = vehicle;
+        HostedWorldPosition = worldPosition;
+        IsTrackedInTileSystem = false;
+        IsVisible = true;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -86,8 +110,10 @@ public class Creature
     public void LeaveTileSystem()
     {
         HostedBuilding = null;
+        HostedVehicle = null;
         HostedWorldPosition = null;
         IsTrackedInTileSystem = false;
+        IsVisible = true;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -95,8 +121,10 @@ public class Creature
     public void ReturnToTileSystem()
     {
         HostedBuilding = null;
+        HostedVehicle = null;
         HostedWorldPosition = null;
         IsTrackedInTileSystem = true;
+        IsVisible = true;
         ClearBfsTraversal();
     }
 
@@ -155,6 +183,7 @@ public class Creature
         {
             Creature creature when !ReferenceEquals(creature, this) => creature.TakeDamage(Damage, this),
             Building building => building.TakeDamage(Damage, this),
+            IVehicle vehicle => vehicle.TakeDamage(Damage, this),
             _ => 0
         };
     }

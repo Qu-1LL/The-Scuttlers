@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Input;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Input;
@@ -106,6 +107,11 @@ public sealed partial class MenuController
         if (SelectedObject is not Trilobite)
         {
             CancelRenameSelectedTrilobite();
+        }
+
+        if (SelectedObject is not null)
+        {
+            ActiveTab = TabSelected;
         }
 
         NormalizeActiveTab();
@@ -535,6 +541,7 @@ public sealed partial class MenuController
         var removed = SelectedObject switch
         {
             Creature creature => creature.TakeDamage(Math.Max(1, creature.Health), "menuKill") > 0,
+            IVehicle vehicle => vehicle.RemoveFromGame("menuDelete"),
             Building building => building.RemoveFromGame("menuDelete"),
             _ => false
         };

@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -452,6 +453,20 @@ public sealed class BfsField
         }
     }
 
+    private void AddVehicleTargets(Vehicle? vehicle)
+    {
+        if (vehicle is null || vehicle.TileArray.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var tile in vehicle.TileArray)
+        {
+            _blocked[tile.Id] = true;
+            AddAdjacentPassableSeeds(tile);
+        }
+    }
+
     private void AddBuildingSeedIds(Building? building)
     {
         if (building is null || building.TileArray.Count == 0)
@@ -574,6 +589,11 @@ public sealed class BfsField
                 var isAlgaeFarm = string.Equals(building.Name, "Algae Farm", StringComparison.Ordinal) ||
                                   string.Equals(building.GetType().Name, "AlgaeFarm", StringComparison.Ordinal);
                 AddBuildingTargets(building, isAlgaeFarm);
+            }
+
+            foreach (var vehicle in Cave.GetVehicles())
+            {
+                AddVehicleTargets(vehicle);
             }
         }
 
