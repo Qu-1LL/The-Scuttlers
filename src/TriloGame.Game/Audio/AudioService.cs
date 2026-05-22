@@ -7,6 +7,8 @@ public sealed class AudioService
     private readonly Dictionary<GameAudioCue, SoundEffect> _effects = [];
     private readonly Dictionary<GameAudioCue, SoundEffectInstance> _loopInstances = [];
 
+    private readonly Dictionary<GameAudioCue, float> _loopGains = [];
+
     public int VolumePercent { get; private set; } = 100;
 
     public float NormalizedVolume => VolumePercent / 100f;
@@ -27,12 +29,18 @@ public sealed class AudioService
         }
 
         VolumePercent = clamped;
-        foreach (var instance in _loopInstances.Values)
+        foreach (var pair in _loopInstances)
         {
-            instance.Volume = NormalizedVolume;
+            pair.Value.Volume = GetOutputVolume(pair.Key);
         }
 
         return true;
+    }
+
+    // Returns volume that the player hears (golbal volume * cue gain)
+    private float GetOutputVolume(GameAudioCue cue)
+    {
+    return NormalizedVolume * _loopGains.GetValueOrDefault(cue, 1f);
     }
 
     // Adjust the current master volume by a signed delta.
@@ -54,8 +62,11 @@ public sealed class AudioService
     }
 
     // Start or resume a looped cue while reusing an existing instance when possible.
-    public bool StartLoop(GameAudioCue cue)
+    public bool StartLoop(GameAudioCue cue, float gain)
     {
+        gain = Math.Clamp(gain, 0f, 1f);
+        _loopGains[cue] = gain;
+
         if (_loopInstances.TryGetValue(cue, out var existing))
         {
             if (existing.State != SoundState.Playing)
@@ -81,6 +92,11 @@ public sealed class AudioService
         return true;
     }
 
+    public bool StartLoop(GameAudioCue cue)
+    {
+    return StartLoop(cue, 1f);
+    }   
+
     // Stop and dispose one loop instance if it is currently tracked.
     public void StopLoop(GameAudioCue cue)
     {
@@ -88,6 +104,8 @@ public sealed class AudioService
         {
             return;
         }
+
+        _loopGains.Remove(cue);
 
         instance.Stop();
         instance.Dispose();

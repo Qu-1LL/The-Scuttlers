@@ -288,6 +288,11 @@
 /processor:SoundEffectProcessor
 /build:Audio/Effects/VolumeSound.wav
 
+#begin Audio/Effects/miningpostplaceholder.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/miningpostplaceholder.mp3
+
 #begin Audio/Music/cheerwine_diddy_party.mp3
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
@@ -302,3 +307,4 @@
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
 /build:Audio/Music/cts_acapella.mp3
+

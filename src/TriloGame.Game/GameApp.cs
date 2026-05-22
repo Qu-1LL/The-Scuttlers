@@ -54,6 +54,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly SessionScreenShakeBridge _sessionScreenShakeBridge;
     private readonly SessionParticleBridge _sessionParticleBridge;
     private readonly OpalAudioSystem _opalAudioSystem;
+    private readonly FocusAudioSystem _focusAudioSystem;
     private readonly InputController _input = new();
     private readonly DoubleClickTracker _manualMoveDoubleClick = new();
     private readonly CameraController _camera = new();
@@ -98,6 +99,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
         _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
         _opalAudioSystem = new OpalAudioSystem(_audio);
+        _focusAudioSystem = new FocusAudioSystem(_audio);
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,
             value => _session.Runtime.FreezeOpalProgression = value,
@@ -294,6 +296,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/Effects/TrilobiteSelected"));
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/Effects/UiSelect"));
         _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/Effects/VolumeSound"));
+        _audio.Register(GameAudioCue.MiningPostFocus, Content.Load<SoundEffect>("Audio/Effects/miningpostplaceholder"));
 
         _ost.Register(MusicTrack.PlaceholderTrack, Content.Load<SoundEffect>("Audio/Music/cheerwine_diddy_party"));
         _ost.Register(MusicTrack.AdaptiveTest1, Content.Load<SoundEffect>("Audio/Music/cts"));
@@ -315,6 +318,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             HandleMainMenuInput();
             SyncOpalAudioState(gameTime);
+            _focusAudioSystem.Reset();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -334,6 +338,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             HandleGameOverInput();
             SyncOpalAudioState(gameTime);
+            _focusAudioSystem.Reset();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -344,6 +349,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             HandleResearchDraftMenuInput();
             SyncOpalAudioState(gameTime);
+            _focusAudioSystem.Reset();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -354,6 +360,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             HandleDebugMenuInput();
             AdvanceSimulation(gameTime);
             SyncOpalAudioState(gameTime);
+            _focusAudioSystem.Reset();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -564,6 +571,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         AdvanceSimulation(gameTime);
         SyncOpalAudioState(gameTime);
+        if (!_settingsMenuOpen)
+        {
+        _focusAudioSystem.Update(_session, _camera);
+        }
         GumUi.Update(gameTime);
 
         base.Update(gameTime);
@@ -1093,6 +1104,8 @@ public sealed partial class GameApp
         {
             return;
         }
+
+        _focusAudioSystem.Reset();
 
         _ost.CrossfadeTo(MusicTrack.AdaptiveTest2, TimeSpan.FromSeconds(0.5));
 
