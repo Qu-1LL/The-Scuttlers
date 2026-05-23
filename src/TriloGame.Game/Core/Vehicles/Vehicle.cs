@@ -9,10 +9,12 @@ namespace TriloGame.Game.Core.Vehicles;
 
 public abstract class Vehicle : IVehicle
 {
-    private readonly Queue<GridPoint> _moveQueue = [];
+    private readonly Queue<MoveStep> _moveQueue = [];
     private readonly HashSet<Creature> _stationedCreatures = [];
     private readonly Dictionary<Creature, int> _stationSlotIndexes = [];
     private readonly List<VehicleStationSlot> _stationSlots;
+
+    private readonly record struct MoveStep(GridPoint Destination, int RotationTurns);
 
     protected Vehicle(
         string name,
@@ -139,6 +141,16 @@ public abstract class Vehicle : IVehicle
 
     public bool DestationCreature(Creature creature)
     {
+        return DestationCreatureInternal(creature, restoreToTileSystem: true);
+    }
+
+    internal bool DestationCreatureWithoutRestore(Creature creature)
+    {
+        return DestationCreatureInternal(creature, restoreToTileSystem: false);
+    }
+
+    private bool DestationCreatureInternal(Creature creature, bool restoreToTileSystem)
+    {
         if (!_stationedCreatures.Remove(creature))
         {
             return false;
@@ -146,7 +158,15 @@ public abstract class Vehicle : IVehicle
 
         _stationSlotIndexes.Remove(creature);
         OnDestationCreature(creature);
-        RestoreDestationedCreature(creature);
+        if (restoreToTileSystem)
+        {
+            RestoreDestationedCreature(creature);
+        }
+        else
+        {
+            creature.LeaveTileSystem();
+        }
+
         return true;
     }
 
@@ -154,7 +174,12 @@ public abstract class Vehicle : IVehicle
 
     public void EnqueueMove(GridPoint destination)
     {
-        _moveQueue.Enqueue(destination);
+        EnqueueMove(destination, GetDisplayRotationTurns());
+    }
+
+    public void EnqueueMove(GridPoint destination, int rotationTurns)
+    {
+        _moveQueue.Enqueue(new MoveStep(destination, ((rotationTurns % 4) + 4) % 4));
         PathPreview.Add(destination);
     }
 
@@ -171,8 +196,15 @@ public abstract class Vehicle : IVehicle
             return null;
         }
 
-        var destination = _moveQueue.Dequeue();
-        var moved = Cave?.MoveVehicle(this, destination) ?? false;
+        var moveStep = _moveQueue.Dequeue();
+        var previousRotationTurns = GetDisplayRotationTurns();
+        SetDisplayRotationTurns(moveStep.RotationTurns);
+        var moved = Cave?.MoveVehicle(this, moveStep.Destination) ?? false;
+        if (!moved)
+        {
+            SetDisplayRotationTurns(previousRotationTurns);
+        }
+
         if (moved && PathPreview.Count > 0)
         {
             PathPreview.RemoveAt(0);

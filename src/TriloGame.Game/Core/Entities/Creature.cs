@@ -54,6 +54,8 @@ public class Creature
 
     public bool IsVisible { get; set; }
 
+    public bool DrawBelowBuildings { get; private set; }
+
     public Building? HostedBuilding { get; private set; }
 
     public IVehicle? HostedVehicle { get; private set; }
@@ -84,7 +86,7 @@ public class Creature
                (vehicle is null || ReferenceEquals(HostedVehicle, vehicle));
     }
 
-    public void HostOnBuilding(Building building, Vector2 worldPosition)
+    public void HostOnBuilding(Building building, Vector2 worldPosition, bool drawBelowBuildings = false)
     {
         // Hosted creatures keep their last tile `Location` as a restoration hint while
         // world-space consumers render and fire from `HostedWorldPosition`/`GetWorldPosition`.
@@ -92,6 +94,7 @@ public class Creature
         HostedVehicle = null;
         HostedWorldPosition = worldPosition;
         IsTrackedInTileSystem = false;
+        DrawBelowBuildings = drawBelowBuildings;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -103,6 +106,7 @@ public class Creature
         HostedWorldPosition = worldPosition;
         IsTrackedInTileSystem = false;
         IsVisible = true;
+        DrawBelowBuildings = false;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -114,6 +118,7 @@ public class Creature
         HostedWorldPosition = null;
         IsTrackedInTileSystem = false;
         IsVisible = true;
+        DrawBelowBuildings = false;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -125,7 +130,13 @@ public class Creature
         HostedWorldPosition = null;
         IsTrackedInTileSystem = true;
         IsVisible = true;
+        DrawBelowBuildings = false;
         ClearBfsTraversal();
+    }
+
+    public bool CanBeDirectlySelected()
+    {
+        return IsVisible && !DrawBelowBuildings;
     }
 
     protected virtual bool EnsureReadyForTileNavigation()

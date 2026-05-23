@@ -6,15 +6,89 @@ namespace TriloGame.Game.Core.World;
 
 public sealed partial class Cave
 {
+    private static readonly GridPoint[] SoilNeighborDirections =
+    [
+        new GridPoint(1, 0),
+        new GridPoint(0, 1),
+        new GridPoint(-1, 0),
+        new GridPoint(0, -1)
+    ];
+
     private readonly List<Garage> _garages = [];
-    private readonly List<Soil> _soilTiles = [];
+    private readonly List<SoilPatch> _soilPatches = [];
+    private readonly List<SoilTile> _soilTiles = [];
+    private readonly Dictionary<GridPoint, SoilTile> _soilTileLookup = [];
     private readonly List<Ranch> _ranches = [];
 
     public IReadOnlyList<Garage> GetGarages() => _garages;
 
-    public IReadOnlyList<Soil> GetSoilTiles() => _soilTiles;
+    public IReadOnlyList<SoilPatch> GetSoilPatches() => _soilPatches;
+
+    public IReadOnlyList<SoilTile> GetSoilTiles() => _soilTiles;
 
     public IReadOnlyList<Ranch> GetRanches() => _ranches;
+
+    public SoilTile? GetSoilTile(GridPoint location)
+    {
+        return _soilTileLookup.TryGetValue(location, out var soilTile)
+            ? soilTile
+            : null;
+    }
+
+    public bool CanBuildSoilArea(SoilArea soilArea, GridPoint location, bool preserveReachability = false)
+    {
+        var placements = soilArea.GetPatchPlacements(location);
+        if (placements.Count == 0)
+        {
+            return false;
+        }
+
+        var occupied = new HashSet<GridPoint>();
+        for (var placementIndex = 0; placementIndex < placements.Count; placementIndex++)
+        {
+            var placement = placements[placementIndex];
+            for (var x = 0; x < placement.SoilPatch.Size.X; x++)
+            {
+                for (var y = 0; y < placement.SoilPatch.Size.Y; y++)
+                {
+                    if (!occupied.Add(new GridPoint(placement.Location.X + x, placement.Location.Y + y)))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            if (!CanBuild(placement.SoilPatch, placement.Location, preserveReachability))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public bool BuildSoilArea(SoilArea soilArea, GridPoint location)
+    {
+        if (!CanBuildSoilArea(soilArea, location))
+        {
+            return false;
+        }
+
+        var placements = soilArea.GetPatchPlacements(location);
+        var builtPatches = new List<Building>(placements.Count);
+        for (var index = 0; index < placements.Count; index++)
+        {
+            var placement = placements[index];
+            PlaceBuildingUnchecked(placement.SoilPatch, placement.Location);
+            builtPatches.Add(placement.SoilPatch);
+        }
+
+        soilArea.RebuildPatchOffsetsFromLiveLocations();
+        var mergedArea = MergeAdjacentCompatibleSoilAreas(soilArea);
+        AttachSoilAreaToRanch(mergedArea);
+        FinalizeBuiltBuildings(builtPatches);
+        return true;
+    }
 
     public void TickRanches()
     {
@@ -31,27 +105,62 @@ public sealed partial class Cave
         }
     }
 
+    private void RegisterSoilPatchTiles(SoilPatch soilPatch)
+    {
+        soilPatch.SoilArea ??= new SoilArea(Session);
+        soilPatch.SoilArea.AddSoilPatch(soilPatch);
+        for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
+        {
+            var soilTile = soilPatch.SoilTiles[index];
+            var worldLocation = soilTile.WorldLocation;
+            if (worldLocation is null)
+            {
+                continue;
+            }
+
+            _soilTiles.Add(soilTile);
+            _soilTileLookup[worldLocation.Value] = soilTile;
+        }
+
+        soilPatch.SoilArea.RefreshSelectionFootprint();
+    }
+
+    private void UnregisterSoilPatchTiles(SoilPatch soilPatch)
+    {
+        for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
+        {
+            var soilTile = soilPatch.SoilTiles[index];
+            var worldLocation = soilTile.WorldLocation;
+            _soilTiles.Remove(soilTile);
+            if (worldLocation is not null)
+            {
+                _soilTileLookup.Remove(worldLocation.Value);
+            }
+        }
+    }
+
     private bool CanPlaceRanchBuilding(Building building, GridPoint location)
     {
         return building switch
         {
-            Soil => CanPlaceSoil(location),
+            SoilPatch => CanPlaceSoilPatch(location),
             Garage garage => CanPlaceGarage(garage, location),
             _ => true
         };
     }
 
-    private bool CanPlaceSoil(GridPoint location)
+    private bool CanPlaceSoilPatch(GridPoint location)
     {
         return GetTile(location) is not null;
     }
 
-    // A garage can only anchor soil that is not already claimed by another garage-backed ranch.
+    // A new garage may not anchor directly onto soil that already belongs to another garage-backed ranch.
     private bool CanPlaceGarage(Garage garage, GridPoint location)
     {
         foreach (var neighbor in EnumerateFootprintNeighborTiles(location, garage.Size))
         {
-            if (neighbor.Built is Soil soil && soil.Ranch?.Garage is not null)
+            var soilTile = GetSoilTile(neighbor.Coordinates);
+            if (soilTile?.Ranch?.Garage is not null)
             {
                 return false;
             }
@@ -98,8 +207,20 @@ public sealed partial class Cave
     {
         switch (building)
         {
-            case Soil soil:
-                AttachSoilToRanch(soil);
+            case SoilPatch soilPatch:
+                if (soilPatch.SoilArea is { } soilArea)
+                {
+                    if (!soilArea.AreAllPatchesBuilt(this))
+                    {
+                        return;
+                    }
+
+                    var mergedArea = MergeAdjacentCompatibleSoilAreas(soilArea);
+                    AttachSoilAreaToRanch(mergedArea);
+                    break;
+                }
+
+                AttachSoilPatchToRanch(soilPatch);
                 break;
             case Garage garage:
                 AttachGarageToRanch(garage);
@@ -111,8 +232,9 @@ public sealed partial class Cave
     {
         switch (building)
         {
-            case Soil soil:
-                RemoveSoilFromRanch(soil);
+            case SoilPatch soilPatch:
+                RemoveSoilPatchFromRanch(soilPatch);
+                soilPatch.SoilArea?.RemoveSoilPatch(soilPatch);
                 break;
             case Garage garage:
                 RemoveGarageFromRanch(garage);
@@ -120,38 +242,62 @@ public sealed partial class Cave
         }
     }
 
-    private void AttachSoilToRanch(Soil soil)
+    private void AttachSoilPatchToRanch(SoilPatch soilPatch)
     {
-        var targetRanch = FindAdjacentRanchForSoil(soil);
+        var targetRanch = FindAdjacentRanchForSoilPatch(soilPatch);
         if (targetRanch is null)
         {
             return;
         }
 
-        targetRanch.AddSoil(soil);
-        var adjacentSoils = GetAdjacentSoils(soil).ToArray();
-        for (var index = 0; index < adjacentSoils.Length; index++)
+        AbsorbReachableRanchlessSoils(targetRanch);
+        targetRanch.RefreshSelectionFootprint();
+        targetRanch.RebuildPlowPath();
+    }
+
+    private void AttachSoilAreaToRanch(SoilArea soilArea)
+    {
+        var targetRanch = soilArea.Ranch ?? FindAdjacentRanchForSoilArea(soilArea);
+        if (targetRanch is null)
         {
-            var neighborSoil = adjacentSoils[index];
-            if (neighborSoil.Ranch is null)
+            return;
+        }
+
+        AbsorbReachableRanchlessSoils(targetRanch);
+        targetRanch.RefreshSelectionFootprint();
+        targetRanch.RebuildPlowPath();
+    }
+
+    private Ranch? FindAdjacentRanchForSoilArea(SoilArea soilArea)
+    {
+        foreach (var soilPatch in soilArea.SoilPatches)
+        {
+            var ranch = FindAdjacentRanchForSoilPatch(soilPatch);
+            if (ranch is not null)
             {
-                AbsorbConnectedRanchlessSoils(targetRanch, neighborSoil);
+                return ranch;
             }
         }
 
-        targetRanch.RefreshSelectionFootprint();
+        return null;
     }
 
-    private Ranch? FindAdjacentRanchForSoil(Soil soil)
+    private Ranch? FindAdjacentRanchForSoilPatch(SoilPatch soilPatch)
     {
-        foreach (var neighbor in soil.TileArray.SelectMany(tile => tile.Neighbors))
+        for (var tileIndex = 0; tileIndex < soilPatch.SoilTiles.Count; tileIndex++)
         {
-            switch (neighbor.Built)
+            var soilTile = soilPatch.SoilTiles[tileIndex];
+            foreach (var adjacentGarage in GetAdjacentGarages(soilTile))
             {
-                case Garage garage:
-                    return garage.Ranch ?? CreateRanch(garage);
-                case Soil neighborSoil when neighborSoil.Ranch is not null:
-                    return neighborSoil.Ranch;
+                return adjacentGarage.Ranch ?? CreateRanch(adjacentGarage);
+            }
+
+            foreach (var adjacentSoil in GetAdjacentSoilTiles(soilTile))
+            {
+                if (adjacentSoil.Ranch is not null)
+                {
+                    return adjacentSoil.Ranch;
+                }
             }
         }
 
@@ -161,21 +307,9 @@ public sealed partial class Cave
     private void AttachGarageToRanch(Garage garage)
     {
         var ranch = garage.Ranch ?? CreateRanch(garage);
-        var adjacentSoils = GetAdjacentSoils(garage).ToArray();
-        for (var index = 0; index < adjacentSoils.Length; index++)
-        {
-            var soil = adjacentSoils[index];
-            if (soil.Ranch is null)
-            {
-                AbsorbConnectedRanchlessSoils(ranch, soil);
-            }
-            else if (!ReferenceEquals(soil.Ranch, ranch))
-            {
-                MergeRanches(ranch, soil.Ranch);
-            }
-        }
-
+        AbsorbReachableRanchlessSoils(ranch);
         ranch.RefreshSelectionFootprint();
+        ranch.RebuildPlowPath();
     }
 
     private Ranch CreateRanch(Garage garage)
@@ -225,60 +359,110 @@ public sealed partial class Cave
         return false;
     }
 
-    private void MergeRanches(Ranch target, Ranch other)
+    private SoilArea MergeAdjacentCompatibleSoilAreas(SoilArea soilArea)
     {
-        if (ReferenceEquals(target, other))
+        var result = soilArea;
+        var merged = true;
+        while (merged)
         {
-            return;
-        }
-
-        var otherGarage = other.Garage;
-        if (otherGarage is not null)
-        {
-            if (target.Garage is null)
+            merged = false;
+            foreach (var adjacentArea in GetAdjacentSoilAreas(result))
             {
-                other.ClearGarage(otherGarage);
-                target.SetGarage(otherGarage);
-            }
-            else if (!ReferenceEquals(target.Garage, otherGarage))
-            {
-                throw new InvalidOperationException("A ranch cannot be connected to more than one garage.");
+                if (!CanMergeSoilAreas(result, adjacentArea))
+                {
+                    continue;
+                }
+
+                result = MergeSoilAreas(result, adjacentArea);
+                merged = true;
+                break;
             }
         }
 
-        foreach (var soil in other.SoilTiles.ToArray())
-        {
-            other.RemoveSoil(soil);
-            target.AddSoil(soil);
-        }
-
-        _ranches.Remove(other);
-        other.Dissolve();
-        target.RefreshSelectionFootprint();
+        return result;
     }
 
-    private void AbsorbConnectedRanchlessSoils(Ranch target, Soil start)
+    private IEnumerable<SoilArea> GetAdjacentSoilAreas(SoilArea soilArea)
     {
-        if (start.Ranch is not null)
+        var yielded = new HashSet<SoilArea>();
+        foreach (var soilPatch in soilArea.SoilPatches)
         {
-            return;
+            for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
+            {
+                foreach (var adjacentSoil in GetAdjacentSoilTiles(soilPatch.SoilTiles[index]))
+                {
+                    var adjacentArea = adjacentSoil.ParentPatch.SoilArea;
+                    if (adjacentArea is not null &&
+                        !ReferenceEquals(adjacentArea, soilArea) &&
+                        yielded.Add(adjacentArea))
+                    {
+                        yield return adjacentArea;
+                    }
+                }
+            }
+        }
+    }
+
+    private static bool CanMergeSoilAreas(SoilArea left, SoilArea right)
+    {
+        var ranchLinkedCount = (left.Ranch is not null ? 1 : 0) + (right.Ranch is not null ? 1 : 0);
+        if (ranchLinkedCount > 1 ||
+            !left.TryGetLiveBounds(out var leftMinX, out var leftMinY, out var leftMaxX, out var leftMaxY) ||
+            !right.TryGetLiveBounds(out var rightMinX, out var rightMinY, out var rightMaxX, out var rightMaxY))
+        {
+            return false;
         }
 
-        var queue = new Queue<Soil>();
-        var visited = new HashSet<Soil>();
-        queue.Enqueue(start);
-        visited.Add(start);
+        var sameVerticalSpan = leftMinY == rightMinY && leftMaxY == rightMaxY;
+        var sameHorizontalSpan = leftMinX == rightMinX && leftMaxX == rightMaxX;
+        return (sameVerticalSpan && (leftMaxX + 1 == rightMinX || rightMaxX + 1 == leftMinX)) ||
+               (sameHorizontalSpan && (leftMaxY + 1 == rightMinY || rightMaxY + 1 == leftMinY));
+    }
+
+    private static SoilArea MergeSoilAreas(SoilArea left, SoilArea right)
+    {
+        var target = left.Ranch is not null
+            ? left
+            : right.Ranch is not null ? right : left;
+        var source = ReferenceEquals(target, left) ? right : left;
+        foreach (var soilPatch in source.SoilPatches.ToArray())
+        {
+            target.AddSoilPatch(soilPatch);
+        }
+
+        source.Ranch = null;
+        target.RebuildPatchOffsetsFromLiveLocations();
+        source.RefreshSelectionFootprint();
+        return target;
+    }
+
+    // Once a ranch touches a ranchless soil tile, absorb its full connected soil component.
+    private bool AbsorbReachableRanchlessSoils(Ranch target)
+    {
+        var queue = new Queue<SoilTile>();
+        var visited = new HashSet<SoilTile>();
+        var changed = false;
+
+        if (target.Garage is not null)
+        {
+            EnqueueAdjacentRanchlessSoils(target.Garage, queue, visited);
+        }
+
+        foreach (var soilTile in target.SoilTiles.ToArray())
+        {
+            EnqueueAdjacentRanchlessSoils(soilTile, queue, visited);
+        }
 
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            if (current.Cave != this || current.Ranch is not null)
+            if (current.ParentPatch.Cave != this || current.Ranch is not null)
             {
                 continue;
             }
 
-            target.AddSoil(current);
-            foreach (var neighbor in GetAdjacentSoils(current))
+            changed |= target.AddSoil(current);
+            foreach (var neighbor in GetAdjacentSoilTiles(current))
             {
                 if (neighbor.Ranch is null && visited.Add(neighbor))
                 {
@@ -286,17 +470,45 @@ public sealed partial class Cave
                 }
             }
         }
+
+        return changed;
     }
 
-    private void RemoveSoilFromRanch(Soil soil)
+    private void EnqueueAdjacentRanchlessSoils(Building building, Queue<SoilTile> queue, HashSet<SoilTile> visited)
     {
-        var ranch = soil.Ranch;
+        foreach (var soilTile in GetAdjacentSoilTiles(building))
+        {
+            if (soilTile.Ranch is null && visited.Add(soilTile))
+            {
+                queue.Enqueue(soilTile);
+            }
+        }
+    }
+
+    private void EnqueueAdjacentRanchlessSoils(SoilTile soilTile, Queue<SoilTile> queue, HashSet<SoilTile> visited)
+    {
+        foreach (var neighbor in GetAdjacentSoilTiles(soilTile))
+        {
+            if (neighbor.Ranch is null && visited.Add(neighbor))
+            {
+                queue.Enqueue(neighbor);
+            }
+        }
+    }
+
+    private void RemoveSoilPatchFromRanch(SoilPatch soilPatch)
+    {
+        var ranch = soilPatch.Ranch;
         if (ranch is null)
         {
             return;
         }
 
-        ranch.RemoveSoil(soil);
+        for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
+        {
+            ranch.RemoveSoil(soilPatch.SoilTiles[index]);
+        }
+
         PruneDisconnectedSoils(ranch);
     }
 
@@ -310,9 +522,10 @@ public sealed partial class Cave
 
         _ranches.Remove(ranch);
         ranch.Dissolve();
+        ReattachRanchlessSoilsToReachableRanches();
     }
 
-    // After a soil tile disappears, keep only the soil component that still reaches the garage.
+    // After soil disappears, keep only the soil component that still reaches the garage.
     private void PruneDisconnectedSoils(Ranch ranch)
     {
         var garage = ranch.Garage;
@@ -323,66 +536,116 @@ public sealed partial class Cave
             return;
         }
 
-        var connected = new HashSet<Soil>();
-        var queue = new Queue<Soil>();
-        foreach (var soil in GetAdjacentSoils(garage))
+        var connected = new HashSet<SoilTile>();
+        var queue = new Queue<SoilTile>();
+        foreach (var soilTile in GetAdjacentSoilTiles(garage))
         {
-            if (soil.Ranch is not null && ranch.Contains(soil) && connected.Add(soil))
+            if (ReferenceEquals(soilTile.Ranch, ranch) && connected.Add(soilTile))
             {
-                queue.Enqueue(soil);
+                queue.Enqueue(soilTile);
             }
         }
 
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            foreach (var neighbor in GetAdjacentSoils(current))
+            foreach (var neighbor in GetAdjacentSoilTiles(current))
             {
-                if (neighbor.Ranch is not null && ranch.Contains(neighbor) && connected.Add(neighbor))
+                if (ReferenceEquals(neighbor.Ranch, ranch) && connected.Add(neighbor))
                 {
                     queue.Enqueue(neighbor);
                 }
             }
         }
 
-        foreach (var soil in ranch.SoilTiles.ToArray())
+        foreach (var soilTile in ranch.SoilTiles.ToArray())
         {
-            if (!connected.Contains(soil))
+            if (!connected.Contains(soilTile))
             {
-                ranch.RemoveSoil(soil);
+                ranch.RemoveSoil(soilTile);
             }
         }
 
         ranch.RefreshSelectionFootprint();
+        ranch.RebuildPlowPath();
     }
 
-    private static IEnumerable<Soil> GetAdjacentSoils(Soil soil)
+    // Soil left behind by a removed garage can rejoin any remaining garage-backed ranch it reaches.
+    private void ReattachRanchlessSoilsToReachableRanches()
     {
-        if (soil.TileArray.Count == 0)
+        var touchedRanches = new HashSet<Ranch>();
+        var passChanged = true;
+        while (passChanged)
         {
-            yield break;
+            passChanged = false;
+            for (var index = 0; index < _ranches.Count; index++)
+            {
+                var ranch = _ranches[index];
+                if (AbsorbReachableRanchlessSoils(ranch))
+                {
+                    touchedRanches.Add(ranch);
+                    passChanged = true;
+                }
+            }
         }
 
-        foreach (var neighbor in soil.TileArray[0].Neighbors)
+        foreach (var ranch in touchedRanches)
         {
-            if (neighbor.Built is Soil neighborSoil)
+            ranch.RefreshSelectionFootprint();
+            ranch.RebuildPlowPath();
+        }
+    }
+
+    private IEnumerable<SoilTile> GetAdjacentSoilTiles(Building building)
+    {
+        var yielded = new HashSet<SoilTile>();
+        foreach (var tile in building.TileArray)
+        {
+            foreach (var direction in SoilNeighborDirections)
             {
-                yield return neighborSoil;
+                var location = new GridPoint(tile.Coordinates.X + direction.X, tile.Coordinates.Y + direction.Y);
+                var soilTile = GetSoilTile(location);
+                if (soilTile is not null && yielded.Add(soilTile))
+                {
+                    yield return soilTile;
+                }
             }
         }
     }
 
-    private static IEnumerable<Soil> GetAdjacentSoils(Garage garage)
+    private IEnumerable<SoilTile> GetAdjacentSoilTiles(SoilTile soilTile)
     {
-        var yielded = new HashSet<Soil>();
-        foreach (var tile in garage.TileArray)
+        var worldLocation = soilTile.WorldLocation;
+        if (worldLocation is null)
         {
-            foreach (var neighbor in tile.Neighbors)
+            yield break;
+        }
+
+        foreach (var direction in SoilNeighborDirections)
+        {
+            var neighbor = GetSoilTile(new GridPoint(worldLocation.Value.X + direction.X, worldLocation.Value.Y + direction.Y));
+            if (neighbor is not null)
             {
-                if (neighbor.Built is Soil soil && yielded.Add(soil))
-                {
-                    yield return soil;
-                }
+                yield return neighbor;
+            }
+        }
+    }
+
+    private IEnumerable<Garage> GetAdjacentGarages(SoilTile soilTile)
+    {
+        var worldLocation = soilTile.WorldLocation;
+        if (worldLocation is null)
+        {
+            yield break;
+        }
+
+        var yielded = new HashSet<Garage>();
+        foreach (var direction in SoilNeighborDirections)
+        {
+            var tile = GetTile(new GridPoint(worldLocation.Value.X + direction.X, worldLocation.Value.Y + direction.Y));
+            if (tile?.Built is Garage garage && yielded.Add(garage))
+            {
+                yield return garage;
             }
         }
     }

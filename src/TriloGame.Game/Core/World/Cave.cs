@@ -470,8 +470,9 @@ public sealed partial class Cave : Graph
             case Garage garage:
                 _garages.Add(garage);
                 break;
-            case Soil soil:
-                _soilTiles.Add(soil);
+            case SoilPatch soilPatch:
+                _soilPatches.Add(soilPatch);
+                RegisterSoilPatchTiles(soilPatch);
                 break;
             case MiningPost post:
                 _miningPosts.Add(post);
@@ -515,8 +516,9 @@ public sealed partial class Cave : Graph
             case Garage garage:
                 _garages.Remove(garage);
                 break;
-            case Soil soil:
-                _soilTiles.Remove(soil);
+            case SoilPatch soilPatch:
+                UnregisterSoilPatchTiles(soilPatch);
+                _soilPatches.Remove(soilPatch);
                 break;
             case MiningPost post:
                 _miningPosts.Remove(post);
@@ -776,8 +778,7 @@ public sealed partial class Cave : Graph
                     HasBlockingSurfaceFeature(tile) ||
                     tile.Base != "empty" ||
                     !tile.CreatureFits() ||
-                    tile.EnemyOccupant is not null ||
-                    tile.Trilobites.Count > 0)
+                    tile.EnemyOccupant is not null)
                 {
                     return false;
                 }
@@ -818,11 +819,12 @@ public sealed partial class Cave : Graph
             return reachableKeys;
         }
 
+        var simulatedOpenMap = GetReachabilitySimulationOpenMap(building);
         for (var x = 0; x < building.Size.X; x++)
         {
             for (var y = 0; y < building.Size.Y; y++)
             {
-                if (building.OpenMap[y][x] < 1)
+                if (simulatedOpenMap[y][x] < 1)
                 {
                     reachableKeys.Remove(new GridPoint(location.Value.X + x, location.Value.Y + y).ToString());
                 }
@@ -830,6 +832,14 @@ public sealed partial class Cave : Graph
         }
 
         return reachableKeys;
+    }
+
+    // Simulations use the finished building footprint so walkable scaffolds do not hide future blockers.
+    private static int[][] GetReachabilitySimulationOpenMap(Building building)
+    {
+        return building is Scaffolding scaffolding
+            ? scaffolding.TargetBuilding.OpenMap
+            : building.OpenMap;
     }
 
     private static bool ShouldSkipSimulatedBuildingAccessCheck(Building building)
@@ -933,6 +943,14 @@ public sealed partial class Cave : Graph
             return false;
         }
 
+        PlaceBuildingUnchecked(building, location);
+        OnRanchBuildingBuilt(building);
+        FinalizeBuiltBuildings([building]);
+        return true;
+    }
+
+    private void PlaceBuildingUnchecked(Building building, GridPoint location)
+    {
         Buildings.Add(building);
         _buildingList.Add(building);
         building.Cave = this;
@@ -959,24 +977,34 @@ public sealed partial class Cave : Graph
 
         building.OnBuilt(this);
         RegisterBuilding(building);
-        OnRanchBuildingBuilt(building);
+    }
+
+    private void FinalizeBuiltBuildings(IReadOnlyList<Building> builtBuildings)
+    {
         AdvanceTopologyVersion();
 
-        var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
+        var dirtyKeys = builtBuildings
+            .SelectMany(building => building.TileArray)
+            .Select(tile => tile.Key)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var reachability = RefreshReachableTiles();
         var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
-        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, [building]);
-        RebalanceAllBfsFields(dirtyKeys, [building], []);
-        RebalanceAllBuildingOwnershipFields(dirtyKeys, [building]);
-        var buildingField = GetBuildingBfsFieldObject(building);
-        buildingField.Rebuild();
-        buildingField.MarkDirty(ownershipDirtyKeys, [building], []);
-        if (building is Wall)
+        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, builtBuildings, []);
+        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, builtBuildings);
+        RebalanceAllBfsFields(dirtyKeys, builtBuildings, []);
+        RebalanceAllBuildingOwnershipFields(dirtyKeys, builtBuildings);
+        for (var index = 0; index < builtBuildings.Count; index++)
+        {
+            var buildingField = GetBuildingBfsFieldObject(builtBuildings[index]);
+            buildingField.Rebuild();
+            buildingField.MarkDirty(ownershipDirtyKeys, builtBuildings, []);
+        }
+
+        if (builtBuildings.Any(static building => building is Wall))
         {
             RebuildWallBfsField();
         }
-        return true;
     }
 
     public bool RemoveBuilding(Building building, object? source = null)
@@ -2477,10 +2505,21 @@ public sealed partial class Cave
         return tile is not null && tile.CreatureFits(creature);
     }
 
+    // Resource-complete scaffolds are temporary no-entry tiles for normal trilobite movement.
+    public bool IsResourceCompleteScaffoldingTile(Tile? tile)
+    {
+        return tile?.Built is Scaffolding { ResourceComplete: true };
+    }
+
+    public bool IsResourceCompleteScaffoldingLocation(GridPoint location)
+    {
+        return IsResourceCompleteScaffoldingTile(GetTile(location));
+    }
+
     public bool PlaceCreatureOnTile(Creature creature, GridPoint location, bool randomizeMovementOffset = false)
     {
-        var tile = GetTile(location.ToString());
-        if (!CanCreatureTraverseTile(creature, tile))
+        var tile = GetTile(location);
+        if (tile is null || !CanCreatureTraverseTile(creature, tile))
         {
             return false;
         }
@@ -2612,7 +2651,7 @@ public sealed partial class Cave
         return true;
     }
 
-    public bool MoveCreature(Creature creature, GridPoint nextLocation)
+    public bool MoveCreature(Creature creature, GridPoint nextLocation, bool allowResourceCompleteScaffolding = false)
     {
         if (!creature.IsTrackedInTileSystem)
         {
@@ -2621,7 +2660,14 @@ public sealed partial class Cave
 
         var current = creature.Location;
         var nextTile = GetTile(nextLocation);
-        if (!CanCreatureTraverseTile(creature, nextTile))
+        if (nextTile is null || !CanCreatureTraverseTile(creature, nextTile))
+        {
+            return false;
+        }
+
+        if (!allowResourceCompleteScaffolding &&
+            creature is Trilobite &&
+            IsResourceCompleteScaffoldingTile(nextTile))
         {
             return false;
         }

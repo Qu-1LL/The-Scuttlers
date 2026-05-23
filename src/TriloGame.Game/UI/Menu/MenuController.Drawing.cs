@@ -7,6 +7,7 @@ using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.UI.Gum;
+using TriloGame.Game.UI.Selection;
 
 namespace TriloGame.Game.UI.Menu;
 
@@ -139,6 +140,8 @@ public sealed partial class MenuController
         {
             Trilobite => "Trilobite",
             Ranch => "Ranch",
+            SoilArea => "Soil Area",
+            SoilAreaSelection selection => selection.Mode == SoilAreaSelectionMode.Row ? "Soil Row" : "Soil Column",
             Creature => "Creature",
             IVehicle => "Vehicle",
             _ => "Building"
@@ -168,7 +171,11 @@ public sealed partial class MenuController
             Trilobite => "Kill this trilobite immediately.",
             Creature => "Kill this creature immediately.",
             IVehicle => "Delete this vehicle from the cave immediately.",
-            Ranch => "Delete this ranch, including its garage and connected soil tiles.",
+            Ranch => "Delete this ranch, including its garage and connected soil patches.",
+            SoilArea => "Delete this soil area from the cave immediately.",
+            SoilAreaSelection selection => selection.Mode == SoilAreaSelectionMode.Row
+                ? "Delete this selected soil row from the cave immediately."
+                : "Delete this selected soil column from the cave immediately.",
             _ => "Delete this building from the cave immediately."
         };
         var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
@@ -333,6 +340,8 @@ public sealed partial class MenuController
                 Creature => "Kill Creature",
                 IVehicle => "Delete Vehicle",
                 Ranch => "Delete Ranch",
+                SoilArea => "Delete Soil Area",
+                SoilAreaSelection selection => selection.Mode == SoilAreaSelectionMode.Row ? "Delete Row" : "Delete Column",
                 _ => "Delete Building"
             },
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),

@@ -156,15 +156,15 @@ internal static class TestWorldFactory
         return garage;
     }
 
-    public static Soil BuildSoil(Cave cave, GameSession session, GridPoint location)
+    public static SoilPatch BuildSoilPatch(Cave cave, GameSession session, GridPoint location)
     {
-        var soil = new Soil(session);
-        if (!cave.Build(soil, location))
+        var soilPatch = new SoilPatch(session);
+        if (!cave.Build(soilPatch, location))
         {
-            throw new InvalidOperationException($"Failed to build soil at {location}.");
+            throw new InvalidOperationException($"Failed to build a soil patch at {location}.");
         }
 
-        return soil;
+        return soilPatch;
     }
 
     public static AlgaeFarm BuildAlgaeFarm(Cave cave, GameSession session, GridPoint location)

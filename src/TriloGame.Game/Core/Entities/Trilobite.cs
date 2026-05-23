@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Entities;
@@ -141,6 +142,11 @@ public sealed partial class Trilobite : Creature
 
     protected override bool TryInterruptQueuedAction()
     {
+        if (TryHandleResourceCompleteScaffoldEscape(out var consumedTick))
+        {
+            return consumedTick;
+        }
+
         if (!ShouldFleeFromNearbyEnemy())
         {
             if (_fleeingToQueen)
@@ -185,6 +191,181 @@ public sealed partial class Trilobite : Creature
             NavigateToBuilding(queen, null, true);
         }
 
+        return false;
+    }
+
+    // Evacuate ready scaffolds before assignment or flee behavior can enqueue more work.
+    private bool TryHandleResourceCompleteScaffoldEscape(out bool consumedTick)
+    {
+        consumedTick = false;
+        if (Cave is null ||
+            !IsTrackedInTileSystem ||
+            !Cave.IsResourceCompleteScaffoldingLocation(Location))
+        {
+            return false;
+        }
+
+        ClearActionQueue();
+        if (TryMoveToAdjacentResourceCompleteScaffoldExit())
+        {
+            consumedTick = true;
+            return true;
+        }
+
+        var escapePath = BuildResourceCompleteScaffoldEscapePath();
+        if (escapePath is not null && QueueResourceCompleteScaffoldEscapePath(escapePath))
+        {
+            return true;
+        }
+
+        consumedTick = true;
+        return true;
+    }
+
+    private bool TryMoveToAdjacentResourceCompleteScaffoldExit()
+    {
+        var cave = Cave;
+        var currentTile = cave?.GetTile(Location);
+        if (cave is null || currentTile is null)
+        {
+            return false;
+        }
+
+        Tile? selectedTile = null;
+        foreach (var neighbor in currentTile.Neighbors)
+        {
+            if (!cave.CanCreatureTraverseTile(this, neighbor) ||
+                cave.IsResourceCompleteScaffoldingTile(neighbor))
+            {
+                continue;
+            }
+
+            if (selectedTile is null || string.CompareOrdinal(neighbor.Key, selectedTile.Key) < 0)
+            {
+                selectedTile = neighbor;
+            }
+        }
+
+        return selectedTile is not null &&
+               cave.MoveCreature(this, selectedTile.Coordinates, allowResourceCompleteScaffolding: true);
+    }
+
+    // The escape search can traverse ready scaffolds but stops on the first non-ready passable tile.
+    private List<GridPoint>? BuildResourceCompleteScaffoldEscapePath()
+    {
+        var cave = Cave;
+        var startTile = cave?.GetTile(Location);
+        if (cave is null || startTile is null)
+        {
+            return null;
+        }
+
+        var stack = new Stack<Tile>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
+        stack.Push(startTile);
+        visited.Add(startTile.Key);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (!ReferenceEquals(current, startTile) &&
+                cave.CanCreatureTraverseTile(this, current) &&
+                !cave.IsResourceCompleteScaffoldingTile(current))
+            {
+                return ReconstructResourceCompleteScaffoldEscapePath(cameFrom, startTile.Key, current.Key);
+            }
+
+            var neighbors = GetNeighborsSortedDescending(current);
+            foreach (var neighbor in neighbors)
+            {
+                if (!cave.CanCreatureTraverseTile(this, neighbor) || !visited.Add(neighbor.Key))
+                {
+                    continue;
+                }
+
+                cameFrom[neighbor.Key] = current.Key;
+                stack.Push(neighbor);
+            }
+        }
+
+        return null;
+    }
+
+    private static List<Tile> GetNeighborsSortedDescending(Tile tile)
+    {
+        var neighbors = new List<Tile>(tile.Neighbors.Count);
+        foreach (var neighbor in tile.Neighbors)
+        {
+            var insertIndex = 0;
+            while (insertIndex < neighbors.Count &&
+                   string.CompareOrdinal(neighbor.Key, neighbors[insertIndex].Key) < 0)
+            {
+                insertIndex++;
+            }
+
+            neighbors.Insert(insertIndex, neighbor);
+        }
+
+        return neighbors;
+    }
+
+    private static List<GridPoint> ReconstructResourceCompleteScaffoldEscapePath(
+        IReadOnlyDictionary<string, string> cameFrom,
+        string startKey,
+        string destinationKey)
+    {
+        var path = new List<GridPoint>();
+        string? currentKey = destinationKey;
+        while (currentKey is not null)
+        {
+            path.Add(GridPoint.Parse(currentKey));
+            currentKey = string.Equals(currentKey, startKey, StringComparison.Ordinal)
+                ? null
+                : cameFrom.GetValueOrDefault(currentKey);
+        }
+
+        path.Reverse();
+        return path;
+    }
+
+    private bool QueueResourceCompleteScaffoldEscapePath(IReadOnlyList<GridPoint> path)
+    {
+        if (path.Count < 2)
+        {
+            return false;
+        }
+
+        ClearActionQueue();
+        for (var index = 1; index < path.Count; index++)
+        {
+            var next = path[index];
+            PathPreview.Add(next);
+            EnqueueAction(() => ExecuteResourceCompleteScaffoldEscapeStep(next));
+        }
+
+        return true;
+    }
+
+    private bool ExecuteResourceCompleteScaffoldEscapeStep(GridPoint next)
+    {
+        if (!EnsureReadyForTileNavigation())
+        {
+            return false;
+        }
+
+        if (Cave?.MoveCreature(this, next, allowResourceCompleteScaffolding: true) == true)
+        {
+            if (PathPreview.Count > 0)
+            {
+                PathPreview.RemoveAt(0);
+            }
+
+            return true;
+        }
+
+        ClearActionQueue();
+        TryHandleResourceCompleteScaffoldEscape(out _);
         return false;
     }
 

@@ -34,7 +34,8 @@ public sealed partial class Cave
             return false;
         }
 
-        if (GridPoint.ManhattanDistance(vehicle.Location.Value, destination) != 1 ||
+        var moveDistance = GridPoint.ManhattanDistance(vehicle.Location.Value, destination);
+        if (moveDistance > 1 ||
             !CanPlaceVehicle(vehicle, destination, vehicle))
         {
             return false;

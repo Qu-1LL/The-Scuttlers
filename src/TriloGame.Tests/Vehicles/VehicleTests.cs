@@ -50,6 +50,25 @@ public sealed class VehicleTests
     }
 
     [Fact]
+    public void VehicleMove_AllowsInPlaceRotationAndUpdatesStationedCreatureTransform()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 14, new GridPoint(0, 0));
+        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(3, 6), "Farmer", "farmer");
+        var plow = new Plow(session);
+        Assert.True(cave.SpawnVehicle(plow, new GridPoint(5, 6)));
+        Assert.True(plow.StationCreature(farmer));
+
+        plow.EnqueueMove(new GridPoint(5, 6), 2);
+        Assert.True((bool)plow.Move()!);
+
+        Assert.Equal(new GridPoint(5, 6), plow.Location);
+        Assert.Equal(2, plow.GetDisplayRotationTurns());
+        Assert.Equal(400f, farmer.HostedWorldPosition!.Value.X, 3);
+        Assert.Equal(520f, farmer.HostedWorldPosition.Value.Y, 3);
+        Assert.Equal(MathF.PI * 1.5f, farmer.RotationRadians, 3);
+    }
+
+    [Fact]
     public void ColonyBfsAndEnemiesCanTargetVehicles()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 14, new GridPoint(0, 0));

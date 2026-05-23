@@ -1,11 +1,9 @@
-using TriloGame.Game.Core.Economy;
-using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class Soil : Building
+public sealed class SoilTile
 {
     private const double DefaultGrowthConstant = 0d;
     private const double RanchGrowthMedian = 0.65d;
@@ -15,18 +13,19 @@ public sealed class Soil : Building
     private const int MaxGrowthLevel = 3;
     private const int DefaultReturnedAlgaeAmount = 5;
 
-    public Soil(GameSession session)
-        : base("Soil", new GridPoint(1, 1), [[1]], session, false)
+    public SoilTile(SoilPatch parentPatch, GridPoint localOffset)
     {
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            [OreType.ALGAE.Name] = 5
-        };
-        Description = "A passable soil tile. Soil connected to a garage joins that garage's ranch.";
+        ParentPatch = parentPatch;
+        LocalOffset = localOffset;
         GrowthConstant = DefaultGrowthConstant;
+        GrowthLevel = MinGrowthLevel;
         ReturnedAlgaeAmount = DefaultReturnedAlgaeAmount;
-        SetGrowthLevel(MinGrowthLevel);
+        TextureKey = BuildTextureKey(GrowthLevel);
     }
+
+    public SoilPatch ParentPatch { get; }
+
+    public GridPoint LocalOffset { get; }
 
     public Ranch? Ranch { get; internal set; }
 
@@ -36,8 +35,23 @@ public sealed class Soil : Building
 
     public int ReturnedAlgaeAmount { get; private set; }
 
+    public string TextureKey { get; private set; }
+
+    public GridPoint? WorldLocation
+    {
+        get
+        {
+            if (ParentPatch.Location is not { } patchLocation)
+            {
+                return null;
+            }
+
+            return new GridPoint(patchLocation.X + LocalOffset.X, patchLocation.Y + LocalOffset.Y);
+        }
+    }
+
     // Soil tiles compare against the cave-wide growth roll once per tick until they reach the harvestable stage.
-    public override int Tick(World.Cave cave)
+    public int Tick(World.Cave cave)
     {
         if (GrowthLevel >= MaxGrowthLevel || cave.TickGrowthMin >= GrowthConstant)
         {
@@ -60,11 +74,6 @@ public sealed class Soil : Building
         return harvested;
     }
 
-    public void SetReturnedAlgaeAmount(int amount)
-    {
-        ReturnedAlgaeAmount = System.Math.Max(0, amount);
-    }
-
     internal void TileAddedToRanch()
     {
         GrowthConstant = System.Math.Clamp(
@@ -83,9 +92,19 @@ public sealed class Soil : Building
         GrowthConstant = System.Math.Max(0d, value);
     }
 
+    internal void SetReturnedAlgaeAmount(int amount)
+    {
+        ReturnedAlgaeAmount = System.Math.Max(0, amount);
+    }
+
     internal void SetGrowthLevel(int level)
     {
         GrowthLevel = System.Math.Clamp(level, MinGrowthLevel, MaxGrowthLevel);
-        TextureKey = $"SoilTile_{GrowthLevel}";
+        TextureKey = BuildTextureKey(GrowthLevel);
+    }
+
+    private static string BuildTextureKey(int growthLevel)
+    {
+        return $"SoilTile_{growthLevel}";
     }
 }

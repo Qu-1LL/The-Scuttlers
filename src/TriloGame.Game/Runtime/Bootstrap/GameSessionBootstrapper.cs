@@ -67,7 +67,7 @@ public sealed class GameSessionBootstrapper
     // Register the current starter building catalog for this run.
     private static void PopulateUnlockedBuildings(GameSession session)
     {
-        session.UnlockedBuildings.Add(new Factory(game => new Soil(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new SoilPatch(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Garage(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Barracks(game), session));
