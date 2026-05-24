@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Combat;
 
 namespace TriloGame.Tests.Core.Combat;
@@ -13,6 +14,6 @@ public sealed class ProjectileCatalogTests
     [Fact]
     public void Rock_UsesConfiguredTravelPixelsPerTick()
     {
-        Assert.Equal(160f, ProjectileCatalog.Rock.TravelPixelsPerTick);
+        Assert.Equal(TileConstants.TileSize * 2f, ProjectileCatalog.Rock.TravelPixelsPerTick);
     }
 }

@@ -21,8 +21,9 @@ public static class GameConstants
     public const float ExplosionShakeFrequencyHz = 18f;
     public const float ExplosionShakeDecayPerSecond = 2.75f;
 
-    public const float MinScale = 0.1f;
-    public const float MaxScale = 2.5f;
+    public const float DefaultCameraScale = 80f / TileConstants.TileSize;
+    public const float MinScale = DefaultCameraScale * 0.25f;
+    public const float MaxScale = DefaultCameraScale * 4f;
     public const float KeyboardPanSpeedPixelsPerSecond = 800f;
     public const float DragThresholdPixels = 10f;
     public const double DoubleClickThresholdMs = 300d;
@@ -31,6 +32,9 @@ public static class GameConstants
     public const int MaxOreYield = 50;
     public const int DarkestOreYield = 5;
     public const float MaxOreDarkness = 0.3f;
+    public const int CaveCrystalMinCount = 6;
+    public const int CaveCrystalMaxCount = 28;
+    public const int CaveCrystalTileDivisor = 180;
     public const int MinOreHitsPerYield = 1;
     public const int MaxOreHitsPerYield = 5;
     public const int TrilobiteCarryCapacity = 5;

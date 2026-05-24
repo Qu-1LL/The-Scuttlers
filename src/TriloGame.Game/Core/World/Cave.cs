@@ -335,6 +335,7 @@ public sealed partial class Cave : Graph
         }
 
         FillOres();
+        PlaceCaveCrystals();
     }
 
     private void DegradeCaveOnce()
@@ -428,6 +429,54 @@ public sealed partial class Cave : Graph
         tile.ConfigureOre(
             RandomUtil.NextInt(GameConstants.MinOreYield, GameConstants.MaxOreYield + 1),
             RandomUtil.NextInt(GameConstants.MinOreHitsPerYield, GameConstants.MaxOreHitsPerYield + 1));
+    }
+
+    private void PlaceCaveCrystals()
+    {
+        var candidates = new List<Tile>();
+        foreach (var tile in GetTiles())
+        {
+            if (string.Equals(tile.Base, "empty", StringComparison.Ordinal) &&
+                tile.CreatureFits())
+            {
+                candidates.Add(tile);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        var targetCount = Math.Clamp(
+            candidates.Count / GameConstants.CaveCrystalTileDivisor,
+            GameConstants.CaveCrystalMinCount,
+            GameConstants.CaveCrystalMaxCount);
+        var placed = 0;
+        foreach (var tile in RandomUtil.Shuffle(candidates))
+        {
+            var neighborHasCrystal = false;
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (neighbor.Decoration == TileDecoration.CaveCrystal)
+                {
+                    neighborHasCrystal = true;
+                    break;
+                }
+            }
+
+            if (neighborHasCrystal)
+            {
+                continue;
+            }
+
+            tile.SetDecoration(TileDecoration.CaveCrystal);
+            placed++;
+            if (placed >= targetCount)
+            {
+                break;
+            }
+        }
     }
 
     private void FillCircle(int originX, int originY, int radius)

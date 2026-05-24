@@ -24,6 +24,8 @@ public sealed class Tile
 
     public string Base { get; private set; }
 
+    public TileDecoration Decoration { get; private set; }
+
     public int ResourceYield { get; private set; }
 
     public int HitsPerYield { get; private set; }
@@ -68,6 +70,11 @@ public sealed class Tile
     public void SetBase(string tileBase)
     {
         Base = tileBase;
+        if (!string.Equals(tileBase, "empty", StringComparison.Ordinal))
+        {
+            ClearDecoration();
+        }
+
         if (!string.Equals(tileBase, "wall", StringComparison.Ordinal))
         {
             HitsRemaining = 0;
@@ -97,6 +104,16 @@ public sealed class Tile
         ResourceYield = 0;
         HitsPerYield = 0;
         HitsRemaining = 0;
+    }
+
+    public void SetDecoration(TileDecoration decoration)
+    {
+        Decoration = decoration;
+    }
+
+    public void ClearDecoration()
+    {
+        Decoration = TileDecoration.None;
     }
 
     public bool IsOreTile() => ResourceYield > 0 && HitsPerYield > 0 && !string.Equals(Base, "wall", StringComparison.Ordinal);

@@ -12,7 +12,7 @@ public sealed class CameraController
     private float _shakeNoiseTime;
     private Vector2 _shakeOffset;
 
-    public float CurrentScale { get; set; } = 1f;
+    public float CurrentScale { get; set; } = GameConstants.DefaultCameraScale;
 
     public Vector2 CameraOrigin { get; private set; }
 

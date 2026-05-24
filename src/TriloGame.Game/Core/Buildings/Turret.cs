@@ -21,14 +21,14 @@ public sealed class Turret : StationBuilding
 
     private static readonly StationSlot[] DefaultStations =
     [
-        new(null, new Vector2(80f, 80f)),
-        new(null, new Vector2(160f, 160f))
+        new(null, new Vector2(TileConstants.TileSize, TileConstants.TileSize)),
+        new(null, new Vector2(TileConstants.TileSize * 2f, TileConstants.TileSize * 2f))
     ];
 
     private static readonly StationSlot[] RotatedStations =
     [
-        new(null, new Vector2(160f, 80f)),
-        new(null, new Vector2(80f, 160f))
+        new(null, new Vector2(TileConstants.TileSize * 2f, TileConstants.TileSize)),
+        new(null, new Vector2(TileConstants.TileSize, TileConstants.TileSize * 2f))
     ];
     private readonly Dictionary<Creature, int> _remainingReloadTicks = [];
 

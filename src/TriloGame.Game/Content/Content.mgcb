@@ -98,6 +98,11 @@
 /processor:TextureProcessor
 /build:Textures/CochiniumTile.png
 
+#begin Textures/CaveCrystalClean.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/CaveCrystalClean.png
+
 #begin Textures/EmptyTile.png
 /importer:TextureImporter
 /processor:TextureProcessor

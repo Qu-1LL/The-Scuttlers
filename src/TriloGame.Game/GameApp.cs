@@ -245,6 +245,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
         RegisterTexture(sprites, "Enemy", "Textures/Enemy");
         RegisterTexture(sprites, "AntHole", "Textures/AntHole");
+        RegisterTexture(sprites, "CaveCrystal", "Textures/CaveCrystalClean");
         RegisterTexture(sprites, "Scaffold", "Textures/Scaffold");
         RegisterTexture(sprites, "Queen", "Textures/Queen");
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
@@ -706,7 +707,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         var spawnX = bootstrap.QueenLocation.X;
         var spawnY = bootstrap.QueenLocation.Y;
 
-        _camera.CurrentScale = 1f;
+        _camera.CurrentScale = GameConstants.DefaultCameraScale;
         _camera.ClearShake();
         _camera.SetOrigin(new Vector2((spawnX * TileConstants.TileSize) + TileConstants.TileSize, (spawnY * TileConstants.TileSize) + TileConstants.TileSize));
         _activeBfsDebugField = null;
@@ -1758,6 +1759,10 @@ public sealed partial class GameApp
         {
             var key = tile.Base == "wall" ? "wall" : tile.Base;
             DrawTileTexture(key, tile.Coordinates, GetTileDrawColor(tile));
+            if (tile.Decoration == TileDecoration.CaveCrystal)
+            {
+                DrawTileTexture("CaveCrystal", tile.Coordinates);
+            }
         }
     }
 
@@ -2645,25 +2650,12 @@ public sealed partial class GameApp
 
     private void DrawTileTexture(string textureKey, GridPoint point, Color? color = null)
     {
-        if (!_rendering.Sprites.TryGet(textureKey, out var texture))
-        {
-            return;
-        }
-
-        var centerWorld = new Vector2(point.X * TileConstants.TileSize, point.Y * TileConstants.TileSize);
-        var topLeftWorld = centerWorld - new Vector2(TileConstants.TileHalfSize, TileConstants.TileHalfSize);
-        var bottomRightWorld = centerWorld + new Vector2(TileConstants.TileHalfSize, TileConstants.TileHalfSize);
-
-        var topLeftScreen = _camera.WorldToScreen(topLeftWorld);
-        var bottomRightScreen = _camera.WorldToScreen(bottomRightWorld);
-
-        var left = (int)MathF.Floor(topLeftScreen.X);
-        var top = (int)MathF.Floor(topLeftScreen.Y);
-        var right = (int)MathF.Ceiling(bottomRightScreen.X);
-        var bottom = (int)MathF.Ceiling(bottomRightScreen.Y);
-        var destination = new Rectangle(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
-
-        _spriteBatch.Draw(texture, destination, color ?? Color.White);
+        DrawWorldTexture(
+            textureKey,
+            point,
+            0f,
+            Vector2.One,
+            color);
     }
 
     private void DrawWorldTextureNative(string textureKey, Vector2 worldPixels, float rotation = 0f, Vector2? origin = null, Color? color = null, Vector2? scale = null)

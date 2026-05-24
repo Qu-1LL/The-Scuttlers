@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
 
@@ -248,8 +249,8 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.False(firstFighter.FighterReturnToStation(true));
         Assert.False(secondFighter.FighterReturnToStation(true));
 
-        var topLeftWorldX = (18 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
-        var topLeftWorldY = (6 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
+        var topLeftWorldX = (18 * TileConstants.TileSize) - TileConstants.TileHalfSize;
+        var topLeftWorldY = (6 * TileConstants.TileSize) - TileConstants.TileHalfSize;
 
         Assert.False(firstFighter.IsTrackedInTileSystem);
         Assert.False(secondFighter.IsTrackedInTileSystem);
@@ -261,8 +262,8 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Null(cave.GetTile(secondAccessTile.ToString())!.Built);
         Assert.DoesNotContain(firstFighter, cave.GetTile(firstAccessTile.ToString())!.Trilobites);
         Assert.DoesNotContain(secondFighter, cave.GetTile(secondAccessTile.ToString())!.Trilobites);
-        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + 80f, topLeftWorldY + 80f), firstFighter.HostedWorldPosition!.Value);
-        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + 160f, topLeftWorldY + 160f), secondFighter.HostedWorldPosition!.Value);
+        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + TileConstants.TileSize, topLeftWorldY + TileConstants.TileSize), firstFighter.HostedWorldPosition!.Value);
+        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + (TileConstants.TileSize * 2f), topLeftWorldY + (TileConstants.TileSize * 2f)), secondFighter.HostedWorldPosition!.Value);
     }
 
     [Fact]
@@ -281,14 +282,14 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         Assert.False(fighter.FighterReturnToStation(true));
 
-        var topLeftWorldX = (18 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
-        var topLeftWorldY = (6 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
+        var topLeftWorldX = (18 * TileConstants.TileSize) - TileConstants.TileHalfSize;
+        var topLeftWorldY = (6 * TileConstants.TileSize) - TileConstants.TileHalfSize;
 
         Assert.False(fighter.IsTrackedInTileSystem);
         Assert.Same(turret, fighter.HostedBuilding);
         Assert.Equal(accessTile, fighter.Location);
         Assert.Null(cave.GetTile(accessTile.ToString())!.Built);
-        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + 160f, topLeftWorldY + 80f), fighter.HostedWorldPosition!.Value);
+        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + (TileConstants.TileSize * 2f), topLeftWorldY + TileConstants.TileSize), fighter.HostedWorldPosition!.Value);
     }
 
     [Fact]
