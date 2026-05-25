@@ -297,6 +297,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/Effects/UiSelect"));
         _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/Effects/VolumeSound"));
         _audio.Register(GameAudioCue.MiningPostFocus, Content.Load<SoundEffect>("Audio/Effects/miningpostplaceholder"));
+        _audio.Register(GameAudioCue.AlgaeFarmFocus, Content.Load<SoundEffect>("Audio/Effects/algaefarmplaceholder"));
 
         _ost.Register(MusicTrack.PlaceholderTrack, Content.Load<SoundEffect>("Audio/Music/cheerwine_diddy_party"));
         _ost.Register(MusicTrack.AdaptiveTest1, Content.Load<SoundEffect>("Audio/Music/cts"));

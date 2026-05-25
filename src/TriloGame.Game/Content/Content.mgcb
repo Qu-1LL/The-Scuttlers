@@ -293,6 +293,11 @@
 /processor:SoundEffectProcessor
 /build:Audio/Effects/miningpostplaceholder.mp3
 
+#begin Audio/Effects/algaefarmplaceholder.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/algaefarmplaceholder.mp3
+
 #begin Audio/Music/cheerwine_diddy_party.mp3
 /importer:Mp3Importer
 /processor:SoundEffectProcessor

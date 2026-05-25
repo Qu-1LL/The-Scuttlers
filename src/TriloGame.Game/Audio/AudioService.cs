@@ -37,10 +37,10 @@ public sealed class AudioService
         return true;
     }
 
-    // Returns volume that the player hears (golbal volume * cue gain)
+    // Returns volume that the player hears (global volume * cue gain)
     private float GetOutputVolume(GameAudioCue cue)
     {
-    return NormalizedVolume * _loopGains.GetValueOrDefault(cue, 1f);
+        return NormalizedVolume * _loopGains.GetValueOrDefault(cue, 1f);
     }
 
     // Adjust the current master volume by a signed delta.
@@ -69,6 +69,8 @@ public sealed class AudioService
 
         if (_loopInstances.TryGetValue(cue, out var existing))
         {
+            existing.Volume = GetOutputVolume(cue);
+
             if (existing.State != SoundState.Playing)
             {
                 existing.Play();
@@ -84,7 +86,7 @@ public sealed class AudioService
 
         var instance = effect.CreateInstance();
         instance.IsLooped = true;
-        instance.Volume = NormalizedVolume;
+        instance.Volume = GetOutputVolume(cue);
         instance.Pitch = ClickPitchVariation.GetRandomPitch(cue);
         instance.Pan = 0f;
         instance.Play();

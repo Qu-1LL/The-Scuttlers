@@ -2,16 +2,59 @@ using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
 
 namespace TriloGame.Game.Audio;
 
 public sealed class FocusAudioSystem
 {
-    private const float MinAudibleScale = 0.65f;
-    private const float FullAudibleScale = 1.8f;
-    private const float AudibleRadiusPixels = 320f;
+    // Camera zoom where mining-post focus audio first begins contributing to the score.
+    // Lower values make the loop audible while more zoomed out; higher values require
+    // the player to zoom closer before any mining post can be heard.
+    private const float MinAudibleScale = 0.45f;
+
+    // Camera zoom where the zoom contribution reaches full strength.
+    // Between MinAudibleScale and this value, volume ramps up gradually; above this
+    // value, additional zoom does not make the focused post louder by itself.
+    private const float FullAudibleScale = 2.4f;
+
+    // Screen-space distance from the viewport center where focus falls to zero.
+    // Larger radii make off-center mining posts remain audible farther from the
+    // center; smaller radii require tighter camera framing.
+    private const float AudibleRadiusPixels = 600f;
+
+    // Minimum combined zoom-and-centering score required before the loop is allowed
+    // to play. Raising this creates a stricter dead zone; lowering it makes faint
+    // focus audio start sooner.
     private const float PlayThreshold = 0.08f;
+
+    private sealed record FocusAudioProfile(
+        GameAudioCue Cue,
+        Func<Cave, IReadOnlyList<Building>> GetBuildings,
+        float MinAudibleScale,
+        float FullAudibleScale,
+        float AudibleRadiusPixels,
+        float PlayThreshold);
+
+    private static readonly FocusAudioProfile[] Profiles =
+    [
+        new(
+            GameAudioCue.MiningPostFocus,
+            static cave => cave.GetMiningPosts(),
+            MinAudibleScale,
+            FullAudibleScale,
+            AudibleRadiusPixels,
+            PlayThreshold),
+
+        new(
+            GameAudioCue.AlgaeFarmFocus,
+            static cave => cave.GetAlgaeFarms(),
+            MinAudibleScale,
+            FullAudibleScale,
+            AudibleRadiusPixels,
+            PlayThreshold)
+    ];
 
     private readonly AudioService _audio;
 
@@ -22,31 +65,43 @@ public sealed class FocusAudioSystem
 
     public void Reset()
     {
-        _audio.StopLoop(GameAudioCue.MiningPostFocus);
+        for (var index = 0; index < Profiles.Length; index++)
+        {
+            _audio.StopLoop(Profiles[index].Cue);
+        }
     }
 
     public void Update(GameSession session, CameraController camera)
     {
-        var posts = session.Cave?.GetMiningPosts();
-        if (posts is null || posts.Count == 0)
+        var cave = session.Cave;
+        if (cave is null)
         {
-            _audio.StopLoop(GameAudioCue.MiningPostFocus);
+            Reset();
             return;
         }
 
+        for (var index = 0; index < Profiles.Length; index++)
+        {
+            UpdateProfile(cave, camera, Profiles[index]);
+        }
+    }
+
+    private void UpdateProfile(Cave cave, CameraController camera, FocusAudioProfile profile)
+    {
+        var buildings = profile.GetBuildings(cave);
         var bestScore = 0f;
 
-        for (var index = 0; index < posts.Count; index++)
+        for (var index = 0; index < buildings.Count; index++)
         {
-            var post = posts[index];
-            if (post.Location is null)
+            var building = buildings[index];
+            if (building.Location is null)
             {
                 continue;
             }
 
-            var postCenter = GetPlacedBuildingWorldCenter(post);
-            var screenPosition = camera.WorldToScreen(postCenter);
-            var score = CalculateFocusScore(screenPosition, camera.ViewCenter, camera.CurrentScale);
+            var center = GetPlacedBuildingWorldCenter(building);
+            var screen = camera.WorldToScreen(center);
+            var score = CalculateFocusScore(screen, camera.ViewCenter, camera.CurrentScale, profile);
 
             if (score > bestScore)
             {
@@ -54,18 +109,18 @@ public sealed class FocusAudioSystem
             }
         }
 
-        if (bestScore < PlayThreshold)
+        if (bestScore < profile.PlayThreshold)
         {
-            _audio.StopLoop(GameAudioCue.MiningPostFocus);
+            _audio.StopLoop(profile.Cue);
             return;
         }
 
-        _audio.StartLoop(GameAudioCue.MiningPostFocus, Smooth(bestScore));
+        _audio.StartLoop(profile.Cue, Smooth(bestScore));
     }
 
-    private static float CalculateFocusScore(Vector2 screenPosition, Vector2 viewCenter, float scale)
+    private static float CalculateFocusScore(Vector2 screenPosition, Vector2 viewCenter, float scale, FocusAudioProfile profile)
     {
-        var zoomFactor = InverseLerp(MinAudibleScale, FullAudibleScale, scale);
+        var zoomFactor = InverseLerp(profile.MinAudibleScale, profile.FullAudibleScale, scale);
         var distance = Vector2.Distance(screenPosition, viewCenter);
         var centerFactor = 1f - Math.Clamp(distance / AudibleRadiusPixels, 0f, 1f);
 
