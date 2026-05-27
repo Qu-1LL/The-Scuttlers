@@ -298,6 +298,16 @@
 /processor:SoundEffectProcessor
 /build:Audio/Effects/algaefarmplaceholder.mp3
 
+#begin Audio/Effects/pickaxe.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/pickaxe.mp3
+
+#begin Audio/Effects/mulch.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/mulch.mp3
+
 #begin Audio/Music/cheerwine_diddy_party.mp3
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
@@ -313,3 +323,12 @@
 /processor:SoundEffectProcessor
 /build:Audio/Music/cts_acapella.mp3
 
+#begin Audio/Music/shapes and colors demo1.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/shapes and colors demo1.mp3
+
+#begin Audio/Music/shapes and colors drumsonly demo1.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/shapes and colors drumsonly demo1.mp3
