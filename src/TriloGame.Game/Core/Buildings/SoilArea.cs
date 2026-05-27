@@ -15,7 +15,7 @@ public sealed class SoilArea : Building
     public SoilArea(GameSession session)
         : base("Soil Area", new GridPoint(1, 1), [[1]], session, false)
     {
-        TextureKey = "SoilTile_1";
+        TextureKey = "SoilTile_0";
         Description = "A grouped soil area made from soil patches placed together.";
     }
 
@@ -63,12 +63,13 @@ public sealed class SoilArea : Building
         return placements;
     }
 
+    // Soil areas are selection aggregates; the member soil patches own the actual growth ticks.
     public override int Tick(Cave cave)
     {
         var advancedTiles = 0;
-        foreach (var soilTile in _soilTiles)
+        foreach (var soilPatch in _soilPatches)
         {
-            advancedTiles += soilTile.Tick(cave);
+            advancedTiles += soilPatch.Tick(cave);
         }
 
         return advancedTiles;

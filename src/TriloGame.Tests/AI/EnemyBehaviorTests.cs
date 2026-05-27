@@ -71,4 +71,25 @@ public sealed class EnemyBehaviorTests
         Assert.Equal(int.MaxValue, colonyField.GetFieldValue(enemyLocation, refresh: false));
         Assert.Equal(targetWall.Location!.Value.ToString(), enemy.GetAdjacentWallTileKey());
     }
+
+    [Fact]
+    public void Enemy_IgnoresAdjacentSoilPatchTargets()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));
+        var soilPatch = TestWorldFactory.BuildSoilPatch(cave, session, new GridPoint(6, 4));
+
+        var enemyLocation = new GridPoint(5, 4);
+        var enemyTile = cave.GetTile(enemyLocation)
+            ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
+        var enemy = new Enemy("Forager", enemyLocation, session);
+
+        Assert.True(cave.Spawn(enemy, enemyTile));
+        Assert.Null(enemy.GetAdjacentHostileTileKey());
+
+        var startingHealth = soilPatch.Health;
+        Assert.True(enemy.EnemyStep1());
+
+        Assert.Equal(startingHealth, soilPatch.Health);
+        Assert.NotEqual(enemyLocation, enemy.Location);
+    }
 }

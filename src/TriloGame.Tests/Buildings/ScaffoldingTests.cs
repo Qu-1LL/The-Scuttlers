@@ -186,6 +186,29 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
+    public void CompletedGarageScaffolding_FacingExistingRanch_ReplacesItselfWithGarage()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(0, 0));
+        TestWorldFactory.BuildGarage(cave, session, new GridPoint(4, 6));
+        TestWorldFactory.BuildSoilPatch(cave, session, new GridPoint(6, 6));
+        var targetGarage = new Garage(session);
+        targetGarage.SetDisplayRotationTurns(2);
+        var scaffolding = new Scaffolding(session, targetGarage);
+        scaffolding.SetDisplayRotationTurns(2);
+        var buildLocation = new GridPoint(8, 6);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+
+        CompleteScaffolding(scaffolding);
+
+        Assert.DoesNotContain(scaffolding, cave.Buildings);
+        Assert.Contains(targetGarage, cave.Buildings);
+        Assert.Equal(buildLocation, targetGarage.Location);
+        Assert.Equal(2, targetGarage.GetDisplayRotationTurns());
+        Assert.NotNull(targetGarage.Ranch);
+    }
+
+    [Fact]
     public void CompletedSoilAreaScaffolding_BuildsAllMemberPatchesAtOnce()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));

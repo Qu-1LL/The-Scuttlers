@@ -156,6 +156,17 @@ internal static class TestWorldFactory
         return garage;
     }
 
+    public static Silo BuildSilo(Cave cave, GameSession session, GridPoint location)
+    {
+        var silo = new Silo(session);
+        if (!cave.Build(silo, location))
+        {
+            throw new InvalidOperationException($"Failed to build a silo at {location}.");
+        }
+
+        return silo;
+    }
+
     public static SoilPatch BuildSoilPatch(Cave cave, GameSession session, GridPoint location)
     {
         var soilPatch = new SoilPatch(session);

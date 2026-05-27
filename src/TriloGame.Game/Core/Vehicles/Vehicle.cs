@@ -13,11 +13,13 @@ public abstract class Vehicle : IVehicle
     private readonly HashSet<Creature> _stationedCreatures = [];
     private readonly Dictionary<Creature, int> _stationSlotIndexes = [];
     private readonly List<VehicleStationSlot> _stationSlots;
+    private Creature? _driver;
 
     private readonly record struct MoveStep(GridPoint Destination, int RotationTurns);
 
     protected Vehicle(
         string name,
+        string description,
         string textureKey,
         string assignmentClassification,
         GridPoint size,
@@ -27,6 +29,7 @@ public abstract class Vehicle : IVehicle
         GameSession session)
     {
         Name = name;
+        Description = description;
         TextureKey = textureKey;
         AssignmentClassification = assignmentClassification;
         Size = size;
@@ -40,6 +43,8 @@ public abstract class Vehicle : IVehicle
     }
 
     public string Name { get; }
+
+    public string Description { get; }
 
     public string TextureKey { get; }
 
@@ -62,6 +67,8 @@ public abstract class Vehicle : IVehicle
     public IReadOnlyCollection<Creature> StationedCreatures => _stationedCreatures;
 
     public IReadOnlyList<VehicleStationSlot> StationSlots => _stationSlots;
+
+    public Creature? Driver => _driver;
 
     public List<Tile> TileArray { get; private set; }
 
@@ -108,6 +115,7 @@ public abstract class Vehicle : IVehicle
     {
         if (_stationedCreatures.Contains(creature))
         {
+            UpdateDriver(creature);
             SyncStationedCreatureTransform(creature);
             return true;
         }
@@ -134,6 +142,7 @@ public abstract class Vehicle : IVehicle
 
         _stationedCreatures.Add(creature);
         _stationSlotIndexes[creature] = slotIndex;
+        UpdateDriver(creature);
         SyncStationedCreatureTransform(creature);
         OnStationCreature(creature);
         return true;
@@ -157,6 +166,10 @@ public abstract class Vehicle : IVehicle
         }
 
         _stationSlotIndexes.Remove(creature);
+        if (ReferenceEquals(_driver, creature))
+        {
+            _driver = null;
+        }
         OnDestationCreature(creature);
         if (restoreToTileSystem)
         {
@@ -171,6 +184,8 @@ public abstract class Vehicle : IVehicle
     }
 
     public bool IsCreatureStationed(Creature creature) => _stationedCreatures.Contains(creature);
+
+    public bool IsCreatureDriving(Creature creature) => ReferenceEquals(_driver, creature);
 
     public void EnqueueMove(GridPoint destination)
     {
@@ -196,6 +211,7 @@ public abstract class Vehicle : IVehicle
             return null;
         }
 
+        var previousLocation = Location;
         var moveStep = _moveQueue.Dequeue();
         var previousRotationTurns = GetDisplayRotationTurns();
         SetDisplayRotationTurns(moveStep.RotationTurns);
@@ -208,6 +224,11 @@ public abstract class Vehicle : IVehicle
         if (moved && PathPreview.Count > 0)
         {
             PathPreview.RemoveAt(0);
+        }
+
+        if (moved && previousLocation is { } previousPoint)
+        {
+            OnMoveSucceeded(previousPoint, moveStep.Destination);
         }
 
         return moved;
@@ -295,6 +316,14 @@ public abstract class Vehicle : IVehicle
         return -1;
     }
 
+    private void UpdateDriver(Creature creature)
+    {
+        if (this is IDriveable && creature is Trilobite trilobite && (_driver is null || ReferenceEquals(_driver, trilobite)))
+        {
+            _driver = trilobite;
+        }
+    }
+
     private void SyncStationedCreatureTransforms()
     {
         foreach (var creature in _stationedCreatures)
@@ -378,6 +407,10 @@ public abstract class Vehicle : IVehicle
     protected abstract void OnStationCreature(Creature creature);
 
     protected abstract void OnDestationCreature(Creature creature);
+
+    protected virtual void OnMoveSucceeded(GridPoint previousLocation, GridPoint currentLocation)
+    {
+    }
 
     protected abstract void OnVehicleDestroyed(object? source);
 }

@@ -1,10 +1,12 @@
+using System;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
+using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class SoilPatch : Building
+public sealed class SoilPatch : Building, IBuildPlacementDragTarget
 {
     public static readonly GridPoint DefaultSize = new(2, 2);
     private readonly SoilTile[] _soilTiles;
@@ -21,13 +23,14 @@ public sealed class SoilPatch : Building
         ];
         SoilArea = new SoilArea(session);
         SoilArea.AddSoilPatch(this);
+        IgnoredByAnts = true;
 
         Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             [OreType.ALGAE.Name] = 5
         };
-        Description = "A 2x2 patch of passable soil. Each tile grows algae independently and joins a ranch through adjacent soil.";
-        TextureKey = "SoilTile_1";
+        Description = "A 2x2 patch of passable soil. Each tile grows its planted crop independently and joins a ranch through adjacent soil.";
+        TextureKey = "SoilTile_0";
     }
 
     public Ranch? Ranch
@@ -50,13 +53,22 @@ public sealed class SoilPatch : Building
 
     public SoilArea? SoilArea { get; internal set; }
 
-    // Each tile in a patch rolls against the same cave-wide growth value while keeping its own state.
-    public override int Tick(World.Cave cave)
+    public BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.FootprintGrid;
+
+    public GridPoint DragPlacementStep => DefaultSize;
+
+    public override int Tick(World.Cave _)
+    {
+        return Tick(RandomUtil.Shared, Session.TickCount % 10);
+    }
+
+    // Each tile in a patch uses the current tick digit as a gate before rolling growth.
+    internal int Tick(Random random, int currentTickMod)
     {
         var advancedTiles = 0;
         for (var index = 0; index < _soilTiles.Length; index++)
         {
-            advancedTiles += _soilTiles[index].Tick(cave);
+            advancedTiles += _soilTiles[index].Tick(random, currentTickMod);
         }
 
         return advancedTiles;
@@ -155,6 +167,24 @@ public sealed class SoilPatch : Building
         for (var index = 0; index < _soilTiles.Length; index++)
         {
             _soilTiles[index].SetGrowthLevel(level);
+        }
+    }
+
+    internal void SetPlantedResource(GridPoint localOffset, GrowableResourceType? resourceType)
+    {
+        if (!TryGetSoilTileIndex(localOffset, out var index))
+        {
+            return;
+        }
+
+        _soilTiles[index].SetPlantedResource(resourceType);
+    }
+
+    internal void SetAllPlantedResources(GrowableResourceType? resourceType)
+    {
+        for (var index = 0; index < _soilTiles.Length; index++)
+        {
+            _soilTiles[index].SetPlantedResource(resourceType);
         }
     }
 

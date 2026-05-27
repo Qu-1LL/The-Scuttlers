@@ -580,7 +580,7 @@ public sealed class BfsField
 
             foreach (var building in Cave.GetBuildingList())
             {
-                if (building is Wall)
+                if (building is Wall || building.IgnoredByAnts)
                 {
                     continue;
                 }

@@ -20,7 +20,7 @@ public sealed class SoilAreaSelection : Building
         SoilArea = soilArea;
         AnchorPatch = anchorPatch;
         Mode = mode;
-        TextureKey = "SoilTile_1";
+        TextureKey = "SoilTile_0";
         _soilPatches = soilPatches.Distinct().ToArray();
         Description = mode == SoilAreaSelectionMode.Row
             ? "A selected row inside a soil area."

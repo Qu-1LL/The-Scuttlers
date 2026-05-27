@@ -76,7 +76,6 @@ public static class TickRunner
         }
 
         phaseObserver?.OnPhaseStarted(TickPhase.BuildingTick);
-        cave.RollTickGrowthMin();
         var buildingBuffer = GetBuildingBuffer();
         CopySnapshot(buildingBuffer, cave.GetBuildingList());
         foreach (var building in buildingBuffer)

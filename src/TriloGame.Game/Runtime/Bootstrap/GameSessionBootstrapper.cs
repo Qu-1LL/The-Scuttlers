@@ -69,6 +69,7 @@ public sealed class GameSessionBootstrapper
     {
         session.UnlockedBuildings.Add(new Factory(game => new SoilPatch(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Garage(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new Silo(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Barracks(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Turret(game), session));

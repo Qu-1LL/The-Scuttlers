@@ -470,6 +470,9 @@ public sealed partial class Cave : Graph
             case Garage garage:
                 _garages.Add(garage);
                 break;
+            case Silo silo:
+                _silos.Add(silo);
+                break;
             case SoilPatch soilPatch:
                 _soilPatches.Add(soilPatch);
                 RegisterSoilPatchTiles(soilPatch);
@@ -515,6 +518,9 @@ public sealed partial class Cave : Graph
                 break;
             case Garage garage:
                 _garages.Remove(garage);
+                break;
+            case Silo silo:
+                _silos.Remove(silo);
                 break;
             case SoilPatch soilPatch:
                 UnregisterSoilPatchTiles(soilPatch);

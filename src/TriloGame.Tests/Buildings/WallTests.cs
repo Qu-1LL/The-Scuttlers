@@ -156,6 +156,31 @@ public sealed class WallTests
         Assert.NotEqual(int.MaxValue, field.GetFieldValue(accessLocation, refresh: false));
     }
 
+    [Fact]
+    public void AdjacentWallScaffolds_CompleteIndependently()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(12, 8, new GridPoint(1, 1));
+        var left = new Scaffolding(session, new Wall(session));
+        var middle = new Scaffolding(session, new Wall(session));
+        var right = new Scaffolding(session, new Wall(session));
+        var leftLocation = new GridPoint(4, 4);
+        var middleLocation = new GridPoint(5, 4);
+        var rightLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(left, leftLocation));
+        Assert.True(cave.Build(middle, middleLocation));
+        Assert.True(cave.Build(right, rightLocation));
+
+        CompleteScaffolding(middle);
+
+        Assert.Contains(left, cave.Buildings);
+        Assert.DoesNotContain(middle, cave.Buildings);
+        Assert.Contains(right, cave.Buildings);
+        Assert.IsType<Wall>(cave.GetTile(middleLocation)!.Built);
+        Assert.Same(left, cave.GetTile(leftLocation)!.Built);
+        Assert.Same(right, cave.GetTile(rightLocation)!.Built);
+    }
+
     private static void SetWallTile(TriloGame.Game.Core.World.Cave cave, GridPoint location)
     {
         var tile = cave.GetTile(location)
@@ -163,5 +188,18 @@ public sealed class WallTests
         tile.SetBase("wall");
         tile.CreatureCanFit = false;
         tile.ConfigureWall(1);
+    }
+
+    private static void CompleteScaffolding(Scaffolding scaffolding)
+    {
+        foreach (var pair in scaffolding.RecipeRequired.ToArray())
+        {
+            var required = scaffolding.GetRemainingRequirement(pair.Key);
+            Assert.Equal(required, scaffolding.Deposit(pair.Key, required));
+        }
+
+        Assert.Equal(
+            scaffolding.ConstructionRequired,
+            scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
     }
 }

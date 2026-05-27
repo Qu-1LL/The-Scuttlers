@@ -144,7 +144,8 @@ public sealed partial class Cave
         return building switch
         {
             SoilPatch => CanPlaceSoilPatch(location),
-            Garage garage => CanPlaceGarage(garage, location),
+            // Garages can sit beside an existing ranch; they stay idle until ranchless soil reaches them.
+            Garage => true,
             _ => true
         };
     }
@@ -152,47 +153,6 @@ public sealed partial class Cave
     private bool CanPlaceSoilPatch(GridPoint location)
     {
         return GetTile(location) is not null;
-    }
-
-    // A new garage may not anchor directly onto soil that already belongs to another garage-backed ranch.
-    private bool CanPlaceGarage(Garage garage, GridPoint location)
-    {
-        foreach (var neighbor in EnumerateFootprintNeighborTiles(location, garage.Size))
-        {
-            var soilTile = GetSoilTile(neighbor.Coordinates);
-            if (soilTile?.Ranch?.Garage is not null)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private IEnumerable<Tile> EnumerateFootprintNeighborTiles(GridPoint location, GridPoint size)
-    {
-        var yielded = new HashSet<Tile>();
-        for (var x = 0; x < size.X; x++)
-        {
-            for (var y = 0; y < size.Y; y++)
-            {
-                var tile = GetTile(new GridPoint(location.X + x, location.Y + y));
-                if (tile is null)
-                {
-                    continue;
-                }
-
-                foreach (var neighbor in tile.Neighbors)
-                {
-                    if (IsInsideFootprint(neighbor.Coordinates, location, size) || !yielded.Add(neighbor))
-                    {
-                        continue;
-                    }
-
-                    yield return neighbor;
-                }
-            }
-        }
     }
 
     private static bool IsInsideFootprint(GridPoint point, GridPoint location, GridPoint size)
@@ -224,6 +184,10 @@ public sealed partial class Cave
                 break;
             case Garage garage:
                 AttachGarageToRanch(garage);
+                AttachGarageToAdjacentSilos(garage);
+                break;
+            case Silo silo:
+                AttachSiloToAdjacentNetwork(silo);
                 break;
         }
     }
@@ -237,45 +201,90 @@ public sealed partial class Cave
                 soilPatch.SoilArea?.RemoveSoilPatch(soilPatch);
                 break;
             case Garage garage:
+                DetachGarageFromAdjacentSilos(garage);
                 RemoveGarageFromRanch(garage);
+                break;
+            case Silo silo:
+                DetachSiloFromAdjacentNetwork(silo);
                 break;
         }
     }
 
     private void AttachSoilPatchToRanch(SoilPatch soilPatch)
     {
+        if (soilPatch.SoilArea is { } soilArea)
+        {
+            AttachSoilAreaToRanch(soilArea);
+            return;
+        }
+
         var targetRanch = FindAdjacentRanchForSoilPatch(soilPatch);
         if (targetRanch is null)
         {
             return;
         }
 
-        AbsorbReachableRanchlessSoils(targetRanch);
-        targetRanch.RefreshSelectionFootprint();
-        targetRanch.RebuildPlowPath();
-    }
-
-    private void AttachSoilAreaToRanch(SoilArea soilArea)
-    {
-        var targetRanch = soilArea.Ranch ?? FindAdjacentRanchForSoilArea(soilArea);
-        if (targetRanch is null)
+        var changed = false;
+        for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
         {
-            return;
+            changed |= targetRanch.AddSoil(soilPatch.SoilTiles[index]);
         }
 
-        AbsorbReachableRanchlessSoils(targetRanch);
-        targetRanch.RefreshSelectionFootprint();
-        targetRanch.RebuildPlowPath();
+        if (changed)
+        {
+            targetRanch.RefreshSelectionFootprint();
+            targetRanch.RebuildPlowPath();
+        }
     }
 
-    private Ranch? FindAdjacentRanchForSoilArea(SoilArea soilArea)
+    // Only rectangular soil areas can join a ranch through soil adjacency.
+    private bool AttachSoilAreaToRanch(SoilArea soilArea)
     {
-        foreach (var soilPatch in soilArea.SoilPatches)
+        if (!soilArea.AreAllPatchesBuilt(this))
         {
-            var ranch = FindAdjacentRanchForSoilPatch(soilPatch);
-            if (ranch is not null)
+            return false;
+        }
+
+        var mergedArea = MergeAdjacentCompatibleSoilAreas(soilArea);
+        if (!IsRectangularSoilArea(mergedArea))
+        {
+            return false;
+        }
+
+        var targetRanch = mergedArea.Ranch;
+        if (targetRanch is null)
+        {
+            var adjacentGarage = FindAdjacentGarageForSoilArea(mergedArea);
+            if (adjacentGarage is null)
             {
-                return ranch;
+                return false;
+            }
+
+            targetRanch = adjacentGarage.Ranch ?? CreateRanch(adjacentGarage);
+        }
+
+        var changed = AddSoilAreaToRanch(targetRanch, mergedArea);
+        if (!changed)
+        {
+            return false;
+        }
+
+        targetRanch.RefreshSelectionFootprint();
+        targetRanch.RebuildPlowPath();
+        return true;
+    }
+
+    private Garage? FindAdjacentGarageForSoilArea(SoilArea soilArea)
+    {
+        foreach (var soilPatch in GetSoilAreaPatchesInStableOrder(soilArea))
+        {
+            for (var tileIndex = 0; tileIndex < soilPatch.SoilTiles.Count; tileIndex++)
+            {
+                var soilTile = soilPatch.SoilTiles[tileIndex];
+                foreach (var adjacentGarage in GetAdjacentGarages(soilTile))
+                {
+                    return adjacentGarage;
+                }
             }
         }
 
@@ -307,9 +316,17 @@ public sealed partial class Cave
     private void AttachGarageToRanch(Garage garage)
     {
         var ranch = garage.Ranch ?? CreateRanch(garage);
-        AbsorbReachableRanchlessSoils(ranch);
-        ranch.RefreshSelectionFootprint();
-        ranch.RebuildPlowPath();
+        var changed = false;
+        foreach (var soilArea in GetAdjacentSoilAreas(garage))
+        {
+            changed |= AttachSoilAreaToRanch(soilArea);
+        }
+
+        if (!changed)
+        {
+            ranch.RefreshSelectionFootprint();
+            ranch.RebuildPlowPath();
+        }
     }
 
     private Ranch CreateRanch(Garage garage)
@@ -436,62 +453,65 @@ public sealed partial class Cave
         return target;
     }
 
-    // Once a ranch touches a ranchless soil tile, absorb its full connected soil component.
-    private bool AbsorbReachableRanchlessSoils(Ranch target)
+    private bool AddSoilAreaToRanch(Ranch targetRanch, SoilArea soilArea)
     {
-        var queue = new Queue<SoilTile>();
-        var visited = new HashSet<SoilTile>();
         var changed = false;
-
-        if (target.Garage is not null)
+        foreach (var soilPatch in GetSoilAreaPatchesInStableOrder(soilArea))
         {
-            EnqueueAdjacentRanchlessSoils(target.Garage, queue, visited);
-        }
-
-        foreach (var soilTile in target.SoilTiles.ToArray())
-        {
-            EnqueueAdjacentRanchlessSoils(soilTile, queue, visited);
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            if (current.ParentPatch.Cave != this || current.Ranch is not null)
+            if (soilPatch.Cave != this)
             {
                 continue;
             }
 
-            changed |= target.AddSoil(current);
-            foreach (var neighbor in GetAdjacentSoilTiles(current))
+            for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
             {
-                if (neighbor.Ranch is null && visited.Add(neighbor))
+                var soilTile = soilPatch.SoilTiles[index];
+                if (soilTile.Ranch is not null && !ReferenceEquals(soilTile.Ranch, targetRanch))
                 {
-                    queue.Enqueue(neighbor);
+                    continue;
                 }
+
+                changed |= targetRanch.AddSoil(soilTile);
             }
         }
 
         return changed;
     }
 
-    private void EnqueueAdjacentRanchlessSoils(Building building, Queue<SoilTile> queue, HashSet<SoilTile> visited)
+    private static bool IsRectangularSoilArea(SoilArea soilArea)
     {
-        foreach (var soilTile in GetAdjacentSoilTiles(building))
+        return soilArea.TryGetLiveBounds(out var minX, out var minY, out var maxX, out var maxY) &&
+               soilArea.SoilTiles.Count == ((maxX - minX) + 1) * ((maxY - minY) + 1);
+    }
+
+    private IEnumerable<SoilPatch> GetSoilAreaPatchesInStableOrder(SoilArea soilArea)
+    {
+        if (soilArea.Location is not { } areaLocation)
         {
-            if (soilTile.Ranch is null && visited.Add(soilTile))
+            foreach (var soilPatch in soilArea.SoilPatches)
             {
-                queue.Enqueue(soilTile);
+                yield return soilPatch;
             }
+
+            yield break;
+        }
+
+        var placements = soilArea.GetPatchPlacements(areaLocation);
+        for (var index = 0; index < placements.Count; index++)
+        {
+            yield return placements[index].SoilPatch;
         }
     }
 
-    private void EnqueueAdjacentRanchlessSoils(SoilTile soilTile, Queue<SoilTile> queue, HashSet<SoilTile> visited)
+    private IEnumerable<SoilArea> GetAdjacentSoilAreas(Building building)
     {
-        foreach (var neighbor in GetAdjacentSoilTiles(soilTile))
+        var yielded = new HashSet<SoilArea>();
+        foreach (var soilTile in GetAdjacentSoilTiles(building))
         {
-            if (neighbor.Ranch is null && visited.Add(neighbor))
+            var adjacentArea = soilTile.ParentPatch.SoilArea;
+            if (adjacentArea is not null && yielded.Add(adjacentArea))
             {
-                queue.Enqueue(neighbor);
+                yield return adjacentArea;
             }
         }
     }
@@ -573,26 +593,30 @@ public sealed partial class Cave
     // Soil left behind by a removed garage can rejoin any remaining garage-backed ranch it reaches.
     private void ReattachRanchlessSoilsToReachableRanches()
     {
-        var touchedRanches = new HashSet<Ranch>();
         var passChanged = true;
         while (passChanged)
         {
             passChanged = false;
-            for (var index = 0; index < _ranches.Count; index++)
+            foreach (var soilArea in GetSoilAreas())
             {
-                var ranch = _ranches[index];
-                if (AbsorbReachableRanchlessSoils(ranch))
+                if (AttachSoilAreaToRanch(soilArea))
                 {
-                    touchedRanches.Add(ranch);
                     passChanged = true;
                 }
             }
         }
+    }
 
-        foreach (var ranch in touchedRanches)
+    private IEnumerable<SoilArea> GetSoilAreas()
+    {
+        var yielded = new HashSet<SoilArea>();
+        for (var index = 0; index < _soilPatches.Count; index++)
         {
-            ranch.RefreshSelectionFootprint();
-            ranch.RebuildPlowPath();
+            var soilArea = _soilPatches[index].SoilArea;
+            if (soilArea is not null && yielded.Add(soilArea))
+            {
+                yield return soilArea;
+            }
         }
     }
 

@@ -1,0 +1,61 @@
+using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Shared.Math;
+using TriloGame.Game.UI.Selection;
+
+namespace TriloGame.Tests.UI;
+
+public sealed class BuildPlacementPreviewResolverTests
+{
+    [Fact]
+    public void ResolveLocations_ReturnsHoveredTileForRegularBuilding()
+    {
+        var session = new GameSession();
+
+        var locations = BuildPlacementPreviewResolver.ResolveLocations(
+            new Garage(session),
+            new GridPoint(6, 8));
+
+        Assert.Equal([new GridPoint(6, 8)], locations);
+    }
+
+    [Fact]
+    public void ResolveLocations_UsesAxisLineForWalls()
+    {
+        var session = new GameSession();
+
+        var locations = BuildPlacementPreviewResolver.ResolveLocations(
+            new Wall(session),
+            new GridPoint(9, 6),
+            new GridPoint(4, 4));
+
+        Assert.Equal(
+        [
+            new GridPoint(4, 4),
+            new GridPoint(5, 4),
+            new GridPoint(6, 4),
+            new GridPoint(7, 4),
+            new GridPoint(8, 4),
+            new GridPoint(9, 4)
+        ], locations);
+    }
+
+    [Fact]
+    public void ResolveLocations_UsesFootprintGridForSoilPatches()
+    {
+        var session = new GameSession();
+
+        var locations = BuildPlacementPreviewResolver.ResolveLocations(
+            new SoilPatch(session),
+            new GridPoint(5, 5),
+            new GridPoint(2, 2));
+
+        Assert.Equal(
+        [
+            new GridPoint(2, 2),
+            new GridPoint(4, 2),
+            new GridPoint(2, 4),
+            new GridPoint(4, 4)
+        ], locations);
+    }
+}

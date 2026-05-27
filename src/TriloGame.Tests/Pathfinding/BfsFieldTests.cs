@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Pathfinding;
@@ -206,5 +207,29 @@ public sealed class BfsFieldTests
 
         Assert.True(field.IsUpdated());
         Assert.Equal(int.MaxValue, field.GetFieldValue(isolatedLocation, refresh: false));
+    }
+
+    [Fact]
+    public void ColonyField_IgnoresAntIgnoredObstacleBuildingsAsTargets()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));
+        var ignoredBuilding = new IgnoredAntObstacleBuilding(session);
+
+        Assert.True(cave.Build(ignoredBuilding, new GridPoint(6, 4)));
+
+        var field = cave.GetBfsFieldObject("colony")
+            ?? throw new InvalidOperationException("Expected the colony BFS field to exist.");
+        field.Rebuild();
+
+        Assert.True(field.GetFieldValue(new GridPoint(7, 4), refresh: false) > 1);
+    }
+
+    private sealed class IgnoredAntObstacleBuilding : Building
+    {
+        public IgnoredAntObstacleBuilding(GameSession session)
+            : base("Ignored Ant Obstacle", new GridPoint(1, 1), [[0]], session, false)
+        {
+            IgnoredByAnts = true;
+        }
     }
 }

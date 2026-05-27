@@ -83,7 +83,13 @@ public sealed partial class Cave
         var count = _vehicles.Count;
         for (var index = 0; index < count && index < _vehicles.Count; index++)
         {
-            _vehicles[index].Move();
+            var vehicle = _vehicles[index];
+            if (vehicle is IDriveable)
+            {
+                continue;
+            }
+
+            vehicle.Move();
         }
     }
 

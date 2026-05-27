@@ -19,7 +19,7 @@ public static class DebugMenuLayout
         const float baseButtonHeight = 40f;
         const float baseFooterHeight = 20f;
         const float baseButtonGap = 10f;
-        const float baseRequiredHeight = 840f;
+        const float baseRequiredHeight = 886f;
 
         var outerMargin = (int)MathF.Round(baseOuterMargin);
         var availableWidth = Math.Max(280, viewport.X - (outerMargin * 2));
@@ -40,7 +40,7 @@ public static class DebugMenuLayout
         var quickSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
         var speedSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
         var bfsSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
-        var visualSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
+        var visualSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
         var actionsSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
 
         var requiredPanelHeight = (contentPadding * 2)
@@ -93,8 +93,9 @@ public static class DebugMenuLayout
         cursorY = bfsBottomRowBounds.Bottom + sectionGap;
 
         var visualLabelBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, sectionLabelHeight);
-        var visualRowBounds = new Rectangle(contentBounds.X, visualLabelBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
-        cursorY = visualRowBounds.Bottom + sectionGap;
+        var visualTopRowBounds = new Rectangle(contentBounds.X, visualLabelBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
+        var visualBottomRowBounds = new Rectangle(contentBounds.X, visualTopRowBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
+        cursorY = visualBottomRowBounds.Bottom + sectionGap;
 
         var actionsLabelBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, sectionLabelHeight);
         var actionsRowBounds = new Rectangle(contentBounds.X, actionsLabelBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
@@ -117,7 +118,8 @@ public static class DebugMenuLayout
             BfsTopRowBounds: bfsTopRowBounds,
             BfsBottomRowBounds: bfsBottomRowBounds,
             VisualLabelBounds: visualLabelBounds,
-            VisualRowBounds: visualRowBounds,
+            VisualTopRowBounds: visualTopRowBounds,
+            VisualBottomRowBounds: visualBottomRowBounds,
             ActionsLabelBounds: actionsLabelBounds,
             ActionsRowBounds: actionsRowBounds,
             FooterBounds: footerBounds,
@@ -178,7 +180,8 @@ public readonly record struct DebugMenuLayoutInfo(
     Rectangle BfsTopRowBounds,
     Rectangle BfsBottomRowBounds,
     Rectangle VisualLabelBounds,
-    Rectangle VisualRowBounds,
+    Rectangle VisualTopRowBounds,
+    Rectangle VisualBottomRowBounds,
     Rectangle ActionsLabelBounds,
     Rectangle ActionsRowBounds,
     Rectangle FooterBounds,

@@ -82,10 +82,37 @@ public sealed class RanchTests
         var ranch = Assert.Single(cave.GetRanches());
 
         Assert.Same(ranch, tallArea.Ranch);
-        Assert.Same(ranch, shortArea.Ranch);
-        Assert.Equal(2, ranch.SoilAreas.Count);
+        Assert.Null(shortArea.Ranch);
+        Assert.Single(ranch.SoilAreas);
         Assert.Equal(2, tallArea.SoilPatches.Count);
         Assert.Single(shortArea.SoilPatches);
+        Assert.All(shortArea.SoilTiles, soilTile => Assert.Null(soilTile.Ranch));
+        Assert.All(shortArea.SoilTiles, soilTile => Assert.Equal(0d, soilTile.GrowthConstant));
+    }
+
+    [Fact]
+    public void AdjacentSoilAreaJoinsRanchAfterRectangleIsCompleted()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
+        TestWorldFactory.BuildGarage(cave, session, new GridPoint(2, 6));
+        var leftArea = BuildSoilArea(cave, session, new GridPoint(4, 6), widthInPatches: 1, heightInPatches: 2);
+        var topRightPatch = TestWorldFactory.BuildSoilPatch(cave, session, new GridPoint(6, 6));
+        var ranch = Assert.Single(cave.GetRanches());
+
+        Assert.Same(ranch, leftArea.Ranch);
+        Assert.Null(topRightPatch.Ranch);
+        Assert.Single(ranch.SoilAreas);
+
+        var bottomRightPatch = TestWorldFactory.BuildSoilPatch(cave, session, new GridPoint(6, 8));
+
+        Assert.Same(ranch, leftArea.Ranch);
+        Assert.Same(ranch, topRightPatch.Ranch);
+        Assert.Same(ranch, bottomRightPatch.Ranch);
+        Assert.Same(leftArea, topRightPatch.SoilArea);
+        Assert.Same(leftArea, bottomRightPatch.SoilArea);
+        Assert.Single(ranch.SoilAreas);
+        Assert.Equal(4, leftArea.SoilPatches.Count);
+        Assert.Equal(16, ranch.SoilTiles.Count);
     }
 
     [Fact]
@@ -205,20 +232,27 @@ public sealed class RanchTests
     }
 
     [Fact]
-    public void GarageStoresOnlyAlgaeAndUpdatesSessionTotals()
+    public void GarageStoresMultipleResourcesAndUpdatesSessionTotals()
     {
         var session = new GameSession();
         var garage = new Garage(session);
 
         Assert.IsAssignableFrom<IStorage>(garage);
-        Assert.Equal(200, garage.Deposit(OreType.ALGAE.Name, 250));
-        Assert.Equal(200, session.GetStoredResourceTotal(OreType.ALGAE.Name));
-        Assert.Equal(0, garage.Deposit(OreType.SANDSTONE.Name, 10));
+        Assert.Equal(1000, garage.Capacity);
+        Assert.Equal(GrowableResourceType.ALGAE, garage.ChosenResource);
+        Assert.Equal(600, garage.Deposit(OreType.ALGAE.Name, 600));
+        Assert.Equal(300, garage.Deposit(OreType.SANDSTONE.Name, 300));
+        Assert.Equal(100, garage.Deposit(OreType.MALACHITE.Name, 200));
+        Assert.Equal(1000, garage.GetInventoryTotal());
+        Assert.Equal(600, session.GetStoredResourceTotal(OreType.ALGAE.Name));
+        Assert.Equal(300, session.GetStoredResourceTotal(OreType.SANDSTONE.Name));
+        Assert.Equal(100, session.GetStoredResourceTotal(OreType.MALACHITE.Name));
 
-        Assert.Equal(40, garage.Withdraw(OreType.ALGAE.Name, 40));
-        Assert.Equal(160, garage.GetInventoryTotal());
-        Assert.Equal(160, session.GetStoredResourceTotal(OreType.ALGAE.Name));
-        Assert.Equal(0, garage.Withdraw(OreType.SANDSTONE.Name, 10));
+        Assert.Equal(80, garage.Withdraw(OreType.SANDSTONE.Name, 80));
+        Assert.Equal(920, garage.GetInventoryTotal());
+        Assert.Equal(600, session.GetStoredResourceTotal(OreType.ALGAE.Name));
+        Assert.Equal(220, session.GetStoredResourceTotal(OreType.SANDSTONE.Name));
+        Assert.Equal(100, session.GetStoredResourceTotal(OreType.MALACHITE.Name));
     }
 
     private static SoilArea BuildSoilArea(

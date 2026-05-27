@@ -1,3 +1,5 @@
+using System;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 
@@ -6,21 +8,25 @@ namespace TriloGame.Game.Core.Buildings;
 public sealed class SoilTile
 {
     private const double DefaultGrowthConstant = 0d;
-    private const double RanchGrowthMedian = 0.65d;
-    private const double RanchGrowthStandardDeviation = 0.1d;
+    private const double RanchGrowthMedian = 0.35d;
+    private const double RanchGrowthStandardDeviation = 0.2d;
     private const double MaxRanchGrowthConstant = 0.99d;
-    private const int MinGrowthLevel = 1;
+    private const int DormantGrowthLevel = 0;
+    private const int MinActiveGrowthLevel = 1;
     private const int MaxGrowthLevel = 3;
     private const int DefaultReturnedAlgaeAmount = 5;
+    private const double GrowthChanceThreshold = 0.7d;
+    private const string DormantTextureKey = "SoilTile_0";
 
     public SoilTile(SoilPatch parentPatch, GridPoint localOffset)
     {
         ParentPatch = parentPatch;
         LocalOffset = localOffset;
         GrowthConstant = DefaultGrowthConstant;
-        GrowthLevel = MinGrowthLevel;
+        GrowthLevel = DormantGrowthLevel;
         ReturnedAlgaeAmount = DefaultReturnedAlgaeAmount;
-        TextureKey = BuildTextureKey(GrowthLevel);
+        LastTickMod = 0;
+        TextureKey = DormantTextureKey;
     }
 
     public SoilPatch ParentPatch { get; }
@@ -33,7 +39,11 @@ public sealed class SoilTile
 
     public int GrowthLevel { get; private set; }
 
+    public GrowableResourceType? PlantedResource { get; private set; }
+
     public int ReturnedAlgaeAmount { get; private set; }
+
+    public int LastTickMod { get; private set; }
 
     public string TextureKey { get; private set; }
 
@@ -50,10 +60,19 @@ public sealed class SoilTile
         }
     }
 
-    // Soil tiles compare against the cave-wide growth roll once per tick until they reach the harvestable stage.
-    public int Tick(World.Cave cave)
+    // Each soil tile only rolls growth on matching tick digits, then succeeds on a strict > 0.7 hit.
+    internal int Tick(Random random, int currentTickMod)
     {
-        if (GrowthLevel >= MaxGrowthLevel || cave.TickGrowthMin >= GrowthConstant)
+        if (GrowthLevel <= DormantGrowthLevel ||
+            PlantedResource is null ||
+            GrowthLevel >= MaxGrowthLevel ||
+            currentTickMod != LastTickMod)
+        {
+            return 0;
+        }
+
+        var roll = random.NextDouble();
+        if (roll <= GrowthChanceThreshold)
         {
             return 0;
         }
@@ -64,14 +83,45 @@ public sealed class SoilTile
 
     public int Harvest()
     {
-        if (GrowthLevel < MaxGrowthLevel)
+        if (GrowthLevel < MaxGrowthLevel || PlantedResource is null)
         {
             return 0;
         }
 
         var harvested = ReturnedAlgaeAmount;
-        SetGrowthLevel(MinGrowthLevel);
+        SetGrowthLevel(MinActiveGrowthLevel);
+        LastTickMod = ParentPatch.Session.TickCount % 10;
         return harvested;
+    }
+
+    public bool TryGetHarvest(out GrowableResourceType? resourceType, out int amount)
+    {
+        resourceType = null;
+        amount = 0;
+        if (GrowthLevel < MaxGrowthLevel || PlantedResource is null || ReturnedAlgaeAmount <= 0)
+        {
+            return false;
+        }
+
+        resourceType = PlantedResource;
+        amount = ReturnedAlgaeAmount;
+        return true;
+    }
+
+    // Planting activates dormant soil and retargets future harvests to the garage's chosen growable crop.
+    public bool Plant(GrowableResourceType resourceType)
+    {
+        var changed = !Equals(PlantedResource, resourceType);
+        PlantedResource = resourceType;
+        if (GrowthLevel <= DormantGrowthLevel)
+        {
+            SetGrowthLevel(MinActiveGrowthLevel);
+            LastTickMod = ParentPatch.Session.TickCount % 10;
+            return true;
+        }
+
+        RefreshTextureKey();
+        return changed;
     }
 
     internal void TileAddedToRanch()
@@ -97,14 +147,30 @@ public sealed class SoilTile
         ReturnedAlgaeAmount = System.Math.Max(0, amount);
     }
 
-    internal void SetGrowthLevel(int level)
+    internal void SetPlantedResource(GrowableResourceType? resourceType)
     {
-        GrowthLevel = System.Math.Clamp(level, MinGrowthLevel, MaxGrowthLevel);
-        TextureKey = BuildTextureKey(GrowthLevel);
+        PlantedResource = resourceType;
+        RefreshTextureKey();
     }
 
-    private static string BuildTextureKey(int growthLevel)
+    internal void SetGrowthLevel(int level)
     {
-        return $"SoilTile_{growthLevel}";
+        GrowthLevel = System.Math.Clamp(level, DormantGrowthLevel, MaxGrowthLevel);
+        RefreshTextureKey();
+    }
+
+    private void RefreshTextureKey()
+    {
+        TextureKey = BuildTextureKey(GrowthLevel, PlantedResource);
+    }
+
+    private static string BuildTextureKey(int growthLevel, GrowableResourceType? resourceType)
+    {
+        if (growthLevel <= DormantGrowthLevel || resourceType is null)
+        {
+            return DormantTextureKey;
+        }
+
+        return resourceType.GetSoilTileTextureKey(growthLevel);
     }
 }

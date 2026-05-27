@@ -12,6 +12,7 @@ public sealed class Enemy : Creature
         : base(name, location, session)
     {
         Assignment = "enemy";
+        Description = "A hostile ant that tunnels toward the colony and attacks nearby trilobites, vehicles, and buildings.";
     }
 
     public string? EnemyTargetTileKey { get; private set; }
@@ -72,6 +73,7 @@ public sealed class Enemy : Creature
         if (building is null ||
             building.Cave != Cave ||
             building.Health <= 0 ||
+            building.IgnoredByAnts ||
             (!includeWalls && building is Wall))
         {
             return null;

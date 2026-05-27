@@ -12,7 +12,7 @@ public sealed partial class GameApp
         foreach (var antHole in cave.GetAntHoles())
         {
             var tile = cave.GetTile(antHole.TileKey);
-            if (tile is null || !cave.IsTileRevealed(tile))
+            if (tile is null || !IsMapTileVisible(cave, tile))
             {
                 continue;
             }
@@ -29,7 +29,7 @@ public sealed partial class GameApp
         }
 
         var opalTile = cave.GetTile(opal.TileKey);
-        if (opalTile is null || !cave.IsTileRevealed(opalTile))
+        if (opalTile is null || !IsMapTileVisible(cave, opalTile))
         {
             return;
         }

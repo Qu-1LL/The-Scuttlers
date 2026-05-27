@@ -1,5 +1,6 @@
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -54,6 +55,25 @@ public sealed class Queen : Building
         return CanBeFedAt(creature.Location);
     }
 
+    public bool CanConsumeResource(string? resourceType)
+    {
+        if (string.IsNullOrWhiteSpace(resourceType))
+        {
+            return false;
+        }
+
+        var growableResources = GrowableResourceType.GetAll();
+        for (var index = 0; index < growableResources.Count; index++)
+        {
+            if (string.Equals(growableResources[index].Name, resourceType, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public World.Tile? GetBirthTile()
     {
         var feedTiles = GetFeedTiles();
@@ -85,9 +105,10 @@ public sealed class Queen : Building
         return spawned;
     }
 
-    public (int Accepted, int SpawnCount) FeedAlgae(int amount, Trilobite? creature = null, World.Cave? cave = null)
+    // The queen currently values every growable crop as one food unit so idle farmers can haul any stored crop.
+    public (int Accepted, int SpawnCount) FeedResource(string resourceType, int amount, Trilobite? creature = null, World.Cave? cave = null)
     {
-        if (amount <= 0)
+        if (amount <= 0 || !CanConsumeResource(resourceType))
         {
             return (0, 0);
         }
@@ -110,5 +131,10 @@ public sealed class Queen : Building
         }
 
         return (amount, spawnCount);
+    }
+
+    public (int Accepted, int SpawnCount) FeedAlgae(int amount, Trilobite? creature = null, World.Cave? cave = null)
+    {
+        return FeedResource(OreType.ALGAE.Name, amount, creature, cave);
     }
 }

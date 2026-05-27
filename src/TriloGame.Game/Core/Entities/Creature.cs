@@ -23,6 +23,7 @@ public class Creature
         Name = name;
         Location = location;
         Session = session;
+        Description = string.Empty;
         Health = 20;
         MaxHealth = 20;
         Damage = 5;
@@ -35,6 +36,8 @@ public class Creature
     }
 
     public string Name { get; private set; }
+
+    public string Description { get; protected set; }
 
     public List<GridPoint> PathPreview { get; }
 
@@ -723,6 +726,17 @@ public class Creature
 
     public object? Move()
     {
+        // Driveable vehicles advance on the driver's turn instead of through the creature's own action queue.
+        if (HostedVehicle is IDriveable driveable && driveable.IsCreatureDriving(this))
+        {
+            return HostedVehicle.Move();
+        }
+
+        if (HostedVehicle is IDriveable)
+        {
+            return null;
+        }
+
         if (_queue.Count == 0)
         {
             GetBehavior()?.Invoke();

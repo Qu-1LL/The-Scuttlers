@@ -9,6 +9,8 @@ public interface IVehicle
 {
     string Name { get; }
 
+    string Description { get; }
+
     string TextureKey { get; }
 
     string AssignmentClassification { get; }

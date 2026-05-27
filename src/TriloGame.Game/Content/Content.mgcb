@@ -58,6 +58,11 @@
 /processor:TextureProcessor
 /build:Textures/Garage.png
 
+#begin Textures/Silo.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Silo.png
+
 #begin Textures/Plow.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -213,20 +218,25 @@
 /processor:TextureProcessor
 /build:Textures/Smith.png
 
-#begin Textures/SoilTile_1.png
+#begin Textures/SoilTile_0.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/SoilTile_1.png
+/build:Textures/SoilTile_0.png
 
-#begin Textures/SoilTile_2.png
+#begin Textures/SoilTile_Algae_1.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/SoilTile_2.png
+/build:Textures/SoilTile_Algae_1.png
 
-#begin Textures/SoilTile_3.png
+#begin Textures/SoilTile_Algae_2.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/SoilTile_3.png
+/build:Textures/SoilTile_Algae_2.png
+
+#begin Textures/SoilTile_Algae_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_3.png
 
 #begin Textures/Storage.png
 /importer:TextureImporter
