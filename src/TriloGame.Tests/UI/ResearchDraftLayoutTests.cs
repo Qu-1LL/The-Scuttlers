@@ -49,6 +49,7 @@ public sealed class ResearchDraftLayoutTests
         {
             Assert.True(bounds.Top > layout.DraftHeaderBounds.Bottom);
             Assert.True(bounds.Bottom <= layout.DraftAreaBounds.Bottom);
+            Assert.Equal(ResearchTreeCardRenderer.PreferredCardHeight, bounds.Height);
         });
         Assert.True(layout.BranchCardBounds[0].Right < layout.BranchCardBounds[1].Left);
         Assert.True(layout.BranchCardBounds[1].Right < layout.BranchCardBounds[2].Left);

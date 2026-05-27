@@ -83,6 +83,21 @@ public static class GumTextLayout
 
     public static IReadOnlyList<string> Wrap(IEnumerable<string> paragraphs, int maxWidth, int maxLines, GumTextStyle style)
     {
+        return WrapCore(paragraphs, maxWidth, maxLines, style, truncate: true);
+    }
+
+    public static IReadOnlyList<string> WrapAll(IEnumerable<string> paragraphs, int maxWidth, GumTextStyle style)
+    {
+        return WrapCore(paragraphs, maxWidth, int.MaxValue, style, truncate: false);
+    }
+
+    private static IReadOnlyList<string> WrapCore(
+        IEnumerable<string> paragraphs,
+        int maxWidth,
+        int maxLines,
+        GumTextStyle style,
+        bool truncate)
+    {
         var metrics = GetMetrics(style);
         if (maxWidth <= 0 || maxLines <= 0)
         {
@@ -158,7 +173,7 @@ public static class GumTextLayout
             lines.Add(FitToWidth(current, maxWidth, style));
         }
 
-        if (truncated && lines.Count > 0)
+        if (truncate && truncated && lines.Count > 0)
         {
             lines[^1] = FitToWidth($"{lines[^1].TrimEnd()}...", maxWidth, style);
         }

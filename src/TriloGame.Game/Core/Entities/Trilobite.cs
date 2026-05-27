@@ -9,6 +9,8 @@ namespace TriloGame.Game.Core.Entities;
 
 public sealed partial class Trilobite : Creature
 {
+    private readonly TrilobiteBuildingAssignment _buildingAssignment = new();
+    private readonly TrilobiteFighterBehavior _fighterBehavior = new();
     private readonly List<string> _manualMineTileKeys = [];
     private bool _fleeingToQueen;
 
@@ -27,7 +29,7 @@ public sealed partial class Trilobite : Creature
 
     public TrilobiteTraitState TraitState { get; }
 
-    public Building? AssignedBuilding { get; private set; }
+    public Building? AssignedBuilding => _buildingAssignment.Building;
 
     public string? PendingMineType { get; private set; }
 
@@ -65,7 +67,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (!string.Equals(normalizedAssignment, "miner", StringComparison.Ordinal))
+        if (!TrilobiteRoleCatalog.IsRole(normalizedAssignment, TrilobiteRoles.Miner))
         {
             ClearManualMineOrders();
         }
@@ -106,38 +108,37 @@ public sealed partial class Trilobite : Creature
 
     public override Action? GetBehavior()
     {
-        return Assignment switch
-        {
-            "miner" => MinerBehavior,
-            "farmer" => FarmerBehavior,
-            "builder" => BuilderBehavior,
-            "fighter" => FighterBehavior,
-            _ => UnassignedBehavior
-        };
+        var behavior = TrilobiteRoleCatalog.GetOrUnassigned(Assignment);
+        return () => behavior.Start(this);
     }
 
-    private void UnassignedBehavior()
+    public override Action? GetNavigationFallback()
+    {
+        return TrilobiteRoleCatalog.GetOrUnassigned(Assignment).GetNavigationFallback(this);
+    }
+
+    internal void StartUnassignedRoleBehavior()
     {
         ClearFighterTarget();
         FighterPathMode = null;
         ReleaseAssignedBuilding();
     }
 
-    private void MinerBehavior() => EnqueueAction(() => { MinerStep1(); });
+    internal void EnqueueMinerRoleBehavior() => EnqueueAction(() => { MinerStep1(); });
 
-    private void FarmerBehavior() => EnqueueAction(() => { FarmerStep1(); });
+    internal void EnqueueFarmerRoleBehavior() => EnqueueAction(() => { FarmerStep1(); });
 
-    private void BuilderBehavior() => EnqueueAction(() => { BuilderStep1(); });
+    internal void EnqueueBuilderRoleBehavior() => EnqueueAction(() => { BuilderStep1(); });
 
-    private void FighterBehavior() => EnqueueAction(() => { FighterStep1(); });
+    internal void EnqueueFighterRoleBehavior() => EnqueueAction(() => { FighterStep1(); });
 
-    public bool IsMiner() => Assignment == "miner";
+    public bool IsMiner() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Miner);
 
-    public bool IsFarmer() => Assignment == "farmer";
+    public bool IsFarmer() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Farmer);
 
-    public bool IsBuilder() => Assignment == "builder";
+    public bool IsBuilder() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Builder);
 
-    public bool IsFighter() => Assignment == "fighter";
+    public bool IsFighter() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Fighter);
 
     protected override bool TryInterruptQueuedAction()
     {
@@ -192,7 +193,7 @@ public sealed partial class Trilobite : Creature
     {
         if (Cave is null ||
             !Session.Danger ||
-            (!IsMiner() && !IsFarmer() && !IsBuilder()))
+            !TrilobiteRoles.IsWorker(Assignment))
         {
             return false;
         }
@@ -221,11 +222,7 @@ public sealed partial class Trilobite : Creature
             ReleaseAssignedBuilding();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)MinerBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Miner);
 
         return false;
     }
@@ -250,11 +247,7 @@ public sealed partial class Trilobite : Creature
             ReleaseAssignedBuilding();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)FarmerBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Farmer);
 
         return false;
     }
@@ -283,11 +276,7 @@ public sealed partial class Trilobite : Creature
             ClearBuilderSourcePost();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)BuilderBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Builder);
 
         return false;
     }
@@ -311,13 +300,19 @@ public sealed partial class Trilobite : Creature
             ReleaseAssignedBuilding();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)FighterBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Fighter);
 
         return false;
+    }
+
+    private void StartCurrentRoleBehaviorIfNot(string role)
+    {
+        if (TrilobiteRoleCatalog.IsRole(Assignment, role))
+        {
+            return;
+        }
+
+        GetBehavior()?.Invoke();
     }
 
     public IReadOnlyList<AlgaeFarm> GetAlgaeFarms()
@@ -399,10 +394,10 @@ public sealed partial class Trilobite : Creature
 
     public void SetAssignedBuilding(Building? building)
     {
-        if (!ReferenceEquals(AssignedBuilding, building))
+        if (!_buildingAssignment.IsAssignedTo(building))
         {
             ReleaseAssignedBuilding();
-            AssignedBuilding = building;
+            _buildingAssignment.Set(building);
         }
     }
 
@@ -416,42 +411,10 @@ public sealed partial class Trilobite : Creature
             return;
         }
 
-        switch (AssignedBuilding)
-        {
-            case MiningPost post:
-                if (PendingMineTileKey is not null)
-                {
-                    post.InvalidateMineableQueues();
-                }
-                post.RemoveAssignment(this);
-                break;
-            case AlgaeFarm farm:
-                farm.RemoveAssignment(this);
-                break;
-            case StationBuilding station:
-                if (ReferenceEquals(HostedBuilding, station))
-                {
-                    if (restoreHostedCreatureToTileSystem)
-                    {
-                        station.TryRestoreCreatureToTileSystem(this);
-                    }
-                    else
-                    {
-                        LeaveTileSystem();
-                    }
-                }
-
-                station.RemoveAssignment(this);
-                break;
-            case Scaffolding scaffolding:
-                scaffolding.RemoveAssignment(this);
-                scaffolding.ReleaseMaterialReservation(this);
-                break;
-        }
+        _buildingAssignment.Release(this, restoreHostedCreatureToTileSystem, PendingMineTileKey is not null);
 
         PendingMineTileKey = null;
         PendingManualMineSelectionKey = null;
-        AssignedBuilding = null;
     }
 
     protected override bool EnsureReadyForTileNavigation()
@@ -460,7 +423,7 @@ public sealed partial class Trilobite : Creature
                (HostedBuilding as StationBuilding)?.TryRestoreCreatureToTileSystem(this) == true;
     }
 
-    private bool TryStationAtFighterStation(StationBuilding station)
+    internal bool TryStationAtFighterStation(StationBuilding station)
     {
         return station.TryStationCreature(this);
     }
@@ -478,6 +441,31 @@ public sealed partial class Trilobite : Creature
     public void ClearFighterTarget()
     {
         FighterTargetTileKey = null;
+    }
+
+    internal void SetFighterTargetTileKey(string? tileKey)
+    {
+        FighterTargetTileKey = tileKey;
+    }
+
+    internal void SetFighterPathMode(string? mode)
+    {
+        FighterPathMode = mode;
+    }
+
+    internal bool EnsureReadyForRoleTileNavigation()
+    {
+        return EnsureReadyForTileNavigation();
+    }
+
+    internal void ArmEnemyBfsTraversal(Pathfinding.BfsField field)
+    {
+        ArmBfsTraversal(field, sharedFieldName: "enemy");
+    }
+
+    internal void ClearRoleBfsTraversal()
+    {
+        ClearBfsTraversal();
     }
 
     public IReadOnlyList<Barracks> GetBarracksBuildings()
@@ -932,255 +920,22 @@ public sealed partial class Trilobite : Creature
 
     public bool FighterStep1()
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        FighterPathMode = null;
-
-        if (ShouldHoldTurretPosition())
-        {
-            ClearFighterTarget();
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(true);
-        }
-
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        if (FighterTargetTileKey is not null && IsAdjacentToTileKey(FighterTargetTileKey))
-        {
-            return FighterStep2();
-        }
-
-        var adjacentEnemyTileKey = GetAdjacentEnemyTileKey();
-        if (adjacentEnemyTileKey is not null)
-        {
-            FighterTargetTileKey = adjacentEnemyTileKey;
-            return FighterStep2();
-        }
-
-        return FighterStep3();
+        return _fighterBehavior.Step1(this);
     }
 
     public bool FighterStep2()
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(true);
-        }
-
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        if (FighterTargetTileKey is null)
-        {
-            return FighterStep3();
-        }
-
-        var enemy = GetEnemyAtTileKey(FighterTargetTileKey);
-        if (enemy is null)
-        {
-            ClearFighterTarget();
-            return FighterStep3();
-        }
-
-        if (!IsAdjacentToTileKey(FighterTargetTileKey))
-        {
-            return FighterStep3();
-        }
-
-        var dealt = DealDamage(enemy);
-        if (GetEnemyAtTileKey(FighterTargetTileKey) is null)
-        {
-            ClearFighterTarget();
-        }
-
-        return dealt > 0;
+        return _fighterBehavior.Step2(this);
     }
 
     public bool FighterStep3()
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(true);
-        }
-
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        if (FighterTargetTileKey is not null && GetEnemyAtTileKey(FighterTargetTileKey) is null)
-        {
-            ClearFighterTarget();
-        }
-
-        var cave = Cave;
-        var field = cave?.GetBfsFieldObject("enemy");
-        if (field is null || cave is null)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(false);
-        }
-
-        ClearActionQueue();
-        var resolvedField = field;
-        var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !cave.CanCreatureTraverseTile(this, attemptedTile)))
-        {
-            var refreshedField = cave.GetBfsFieldObject("enemy");
-            refreshedField?.Rebuild();
-            if (refreshedField is null)
-            {
-                ClearFighterTarget();
-                return FighterReturnToStation(false);
-            }
-
-            resolvedField = refreshedField;
-            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
-            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
-            {
-                ClearActionQueue();
-                return false;
-            }
-        }
-
-        if (resolvedNext is null)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(false);
-        }
-
-        ArmBfsTraversal(resolvedField, sharedFieldName: "enemy");
-        PathPreview.Add(resolvedNext.Value);
-        return FighterStepMove(resolvedNext.Value);
+        return _fighterBehavior.Step3(this);
     }
 
     public bool FighterStepMove(GridPoint nextLocation)
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            if (FighterPathMode != "station")
-            {
-                ClearActionQueue();
-                return FighterStep1();
-            }
-
-            var assignedStation = GetAssignedFighterStation();
-            if (assignedStation is not null && TryStationAtFighterStation(assignedStation))
-            {
-                FighterPathMode = null;
-                ClearActionQueue();
-                return false;
-            }
-        }
-        else if (FighterPathMode == "station")
-        {
-            FighterPathMode = null;
-            ClearActionQueue();
-            return FighterStep1();
-        }
-
-        if (FighterPathMode != "station")
-        {
-            if (FighterTargetTileKey is not null && GetEnemyAtTileKey(FighterTargetTileKey) is null)
-            {
-                ClearFighterTarget();
-                ClearActionQueue();
-                return FighterStep3();
-            }
-
-            var adjacentEnemyTileKey = GetAdjacentEnemyTileKey();
-            if (adjacentEnemyTileKey is not null)
-            {
-                FighterTargetTileKey = adjacentEnemyTileKey;
-                ClearActionQueue();
-                return FighterStep2();
-            }
-        }
-
-        var wasStationMove = FighterPathMode == "station";
-        ClearBfsTraversal();
-        var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
-        if (!moved)
-        {
-            if (wasStationMove)
-            {
-                FighterPathMode = null;
-            }
-
-            ClearActionQueue();
-            return wasStationMove ? FighterReturnToStation(true) : FighterStep3();
-        }
-
-        if (PathPreview.Count > 0)
-        {
-            PathPreview.RemoveAt(0);
-        }
-
-        if (wasStationMove)
-        {
-            var assignedStation = GetAssignedFighterStation();
-            if (assignedStation is not null && TryStationAtFighterStation(assignedStation))
-            {
-                FighterPathMode = null;
-                ClearActionQueue();
-                return false;
-            }
-
-            return true;
-        }
-
-        if (FighterTargetTileKey is not null && IsAdjacentToTileKey(FighterTargetTileKey))
-        {
-            ClearActionQueue();
-            return FighterStep2();
-        }
-
-        var nextAdjacentEnemyTileKey = GetAdjacentEnemyTileKey();
-        if (nextAdjacentEnemyTileKey is not null)
-        {
-            FighterTargetTileKey = nextAdjacentEnemyTileKey;
-            ClearActionQueue();
-            return FighterStep2();
-        }
-
-        return true;
-    }
-
-    private bool ShouldHoldTurretPosition()
-    {
-        return GetAssignedFighterStation() is Turret turret &&
-               IsHostedOnBuilding(turret) &&
-               turret.IsCreatureStationed(this);
+        return _fighterBehavior.StepMove(this, nextLocation);
     }
 
     public List<AlgaeFarm> GetAlgaeFarmPriorityList()

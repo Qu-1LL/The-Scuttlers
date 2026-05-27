@@ -53,6 +53,11 @@
 /processor:TextureProcessor
 /build:Textures/BackArrow.png
 
+#begin Textures/CaveBackground2.jpg
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/CaveBackground2.jpg
+
 #begin Textures/Barracks.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -98,6 +103,11 @@
 /processor:TextureProcessor
 /build:Textures/CochiniumTile.png
 
+#begin Textures/Chitinstone.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Chitinstone.png
+
 #begin Textures/CaveCrystalClean.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -128,6 +138,11 @@
 /processor:TextureProcessor
 /build:Textures/HealingMist3.png
 
+#begin Textures/Lumenite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Lumenite.png
+
 #begin Textures/HowDoIGetHimOff.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -152,6 +167,11 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/MenuBlock.png
+
+#begin Textures/Mycocore.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Mycocore.png
 
 #begin Textures/MiningPost.png
 /importer:TextureImporter

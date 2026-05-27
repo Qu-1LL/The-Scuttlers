@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using System.Linq;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
@@ -52,6 +53,8 @@ public sealed class MenuControllerTests
         Assert.Equal(0f, menu.BuildGridScroll);
         Assert.Equal(0f, menu.AssignmentActiveScroll);
         Assert.Equal(0f, menu.AssignmentUnassignedScroll);
+        Assert.Equal(0f, menu.BuildPreviewDescriptionScroll);
+        Assert.Equal(0f, menu.SelectedDescriptionScroll);
     }
 
     [Fact]
@@ -61,14 +64,16 @@ public sealed class MenuControllerTests
         var session = new GameSession();
         var viewport = new Point(1440, 900);
 
-        var collapseHandled = menu.HandleClick(new Point(959, 37), viewport, null!, session);
+        var collapseResult = menu.HandleClick(new Point(959, 37), viewport, session);
 
-        Assert.True(collapseHandled);
+        Assert.True(collapseResult.Consumed);
+        Assert.True(collapseResult.PlaySelectSound);
         Assert.False(menu.PanelOpen);
 
-        var gearHandled = menu.HandleClick(new Point(1402, 37), viewport, null!, session);
+        var gearResult = menu.HandleClick(new Point(1402, 37), viewport, session);
 
-        Assert.True(gearHandled);
+        Assert.True(gearResult.Consumed);
+        Assert.True(gearResult.PlaySelectSound);
         Assert.True(menu.PanelOpen);
     }
 
@@ -148,6 +153,72 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
+    public void HandleWheel_ScrollsBuildPreviewDescriptionWhenPreviewTextOverflows()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new LongDescriptionBuilding(game), session));
+
+        var menu = new MenuController();
+        menu.OpenPanel("buildings");
+
+        var viewport = new Point(960, 260);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var textLayout = layout!.GetType().GetProperty("BuildPreviewDescriptionLayout")!.GetValue(layout)!;
+        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        var maxScroll = (float)textLayout.GetType().GetProperty("MaxScroll")!.GetValue(textLayout)!;
+        Assert.True(maxScroll > 0f);
+
+        var handled = menu.HandleWheel(viewportBounds.Center, 90, viewport, session);
+
+        Assert.True(handled);
+        Assert.True(menu.BuildPreviewDescriptionScroll > 0f);
+    }
+
+    [Fact]
+    public void SelectedTab_DescriptionViewportStartsBelowAssignedBuildingMetadata()
+    {
+        var session = new GameSession();
+        var building = new LongDescriptionBuilding(session);
+        var menu = new MenuController();
+        var viewport = new Point(960, 420);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.SetSelectedObject(building);
+        menu.OpenPanel("selected");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var textLayout = layout!.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
+        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+
+        Assert.True(viewportBounds.Y >= 160);
+    }
+
+    [Fact]
+    public void HandleWheel_ScrollsSelectedDescriptionWhenBodyTextOverflows()
+    {
+        var session = new GameSession();
+        var building = new LongDescriptionBuilding(session);
+        var menu = new MenuController();
+        var viewport = new Point(960, 420);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.SetSelectedObject(building);
+        menu.OpenPanel("selected");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var textLayout = layout!.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
+        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        var maxScroll = (float)textLayout.GetType().GetProperty("MaxScroll")!.GetValue(textLayout)!;
+        Assert.True(maxScroll > 0f);
+
+        var handled = menu.HandleWheel(viewportBounds.Center, 90, viewport, session);
+
+        Assert.True(handled);
+        Assert.True(menu.SelectedDescriptionScroll > 0f);
+    }
+
+    [Fact]
     public void HandleClick_DeleteSelectedBuilding_ClearsSelectionAfterRemoval()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
@@ -162,11 +233,35 @@ public sealed class MenuControllerTests
         var layout = getLayout!.Invoke(menu, [viewport, session]);
         var deleteBounds = (Rectangle)layout!.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
 
-        var handled = menu.HandleClick(deleteBounds.Center, viewport, null!, session);
+        var result = menu.HandleClick(deleteBounds.Center, viewport, session);
 
-        Assert.True(handled);
+        Assert.True(result.Consumed);
+        Assert.True(result.PlaySelectSound);
         Assert.Null(menu.SelectedObject);
         Assert.Null(miningPost.Cave);
+    }
+
+    [Fact]
+    public void HandleClick_BuildingCardReturnsPlacementRequestWithoutHostCoupling()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
+        var menu = new MenuController();
+        var viewport = new Point(1440, 900);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.OpenPanel("buildings");
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var buildCards = (System.Collections.IEnumerable)layout!.GetType().GetProperty("BuildCards")!.GetValue(layout)!;
+        var firstCard = buildCards.Cast<object>().First();
+        var bounds = (Rectangle)firstCard.GetType().GetProperty("Bounds")!.GetValue(firstCard)!;
+
+        var result = menu.HandleClick(bounds.Center, viewport, session);
+
+        Assert.True(result.Consumed);
+        Assert.True(result.PlaySelectSound);
+        Assert.NotNull(result.BuildingPlacement);
+        Assert.IsType<AlgaeFarm>(result.BuildingPlacement!.TargetBuilding);
     }
 
     [Fact]
@@ -192,5 +287,17 @@ public sealed class MenuControllerTests
         Assert.Equal(2, (int)getAssignmentCount!.Invoke(null, [miningPost])!);
         Assert.Equal(1, (int)getAssignmentCount.Invoke(null, [algaeFarm])!);
         Assert.Equal(0, (int)getAssignmentCount.Invoke(null, [storage])!);
+    }
+
+    private sealed class LongDescriptionBuilding : Building
+    {
+        public LongDescriptionBuilding(GameSession session)
+            : base("Archivist Spire", new GridPoint(2, 2), [[1, 1], [1, 1]], session, hasStation: false)
+        {
+            Description = string.Join(' ', Enumerable.Repeat(
+                "A deliberately long construction brief that should force the colony menu to expose a scrollable text viewport instead of clipping or overlapping nearby UI.",
+                20));
+            TextureKey = "Storage";
+        }
     }
 }

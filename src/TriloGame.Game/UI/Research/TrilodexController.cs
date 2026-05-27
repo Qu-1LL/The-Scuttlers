@@ -20,6 +20,7 @@ public sealed class TrilodexController
 
     private Point _pointerPoint;
     private float _gridScroll;
+    private float _infoPanelScroll;
     private FeatureTree? _selectedTree;
     private ResearchTreeViewNode? _selectedTreeRoot;
     private Vector2 _treePanOffset;
@@ -37,6 +38,7 @@ public sealed class TrilodexController
     {
         _pointerPoint = Point.Zero;
         _gridScroll = 0f;
+        _infoPanelScroll = 0f;
         ClearDetail();
         IsOpen = false;
     }
@@ -45,11 +47,13 @@ public sealed class TrilodexController
     {
         IsOpen = true;
         _gridScroll = 0f;
+        _infoPanelScroll = 0f;
         ClearDetail();
     }
 
     public void Close()
     {
+        _infoPanelScroll = 0f;
         ClearDetail();
         IsOpen = false;
     }
@@ -102,6 +106,12 @@ public sealed class TrilodexController
 
         if (_selectedTreeRoot is not null)
         {
+            if (layout.DetailInfoPanelBounds.Contains(point))
+            {
+                _infoPanelScroll += delta;
+                return true;
+            }
+
             if (!layout.DetailTreeViewportBounds.Contains(point))
             {
                 return true;
@@ -237,6 +247,7 @@ public sealed class TrilodexController
         Point viewport,
         GameSession session,
         GumUiRenderer gumUi,
+        GumRenderTargetViewport? renderTargetViewport = null,
         Texture2D? treeBackgroundTexture = null)
     {
         var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
@@ -250,7 +261,8 @@ public sealed class TrilodexController
             gumUi,
             session,
             BuildMenuModel(layout, session, treeBackgroundTexture),
-            _pointerPoint);
+            _pointerPoint,
+            renderTargetViewport);
     }
 
     private ResearchTreeMenuModel BuildMenuModel(
@@ -290,7 +302,7 @@ public sealed class TrilodexController
             TreeHeaderText: string.Empty,
             BuildCatalogCardModels(layout),
             new ResearchTreeViewportModel(Root: null, Vector2.Zero, Zoom: 1f, BackgroundTexture: null),
-            new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details."),
+            new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details.", _infoPanelScroll),
             FooterText: string.Empty);
     }
 
@@ -324,7 +336,7 @@ public sealed class TrilodexController
             TreeHeaderText: string.Empty,
             Cards: [],
             new ResearchTreeViewportModel(_selectedTreeRoot, _treePanOffset, _treeZoom, treeBackgroundTexture),
-            new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details."),
+            new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details.", _infoPanelScroll),
             FooterText: string.Empty);
     }
 
@@ -354,6 +366,7 @@ public sealed class TrilodexController
         _treePanOffset = Vector2.Zero;
         _treePanStartOffset = Vector2.Zero;
         _treeZoom = 1f;
+        _infoPanelScroll = 0f;
         _treePanCandidate = false;
         _treePanning = false;
     }
@@ -366,6 +379,7 @@ public sealed class TrilodexController
         _treePanStartOffset = Vector2.Zero;
         _treePanStartPointer = Point.Zero;
         _treeZoom = 1f;
+        _infoPanelScroll = 0f;
         _treePanCandidate = false;
         _treePanning = false;
     }

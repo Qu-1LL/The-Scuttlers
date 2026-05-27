@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Buildings;
@@ -25,6 +26,15 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
+    public void Scaffolding_PreservesTargetBuildingPassability()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var scaffolding = new Scaffolding(session, new AlgaeFarm(session));
+
+        Assert.All(scaffolding.OpenMap.SelectMany(row => row), cell => Assert.Equal(1, cell));
+    }
+
+    [Fact]
     public void RegularScaffoldingPlacement_IsRejectedWhenItCutsOffExistingBuildingAccess()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
@@ -48,6 +58,11 @@ public sealed class ScaffoldingTests
 
         Assert.True(cave.SimulatedBuildPreservesReachability(scaffolding, locationToBlock));
         Assert.False(cave.SimulatedBuildPreservesBuildingAccess(scaffolding, locationToBlock));
+        var placement = cave.EvaluateBuildPlacement(scaffolding, locationToBlock, preserveReachability: true);
+
+        Assert.False(placement.CanBuild);
+        Assert.Equal(BuildPlacementFailureReason.BlocksExistingBuildingAccess, placement.FailureReasons);
+        Assert.All(placement.Cells.Where(cell => cell.Required), cell => Assert.True(cell.CanBuild));
         Assert.False(cave.CanBuild(scaffolding, locationToBlock, preserveReachability: true));
     }
 

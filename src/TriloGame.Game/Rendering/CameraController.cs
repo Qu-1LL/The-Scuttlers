@@ -16,6 +16,8 @@ public sealed class CameraController
 
     public Vector2 CameraOrigin { get; private set; }
 
+    public Vector2 ParallaxScreenOffset { get; private set; }
+
     public Vector2 ViewCenter { get; private set; }
 
     public Vector2 ShakeOffset => _shakeOffset;
@@ -29,6 +31,7 @@ public sealed class CameraController
 
     public void SetOrigin(Vector2 origin)
     {
+        ParallaxScreenOffset += (CameraOrigin - origin) * CurrentScale;
         CameraOrigin = origin;
     }
 
@@ -42,7 +45,9 @@ public sealed class CameraController
 
     public void PanByScreenDelta(float dx, float dy)
     {
-        CameraOrigin -= new Vector2(dx, dy) * (1f / CurrentScale);
+        var screenDelta = new Vector2(dx, dy);
+        CameraOrigin -= screenDelta * (1f / CurrentScale);
+        ParallaxScreenOffset += screenDelta;
     }
 
     public void Update(GameTime gameTime)

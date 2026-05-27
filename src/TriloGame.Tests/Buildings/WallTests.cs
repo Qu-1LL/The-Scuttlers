@@ -95,7 +95,7 @@ public sealed class WallTests
     }
 
     [Fact]
-    public void WallScaffoldingPlacement_SkipsExistingBuildingAccessCheck()
+    public void WallScaffoldingPlacement_PreservesAccessBecauseWallsAreTraversable()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(16, 10, new GridPoint(1, 1));
         var existingStorage = new Storage(session);
@@ -117,7 +117,7 @@ public sealed class WallTests
         var entranceTile = new GridPoint(10, 4);
 
         Assert.True(cave.SimulatedBuildPreservesReachability(scaffolding, entranceTile));
-        Assert.False(cave.SimulatedBuildPreservesBuildingAccess(scaffolding, entranceTile));
+        Assert.True(cave.SimulatedBuildPreservesBuildingAccess(scaffolding, entranceTile));
         Assert.True(cave.CanBuild(scaffolding, entranceTile, preserveReachability: true));
     }
 

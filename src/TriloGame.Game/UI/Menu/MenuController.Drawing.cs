@@ -43,12 +43,7 @@ public sealed partial class MenuController
                 new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 66, Math.Max(100, (layout.PreviewBounds.Width / 2) + 12), 20),
                 new Color(135, 173, 187));
 
-            var descriptionBounds = new Rectangle(
-                layout.PreviewBounds.X + 12,
-                layout.PreviewBounds.Y + 98,
-                Math.Max(140, (layout.PreviewBounds.Width / 2) - 18),
-                layout.PreviewBounds.Height - 110);
-            DrawWrappedText(context, activeFactory.Description, descriptionBounds, new Color(226, 238, 244));
+            DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
 
             DrawPreviewTexture(
                 context,
@@ -57,12 +52,9 @@ public sealed partial class MenuController
         }
         else
         {
-            DrawWrappedText(
-                context,
-                "Hover over a building card or click one to keep it selected here.",
-                new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 44, layout.PreviewBounds.Width - 24, layout.PreviewBounds.Height - 56),
-                new Color(210, 228, 236));
+            DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(210, 228, 236), GumTextStyle.Small);
         }
+        DrawScrollbar(context, layout.BuildPreviewDescriptionLayout.ScrollbarTrackBounds, layout.BuildPreviewDescriptionLayout.ScrollbarThumbBounds);
 
         foreach (var card in layout.BuildCards)
         {
@@ -142,9 +134,6 @@ public sealed partial class MenuController
             ? $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}"
             : null;
         var canRename = SelectedObject is Trilobite;
-        var bodyText = SelectedObject is Creature
-            ? "Kill this trilobite immediately."
-            : "Delete this building from the cave immediately.";
         var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
         var healthBounds = healthText is null
             ? Rectangle.Empty
@@ -290,11 +279,8 @@ public sealed partial class MenuController
         }
         else
         {
-            DrawWrappedText(
-                context,
-                $"{bodyText} This uses the normal in-game removal flow and clears the current selection afterward.",
-                layout.SelectedDescriptionBounds,
-                new Color(226, 238, 244));
+            DrawScrollableText(context, layout.SelectedDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
+            DrawScrollbar(context, layout.SelectedDescriptionLayout.ScrollbarTrackBounds, layout.SelectedDescriptionLayout.ScrollbarThumbBounds);
         }
 
         var hovered = layout.DeleteSelectedBounds.Contains(_pointerPoint);
@@ -402,6 +388,16 @@ public sealed partial class MenuController
 
         DrawFrame(context, trackBounds.Value, new Color(9, 19, 28), new Color(39, 64, 79));
         DrawFrame(context, thumbBounds.Value, new Color(109, 170, 192), new Color(191, 230, 244));
+    }
+
+    private void DrawScrollableText(RenderingContext context, GumScrollableTextLayout layout, Color color, GumTextStyle style)
+    {
+        if (!HasRenderer)
+        {
+            return;
+        }
+
+        GumScrollableText.Draw(_gumUi!, layout, color, style);
     }
 
     private void DrawRect(RenderingContext context, Rectangle bounds, Color color)
@@ -583,7 +579,7 @@ public sealed partial class MenuController
             (int)MathF.Round(position.Y),
             Math.Max(1, size.X),
             Math.Max(1, size.Y));
-        _gumUi!.AddText(bounds, text, color, verticalAlignment: VerticalAlignment.Top, fontSize: GumTextLayout.GetMetrics(style).FontSize);
+        GumUiText.Add(_gumUi!, bounds, text, color, style, verticalAlignment: VerticalAlignment.Top);
     }
 
     private void DrawTextFitted(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
@@ -594,16 +590,7 @@ public sealed partial class MenuController
         }
 
         var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
-        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
-        var metrics = GumTextLayout.GetMetrics(style);
-        _gumUi!.AddText(
-            bounds,
-            textToDraw,
-            color,
-            HorizontalAlignment.Left,
-            VerticalAlignment.Center,
-            metrics.FontSize,
-            maxLines: 1);
+        GumUiText.AddFittedLeft(_gumUi!, bounds, text, color, style);
     }
 
     private void DrawWrappedText(RenderingContext context, string text, Rectangle bounds, Color color)
@@ -616,7 +603,7 @@ public sealed partial class MenuController
         var style = GumTextStyle.Small;
         var metrics = GumTextLayout.GetMetrics(style);
         var lines = GumTextLayout.Wrap([text], bounds.Width, Math.Max(1, bounds.Height / metrics.LineHeight), style);
-        _gumUi!.AddText(bounds, string.Join('\n', lines), color, verticalAlignment: VerticalAlignment.Top, fontSize: metrics.FontSize, maxLines: lines.Count);
+        GumUiText.Add(_gumUi!, bounds, string.Join('\n', lines), color, style, verticalAlignment: VerticalAlignment.Top, maxLines: lines.Count);
     }
 
     private void DrawTextCentered(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
@@ -627,16 +614,7 @@ public sealed partial class MenuController
         }
 
         var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
-        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
-        var metrics = GumTextLayout.GetMetrics(style);
-        _gumUi!.AddText(
-            bounds,
-            textToDraw,
-            color,
-            HorizontalAlignment.Center,
-            VerticalAlignment.Center,
-            metrics.FontSize,
-            maxLines: 1);
+        GumUiText.AddFittedCentered(_gumUi!, bounds, text, color, style);
     }
 
     private void DrawTextFittedRight(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
@@ -647,15 +625,14 @@ public sealed partial class MenuController
         }
 
         var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
-        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
-        var metrics = GumTextLayout.GetMetrics(style);
-        _gumUi!.AddText(
+        GumUiText.Add(
+            _gumUi!,
             bounds,
-            textToDraw,
+            GumTextLayout.FitToWidth(text, bounds.Width, style),
             color,
+            style,
             HorizontalAlignment.Right,
             VerticalAlignment.Center,
-            metrics.FontSize,
             maxLines: 1);
     }
 

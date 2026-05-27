@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.ViewModels;
 
 namespace TriloGame.Game.UI.Menu;
@@ -62,6 +63,31 @@ public sealed partial class MenuController
             out var buildGridScrollbarTrack,
             out var buildGridScrollbarThumb);
         BuildGridScroll = Clamp(BuildGridScroll, 0f, buildGridMaxScroll);
+        var activeBuildPreview = HoveredBuildOption ?? SelectedBuildOption;
+        var activeBuildPreviewKey = activeBuildPreview?.Name ?? string.Empty;
+        if (!string.Equals(_buildPreviewScrollKey, activeBuildPreviewKey, StringComparison.Ordinal))
+        {
+            BuildPreviewDescriptionScroll = 0f;
+            _buildPreviewScrollKey = activeBuildPreviewKey;
+        }
+
+        var buildPreviewDescriptionViewportBounds = activeBuildPreview is null
+            ? new Rectangle(
+                previewBounds.X + 12,
+                previewBounds.Y + 44,
+                previewBounds.Width - 24,
+                previewBounds.Height - 56)
+            : new Rectangle(
+                previewBounds.X + 12,
+                previewBounds.Y + 98,
+                Math.Max(140, (previewBounds.Width / 2) - 18),
+                previewBounds.Height - 110);
+        var buildPreviewDescriptionLayout = GumScrollableText.Build(
+            buildPreviewDescriptionViewportBounds,
+            activeBuildPreview?.Description ?? "Hover over a building card or click one to keep it selected here.",
+            GumTextStyle.Small,
+            BuildPreviewDescriptionScroll);
+        BuildPreviewDescriptionScroll = buildPreviewDescriptionLayout.Scroll;
 
         var selectedBounds = contentBounds;
         var selectedScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
@@ -75,11 +101,8 @@ public sealed partial class MenuController
         float selectedInventoryMaxScroll = 0f;
         Rectangle? selectedInventoryScrollbarTrackBounds = null;
         Rectangle? selectedInventoryScrollbarThumbBounds = null;
-        var selectedDescriptionBounds = new Rectangle(
-            selectedBounds.X + 16,
-            selectedBounds.Y + 132,
-            selectedBounds.Width - 32,
-            Math.Max(60, selectedBounds.Height - 220));
+        var selectedDetailTop = selectedBounds.Y + 118;
+        GumScrollableTextLayout selectedDescriptionLayout = default;
         if (SelectedObject is Trilobite)
         {
             var traitTop = selectedBounds.Y + (int)MathF.Round(122f * selectedScale);
@@ -118,12 +141,11 @@ public sealed partial class MenuController
                     renameRowHeight);
             }
 
-            var descriptionTop = renameRowY + renameRowHeight + (int)MathF.Round(18f * selectedScale);
-            selectedDescriptionBounds = new Rectangle(
-                selectedBounds.X + 16,
-                descriptionTop,
-                selectedBounds.Width - 32,
-                Math.Max(60, selectedBounds.Bottom - descriptionTop - (int)MathF.Round(84f * selectedScale)));
+            selectedDetailTop = renameRowY + renameRowHeight;
+        }
+        else if (SelectedObject is Building)
+        {
+            selectedDetailTop = selectedBounds.Y + 144;
         }
 
         var deleteSelectedBounds = new Rectangle(
@@ -134,11 +156,15 @@ public sealed partial class MenuController
 
         if (SelectedObject is MiningPost miningPost)
         {
+            var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(96f * selectedScale));
+            var selectedBodyTop = Math.Min(
+                selectedDetailTop + (int)MathF.Round(14f * selectedScale),
+                deleteSelectedBounds.Y - minimumInventoryHeight - 14);
             selectedInventoryFrameBounds = new Rectangle(
                 selectedBounds.X + 16,
-                selectedBounds.Y + 132,
+                selectedBodyTop,
                 selectedBounds.Width - 32,
-                Math.Max(120, deleteSelectedBounds.Y - selectedBounds.Y - 150));
+                Math.Max(minimumInventoryHeight, deleteSelectedBounds.Y - selectedBodyTop - 14));
             selectedInventoryViewportBounds = new Rectangle(
                 selectedInventoryFrameBounds.Value.X + 10,
                 selectedInventoryFrameBounds.Value.Y + 38,
@@ -153,6 +179,31 @@ public sealed partial class MenuController
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
             SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+        }
+        else if (SelectedObject is Creature or Building)
+        {
+            const int minimumDescriptionHeight = 48;
+            var selectedBodyTop = Math.Min(
+                selectedDetailTop + (int)MathF.Round(18f * selectedScale),
+                deleteSelectedBounds.Y - minimumDescriptionHeight - 14);
+            var selectedDescriptionViewportBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                Math.Max(minimumDescriptionHeight, deleteSelectedBounds.Y - selectedBodyTop - 14));
+            var selectedDescriptionText = SelectedObject switch
+            {
+                Creature => "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+                Building building when !string.IsNullOrWhiteSpace(building.Description)
+                    => $"{building.Description}\n\nDelete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+                _ => "Delete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward."
+            };
+            selectedDescriptionLayout = GumScrollableText.Build(
+                selectedDescriptionViewportBounds,
+                selectedDescriptionText,
+                GumTextStyle.Small,
+                SelectedDescriptionScroll);
+            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
         }
 
         var assignmentScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
@@ -236,6 +287,7 @@ public sealed partial class MenuController
             contentFrameBounds,
             tabs,
             previewBounds,
+            buildPreviewDescriptionLayout,
             buildGridFrameBounds,
             buildGridViewportBounds,
             buildCards,
@@ -253,7 +305,7 @@ public sealed partial class MenuController
             selectedInventoryMaxScroll,
             selectedInventoryScrollbarTrackBounds,
             selectedInventoryScrollbarThumbBounds,
-            selectedDescriptionBounds,
+            selectedDescriptionLayout,
             deleteSelectedBounds,
             assignmentFilters,
             assignmentActiveBounds,
@@ -538,6 +590,7 @@ public sealed partial class MenuController
         Rectangle ContentFrameBounds,
         IReadOnlyList<LabeledRect> Tabs,
         Rectangle PreviewBounds,
+        GumScrollableTextLayout BuildPreviewDescriptionLayout,
         Rectangle BuildGridFrameBounds,
         Rectangle BuildGridViewportBounds,
         IReadOnlyList<BuildCardRect> BuildCards,
@@ -555,7 +608,7 @@ public sealed partial class MenuController
         float SelectedInventoryMaxScroll,
         Rectangle? SelectedInventoryScrollbarTrackBounds,
         Rectangle? SelectedInventoryScrollbarThumbBounds,
-        Rectangle SelectedDescriptionBounds,
+        GumScrollableTextLayout SelectedDescriptionLayout,
         Rectangle DeleteSelectedBounds,
         IReadOnlyList<LabeledRect> AssignmentFilters,
         Rectangle AssignmentActiveBounds,

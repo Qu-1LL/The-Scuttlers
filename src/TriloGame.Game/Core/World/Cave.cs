@@ -15,14 +15,7 @@ public sealed partial class Cave : Graph
 {
     public readonly record struct MineablePathResult(string TileKey, GridPoint NavigationTarget, List<GridPoint> Path);
 
-    private const int SizeMult = 30;
-    private const int HoleLimit = 10;
-    private const double DegradeLimit = 2.75;
-    private const double DegradeDeviation = 0.7;
-    private const int CavernCount = 25;
-    private const int Radius = 20;
-    private const int OreMult = 300;
-    private const int OreDist = 8;
+    private readonly CaveGenerator _generator = new();
     private readonly List<Trilobite> _trilobiteList = [];
     private readonly List<Enemy> _enemyList = [];
     private readonly List<Building> _buildingList = [];
@@ -45,7 +38,7 @@ public sealed partial class Cave : Graph
     public Cave(GameSession session)
     {
         Session = session;
-        GenerateCaveShrink();
+        _generator.Generate(this);
         Trilobites = [];
         Enemies = [];
         Buildings = [];
@@ -222,286 +215,6 @@ public sealed partial class Cave : Graph
         }
 
         return spawned;
-    }
-
-    private void GenerateCaveShrink()
-    {
-        FillCircle(0, 0, Radius);
-
-        var origins = new List<GridPoint> { GridPoint.Zero };
-        var successfulCaverns = 0;
-        while (successfulCaverns < CavernCount)
-        {
-            var parent = origins[RandomUtil.NextInt(origins.Count)];
-            var t = RandomUtil.NextDouble();
-            var xOffset = (Radius * 2d * t) + (Radius * RandomUtil.NextDouble());
-            var yOffset = (Radius * 2d * (1d - t)) + (Radius * RandomUtil.NextDouble());
-
-            var candidateX = (int)System.Math.Floor(parent.X + xOffset);
-            var candidateY = (int)System.Math.Floor(parent.Y + yOffset);
-
-            if (RandomUtil.NextDouble() > 0.5d)
-            {
-                candidateX = -candidateX;
-            }
-
-            if (RandomUtil.NextDouble() > 0.5d)
-            {
-                candidateY = -candidateY;
-            }
-
-            var tooClose = false;
-            foreach (var o in origins)
-            {
-                var dx = candidateX - o.X;
-                var dy = candidateY - o.Y;
-                if ((dx * dx) + (dy * dy) <= Radius * Radius)
-                {
-                    tooClose = true;
-                    break;
-                }
-            }
-
-            if (tooClose)
-            {
-                continue;
-            }
-
-            var origin = new GridPoint(candidateX, candidateY);
-            origins.Add(origin);
-            var newRadius = (int)System.Math.Floor((0.5d + RandomUtil.NextDouble()) * Radius);
-            FillCircle(origin.X, origin.Y, newRadius);
-            successfulCaverns++;
-        }
-
-        var protectedCenterRadius = Radius / 2;
-        var holeBreakThreshold = (Radius * HoleLimit) + (CavernCount * HoleLimit);
-        var tileKeys = RandomUtil.Shuffle(Tiles.Keys);
-        var removedHoleCount = 0;
-        foreach (var tileKey in tileKeys)
-        {
-            var tile = GetTile(tileKey)!;
-            var coords = GridPoint.Parse(tileKey);
-            if (tile.Neighbors.Count == 4 &&
-                ((coords.X * coords.X) + (coords.Y * coords.Y) > protectedCenterRadius * protectedCenterRadius))
-            {
-                RemoveTile(tileKey);
-                removedHoleCount++;
-            }
-
-            if (removedHoleCount > holeBreakThreshold)
-            {
-                break;
-            }
-        }
-
-        for (var index = 0; index < 2d + ((double)Radius / SizeMult) + ((double)Radius / CavernCount); index++)
-        {
-            DegradeCaveOnce();
-        }
-
-        foreach (var value in Tiles.Keys.ToArray())
-        {
-            if (GetTile(value)?.Neighbors.Count == 0)
-            {
-                RemoveTile(value);
-            }
-        }
-
-        foreach (var value in Tiles.Keys.ToArray())
-        {
-            var tile = GetTile(value)!;
-            if (tile.Neighbors.Count < 4)
-            {
-                tile.SetBase("wall");
-                tile.CreatureCanFit = false;
-                tile.ConfigureWall(GameConstants.WallHitsRequired);
-            }
-        }
-
-        foreach (var value in Tiles.Keys.ToArray())
-        {
-            var tile = GetTile(value)!;
-            if (tile.Base != "wall")
-            {
-                continue;
-            }
-
-            var willDelete = tile.Neighbors.All(neighbor => neighbor.Base != "empty");
-            if (willDelete)
-            {
-                RemoveTile(value);
-            }
-        }
-
-        FillOres();
-        PlaceCaveCrystals();
-    }
-
-    private void DegradeCaveOnce()
-    {
-        var tileKeys = RandomUtil.Shuffle(Tiles.Keys);
-        foreach (var tileKey in tileKeys)
-        {
-            var tile = GetTile(tileKey)!;
-            var neighborCount = tile.Neighbors.Count;
-            var sample = RandomUtil.NextNormal(neighborCount, DegradeDeviation);
-            if (neighborCount < 4 && sample < DegradeLimit)
-            {
-                RemoveTile(tileKey);
-            }
-        }
-    }
-
-    private void FillOres()
-    {
-        static bool TryPlaceGuaranteedOre(Cave cave, int min, int maxExclusive, string ore)
-        {
-            for (var attempt = 0; attempt < 500; attempt++)
-            {
-                var x = RandomUtil.NextInt(min, maxExclusive);
-                var y = RandomUtil.NextInt(min, maxExclusive);
-                var tile = cave.GetTile(new GridPoint(x, y).ToString());
-                if (tile is not null && tile.Base == "empty")
-                {
-                    cave.ConfigureGeneratedOreTile(tile, ore);
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        TryPlaceGuaranteedOre(this, -8, 9, OreType.SANDSTONE.Name);
-        TryPlaceGuaranteedOre(this, -6, 7, OreType.ALGAE.Name);
-        TryPlaceGuaranteedOre(this, -6, 7, OreType.MAGNETITE.Name);
-
-        var oreCount = 0;
-        foreach (var ore in OreType.GetOres())
-        {
-            var count = 0;
-            foreach (var tile in RandomUtil.Shuffle(GetTiles()))
-            {
-                var lower = System.Math.Abs(RandomUtil.NextNormal(3d * CavernCount * oreCount, CavernCount * (OreType.GetOres().Count - oreCount)) / OreDist);
-                var upper = System.Math.Abs(RandomUtil.NextNormal(3d * CavernCount * (oreCount + 3), 2d * CavernCount * (OreType.GetOres().Count - oreCount)) / OreDist);
-                var coords = GridPoint.Parse(tile.Key);
-                var vector = GetDistance(coords.X, coords.Y, 0, 0);
-                if (vector > lower && vector < upper && tile.Base == "empty")
-                {
-                    ConfigureGeneratedOreTile(tile, ore.Name);
-                    var veinCount = 0;
-                    var roll = RandomUtil.NextDouble();
-                    while (roll < 0.85d && veinCount <= 2 + (OreType.GetOres().Count - oreCount))
-                    {
-                        var neighbor = tile.GetRandomNeighbor();
-                        var brokenCount = 0;
-                        while (neighbor is not null && neighbor.Base != "empty" && brokenCount < 4)
-                        {
-                            neighbor = neighbor.GetRandomNeighbor();
-                            brokenCount++;
-                        }
-
-                        if (neighbor is not null && brokenCount < 4)
-                        {
-                            ConfigureGeneratedOreTile(neighbor, ore.Name);
-                        }
-
-                        roll = RandomUtil.NextDouble();
-                        veinCount++;
-                    }
-
-                    count++;
-                }
-
-                if (count >= (CavernCount / 5d) + (CavernCount * Radius * (OreType.GetOres().Count - oreCount)) / (double)OreMult)
-                {
-                    break;
-                }
-            }
-
-            oreCount++;
-        }
-    }
-
-    private void ConfigureGeneratedOreTile(Tile tile, string oreName)
-    {
-        tile.SetBase(oreName);
-        tile.ConfigureOre(
-            RandomUtil.NextInt(GameConstants.MinOreYield, GameConstants.MaxOreYield + 1),
-            RandomUtil.NextInt(GameConstants.MinOreHitsPerYield, GameConstants.MaxOreHitsPerYield + 1));
-    }
-
-    private void PlaceCaveCrystals()
-    {
-        var candidates = new List<Tile>();
-        foreach (var tile in GetTiles())
-        {
-            if (string.Equals(tile.Base, "empty", StringComparison.Ordinal) &&
-                tile.CreatureFits())
-            {
-                candidates.Add(tile);
-            }
-        }
-
-        if (candidates.Count == 0)
-        {
-            return;
-        }
-
-        var targetCount = Math.Clamp(
-            candidates.Count / GameConstants.CaveCrystalTileDivisor,
-            GameConstants.CaveCrystalMinCount,
-            GameConstants.CaveCrystalMaxCount);
-        var placed = 0;
-        foreach (var tile in RandomUtil.Shuffle(candidates))
-        {
-            var neighborHasCrystal = false;
-            foreach (var neighbor in tile.Neighbors)
-            {
-                if (neighbor.Decoration == TileDecoration.CaveCrystal)
-                {
-                    neighborHasCrystal = true;
-                    break;
-                }
-            }
-
-            if (neighborHasCrystal)
-            {
-                continue;
-            }
-
-            tile.SetDecoration(TileDecoration.CaveCrystal);
-            placed++;
-            if (placed >= targetCount)
-            {
-                break;
-            }
-        }
-    }
-
-    private void FillCircle(int originX, int originY, int radius)
-    {
-        for (var x = originX - radius; x <= originX + radius; x++)
-        {
-            for (var y = originY - radius; y <= originY + radius; y++)
-            {
-                if (!IsInCircle(x, y, originX, originY, radius))
-                {
-                    continue;
-                }
-
-                AddTile(new GridPoint(x, y).ToString());
-                if (Tiles.ContainsKey(new GridPoint(x - 1, y).ToString()))
-                {
-                    AddEdge(new GridPoint(x, y).ToString(), new GridPoint(x - 1, y).ToString());
-                }
-
-                if (Tiles.ContainsKey(new GridPoint(x, y - 1).ToString()))
-                {
-                    AddEdge(new GridPoint(x, y).ToString(), new GridPoint(x, y - 1).ToString());
-                }
-            }
-        }
     }
 
     private void RegisterBuilding(Building building)
@@ -801,52 +514,7 @@ public sealed partial class Cave : Graph
 
     public bool CanBuild(Building building, GridPoint location, bool preserveReachability = false)
     {
-        var hasQueen = GetQueenBuilding() is not null;
-        var buildingIsQueen = building is Queen;
-        var requireReachableTiles = hasQueen && !buildingIsQueen;
-
-        for (var x = 0; x < building.Size.X; x++)
-        {
-            for (var y = 0; y < building.Size.Y; y++)
-            {
-                if (building.OpenMap[y][x] > 1)
-                {
-                    continue;
-                }
-
-                var tile = GetTile(new GridPoint(location.X + x, location.Y + y).ToString());
-                if (tile is null ||
-                    tile.Built is not null ||
-                    HasBlockingSurfaceFeature(tile) ||
-                    tile.Base != "empty" ||
-                    !tile.CreatureFits() ||
-                    tile.EnemyOccupant is not null ||
-                    tile.Trilobites.Count > 0)
-                {
-                    return false;
-                }
-
-                if (requireReachableTiles && !IsTileReachable(tile))
-                {
-                    return false;
-                }
-            }
-        }
-
-        if (preserveReachability && requireReachableTiles && !SimulatedBuildPreservesReachability(building, location))
-        {
-            return false;
-        }
-
-        if (preserveReachability &&
-            requireReachableTiles &&
-            !ShouldSkipSimulatedBuildingAccessCheck(building) &&
-            !SimulatedBuildPreservesBuildingAccess(building, location))
-        {
-            return false;
-        }
-
-        return true;
+        return EvaluateBuildPlacement(building, location, preserveReachability).CanBuild;
     }
 
     public HashSet<string> BuildSimulatedReachableKeySet(Building? building = null, GridPoint? location = null)
@@ -1761,46 +1429,7 @@ public sealed partial class Cave
 
     public List<GridPoint>? BuildDirectPathToPoint(GridPoint startLocation, GridPoint destination)
     {
-        var startTile = GetTile(startLocation.ToString());
-        var destinationTile = GetTile(destination.ToString());
-        if (startTile is null || destinationTile is null ||
-            !startTile.CreatureFits() || !destinationTile.CreatureFits() ||
-            !IsTileReachable(startTile) || !IsTileReachable(destinationTile))
-        {
-            return null;
-        }
-
-        if (startTile.Key == destinationTile.Key)
-        {
-            return [startLocation];
-        }
-
-        var queue = new Queue<Tile>();
-        var visited = new HashSet<string>(StringComparer.Ordinal) { startTile.Key };
-        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
-        queue.Enqueue(startTile);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            foreach (var neighbor in current.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
-            {
-                if (!neighbor.CreatureFits() || !IsTileReachable(neighbor) || !visited.Add(neighbor.Key))
-                {
-                    continue;
-                }
-
-                cameFrom[neighbor.Key] = current.Key;
-                if (neighbor.Key == destinationTile.Key)
-                {
-                    return ReconstructDirectPath(cameFrom, startTile.Key, destinationTile.Key);
-                }
-
-                queue.Enqueue(neighbor);
-            }
-        }
-
-        return null;
+        return CavePathfinder.BuildDirectPathToPoint(this, startLocation, destination);
     }
 
     public MineablePathResult? BuildPathToNearestMineableType(
@@ -1809,87 +1438,7 @@ public sealed partial class Cave
         string mineableType,
         ISet<string>? reservedTileKeys = null)
     {
-        var startTile = GetTile(startLocation.ToString());
-        if (startTile is null || !startTile.CreatureFits() || !IsTileReachable(startTile))
-        {
-            return null;
-        }
-
-        reservedTileKeys ??= new HashSet<string>(StringComparer.Ordinal);
-        var queue = new Queue<Tile>();
-        var visited = new HashSet<string>(StringComparer.Ordinal) { startTile.Key };
-        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
-        queue.Enqueue(startTile);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            var currentResult = TryCreateMineablePathResult(
-                current,
-                post,
-                mineableType,
-                reservedTileKeys,
-                cameFrom,
-                startTile.Key);
-            if (currentResult.HasValue)
-            {
-                return currentResult.Value;
-            }
-
-            foreach (var neighbor in current.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
-            {
-                if (!neighbor.CreatureFits() || !IsTileReachable(neighbor) || !visited.Add(neighbor.Key))
-                {
-                    continue;
-                }
-
-                cameFrom[neighbor.Key] = current.Key;
-                queue.Enqueue(neighbor);
-            }
-        }
-
-        return null;
-    }
-
-    private MineablePathResult? TryCreateMineablePathResult(
-        Tile current,
-        MiningPost post,
-        string mineableType,
-        ISet<string> reservedTileKeys,
-        IReadOnlyDictionary<string, string> cameFrom,
-        string startKey)
-    {
-        if (string.Equals(mineableType, "wall", StringComparison.Ordinal))
-        {
-            foreach (var neighbor in current.Neighbors.OrderBy(neighbor => neighbor.Key, StringComparer.Ordinal))
-            {
-                if (!string.Equals(neighbor.Base, "wall", StringComparison.Ordinal) ||
-                    reservedTileKeys.Contains(neighbor.Key) ||
-                    !post.IsLocationInArea(neighbor.Coordinates))
-                {
-                    continue;
-                }
-
-                return new MineablePathResult(
-                    neighbor.Key,
-                    current.Coordinates,
-                    ReconstructDirectPath(cameFrom, startKey, current.Key));
-            }
-
-            return null;
-        }
-
-        if (!string.Equals(current.Base, mineableType, StringComparison.Ordinal) ||
-            reservedTileKeys.Contains(current.Key) ||
-            !post.IsLocationInArea(current.Coordinates))
-        {
-            return null;
-        }
-
-        return new MineablePathResult(
-            current.Key,
-            current.Coordinates,
-            ReconstructDirectPath(cameFrom, startKey, current.Key));
+        return CavePathfinder.BuildPathToNearestMineableType(this, startLocation, post, mineableType, reservedTileKeys);
     }
 
     public Dictionary<string, int>? BuildPointBfsField(GridPoint destination)
@@ -1952,25 +1501,6 @@ public sealed partial class Cave
                 Stopwatch.GetElapsedTime(timerStart).TotalMilliseconds,
                 GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
         }
-    }
-
-    private static List<GridPoint> ReconstructDirectPath(
-        IReadOnlyDictionary<string, string> cameFrom,
-        string startKey,
-        string destinationKey)
-    {
-        var path = new List<GridPoint>();
-        string? currentKey = destinationKey;
-        while (currentKey is not null)
-        {
-            path.Add(GridPoint.Parse(currentKey));
-            currentKey = string.Equals(currentKey, startKey, StringComparison.Ordinal)
-                ? null
-                : cameFrom.GetValueOrDefault(currentKey);
-        }
-
-        path.Reverse();
-        return path;
     }
 
     public int GetBuildingBfsFieldValue(Building building, GridPoint location)
@@ -2701,17 +2231,4 @@ public sealed partial class Cave
             : _enemyOccupancy.GetValueOrDefault(tileKey);
     }
 
-    private static bool IsInCircle(int x, int y, int cx, int cy, int radius)
-    {
-        var dx = x - cx;
-        var dy = y - cy;
-        return (dx * dx) + (dy * dy) <= radius * radius;
-    }
-
-    private static double GetDistance(int x, int y, int cx, int cy)
-    {
-        var dx = x - cx;
-        var dy = y - cy;
-        return System.Math.Sqrt((dx * dx) + (dy * dy));
-    }
 }

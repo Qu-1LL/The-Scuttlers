@@ -34,4 +34,22 @@ public sealed class TrilodexControllerTests
         Assert.Equal(TrilodexInteractionOutcome.Consumed, backOutcome);
         Assert.False(controller.IsDetailOpen);
     }
+
+    [Fact]
+    public void HandleWheel_InfoPanelScrollsWhenDetailEffectTextOverflows()
+    {
+        var controller = new TrilodexController();
+        var viewport = new Point(1440, 900);
+        controller.Open();
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count);
+        controller.HandlePointerUp(layout.CardBounds[0].Center, viewport);
+
+        var handled = controller.HandleWheel(layout.DetailInfoPanelBounds.Center, 90, viewport);
+        var infoPanelScroll = (float)typeof(TrilodexController)
+            .GetField("_infoPanelScroll", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(controller)!;
+
+        Assert.True(handled);
+        Assert.True(infoPanelScroll > 0f);
+    }
 }

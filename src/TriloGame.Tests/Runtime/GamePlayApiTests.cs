@@ -63,6 +63,7 @@ public sealed class GamePlayApiTests
             .Where(tile =>
                 cave.IsTileRevealed(tile) &&
                 cave.CanPlaceAntHole(tile) &&
+                cave.PreviewAntHoleSpawnTiles(tile, 1).Count > 0 &&
                 tile.Neighbors.Any(neighbor => neighbor.CreatureFits() && string.Equals(neighbor.Base, "empty", StringComparison.Ordinal)))
             .OrderBy(tile => GridPoint.ManhattanDistance(tile.Coordinates, GridPoint.Zero))
             .First();

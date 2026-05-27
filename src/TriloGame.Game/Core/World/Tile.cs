@@ -13,6 +13,7 @@ public sealed class Tile
         Key = key;
         Coordinates = Shared.Math.GridPoint.Parse(key);
         Base = "empty";
+        HasFloorCover = true;
         CreatureCanFit = true;
     }
 
@@ -25,6 +26,10 @@ public sealed class Tile
     public string Base { get; private set; }
 
     public TileDecoration Decoration { get; private set; }
+
+    public bool HasFloorCover { get; private set; }
+
+    public byte OreRotationQuarterTurns { get; private set; }
 
     public int ResourceYield { get; private set; }
 
@@ -70,6 +75,7 @@ public sealed class Tile
     public void SetBase(string tileBase)
     {
         Base = tileBase;
+        ClearOreRotation();
         if (!string.Equals(tileBase, "empty", StringComparison.Ordinal))
         {
             ClearDecoration();
@@ -104,11 +110,27 @@ public sealed class Tile
         ResourceYield = 0;
         HitsPerYield = 0;
         HitsRemaining = 0;
+        ClearOreRotation();
     }
 
     public void SetDecoration(TileDecoration decoration)
     {
         Decoration = decoration;
+    }
+
+    public void SetFloorCover(bool hasFloorCover)
+    {
+        HasFloorCover = hasFloorCover;
+    }
+
+    public void SetOreRotationQuarterTurns(int quarterTurns)
+    {
+        OreRotationQuarterTurns = GeneratedTileSpriteRotation.NormalizeQuarterTurns(quarterTurns);
+    }
+
+    public void ClearOreRotation()
+    {
+        OreRotationQuarterTurns = 0;
     }
 
     public void ClearDecoration()
@@ -201,9 +223,9 @@ public sealed class Tile
         Built = building;
     }
 
-    public bool CreatureFits() => CreatureCanFit;
+    public bool CreatureFits() => CreatureCanFit && HasFloorCover;
 
-    public bool EnemyFits() => CreatureCanFit && Built is not Buildings.Wall;
+    public bool EnemyFits() => CreatureCanFit && HasFloorCover && Built is not Buildings.Wall;
 
     public bool CreatureFits(Entities.Creature creature)
     {

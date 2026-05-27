@@ -78,11 +78,7 @@ public sealed partial class GameApp
         ForceCloseResearchDraftMenu();
         _debugMenuOpen = false;
         _roleRadialMenu = null;
-        _leftPanActive = false;
-        _selectionDragActive = false;
-        _selectionDragMode = null;
-        _selectionBoxBounds = null;
-        _input.EndDrag();
+        ResetPointerInteractionState();
         _trilodex.Open();
 
         if (pauseSimulationIfNeeded && !_mainMenuOpen && !_gamePaused)

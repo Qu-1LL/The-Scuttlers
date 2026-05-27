@@ -7,6 +7,14 @@ The project is currently a single MonoGame game assembly with layered modules in
 - `Core`
   - deterministic simulation rules
   - entities, buildings, world state, pathfinding, economy, events
+  - mining-order execution lives in `Core/Simulation` so UI can request orders without owning
+    the manual-order state transformation
+  - cave generation is isolated in `Core/World/CaveGenerator.cs`; `Cave` owns world state and
+    simulation-facing coordination rather than generation policy details
+  - cave path queries that do not need to mutate world state live in `Core/Pathfinding`
+  - trilobite role dispatch is isolated behind `Core/Entities/TrilobiteRoleBehavior.cs`, with
+    role-specific behavior components such as `TrilobiteFighterBehavior.cs` owning extracted
+    state machines
 - `Runtime`
   - startup/bootstrap flow
   - simulation clock orchestration
@@ -16,8 +24,34 @@ The project is currently a single MonoGame game assembly with layered modules in
   - play/test automation API
 - `UI`
   - menu, debug, selection, settings, Gum-backed controls
+  - the colony menu reports explicit interaction outcomes, such as consumed clicks, requested
+    select sounds, and requested building placement, instead of calling back into `GameApp`
+  - mining tile selection state lives under `UI/Selection` so the host does not own raw
+    tile-key list mutation policy directly
+  - mining tile rectangle hit scanning and hover tooltip rendering live under `UI/Selection` so
+    the host supplies cave/input/camera context without owning mining-selection UI details
+  - mining-order menu state, layout, rendering, and hit-test outcomes live under `UI/Selection`;
+    the host still dispatches accepted orders into Core simulation commands
+  - settings layout, rendering, and interaction routing live under `UI/Settings` so the host
+    delegates menu behavior instead of owning widget-level details directly
+  - main-menu, game-over, and round-debug overlay layout/rendering live under `UI` so the host
+    performs screen flow orchestration instead of owning overlay chrome and button geometry
+  - shared Gum text/chrome helpers live under `UI/Gum` so new overlays and menus can compose
+    reusable rounded panels, action buttons, fitted text, and scrollable text viewports instead of
+    cloning local draw helpers
+  - the shared Gum viewport helper now owns clipped scroll-surface rendering for card grids and
+    other expandable UI collections, including fallback primitive clipping when Gum container
+    masking is not sufficient for rounded shapes
+  - debug-menu button layout and action hit-testing live under `UI/Debug`; the host executes the
+    selected actions because they mutate runtime/game state
+  - research-tree viewport pan, zoom, visible bounds, and release snapping live in
+    `UI/Research/ResearchTreeViewportState.cs` so draft interaction and rendering do not own
+    viewport math directly
+  - shared research node info/text formatting lives under `UI/Research` so draft, tree, and
+    info-panel surfaces render the same node metadata through one typed model
 - `Rendering`
   - camera and render helpers
+  - world-scene rendering, including parallax background and cave tile/entity layers
 - `Audio`
   - cue registration, playback, and audio-specific runtime systems
 - `Shared`
@@ -45,6 +79,9 @@ These form the current “golden path” for adding structure without destabiliz
 
 - Screen-space UI is Gum-first.
 - In this MonoGame host, screen-space UI text is also Gum-first.
+- World rendering is layered: parallax cave background first, then floor tiles, then world overlays such as walls, ore, and cave crystals.
+- `Rendering/WorldSceneRenderer.cs` owns the reusable world-scene draw details so `GameApp`
+  can stay focused on MonoGame lifecycle and top-level pass orchestration.
 - Player-facing surfaces should route through `UI/Gum/GumUiRenderer.cs` or Gum-backed controls
   so panels, buttons, toggles, hints, and text all share the same rendering path.
 - New screen UI text should not be added through raw `SpriteBatch.DrawString`; text should flow

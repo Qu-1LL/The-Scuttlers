@@ -7,15 +7,27 @@ namespace TriloGame.Game.UI.Research;
 
 internal static class ResearchTreeMenuRenderer
 {
+    private static readonly GumUiButtonStyle CloseButtonStyle = new(
+        new GumUiFrameStyle(new Color(20, 42, 58), new Color(114, 154, 172), 2, 12),
+        new GumUiFrameStyle(new Color(29, 55, 72), new Color(183, 223, 237), 2, 12),
+        Color.White,
+        GumTextStyle.Small);
+    private static readonly GumUiButtonStyle BackButtonStyle = new(
+        new GumUiFrameStyle(new Color(20, 42, 58), new Color(114, 154, 172), 2, 12),
+        new GumUiFrameStyle(new Color(29, 55, 72), new Color(183, 223, 237), 2, 12),
+        Color.White,
+        GumTextStyle.Ui);
+
     public static void Draw(
         GumUiRenderer gumUi,
         GameSession session,
         ResearchTreeMenuModel model,
-        Point pointerPoint)
+        Point pointerPoint,
+        GumRenderTargetViewport? renderTargetViewport = null)
     {
         gumUi.AddRoundedFrame(model.Layout.PanelBounds, new Color(9, 18, 27, 248), new Color(83, 125, 145), 3, 20);
         DrawChrome(gumUi, model, pointerPoint);
-        DrawCards(gumUi, session, model);
+        DrawCards(gumUi, session, model, pointerPoint, renderTargetViewport);
         var treeHoverInfo = DrawTreeViewport(gumUi, session, model, pointerPoint);
         if (model.Config.ShowInfoPanel)
         {
@@ -29,7 +41,7 @@ internal static class ResearchTreeMenuRenderer
 
         if (model.Config.ShowFooter && !string.IsNullOrWhiteSpace(model.FooterText))
         {
-            AddText(gumUi, model.Layout.FooterBounds, model.FooterText, new Color(223, 233, 239), GumTextStyle.Compact);
+            GumUiText.Add(gumUi, model.Layout.FooterBounds, model.FooterText, new Color(223, 233, 239), GumTextStyle.Compact);
         }
     }
 
@@ -81,31 +93,34 @@ internal static class ResearchTreeMenuRenderer
     {
         if (model.Config.ShowCloseButton)
         {
-            gumUi.AddRoundedFrame(
+            GumUiChrome.DrawButton(
+                gumUi,
                 model.Layout.CloseButtonBounds,
-                model.Layout.CloseButtonBounds.Contains(pointerPoint) ? new Color(29, 55, 72) : new Color(20, 42, 58),
-                model.Layout.CloseButtonBounds.Contains(pointerPoint) ? new Color(183, 223, 237) : new Color(114, 154, 172),
-                2,
-                12);
-            AddCenteredText(gumUi, model.Layout.CloseButtonBounds, "X", Color.White, GumTextStyle.Small);
+                "X",
+                model.Layout.CloseButtonBounds.Contains(pointerPoint),
+                CloseButtonStyle);
         }
 
         if (model.Config.ShowBackButton && !model.Layout.BackButtonBounds.IsEmpty)
         {
-            gumUi.AddRoundedFrame(
+            GumUiChrome.DrawButton(
+                gumUi,
                 model.Layout.BackButtonBounds,
-                model.Layout.BackButtonBounds.Contains(pointerPoint) ? new Color(29, 55, 72) : new Color(20, 42, 58),
-                model.Layout.BackButtonBounds.Contains(pointerPoint) ? new Color(183, 223, 237) : new Color(114, 154, 172),
-                2,
-                12);
-            AddCenteredText(gumUi, model.Layout.BackButtonBounds, "<", Color.White, GumTextStyle.Ui);
+                "<",
+                model.Layout.BackButtonBounds.Contains(pointerPoint),
+                BackButtonStyle);
         }
 
-        AddCenteredText(gumUi, model.Layout.TitleBounds, model.Title, Color.White, GumTextStyle.UiLarge);
-        AddCenteredText(gumUi, model.Layout.SubtitleBounds, model.Subtitle, new Color(177, 203, 214), GumTextStyle.Small);
+        GumUiText.AddCentered(gumUi, model.Layout.TitleBounds, model.Title, Color.White, GumTextStyle.UiLarge);
+        GumUiText.AddCentered(gumUi, model.Layout.SubtitleBounds, model.Subtitle, new Color(177, 203, 214), GumTextStyle.Small);
     }
 
-    private static void DrawCards(GumUiRenderer gumUi, GameSession session, ResearchTreeMenuModel model)
+    private static void DrawCards(
+        GumUiRenderer gumUi,
+        GameSession session,
+        ResearchTreeMenuModel model,
+        Point pointerPoint,
+        GumRenderTargetViewport? renderTargetViewport)
     {
         if (model.Config.CardAreaMode == ResearchTreeCardAreaMode.None ||
             model.Layout.CardFrameBounds.IsEmpty)
@@ -114,18 +129,18 @@ internal static class ResearchTreeMenuRenderer
         }
 
         gumUi.AddRoundedFrame(model.Layout.CardFrameBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        if (!model.Layout.CardHeaderBounds.IsEmpty && !string.IsNullOrWhiteSpace(model.CardHeaderText))
-        {
-            AddText(gumUi, model.Layout.CardHeaderBounds, model.CardHeaderText, new Color(204, 228, 238), GumTextStyle.Small);
-        }
-
         if (model.Config.CardAreaMode == ResearchTreeCardAreaMode.CatalogGrid)
         {
-            DrawCatalogCards(gumUi, session, model);
+            DrawCatalogCards(gumUi, session, model, pointerPoint, renderTargetViewport);
         }
         else
         {
-            DrawDraftRowCards(gumUi, session, model);
+            DrawDraftRowCards(gumUi, session, model, pointerPoint);
+        }
+
+        if (!model.Layout.CardHeaderBounds.IsEmpty && !string.IsNullOrWhiteSpace(model.CardHeaderText))
+        {
+            GumUiText.Add(gumUi, model.Layout.CardHeaderBounds, model.CardHeaderText, new Color(204, 228, 238), GumTextStyle.Small);
         }
 
         if (model.Layout.MaxCardScroll > 0f)
@@ -135,12 +150,12 @@ internal static class ResearchTreeMenuRenderer
         }
     }
 
-    private static void DrawDraftRowCards(GumUiRenderer gumUi, GameSession session, ResearchTreeMenuModel model)
+    private static void DrawDraftRowCards(GumUiRenderer gumUi, GameSession session, ResearchTreeMenuModel model, Point pointerPoint)
     {
         for (var index = 0; index < Math.Min(model.Cards.Count, model.Layout.CardBounds.Count); index++)
         {
             var source = model.Cards[index];
-            ResearchTreeUiRenderer.DrawTreeEntryCard(
+            ResearchTreeCardRenderer.Draw(
                 gumUi,
                 session,
                 new ResearchTreeCardData(
@@ -151,50 +166,102 @@ internal static class ResearchTreeMenuRenderer
                     source.IsHovered,
                     source.IsSelected),
                 ResearchTreeUiRenderer.TreeEntryCardConfig,
-                Point.Zero);
+                pointerPoint);
         }
     }
 
-    private static void DrawCatalogCards(GumUiRenderer gumUi, GameSession session, ResearchTreeMenuModel model)
+    private static void DrawCatalogCards(
+        GumUiRenderer gumUi,
+        GameSession session,
+        ResearchTreeMenuModel model,
+        Point pointerPoint,
+        GumRenderTargetViewport? renderTargetViewport)
     {
         if (model.Layout.CardViewportBounds.IsEmpty)
         {
             return;
         }
 
-        var clipLayer = gumUi.AddClippingContainer(model.Layout.CardViewportBounds);
+        if (renderTargetViewport is null)
+        {
+            DrawCatalogCardsDirect(gumUi, session, model, pointerPoint);
+            return;
+        }
+
+        var texture = renderTargetViewport.Render(
+            model.Layout.CardViewportBounds,
+            offscreenGumUi => DrawCatalogCardsInto(
+                offscreenGumUi,
+                session,
+                model,
+                new GumUiSurface(model.Layout.CardViewportBounds),
+                pointerPoint));
+        gumUi.AddSprite(model.Layout.CardViewportBounds, texture);
+    }
+
+    private static void DrawCatalogCardsDirect(
+        GumUiRenderer gumUi,
+        GameSession session,
+        ResearchTreeMenuModel model,
+        Point pointerPoint)
+    {
         for (var index = 0; index < Math.Min(model.Cards.Count, model.Layout.CardBounds.Count); index++)
         {
-            var bounds = model.Layout.CardBounds[index];
-            if (bounds.Bottom < model.Layout.CardViewportBounds.Top ||
-                bounds.Top > model.Layout.CardViewportBounds.Bottom)
+            var cardBounds = model.Layout.CardBounds[index];
+            if (Rectangle.Intersect(model.Layout.CardViewportBounds, cardBounds) is not { Width: > 0, Height: > 0 })
             {
                 continue;
             }
 
-            var localBounds = new Rectangle(
-                bounds.X - model.Layout.CardViewportBounds.X,
-                bounds.Y - model.Layout.CardViewportBounds.Y,
-                bounds.Width,
-                bounds.Height);
             var source = model.Cards[index];
-            ResearchTreeUiRenderer.DrawTreeEntryCard(
+            ResearchTreeCardRenderer.Draw(
                 gumUi,
-                clipLayer,
                 session,
                 new ResearchTreeCardData(
                     source.Title,
                     source.Subtitle,
-                    localBounds,
+                    cardBounds,
                     source.Root,
                     source.IsHovered,
                     source.IsSelected),
                 ResearchTreeUiRenderer.TreeEntryCardConfig,
-                Point.Zero);
+                pointerPoint);
         }
     }
 
-    private static ResearchTreeNodeInfo? DrawTreeViewport(
+    private static void DrawCatalogCardsInto(
+        GumUiRenderer gumUi,
+        GameSession session,
+        ResearchTreeMenuModel model,
+        GumUiSurface surface,
+        Point pointerPoint)
+    {
+        var localPointer = surface.ToLocal(pointerPoint);
+        for (var index = 0; index < Math.Min(model.Cards.Count, model.Layout.CardBounds.Count); index++)
+        {
+            var cardBounds = model.Layout.CardBounds[index];
+            if (!surface.Intersects(cardBounds))
+            {
+                continue;
+            }
+
+            var source = model.Cards[index];
+            ResearchTreeCardRenderer.Draw(
+                gumUi,
+                session,
+                new ResearchTreeCardData(
+                    source.Title,
+                    source.Subtitle,
+                    surface.ToLocal(cardBounds),
+                    source.Root,
+                    source.IsHovered,
+                    source.IsSelected),
+                ResearchTreeUiRenderer.TreeEntryCardConfig,
+                localPointer);
+        }
+    }
+
+    private static ResearchNodeInfo? DrawTreeViewport(
         GumUiRenderer gumUi,
         GameSession session,
         ResearchTreeMenuModel model,
@@ -210,7 +277,7 @@ internal static class ResearchTreeMenuRenderer
         gumUi.AddRoundedFrame(model.Layout.TreeFrameBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
         if (!model.Layout.TreeHeaderBounds.IsEmpty && !string.IsNullOrWhiteSpace(model.TreeHeaderText))
         {
-            AddText(gumUi, model.Layout.TreeHeaderBounds, model.TreeHeaderText, new Color(204, 228, 238), GumTextStyle.Small);
+            GumUiText.Add(gumUi, model.Layout.TreeHeaderBounds, model.TreeHeaderText, new Color(204, 228, 238), GumTextStyle.Small);
         }
 
         if (model.TreeViewport.DrawCustomContent is not null)
@@ -252,21 +319,32 @@ internal static class ResearchTreeMenuRenderer
             return;
         }
 
-        if (model.NodeInfo is ResearchTreeNodeInfo info)
+        if (model.NodeInfo is ResearchNodeInfo info)
         {
             gumUi.AddRoundedFrame(bounds, new Color(9, 18, 28, 248), new Color(204, 228, 238), 2, 16);
             var contentX = bounds.X + 14;
             var contentWidth = bounds.Width - 28;
-            AddText(gumUi, new Rectangle(contentX, bounds.Y + 12, contentWidth, 18), "Node Details", new Color(204, 228, 238), GumTextStyle.Compact);
+            GumUiText.Add(gumUi, new Rectangle(contentX, bounds.Y + 12, contentWidth, 18), "Node Details", new Color(204, 228, 238), GumTextStyle.Compact);
             DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 38, contentWidth, 44), "Node", info.TitleText);
             DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 88, contentWidth, 40), "Feature Tree", info.FeatureTreeText);
-            DrawInfoSection(gumUi, new Rectangle(contentX, bounds.Y + 134, contentWidth, bounds.Height - 148), "Effect", info.EffectText, maxLines: 10);
+            var effectLabelBounds = new Rectangle(contentX, bounds.Y + 134, contentWidth, 14);
+            GumUiText.Add(gumUi, effectLabelBounds, "Effect", new Color(153, 194, 211), GumTextStyle.Compact, verticalAlignment: VerticalAlignment.Top);
+            var effectViewportBounds = new Rectangle(contentX, bounds.Y + 150, contentWidth, Math.Max(20, bounds.Height - 164));
+            var effectTextLayout = GumScrollableText.Build(effectViewportBounds, info.EffectText, GumTextStyle.Small, model.ScrollOffset);
+            GumScrollableText.Draw(gumUi, effectTextLayout, Color.White, GumTextStyle.Small);
+            if (effectTextLayout.ScrollbarTrackBounds is { } trackBounds &&
+                effectTextLayout.ScrollbarThumbBounds is { } thumbBounds)
+            {
+                gumUi.AddRoundedRectangle(trackBounds, new Color(10, 22, 32, 210), 3);
+                gumUi.AddRoundedRectangle(thumbBounds, new Color(92, 137, 154), 3);
+            }
+
             return;
         }
 
         gumUi.AddRoundedFrame(bounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-        AddText(gumUi, new Rectangle(bounds.X + 14, bounds.Y + 12, bounds.Width - 28, 18), model.EmptyTitle, new Color(204, 228, 238), GumTextStyle.Compact);
-        AddCenteredText(
+        GumUiText.Add(gumUi, new Rectangle(bounds.X + 14, bounds.Y + 12, bounds.Width - 28, 18), model.EmptyTitle, new Color(204, 228, 238), GumTextStyle.Compact);
+        GumUiText.AddCentered(
             gumUi,
             new Rectangle(bounds.X + 18, bounds.Y + 46, bounds.Width - 36, bounds.Height - 64),
             model.EmptyText,
@@ -297,28 +375,4 @@ internal static class ResearchTreeMenuRenderer
             maxLines: maxLines);
     }
 
-    private static void AddText(GumUiRenderer gumUi, Rectangle bounds, string text, Color color, GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        gumUi.AddText(bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
-    }
-
-    private static void AddCenteredText(
-        GumUiRenderer gumUi,
-        Rectangle bounds,
-        string text,
-        Color color,
-        GumTextStyle style,
-        int maxLines = 0)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        gumUi.AddText(
-            bounds,
-            text,
-            color,
-            HorizontalAlignment.Center,
-            VerticalAlignment.Center,
-            metrics.FontSize,
-            maxLines);
-    }
 }

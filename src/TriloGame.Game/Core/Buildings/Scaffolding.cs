@@ -261,9 +261,7 @@ public sealed class Scaffolding : Building
 
     private static int[][] BuildScaffoldOpenMap(int[][] targetOpenMap)
     {
-        return targetOpenMap
-            .Select(row => row.Select(cell => cell > 1 ? cell : 0).ToArray())
-            .ToArray();
+        return CloneOpenMap(targetOpenMap);
     }
 
     private static int BuildConstructionRequirement(Dictionary<string, int> recipeRequired)

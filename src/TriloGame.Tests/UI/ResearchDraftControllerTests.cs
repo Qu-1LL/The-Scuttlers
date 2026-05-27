@@ -135,14 +135,47 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
+    public void BuildProjectedPlacementLayout_UsesPostPlacementOrientationWithoutMutatingTheTrees()
+    {
+        const float edgeLength = 80f;
+        var skillTree = CreateRootOnlySkillTree();
+        var root = skillTree.Root!;
+        skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Left", "Left branch."), "B1"));
+        skillTree.AddChild(root, skillTree.IntakeSkillNode(new SkillNode("Right", "Right branch."), "C1"));
+
+        var branch = new ResearchBranch();
+        var branchRoot = branch.SetRoot(new TreeInstanceNode(new SkillNode("Preview Root", "Preview root."), "F1"));
+        branch.AddChild(branchRoot, new TreeInstanceNode(new SkillNode("Preview Child", "Preview child."), "F1"));
+
+        var projected = ResearchDraftController.BuildProjectedPlacementLayout(
+            Vector2.Zero,
+            edgeLength,
+            Vector2.Zero,
+            root,
+            branch,
+            root);
+
+        Assert.Equal(2, root.ChildCount);
+        Assert.Null(branchRoot.Parent);
+
+        var projectedRoot = projected.Nodes.Single(node => ReferenceEquals(node.SkillNode, root) && !node.IsBranchNode);
+        var projectedBranchRoot = projected.Nodes.Single(node => ReferenceEquals(node.SkillNode, branchRoot) && node.IsBranchNode);
+        var expectedDirection = UniversalTreeLayout.DegreesToUnitVector(-45f);
+        var expectedPosition = projectedRoot.Position + (expectedDirection * edgeLength);
+
+        Assert.Same(projectedRoot, projectedBranchRoot.Parent);
+        Assert.InRange(Vector2.Distance(projectedBranchRoot.Position, expectedPosition), 0f, 0.001f);
+    }
+
+    [Fact]
     public void BuildVisibleTreeContentBounds_UsesThePlacedTreeExtentsInsteadOfOnlyTheCoreNode()
     {
         var viewport = new Rectangle(100, 80, 620, 420);
         var rootOnlyTree = CreateRootOnlySkillTree();
         var expandedTree = CreateWideSkillTree();
 
-        var rootOnlyBounds = ResearchDraftController.BuildVisibleTreeContentBounds(viewport, rootOnlyTree);
-        var expandedBounds = ResearchDraftController.BuildVisibleTreeContentBounds(viewport, expandedTree);
+        var rootOnlyBounds = ResearchTreeViewportState.BuildVisibleContentBounds(viewport, rootOnlyTree);
+        var expandedBounds = ResearchTreeViewportState.BuildVisibleContentBounds(viewport, expandedTree);
 
         Assert.True(expandedBounds.MinX < rootOnlyBounds.MinX - 20f);
         Assert.True(expandedBounds.MaxX > rootOnlyBounds.MaxX + 20f);
@@ -158,7 +191,7 @@ public sealed class ResearchDraftControllerTests
         var skillTree = CreateWideSkillTree();
         var panOffset = new Vector2(36f, -24f);
 
-        var resolved = ResearchDraftController.ResolveTreePanAfterRelease(viewport, skillTree, panOffset, zoom: 1f);
+        var resolved = ResearchTreeViewportState.ResolvePanAfterRelease(viewport, skillTree, panOffset, zoom: 1f);
 
         Assert.Equal(panOffset, resolved);
     }
@@ -170,8 +203,8 @@ public sealed class ResearchDraftControllerTests
         var skillTree = CreateWideSkillTree();
         var farOutsidePan = new Vector2(-10000f, 7200f);
 
-        var resolved = ResearchDraftController.ResolveTreePanAfterRelease(viewport, skillTree, farOutsidePan, zoom: 1f);
-        var baseBounds = ResearchDraftController.BuildVisibleTreeContentBounds(viewport, skillTree);
+        var resolved = ResearchTreeViewportState.ResolvePanAfterRelease(viewport, skillTree, farOutsidePan, zoom: 1f);
+        var baseBounds = ResearchTreeViewportState.BuildVisibleContentBounds(viewport, skillTree);
         var pannedCenter = new Vector2(
             ((baseBounds.MinX + baseBounds.MaxX) * 0.5f) + resolved.X,
             ((baseBounds.MinY + baseBounds.MaxY) * 0.5f) + resolved.Y);
@@ -184,9 +217,9 @@ public sealed class ResearchDraftControllerTests
     [Fact]
     public void ClampTreeZoom_StaysWithinSensibleLimits()
     {
-        Assert.Equal(0.55f, ResearchDraftController.ClampTreeZoom(0.1f));
-        Assert.Equal(1.25f, ResearchDraftController.ClampTreeZoom(1.25f));
-        Assert.Equal(2.25f, ResearchDraftController.ClampTreeZoom(9f));
+        Assert.Equal(0.55f, ResearchTreeViewportState.ClampZoom(0.1f));
+        Assert.Equal(1.25f, ResearchTreeViewportState.ClampZoom(1.25f));
+        Assert.Equal(2.25f, ResearchTreeViewportState.ClampZoom(9f));
     }
 
     [Fact]

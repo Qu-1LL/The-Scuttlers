@@ -236,10 +236,6 @@ public class Creature
     {
         return Assignment switch
         {
-            "miner" when this is Trilobite trilobite => () => trilobite.MinerStep1(),
-            "farmer" when this is Trilobite trilobite => () => trilobite.FarmerStep1(),
-            "builder" when this is Trilobite trilobite => () => trilobite.BuilderStep1(),
-            "fighter" when this is Trilobite trilobite => () => trilobite.FighterStep1(),
             "enemy" when this is Enemy enemy => () => enemy.EnemyStep1(),
             _ => null
         };
@@ -599,8 +595,6 @@ public class Creature
             ClearActionQueue();
         }
 
-        // Building navigation now advances one BFS-field step per tick instead of
-        // prebuilding and queuing an entire route.
         var field = GetBuildingNavigationField(building);
         if (field is null)
         {

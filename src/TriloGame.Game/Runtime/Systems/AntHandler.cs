@@ -58,7 +58,7 @@ public sealed class AntHandler
         var firstAntOrdinal = 0;
         for (var spawnIndex = 0; spawnIndex < batchedSpawnCounts.Count; spawnIndex++)
         {
-            var spawnOffsetMs = spawnWindowStartMs + (((spawnIndex * 2d) + 1d) * spawnWindowDurationMs / (batchedSpawnCounts.Count * 2d));
+            var spawnOffsetMs = spawnWindowStartMs + GetSpawnOffsetMs(round.RoundNumber, spawnIndex, batchedSpawnCounts.Count, spawnWindowDurationMs);
             var antHoleCount = batchedSpawnCounts[spawnIndex];
             _scheduledSpawns.Add(new ScheduledAntSpawn(round.RoundNumber, firstAntOrdinal, antHoleCount, spawnOffsetMs));
             firstAntOrdinal += antHoleCount;
@@ -252,6 +252,19 @@ public sealed class AntHandler
 
         Debug.Assert(remainingAnts == 0, "Spawn batch sizes should consume every ant requested for the round.");
         return batchSizes;
+    }
+
+    private static double GetSpawnOffsetMs(int roundNumber, int spawnIndex, int spawnEventCount, double spawnWindowDurationMs)
+    {
+        if (roundNumber is >= 1 and <= GameConstants.RoundSingleAntSpawnMaxRound)
+        {
+            const int singleAntCadenceSlots = 8;
+            return spawnIndex < singleAntCadenceSlots
+                ? ((spawnIndex * 2d) + 1d) * spawnWindowDurationMs / (singleAntCadenceSlots * 2d)
+                : spawnWindowDurationMs;
+        }
+
+        return ((spawnIndex * 2d) + 1d) * spawnWindowDurationMs / (spawnEventCount * 2d);
     }
 
     private readonly record struct ScheduledAntSpawn(

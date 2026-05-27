@@ -35,6 +35,16 @@ public static class GameConstants
     public const int CaveCrystalMinCount = 6;
     public const int CaveCrystalMaxCount = 28;
     public const int CaveCrystalTileDivisor = 180;
+    public const int CaveFloorHoleProtectedRadius = 8;
+    public const int CaveFloorHoleMinTileCount = 18;
+    public const int CaveFloorHoleMaxTileCount = 48;
+    public const int CaveFloorHoleTileDivisor = 210;
+    public const int CaveFloorHoleMinClusterSize = 3;
+    public const int CaveFloorHoleMaxClusterSize = 6;
+    public const int CaveFloorHoleCellularPasses = 2;
+    public const double CaveFloorHoleInitialFillChance = 0.48d;
+    public const float CaveBackgroundParallaxFactor = 0.16f;
+    public const float CaveBackgroundScaleMultiplier = 1.3f;
     public const int MinOreHitsPerYield = 1;
     public const int MaxOreHitsPerYield = 5;
     public const int TrilobiteCarryCapacity = 5;

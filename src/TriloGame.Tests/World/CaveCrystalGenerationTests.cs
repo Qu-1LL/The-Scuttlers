@@ -19,6 +19,7 @@ public sealed class CaveCrystalGenerationTests
         {
             Assert.Equal("empty", tile.Base);
             Assert.True(tile.CreatureFits());
+            Assert.True(tile.HasFloorCover);
             Assert.False(tile.IsOreTile());
         });
     }

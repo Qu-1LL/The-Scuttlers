@@ -10,7 +10,8 @@ public sealed class FeatureTree
         IEnumerable<string>? featuresAffected,
         int tier,
         IEnumerable<string>? prerequisiteTrees = null,
-        SkillNode? root = null)
+        SkillNode? root = null,
+        FeatureTreeColor? displayColor = null)
     {
         Name = RequireText(name, nameof(name));
         Description = RequireText(description, nameof(description));
@@ -19,6 +20,7 @@ public sealed class FeatureTree
             ? tier
             : throw new ArgumentOutOfRangeException(nameof(tier), "Tier must be at least 1.");
         PrerequisiteTrees = NormalizeTreeNames(prerequisiteTrees);
+        DisplayColor = displayColor;
 
         if (root is not null)
         {
@@ -37,6 +39,8 @@ public sealed class FeatureTree
     public IReadOnlyList<string> PrerequisiteTrees { get; }
 
     public bool HasPrerequisites => PrerequisiteTrees.Count > 0;
+
+    public FeatureTreeColor? DisplayColor { get; }
 
     public SkillNode? Root { get; private set; }
 

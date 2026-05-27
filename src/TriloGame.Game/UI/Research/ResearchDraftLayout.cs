@@ -6,6 +6,9 @@ namespace TriloGame.Game.UI.Research;
 public static class ResearchDraftLayout
 {
     public const int TreeCatalogCardColumns = 4;
+    private const int DraftCardTopPadding = 40;
+    private const int DraftCardBottomPadding = 14;
+    private const int TreeCatalogCardGap = 14;
 
     public static Rectangle GetButtonBounds(Point viewport)
     {
@@ -34,8 +37,13 @@ public static class ResearchDraftLayout
         var contentGap = 18;
         var leftContentWidth = Math.Max(360, contentWidth - infoPanelWidth - contentGap);
         var hasDraftArea = safeBranchCardCount > 0;
+        var preferredDraftAreaHeight = ResearchTreeCardRenderer.PreferredCardHeight + DraftCardTopPadding + DraftCardBottomPadding;
+        var maxDraftAreaHeight = Math.Max(150, contentHeight - 180);
         var draftAreaHeight = hasDraftArea
-            ? Math.Clamp((int)MathF.Round(contentHeight * 0.28f), 150, 186)
+            ? Math.Clamp(
+                preferredDraftAreaHeight,
+                150,
+                maxDraftAreaHeight)
             : 0;
         var draftAreaBounds = hasDraftArea
             ? new Rectangle(panelBounds.X + 24, contentTop, leftContentWidth, draftAreaHeight)
@@ -149,15 +157,13 @@ public static class ResearchDraftLayout
 
         const int gap = 16;
         const int sidePadding = 14;
-        const int topPadding = 40;
-        const int bottomPadding = 14;
         var totalGap = gap * Math.Max(0, branchCardCount - 1);
         var availableWidth = Math.Max(120, draftAreaBounds.Width - (sidePadding * 2) - totalGap);
         var cardWidth = Math.Max(120, availableWidth / branchCardCount);
-        var cardHeight = Math.Max(96, draftAreaBounds.Height - topPadding - bottomPadding);
+        var cardHeight = Math.Max(96, draftAreaBounds.Height - DraftCardTopPadding - DraftCardBottomPadding);
         var cards = new List<Rectangle>(branchCardCount);
         var x = draftAreaBounds.X + sidePadding;
-        var y = draftAreaBounds.Y + topPadding;
+        var y = draftAreaBounds.Y + DraftCardTopPadding;
         for (var index = 0; index < branchCardCount; index++)
         {
             cards.Add(new Rectangle(x, y, cardWidth, cardHeight));
@@ -175,22 +181,20 @@ public static class ResearchDraftLayout
             return [];
         }
 
-        const int gap = 14;
-        const int cardHeight = 190;
         var contentHeight = CalculateTreeCatalogContentHeight(treeCount);
         maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
         var clampedScroll = Math.Clamp(scroll, 0f, maxScroll);
-        var cardWidth = Math.Max(120, (viewportBounds.Width - (gap * (TreeCatalogCardColumns - 1))) / TreeCatalogCardColumns);
+        var cardWidth = Math.Max(120, (viewportBounds.Width - (TreeCatalogCardGap * (TreeCatalogCardColumns - 1))) / TreeCatalogCardColumns);
         var cards = new List<Rectangle>(treeCount);
         for (var index = 0; index < treeCount; index++)
         {
             var column = index % TreeCatalogCardColumns;
             var row = index / TreeCatalogCardColumns;
             cards.Add(new Rectangle(
-                viewportBounds.X + (column * (cardWidth + gap)),
-                viewportBounds.Y + (row * (cardHeight + gap)) - (int)MathF.Round(clampedScroll),
+                viewportBounds.X + (column * (cardWidth + TreeCatalogCardGap)),
+                viewportBounds.Y + (row * (ResearchTreeCardRenderer.PreferredCardHeight + TreeCatalogCardGap)) - (int)MathF.Round(clampedScroll),
                 cardWidth,
-                cardHeight));
+                ResearchTreeCardRenderer.PreferredCardHeight));
         }
 
         return cards;
@@ -203,10 +207,8 @@ public static class ResearchDraftLayout
             return 0;
         }
 
-        const int gap = 14;
-        const int cardHeight = 190;
         var rows = (int)MathF.Ceiling(treeCount / (float)TreeCatalogCardColumns);
-        return (rows * cardHeight) + (Math.Max(0, rows - 1) * gap);
+        return (rows * ResearchTreeCardRenderer.PreferredCardHeight) + (Math.Max(0, rows - 1) * TreeCatalogCardGap);
     }
 
     private static Rectangle BuildTreeCatalogScrollbarThumb(Rectangle trackBounds, float scroll, float maxScroll, int viewportHeight, int contentHeight)

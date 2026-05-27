@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
@@ -60,7 +61,7 @@ public sealed class TrilobiteMiningPostSelectionTests
     public void MinerSelection_FallsBackToAdjacentPost_WhenNearestHasNoMineableWork()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(33, 12, new GridPoint(15, 0));
-        SetTileBase(cave, new GridPoint(30, 10), "Sandstone");
+        SetTileBase(cave, new GridPoint(30, 10), OreType.CHITINSTONE.Name);
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
         var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(27, 6));
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 9), "Miner", "miner");
@@ -82,8 +83,8 @@ public sealed class TrilobiteMiningPostSelectionTests
     public void MinerSelection_ReusesAssignedPost_WhenItRemainsValid()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(33, 12, new GridPoint(15, 0));
-        SetTileBase(cave, new GridPoint(2, 10), "Sandstone");
-        SetTileBase(cave, new GridPoint(30, 10), "Sandstone");
+        SetTileBase(cave, new GridPoint(2, 10), OreType.CHITINSTONE.Name);
+        SetTileBase(cave, new GridPoint(30, 10), OreType.CHITINSTONE.Name);
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
         TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(27, 6));
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(25, 9), "Miner", "miner");
@@ -106,8 +107,8 @@ public sealed class TrilobiteMiningPostSelectionTests
     public void MinerSelection_UsesLeastAssignedAvailablePost_WhenPickingNewAssignment()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(33, 12, new GridPoint(15, 0));
-        SetTileBase(cave, new GridPoint(2, 10), "Sandstone");
-        SetTileBase(cave, new GridPoint(30, 10), "Sandstone");
+        SetTileBase(cave, new GridPoint(2, 10), OreType.CHITINSTONE.Name);
+        SetTileBase(cave, new GridPoint(30, 10), OreType.CHITINSTONE.Name);
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
         var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(27, 6));
         var existingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 9), "Existing", "miner");
@@ -167,7 +168,7 @@ public sealed class TrilobiteMiningPostSelectionTests
     public void MinerStep1_WaitsOnAssignedExhaustedPost_WhenGlobalAssignmentsAreUnavailable()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(26, 14, new GridPoint(10, 0));
-        SetTileBase(cave, new GridPoint(3, 11), "Sandstone");
+        SetTileBase(cave, new GridPoint(3, 11), OreType.CHITINSTONE.Name);
         var exhaustedPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 7));
         var reservingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 9), "Reserver", "miner");
         var waitingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Waiting Miner", "miner");
@@ -188,7 +189,7 @@ public sealed class TrilobiteMiningPostSelectionTests
     public void MinerStep1_ReleasesExhaustedAssignedPost_WhenGlobalAssignmentsResume()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(34, 14, new GridPoint(14, 0));
-        SetTileBase(cave, new GridPoint(3, 11), "Sandstone");
+        SetTileBase(cave, new GridPoint(3, 11), OreType.CHITINSTONE.Name);
         var exhaustedPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 7));
         var reservingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 9), "Reserver", "miner");
         var waitingMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Waiting Miner", "miner");
@@ -197,7 +198,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         waitingMiner.SetAssignedBuilding(exhaustedPost);
         exhaustedPost.Assign(waitingMiner, null);
 
-        SetTileBase(cave, new GridPoint(30, 11), "Sandstone");
+        SetTileBase(cave, new GridPoint(30, 11), OreType.CHITINSTONE.Name);
         var freshPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(28, 7));
 
         Assert.True(cave.HasAvailableMiningPostAssignments);
@@ -212,7 +213,7 @@ public sealed class TrilobiteMiningPostSelectionTests
     public void MinerStep3_QueuesRouteToReservedMineTarget()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
-        SetTileBase(cave, new GridPoint(14, 11), "Sandstone");
+        SetTileBase(cave, new GridPoint(14, 11), OreType.CHITINSTONE.Name);
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(6, 6));
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 6), "Miner", "miner");
         miner.SetAssignedBuilding(post);
@@ -239,8 +240,8 @@ public sealed class TrilobiteMiningPostSelectionTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 18, new GridPoint(12, 0));
         var fartherOre = new GridPoint(8, 12);
         var nearerOre = new GridPoint(18, 12);
-        SetTileBase(cave, fartherOre, "Sandstone");
-        SetTileBase(cave, nearerOre, "Sandstone");
+        SetTileBase(cave, fartherOre, OreType.CHITINSTONE.Name);
+        SetTileBase(cave, nearerOre, OreType.CHITINSTONE.Name);
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(12, 8));
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(19, 12), "Miner", "miner");
         miner.SetAssignedBuilding(post);
@@ -248,7 +249,7 @@ public sealed class TrilobiteMiningPostSelectionTests
 
         Assert.True(miner.MinerStep3());
 
-        Assert.Equal("Sandstone", miner.PendingMineType);
+        Assert.Equal(OreType.CHITINSTONE.Name, miner.PendingMineType);
         Assert.Equal(nearerOre.ToString(), miner.PendingMineTileKey);
         Assert.Equal(nearerOre.ToString(), post.GetAssignment(miner));
 
@@ -264,8 +265,8 @@ public sealed class TrilobiteMiningPostSelectionTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
         var firstOre = new GridPoint(8, 10);
         var secondOre = new GridPoint(10, 10);
-        SetTileBase(cave, firstOre, "Sandstone");
-        SetTileBase(cave, secondOre, "Sandstone");
+        SetTileBase(cave, firstOre, OreType.CHITINSTONE.Name);
+        SetTileBase(cave, secondOre, OreType.CHITINSTONE.Name);
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(8, 6), "Miner", "miner");
         miner.SetAssignedBuilding(post);

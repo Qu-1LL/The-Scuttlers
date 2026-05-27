@@ -30,11 +30,11 @@ public sealed class MiningYieldTests
         var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
         var trilobite = new Trilobite("Carrier", new GridPoint(0, 0), session);
 
-        var accepted = trilobite.AddToInventory(OreType.MAGNETITE.Name, GameConstants.TrilobiteCarryCapacity + 2);
+        var accepted = trilobite.AddToInventory(OreType.LUMENITE.Name, GameConstants.TrilobiteCarryCapacity + 2);
 
         Assert.Equal(GameConstants.TrilobiteCarryCapacity, accepted);
         Assert.True(trilobite.HasInventory());
-        Assert.Equal(OreType.MAGNETITE.Name, trilobite.Inventory.Type);
+        Assert.Equal(OreType.LUMENITE.Name, trilobite.Inventory.Type);
         Assert.Equal(GameConstants.TrilobiteCarryCapacity, trilobite.Inventory.Amount);
         Assert.Equal(0, trilobite.GetInventorySpace());
     }
@@ -45,13 +45,13 @@ public sealed class MiningYieldTests
         var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
         var oreTile = cave.GetReachableTiles()
             .First(tile => tile.Base == "empty" && tile.CreatureFits());
-        oreTile.SetBase(OreType.MAGNETITE.Name);
+        oreTile.SetBase(OreType.LUMENITE.Name);
         oreTile.ConfigureOre(2, 3);
 
         var tileMinedCount = 0;
-        var magnetiteMinedCount = 0;
+        var lumeniteMinedCount = 0;
         session.On(GameEvents.TileMined, _ => tileMinedCount++);
-        session.On(GameEvents.MagnetiteMined, _ => magnetiteMinedCount++);
+        session.On(GameEvents.LumeniteMined, _ => lumeniteMinedCount++);
 
         var hit1 = session.MineTile(cave, oreTile.Key, source: "manual");
         var hit2 = session.MineTile(cave, oreTile.Key, source: "manual");
@@ -73,7 +73,7 @@ public sealed class MiningYieldTests
         Assert.True(hit3.HitApplied);
         Assert.True(hit3.YieldedResource);
         Assert.False(hit3.TileDepleted);
-        Assert.Equal(OreType.MAGNETITE.Name, hit3.ResourceType);
+        Assert.Equal(OreType.LUMENITE.Name, hit3.ResourceType);
         Assert.Equal(1, hit3.ResourceAmount);
         Assert.Equal(1, hit3.RemainingYield);
         Assert.Equal(3, hit3.RemainingHits);
@@ -88,9 +88,9 @@ public sealed class MiningYieldTests
         Assert.True(hit6.TileDepleted);
         Assert.Equal("empty", cave.GetTile(oreTile.Key)?.Base);
         Assert.Equal(2, tileMinedCount);
-        Assert.Equal(2, magnetiteMinedCount);
+        Assert.Equal(2, lumeniteMinedCount);
         Assert.Equal(2, session.Stats.Get(GameEvents.TileMined));
-        Assert.Equal(2, session.Stats.Get(GameEvents.MagnetiteMined));
+        Assert.Equal(2, session.Stats.Get(GameEvents.LumeniteMined));
     }
 
     [Fact]

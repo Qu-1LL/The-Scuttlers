@@ -21,6 +21,39 @@ public sealed class TriloDexTests
     }
 
     [Fact]
+    public void GlobalDex_AssignsUniqueAuthoredDisplayColors()
+    {
+        string[] expectedColors =
+        [
+            "264653",
+            "2a9d8f",
+            "9a031e",
+            "5f0f40",
+            "81b29a",
+            "94d2bd",
+            "231942",
+            "fca311",
+            "6d597a",
+            "8900f2",
+            "4ecdc4",
+            "8ea604",
+            "f11515",
+            "b21e4b",
+            "7e766d",
+            "945600",
+            "affc41",
+            "b2ff9e"
+        ];
+
+        var displayColors = TriloDex.GlobalFeatureTrees
+            .Select(tree => tree.DisplayColor?.ToHex())
+            .ToArray();
+
+        Assert.Equal(expectedColors, displayColors);
+        Assert.Equal(expectedColors.Length, displayColors.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public void GameSession_ExposesTheSharedGlobalDex()
     {
         var session = new GameSession();

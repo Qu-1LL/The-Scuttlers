@@ -43,4 +43,29 @@ public sealed class CameraControllerTests
         Assert.InRange(MathF.Abs(roundTripped.X - world.X), 0f, 0.75f);
         Assert.InRange(MathF.Abs(roundTripped.Y - world.Y), 0f, 0.75f);
     }
+
+    [Fact]
+    public void ParallaxScreenOffset_DoesNotChangeWhenOnlyScaleChanges()
+    {
+        var camera = new CameraController();
+        camera.SetOrigin(new Vector2(100f, 50f));
+        var offsetBeforeZoom = camera.ParallaxScreenOffset;
+
+        camera.CurrentScale = 3f;
+
+        Assert.Equal(offsetBeforeZoom, camera.ParallaxScreenOffset);
+    }
+
+    [Fact]
+    public void PanByScreenDelta_AddsScreenDeltaToParallaxOffsetIndependentOfScale()
+    {
+        var lowZoomCamera = new CameraController { CurrentScale = 0.75f };
+        var highZoomCamera = new CameraController { CurrentScale = 3f };
+
+        lowZoomCamera.PanByScreenDelta(40f, -12f);
+        highZoomCamera.PanByScreenDelta(40f, -12f);
+
+        Assert.Equal(new Vector2(40f, -12f), lowZoomCamera.ParallaxScreenOffset);
+        Assert.Equal(lowZoomCamera.ParallaxScreenOffset, highZoomCamera.ParallaxScreenOffset);
+    }
 }

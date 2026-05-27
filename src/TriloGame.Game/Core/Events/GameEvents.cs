@@ -7,13 +7,9 @@ public static class GameEvents
 {
     public const string TileMined = "tileMined";
     public const string WallMined = "wallMined";
-    public const string AlgaeMined = "AlgaeMined";
-    public const string SandstoneMined = "SandstoneMined";
-    public const string MagnetiteMined = "MagnetiteMined";
-    public const string MalachiteMined = "MalachiteMined";
-    public const string PeroteneMined = "PeroteneMined";
-    public const string IlmeniteMined = "IlmeniteMined";
-    public const string CochiniumMined = "CochiniumMined";
+    public const string LumeniteMined = "LumeniteMined";
+    public const string ChitinstoneMined = "ChitinstoneMined";
+    public const string MycocoreMined = "MycocoreMined";
 }
 
 public sealed record GameEventPayload(

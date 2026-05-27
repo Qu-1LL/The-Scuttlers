@@ -62,9 +62,10 @@ internal sealed record ResearchTreeViewportModel(
     Action<GumUiRenderer>? DrawCustomContent = null);
 
 internal readonly record struct ResearchTreeInfoPanelModel(
-    ResearchTreeNodeInfo? NodeInfo,
+    ResearchNodeInfo? NodeInfo,
     string EmptyTitle,
-    string EmptyText);
+    string EmptyText,
+    float ScrollOffset = 0f);
 
 internal readonly record struct ResearchTreeMenuLayoutInfo(
     Rectangle PanelBounds,

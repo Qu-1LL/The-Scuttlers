@@ -1,7 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoGameGum.GueDeriving;
-using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Research;
 using TriloGame.Game.Core.Simulation;
@@ -90,40 +89,47 @@ internal static class ResearchTreeUiRenderer
             ? new Color(214, 236, 244)
             : card.IsHovered ? new Color(132, 181, 198) : new Color(66, 101, 118);
 
-        AddRoundedFrame(gumUi, parent, card.Bounds, fill, border, 2, 14);
-        AddText(
+        var cardFrameStyle = new GumUiFrameStyle(fill, border, 2, 14);
+        DrawCardFrame(gumUi, parent, card.Bounds, cardFrameStyle);
+        var layout = ResearchTreeCardRenderer.BuildLayout(card.Bounds);
+        DrawCardText(
             gumUi,
             parent,
-            new Rectangle(card.Bounds.X + 12, card.Bounds.Y + 8, card.Bounds.Width - 24, 20),
+            layout.TitleBounds,
             card.Title,
             Color.White,
             GumTextStyle.Small);
-        AddText(
+        DrawCardText(
             gumUi,
             parent,
-            new Rectangle(card.Bounds.X + 12, card.Bounds.Y + 30, card.Bounds.Width - 24, 18),
+            layout.SubtitleBounds,
             card.Subtitle,
             new Color(184, 206, 216),
             GumTextStyle.Compact);
 
-        var previewBounds = new Rectangle(card.Bounds.X + 10, card.Bounds.Y + 54, card.Bounds.Width - 20, card.Bounds.Height - 64);
         if (card.Root is null)
         {
-            AddCenteredText(gumUi, parent, previewBounds, "Unavailable", new Color(191, 204, 211), GumTextStyle.Small);
+            DrawCardCenteredText(
+                gumUi,
+                parent,
+                layout.PreviewBounds,
+                "Unavailable",
+                new Color(191, 204, 211),
+                GumTextStyle.Small);
             return null;
         }
 
-        DrawCardTree(gumUi, parent, session, previewBounds, card.Root, config);
+        DrawCardTree(gumUi, parent, session, layout.PreviewBounds, card.Root, config);
         if (!config.EnableNodeSelection)
         {
             return null;
         }
 
-        var hoveredNode = TryGetHoveredCardNode(card.Root, previewBounds, pointerPoint, config, out var hoveredCenter);
+        var hoveredNode = TryGetHoveredCardNode(card.Root, layout.PreviewBounds, pointerPoint, config, out var hoveredCenter);
         if (hoveredNode is not null)
         {
-            var layout = CalculateCardTreeLayout(card.Root, previewBounds, config);
-            DrawNodeOutline(gumUi, parent, hoveredCenter, layout.Radius, new Color(255, 255, 255, 240), 6, 2);
+            var treeLayout = CalculateCardTreeLayout(card.Root, layout.PreviewBounds, config);
+            DrawNodeOutline(gumUi, parent, hoveredCenter, treeLayout.Radius, new Color(255, 255, 255, 240), 6, 2);
         }
 
         return hoveredNode;
@@ -273,15 +279,12 @@ internal static class ResearchTreeUiRenderer
         return hoveredNode;
     }
 
-    public static ResearchTreeNodeInfo BuildNodeInfo(GameSession session, ResearchTreeViewNode node)
+    public static ResearchNodeInfo BuildNodeInfo(GameSession session, ResearchTreeViewNode node)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(node);
 
-        return new ResearchTreeNodeInfo(
-            node.Name,
-            string.IsNullOrWhiteSpace(node.SourceFeatureTreeName) ? "Core" : node.SourceFeatureTreeName,
-            BuildNodeAffectText(session, node));
+        return ResearchNodeTextFormatter.BuildNodeInfo(session, node);
     }
 
     private static void DrawCardTree(
@@ -292,7 +295,7 @@ internal static class ResearchTreeUiRenderer
         ResearchTreeViewNode root,
         ResearchTreeRenderConfig config)
     {
-        AddRoundedOutline(gumUi, parent, bounds, new Color(55, 87, 103), 1, 10);
+        DrawCardOutline(gumUi, parent, bounds, new Color(55, 87, 103), 1, 10);
         var preview = CalculateCardTreeLayout(root, bounds, config);
         foreach (var node in preview.Nodes)
         {
@@ -301,7 +304,15 @@ internal static class ResearchTreeUiRenderer
                 continue;
             }
 
-            DrawCrispConnector(gumUi, parent, node.Parent.Position, node.Position, ConnectorColor, 2, preview.Radius + 2f, preview.Radius + 2f);
+            DrawCardConnector(
+                gumUi,
+                parent,
+                node.Parent.Position,
+                node.Position,
+                ConnectorColor,
+                2,
+                preview.Radius + 2f,
+                preview.Radius + 2f);
         }
 
         foreach (var node in preview.Nodes)
@@ -314,31 +325,6 @@ internal static class ResearchTreeUiRenderer
                 GetNodeFillColor(session, node.Node),
                 GetNodeBorderColor(session, node.Node));
         }
-    }
-
-    private static string BuildNodeAffectText(GameSession session, ResearchTreeViewNode node)
-    {
-        if (node.EffectDescriptors.Count > 0)
-        {
-            var parts = new List<string>(node.EffectDescriptors.Count);
-            foreach (var descriptor in node.EffectDescriptors)
-            {
-                parts.Add(FormatEffectDescriptor(descriptor));
-            }
-
-            return string.Join(", ", parts);
-        }
-
-        if (!string.IsNullOrWhiteSpace(node.SourceFeatureTreeName))
-        {
-            var featureTree = session.GetFeatureTree(node.SourceFeatureTreeName);
-            if (featureTree is not null && featureTree.FeaturesAffected.Count > 0)
-            {
-                return BuildFeatureAffectLabel(featureTree);
-            }
-        }
-
-        return node.Description;
     }
 
     private static ResearchTreeLayout BuildLayout(
@@ -446,7 +432,7 @@ internal static class ResearchTreeUiRenderer
 
     private static Color GetNodeFillColor(GameSession session, ResearchTreeViewNode node)
     {
-        var baseColor = GetBaseFeatureColor(session, node.SourceFeatureTreeName);
+        var baseColor = ResearchTreeColorResolver.GetBaseFeatureColor(session, node.SourceFeatureTreeName);
         return node.IsUnlocked
             ? baseColor
             : Color.Lerp(new Color(32, 38, 43), baseColor, 0.82f);
@@ -454,63 +440,8 @@ internal static class ResearchTreeUiRenderer
 
     private static Color GetNodeBorderColor(GameSession session, ResearchTreeViewNode node)
     {
-        var fill = GetBaseFeatureColor(session, node.SourceFeatureTreeName);
+        var fill = ResearchTreeColorResolver.GetBaseFeatureColor(session, node.SourceFeatureTreeName);
         return Color.Lerp(fill, Color.White, 0.38f);
-    }
-
-    private static Color GetBaseFeatureColor(GameSession session, string? sourceFeatureTreeName)
-    {
-        if (string.IsNullOrWhiteSpace(sourceFeatureTreeName))
-        {
-            return new Color(180, 191, 199);
-        }
-
-        var featureTree = session.GetFeatureTree(sourceFeatureTreeName);
-        if (featureTree is null || featureTree.FeaturesAffected.Count == 0)
-        {
-            return GetFeatureColorFromTreeName(sourceFeatureTreeName);
-        }
-
-        var red = 0f;
-        var green = 0f;
-        var blue = 0f;
-        foreach (var featureName in featureTree.FeaturesAffected)
-        {
-            var featureColor = GetFeatureColor(featureName);
-            red += featureColor.R;
-            green += featureColor.G;
-            blue += featureColor.B;
-        }
-
-        var divisor = featureTree.FeaturesAffected.Count;
-        return new Color(
-            (int)MathF.Round(red / divisor),
-            (int)MathF.Round(green / divisor),
-            (int)MathF.Round(blue / divisor));
-    }
-
-    private static Color GetFeatureColorFromTreeName(string featureTreeName)
-    {
-        return featureTreeName switch
-        {
-            var name when name.StartsWith("B", StringComparison.Ordinal) => GetFeatureColor("building"),
-            var name when name.StartsWith("C", StringComparison.Ordinal) => GetFeatureColor("combat"),
-            var name when name.StartsWith("F", StringComparison.Ordinal) => GetFeatureColor("farming"),
-            var name when name.StartsWith("M", StringComparison.Ordinal) => GetFeatureColor("mining"),
-            _ => new Color(180, 191, 199)
-        };
-    }
-
-    private static Color GetFeatureColor(string featureName)
-    {
-        return featureName switch
-        {
-            "building" => new Color(240, 88, 80),
-            "combat" => new Color(78, 164, 233),
-            "farming" => new Color(239, 214, 86),
-            "mining" => new Color(189, 138, 94),
-            _ => new Color(180, 191, 199)
-        };
     }
 
     private static void DrawClippedConnector(
@@ -524,7 +455,7 @@ internal static class ResearchTreeUiRenderer
         float endInset)
     {
         if (!TryInsetConnector(ref start, ref end, startInset, endInset) ||
-            !TryClipLineToBounds(bounds, ref start, ref end))
+            !GumUiViewport.TryClipLine(bounds, ref start, ref end))
         {
             return;
         }
@@ -562,67 +493,6 @@ internal static class ResearchTreeUiRenderer
         var direction = delta / distance;
         start += direction * MathF.Max(0f, startInset);
         end -= direction * MathF.Max(0f, endInset);
-        return true;
-    }
-
-    private static bool TryClipLineToBounds(Rectangle bounds, ref Vector2 start, ref Vector2 end)
-    {
-        var left = (float)bounds.Left;
-        var right = bounds.Right;
-        var top = bounds.Top;
-        var bottom = bounds.Bottom;
-        var deltaX = end.X - start.X;
-        var deltaY = end.Y - start.Y;
-        var t0 = 0f;
-        var t1 = 1f;
-
-        if (!ClipTest(-deltaX, start.X - left, ref t0, ref t1) ||
-            !ClipTest(deltaX, right - start.X, ref t0, ref t1) ||
-            !ClipTest(-deltaY, start.Y - top, ref t0, ref t1) ||
-            !ClipTest(deltaY, bottom - start.Y, ref t0, ref t1))
-        {
-            return false;
-        }
-
-        var originalStart = start;
-        start = new Vector2(originalStart.X + (t0 * deltaX), originalStart.Y + (t0 * deltaY));
-        end = new Vector2(originalStart.X + (t1 * deltaX), originalStart.Y + (t1 * deltaY));
-        return true;
-    }
-
-    private static bool ClipTest(float direction, float distance, ref float lower, ref float upper)
-    {
-        if (MathF.Abs(direction) <= float.Epsilon)
-        {
-            return distance >= 0f;
-        }
-
-        var ratio = distance / direction;
-        if (direction < 0f)
-        {
-            if (ratio > upper)
-            {
-                return false;
-            }
-
-            if (ratio > lower)
-            {
-                lower = ratio;
-            }
-
-            return true;
-        }
-
-        if (ratio < lower)
-        {
-            return false;
-        }
-
-        if (ratio < upper)
-        {
-            upper = ratio;
-        }
-
         return true;
     }
 
@@ -790,42 +660,6 @@ internal static class ResearchTreeUiRenderer
         gumUi.AddRoundedFrame(parent, bounds, fill, border, thickness, radius);
     }
 
-    private static void AddText(
-        GumUiRenderer gumUi,
-        ContainerRuntime? parent,
-        Rectangle bounds,
-        string text,
-        Color color,
-        GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        if (parent is null)
-        {
-            gumUi.AddText(bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
-            return;
-        }
-
-        gumUi.AddText(parent, bounds, text, color, fontSize: metrics.FontSize, verticalAlignment: VerticalAlignment.Center);
-    }
-
-    private static void AddCenteredText(
-        GumUiRenderer gumUi,
-        ContainerRuntime? parent,
-        Rectangle bounds,
-        string text,
-        Color color,
-        GumTextStyle style)
-    {
-        var metrics = GumTextLayout.GetMetrics(style);
-        if (parent is null)
-        {
-            gumUi.AddText(bounds, text, color, HorizontalAlignment.Center, VerticalAlignment.Center, metrics.FontSize);
-            return;
-        }
-
-        gumUi.AddText(parent, bounds, text, color, HorizontalAlignment.Center, VerticalAlignment.Center, metrics.FontSize);
-    }
-
     private static Vector2 PixelSnap(Vector2 point)
     {
         return new Vector2(MathF.Round(point.X), MathF.Round(point.Y));
@@ -839,63 +673,59 @@ internal static class ResearchTreeUiRenderer
             Math.Max(0, bounds.Width - (inset * 2)),
             Math.Max(0, bounds.Height - (inset * 2)));
     }
-
-    private static string BuildFeatureAffectLabel(FeatureTree featureTree)
+    private static void DrawCardFrame(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        GumUiFrameStyle style)
     {
-        var builder = new System.Text.StringBuilder();
-        for (var index = 0; index < featureTree.FeaturesAffected.Count; index++)
-        {
-            if (index > 0)
-            {
-                builder.Append(", ");
-            }
-
-            builder.Append(FormatFeatureName(featureTree.FeaturesAffected[index]));
-        }
-
-        return builder.ToString();
+        GumUiChrome.DrawFrame(gumUi, parent, bounds, style);
     }
 
-    private static string FormatFeatureName(string featureName)
+    private static void DrawCardOutline(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        Color color,
+        int thickness,
+        int radius)
     {
-        if (string.IsNullOrWhiteSpace(featureName))
-        {
-            return "Unknown";
-        }
-
-        var trimmed = featureName.Trim();
-        return trimmed.Length == 1
-            ? trimmed.ToUpperInvariant()
-            : char.ToUpperInvariant(trimmed[0]) + trimmed[1..];
+        AddRoundedOutline(gumUi, parent, bounds, color, thickness, radius);
     }
 
-    private static string FormatEffectDescriptor(ResearchEffectDescriptor descriptor)
+    private static void DrawCardText(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        string text,
+        Color color,
+        GumTextStyle style)
     {
-        var builder = new System.Text.StringBuilder();
-        builder.Append(descriptor.Operation switch
-        {
-            ResearchOperation.AddFlat => $"+{descriptor.Value:0.##} ",
-            ResearchOperation.AddPercent => $"+{descriptor.Value * 100d:0.##}% ",
-            ResearchOperation.Multiply => $"x{descriptor.Value:0.##} ",
-            ResearchOperation.Set => $"Set to {descriptor.Value:0.##} ",
-            _ => string.Empty
-        });
-        builder.Append(descriptor.StatKey);
+        GumUiText.Add(gumUi, parent, bounds, text, color, style);
+    }
 
-        if (descriptor.TargetKind != ResearchTargetKind.Global)
-        {
-            builder.Append(" (");
-            builder.Append(descriptor.TargetKind);
-            if (!string.IsNullOrWhiteSpace(descriptor.TargetKey))
-            {
-                builder.Append(": ");
-                builder.Append(descriptor.TargetKey);
-            }
+    private static void DrawCardCenteredText(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        string text,
+        Color color,
+        GumTextStyle style)
+    {
+        GumUiText.AddCentered(gumUi, parent, bounds, text, color, style);
+    }
 
-            builder.Append(')');
-        }
-
-        return builder.ToString();
+    private static void DrawCardConnector(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Vector2 start,
+        Vector2 end,
+        Color color,
+        int thickness,
+        float startInset,
+        float endInset)
+    {
+        DrawCrispConnector(gumUi, parent, start, end, color, thickness, startInset, endInset);
     }
 
     private sealed record ResearchTreeLayout(IReadOnlyList<ResearchTreeLayoutNode> Nodes, ResearchTreeBounds Bounds);
@@ -939,11 +769,6 @@ internal readonly record struct ResearchTreeDetailMetrics(
     float EdgeLength,
     int NodeRadius,
     ResearchTreeBounds BaseBounds);
-
-internal readonly record struct ResearchTreeNodeInfo(
-    string TitleText,
-    string FeatureTreeText,
-    string EffectText);
 
 internal readonly record struct ResearchTreeBounds(float MinX, float MaxX, float MinY, float MaxY)
 {

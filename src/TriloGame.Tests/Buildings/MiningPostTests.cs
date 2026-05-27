@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
@@ -30,7 +31,7 @@ public sealed class MiningPostTests
     public void ExhaustedAssignmentsRemainFalse_AfterReservationReleaseAndInvalidation()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
-        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
+        SetTileBase(cave, new GridPoint(3, 10), OreType.CHITINSTONE.Name);
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
 
         var reservedBy = new List<Trilobite>();
@@ -77,7 +78,7 @@ public sealed class MiningPostTests
     public void AssignmentsAvailable_RemainsFalse_AfterReservedTilesAreReleased()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
-        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
+        SetTileBase(cave, new GridPoint(3, 10), OreType.CHITINSTONE.Name);
         var availablePost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
         var emptyPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
         var reservingMiner = new Trilobite("Miner", GridPoint.Zero, session);
@@ -113,7 +114,7 @@ public sealed class MiningPostTests
         Assert.False(depletedPost.AssignmentsAvailable);
         Assert.False(cave.HasAvailableMiningPostAssignments);
 
-        SetTileBase(cave, new GridPoint(24, 11), "Sandstone");
+        SetTileBase(cave, new GridPoint(24, 11), OreType.CHITINSTONE.Name);
         var freshPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(22, 7));
 
         Assert.True(freshPost.AssignmentsAvailable);
@@ -128,7 +129,7 @@ public sealed class MiningPostTests
         Assert.True(cave.Build(queen, new GridPoint(1, 1)));
 
         var oreLocation = new GridPoint(8, 6);
-        SetTileBase(cave, oreLocation, "Sandstone");
+        SetTileBase(cave, oreLocation, OreType.CHITINSTONE.Name);
 
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 4));
 
@@ -149,7 +150,7 @@ public sealed class MiningPostTests
         Assert.True(cave.Build(queen, new GridPoint(1, 1)));
 
         var oreLocation = new GridPoint(8, 6);
-        SetTileBase(cave, oreLocation, "Sandstone");
+        SetTileBase(cave, oreLocation, OreType.CHITINSTONE.Name);
         cave.RevealTile(cave.GetTile(oreLocation.ToString())!);
 
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 4));
