@@ -20,6 +20,8 @@ public sealed class GameSessionRuntimeState
 
     public bool NoCostBuildPlacement { get; set; }
 
+    public bool AllowManualMining { get; set; }
+
     public List<ProjectileFlight> ActiveProjectileFlights { get; } = [];
 
     // Preview the next generated debug enemy id without consuming it.

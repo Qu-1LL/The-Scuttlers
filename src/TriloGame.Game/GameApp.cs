@@ -13,6 +13,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.Runtime.Automation;
@@ -79,13 +80,17 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _resumeSimulationAfterClosingResearchDraft;
     private bool _mainMenuOpen;
     private bool _showRoleLabels;
+    private bool _showFullMapVisibility;
     private bool _debugAntHolePlacementMode;
     private bool _leftPanActive;
     private bool _selectionDragActive;
+    private bool _buildPlacementDragActive;
     private double _uiClockMs;
     private AppScreen _appScreen = AppScreen.MainMenu;
     private ScreenUiPass _screenUiPass = ScreenUiPass.Foreground;
     private Scaffolding? _floatingBuilding;
+    private Factory? _activeBuildFactory;
+    private GridPoint? _buildPlacementDragStart;
     private Rectangle? _selectionBoxBounds;
     private RoleRadialMenuState? _roleRadialMenu;
 
@@ -99,6 +104,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,
             value => _session.Runtime.FreezeOpalProgression = value,
+            SetAllowManualMining,
+            SetFullMapVisibility,
             value => _session.Runtime.DisableEnemySpawns = value,
             value => _session.Runtime.NoCostBuildPlacement = value,
             PlayUiSelectSound);
@@ -118,6 +125,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     public GamePlayApi PlayApi { get; }
 
     public bool BuildMode => _floatingBuilding is not null;
+
+    private bool BuildPlacementDragActive => _buildPlacementDragActive;
 
     public MenuController Menu => _menu;
 
@@ -173,6 +182,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
 
         builder.AppendLine($"DisableEnemySpawns: {_session.Runtime.DisableEnemySpawns}");
+        builder.AppendLine($"AllowManualMining: {_session.Runtime.AllowManualMining}");
+        builder.AppendLine($"FullMapVisibility: {_showFullMapVisibility}");
         builder.AppendLine($"TickTiming: {FormatTickProfile(_session.Runtime.TickProfiler.Last, "last")}");
         builder.AppendLine($"TickTimingAverage: {FormatTickProfile(_session.Runtime.TickProfiler.Average, "avg")}");
         builder.AppendLine($"Viewport: {Window.ClientBounds.Width}x{Window.ClientBounds.Height}");
@@ -254,6 +265,18 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Scaffold", "Textures/Scaffold");
         RegisterTexture(sprites, "Queen", "Textures/Queen");
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
+        RegisterTexture(sprites, "SoilTile_0", "Textures/SoilTile_0");
+        foreach (var resourceType in GrowableResourceType.GetAll())
+        {
+            for (var growthLevel = 1; growthLevel <= 3; growthLevel++)
+            {
+                var textureKey = resourceType.GetSoilTileTextureKey(growthLevel);
+                RegisterTexture(sprites, textureKey, $"Textures/{textureKey}");
+            }
+        }
+        RegisterTexture(sprites, "Garage", "Textures/Garage");
+        RegisterTexture(sprites, "Silo", "Textures/Silo");
+        RegisterTexture(sprites, "Plow", "Textures/Plow");
         RegisterTexture(sprites, "Storage", "Textures/Storage");
         RegisterTexture(sprites, "Smith", "Textures/Smith");
         RegisterTexture(sprites, "MiningPost", "Textures/MiningPost");
@@ -353,9 +376,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         _menu.UpdateHover(_input.MousePoint, Window.ClientBounds.Size, _session);
 
-        var researchHandled = _input.LeftReleased && HandleResearchDraftButtonClick(_input.MousePoint);
-        var settingsHandled = _input.LeftReleased && !researchHandled && HandleSettingsClick(_input.MousePoint);
-        var roundWidgetHandled = _input.LeftReleased && !researchHandled && !settingsHandled && HandleRoundDebugWidgetClick(_input.MousePoint);
+        var suppressReleaseUi = BuildPlacementDragActive;
+        var researchHandled = !suppressReleaseUi && _input.LeftReleased && HandleResearchDraftButtonClick(_input.MousePoint);
+        var settingsHandled = !suppressReleaseUi && _input.LeftReleased && !researchHandled && HandleSettingsClick(_input.MousePoint);
+        var roundWidgetHandled = !suppressReleaseUi && _input.LeftReleased && !researchHandled && !settingsHandled && HandleRoundDebugWidgetClick(_input.MousePoint);
         if (researchHandled)
         {
             _leftPanActive = false;
@@ -381,7 +405,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             _input.EndDrag();
         }
 
-        if (_input.WheelDelta != 0 && !_input.Dragging)
+        if (_input.WheelDelta != 0 && !IsCameraControlDragBlocked(_input.Dragging, BuildPlacementDragActive))
         {
             var wheelHandled = SettingsCoversPoint(_input.MousePoint);
             if (!wheelHandled)
@@ -411,7 +435,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_input.LeftPressed)
         {
             _input.BeginDrag();
-            if (TryBeginLeftMiningSelectionDrag(_input.MousePoint))
+            if (TryBeginBuildPlacementDrag(_input.MousePoint))
             {
                 _leftPanActive = false;
             }
@@ -421,13 +445,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             }
         }
 
-        if (_input.LeftHeld && _selectionDragActive && _selectionDragMode == SelectionDragMode.MiningTiles)
+        if (_input.LeftHeld && BuildPlacementDragActive)
         {
             _input.UpdateDrag(GameConstants.DragThresholdPixels, _input.LeftHeld);
-            if (_input.Dragging)
-            {
-                _selectionBoxBounds = CreateScreenRectangle(_input.DragStartPoint, _input.MousePoint);
-            }
         }
 
         if (_input.LeftHeld && _leftPanActive)
@@ -499,13 +519,15 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_input.LeftReleased && !settingsHandled && !roundWidgetHandled)
         {
-            if (_selectionDragActive && _selectionDragMode == SelectionDragMode.MiningTiles && _input.Dragging)
+            if (BuildPlacementDragActive)
             {
-                FinalizeSelectionBox();
+                TryFinalizeBuildPlacementDrag();
+
                 _leftPanActive = false;
                 _selectionDragActive = false;
                 _selectionDragMode = null;
                 _selectionBoxBounds = null;
+                ClearBuildPlacementDrag();
                 _input.EndDrag();
             }
             else if (TryHandleMiningOrderMenuClick(_input.MousePoint))
@@ -571,8 +593,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawTiles(_session.Cave);
             DrawSurfaceFeatures(_session.Cave);
             DrawDroppedResources(_session.Cave);
+            DrawCreatures(_session.Cave, drawBelowBuildings: true);
             DrawBuildings(_session.Cave);
-            DrawCreatures(_session.Cave);
+            DrawCreatures(_session.Cave, drawBelowBuildings: false);
+            DrawVehicles(_session.Cave);
             DrawProjectiles();
             DrawWorldParticles();
             DrawSelection();
@@ -608,11 +632,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawMiningOrderMenu();
             DrawMiningTileHoverLabel();
             DrawFocusHint();
-            if (_debugMenuOpen)
-            {
-                DrawDebugMenuOverlay();
-            }
-
             DrawRoundDebugWidget();
             _researchDraft.Draw(
                 Window.ClientBounds.Size,
@@ -621,6 +640,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                 CanSkipCurrentRoundGracePeriod(),
                 _gumUiRenderer);
             DrawStoredResourceTotals();
+            if (_debugMenuOpen)
+            {
+                DrawDebugMenuOverlay();
+            }
         }
 
         _gumUiRenderer.EndFrame();
@@ -628,22 +651,45 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         base.Draw(gameTime);
     }
 
+    public void BeginBuildingPlacement(Factory factory)
+    {
+        BeginBuildingPlacement(factory, CreatePlacementScaffolding(_session, factory));
+    }
+
     public void BeginBuildingPlacement(Scaffolding scaffolding)
+    {
+        BeginBuildingPlacement(null, scaffolding);
+    }
+
+    private void BeginBuildingPlacement(Factory? sourceFactory, Scaffolding scaffolding)
     {
         ClearPendingManualMove();
         _debugAntHolePlacementMode = false;
         _floatingBuilding = scaffolding;
         _floatingBuilding.SetDisplayRotationTurns(0);
+        _activeBuildFactory = sourceFactory;
+        ClearBuildPlacementDrag();
     }
 
     public void CleanActive(bool closeMenu = false)
     {
+        ClearActiveState(clearBuildPlacement: true, closeMenu);
+    }
+
+    private void ClearActiveState(bool clearBuildPlacement, bool closeMenu)
+    {
         ClearPendingManualMove();
         _activeBfsDebugField = null;
-        _floatingBuilding = null;
+        if (clearBuildPlacement)
+        {
+            _floatingBuilding = null;
+            _activeBuildFactory = null;
+        }
+
         _debugAntHolePlacementMode = false;
         _leftPanActive = false;
         _selectionDragActive = false;
+        ClearBuildPlacementDrag();
         _selectionDragMode = null;
         _selectionBoxBounds = null;
         _roleRadialMenu = null;
@@ -678,9 +724,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private void StartNewGame()
     {
         _appScreen = AppScreen.Gameplay;
+        var allowManualMining = _session.Runtime.AllowManualMining;
         var bootstrap = _bootstrapper.CreateNewGame();
         _session = bootstrap.Session;
         _session.Runtime.DisableEnemySpawns = false;
+        _session.Runtime.AllowManualMining = allowManualMining;
         _sessionAudioBridge.Attach(_session);
         _sessionScreenShakeBridge.Attach(_session);
         _sessionParticleBridge.Attach(_session);
@@ -693,8 +741,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _activeBfsDebugField = null;
         _selectedObject = null;
         _floatingBuilding = null;
+        _activeBuildFactory = null;
         _leftPanActive = false;
         _selectionDragActive = false;
+        ClearBuildPlacementDrag();
         _selectionDragMode = null;
         _selectionBoxBounds = null;
         _roleRadialMenu = null;
@@ -704,6 +754,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _debugMenuOpen = false;
         _settingsMenuOpen = false;
         _showRoleLabels = false;
+        _showFullMapVisibility = false;
         _simulationClock.ResetToDefaults(paused: false, tickSpeedMs: GameConstants.TickSpeedFast);
         _gameOverState.Reset();
         ResetRoundSystems();
@@ -730,6 +781,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _isGameOver = false;
         _mainMenuOpen = true;
         _debugMenuOpen = false;
+        _showFullMapVisibility = false;
         _researchDraftSystem.Reset();
         _researchDraft.Reset();
         _resumeSimulationAfterClosingResearchDraft = false;
@@ -956,6 +1008,8 @@ public sealed partial class GameApp
                 _debugMenuOpen,
                 _showRoleLabels,
                 _session.Runtime.FreezeOpalProgression,
+                _session.Runtime.AllowManualMining,
+                _showFullMapVisibility,
                 _session.Runtime.DisableEnemySpawns,
                 _session.Runtime.NoCostBuildPlacement))
         {
@@ -1075,6 +1129,20 @@ public sealed partial class GameApp
         SetVolumeSetting(_audio.VolumePercent + delta);
     }
 
+    private void SetAllowManualMining(bool allowManualMining)
+    {
+        _session.Runtime.AllowManualMining = allowManualMining;
+        if (!allowManualMining)
+        {
+            ClearMiningTileSelection();
+        }
+    }
+
+    private void SetFullMapVisibility(bool showFullMapVisibility)
+    {
+        _showFullMapVisibility = showFullMapVisibility;
+    }
+
     private void OpenSettingsMenu(bool pauseSimulationIfNeeded = true)
     {
         if (_settingsMenuOpen)
@@ -1167,6 +1235,8 @@ public sealed partial class GameApp
             case DebugMenuAction.PlaceAntHole:
                 _debugAntHolePlacementMode = true;
                 _floatingBuilding = null;
+                _activeBuildFactory = null;
+                ClearBuildPlacementDrag();
                 _debugMenuOpen = false;
                 CloseSettingsMenu();
                 return;
@@ -1177,12 +1247,12 @@ public sealed partial class GameApp
 
     private void SyncSelectionIfRemoved()
     {
-        _selectedTrilobites.RemoveWhere(trilobite => trilobite.Cave is null);
+        _selectedTrilobites.RemoveWhere(trilobite => trilobite.Cave is null || !trilobite.CanBeDirectlySelected());
 
         if (_roleRadialMenu is not null)
         {
             var remainingTargets = _roleRadialMenu.Targets
-                .Where(trilobite => trilobite.Cave is not null)
+                .Where(trilobite => trilobite.Cave is not null && trilobite.CanBeDirectlySelected())
                 .Distinct()
                 .ToArray();
             _roleRadialMenu = remainingTargets.Length == 0
@@ -1190,11 +1260,27 @@ public sealed partial class GameApp
                 : _roleRadialMenu with { Targets = remainingTargets };
         }
 
-        if (_selectedObject is Building building && building.Cave is null)
+        if (_selectedObject is SoilAreaSelection soilAreaSelection && !soilAreaSelection.IsStillValid)
         {
             CleanActive();
         }
-        else if (_selectedObject is Trilobite trilobite && trilobite.Cave is null)
+        else if (_selectedObject is WallSelection wallSelection && !wallSelection.IsStillValid)
+        {
+            CleanActive();
+        }
+        else if (_selectedObject is SoilArea soilArea && !soilArea.IsStillValid)
+        {
+            CleanActive();
+        }
+        else if (_selectedObject is Building building && building.Cave is null)
+        {
+            CleanActive();
+        }
+        else if (_selectedObject is Vehicle vehicle && vehicle.Cave is null)
+        {
+            CleanActive();
+        }
+        else if (_selectedObject is Trilobite trilobite && (trilobite.Cave is null || !trilobite.CanBeDirectlySelected()))
         {
             if (_selectedTrilobites.Count > 0)
             {
@@ -1206,7 +1292,7 @@ public sealed partial class GameApp
                 CleanActive();
             }
         }
-        else if (_selectedObject is Creature creature && creature.Cave is null)
+        else if (_selectedObject is Creature creature && (creature.Cave is null || !creature.CanBeDirectlySelected()))
         {
             CleanActive();
         }
@@ -1276,18 +1362,29 @@ public sealed partial class GameApp
         if (_input.KeyPressed(Keys.Tab))
         {
             PlayUiSelectSound();
-            _menu.TogglePanel();
+            if (BuildMode)
+            {
+                CancelActiveBuildingPlacement();
+                _menu.OpenBuildingsPanel();
+            }
+            else
+            {
+                _menu.TogglePanel();
+            }
         }
 
-        if (_input.Dragging)
+        if (!_input.Dragging)
         {
-            return;
+            var focusTarget = GetSelectedFocusTarget();
+            if (focusTarget is not null && _input.KeyHeld(Keys.F))
+            {
+                CenterSelection(focusTarget);
+                return;
+            }
         }
 
-        var focusTarget = GetSelectedFocusTarget();
-        if (focusTarget is not null && _input.KeyHeld(Keys.F))
+        if (IsCameraControlDragBlocked(_input.Dragging, BuildPlacementDragActive))
         {
-            CenterSelection(focusTarget);
             return;
         }
 
@@ -1356,16 +1453,29 @@ public sealed partial class GameApp
             return;
         }
 
+        if (TryHitVehicle(point, out var vehicle))
+        {
+            ClearPendingManualMove();
+            ClearMiningTileSelection();
+            if (!BuildMode)
+            {
+                SetSelectedObject(ReferenceEquals(_selectedObject, vehicle) ? null : vehicle);
+            }
+
+            return;
+        }
+
         if (TryHitBuilding(point, out var building))
         {
             ClearPendingManualMove();
             ClearMiningTileSelection();
             if (!BuildMode)
             {
+                var selectionTarget = BuildingSelectionResolver.Resolve(building, _selectedObject);
                 CleanActive();
-                if (building.CanBeSelected())
+                if (selectionTarget.CanBeSelected())
                 {
-                    SetSelectedObject(building);
+                    SetSelectedObject(selectionTarget);
                 }
             }
 
@@ -1394,14 +1504,14 @@ public sealed partial class GameApp
                 : _floatingBuilding;
             if (_session.Cave!.CanBuild(buildingToPlace, location, true))
             {
+                var displayRotationTurns = _floatingBuilding.GetDisplayRotationTurns();
                 var built = _session.Runtime.NoCostBuildPlacement
                     ? BuildWithoutCost(location, _floatingBuilding)
                     : _session.Cave.Build(_floatingBuilding, location);
                 if (built)
                 {
                     _audio.Play(GameAudioCue.BuildingPlace);
-                    _floatingBuilding = null;
-                    CleanActive();
+                    ContinueSelectedBuildingPlacement(displayRotationTurns);
                 }
             }
 
@@ -1496,7 +1606,7 @@ public sealed partial class GameApp
             ClearObjectSelection();
             if (!SelectionRetention.ShouldPreserveCurrentSelection(_selectedMiningTileKeys, tile.Key, StringComparer.Ordinal))
             {
-                SelectMiningTile(tile, append: false, toggleIfAlreadySelected: false);
+                SelectMiningTile(tile);
             }
 
             OpenMiningOrderMenu(point);
@@ -1535,12 +1645,6 @@ public sealed partial class GameApp
     {
         if (_selectionBoxBounds is null)
         {
-            return;
-        }
-
-        if (_selectionDragMode == SelectionDragMode.MiningTiles)
-        {
-            FinalizeMiningTileSelectionBox();
             return;
         }
 
@@ -1734,7 +1838,7 @@ public sealed partial class GameApp
 
     private void DrawTiles(Cave cave)
     {
-        foreach (var tile in cave.GetTiles().Where(cave.IsTileRevealed))
+        foreach (var tile in GetMapVisibleTiles(cave))
         {
             var key = tile.Base == "wall" ? "wall" : tile.Base;
             DrawTileTexture(key, tile.Coordinates, GetTileDrawColor(tile));
@@ -1752,7 +1856,7 @@ public sealed partial class GameApp
             new Vector2(14f, 14f)
         };
 
-        foreach (var tile in cave.GetTiles().Where(cave.IsTileRevealed))
+        foreach (var tile in GetMapVisibleTiles(cave))
         {
             var droppedSandstone = tile.GetDroppedResourceCount(OreType.SANDSTONE.Name);
             if (droppedSandstone <= 0)
@@ -1799,6 +1903,12 @@ public sealed partial class GameApp
                 continue;
             }
 
+            if (building is SoilPatch soilPatch)
+            {
+                DrawSoilPatch(soilPatch);
+                continue;
+            }
+
             if (building.Location is null)
             {
                 continue;
@@ -1809,6 +1919,44 @@ public sealed partial class GameApp
                 GetPlacedBuildingWorldCenter(building),
                 building.GetDisplayRotationTurns() * MathF.PI / 2f,
                 GetPlacedBuildingOrigin(building));
+        }
+    }
+
+    private void DrawSoilPatch(SoilPatch soilPatch, Color? tint = null, GridPoint? overrideLocation = null)
+    {
+        var location = overrideLocation ?? soilPatch.Location;
+        if (location is not { } root)
+        {
+            return;
+        }
+
+        var color = tint ?? Color.White;
+        foreach (var soilTile in soilPatch.SoilTiles)
+        {
+            var tileLocation = new GridPoint(
+                root.X + soilTile.LocalOffset.X,
+                root.Y + soilTile.LocalOffset.Y);
+            DrawWorldTextureNative(
+                soilTile.TextureKey,
+                new Vector2(tileLocation.X * TileConstants.TileSize, tileLocation.Y * TileConstants.TileSize),
+                color: color);
+        }
+    }
+
+    private void DrawVehicles(Cave cave)
+    {
+        foreach (var vehicle in cave.GetVehicles())
+        {
+            if (vehicle.Location is null)
+            {
+                continue;
+            }
+
+            DrawWorldTextureNative(
+                vehicle.TextureKey,
+                ToFrameworkVector(vehicle.GetWorldCenter()),
+                vehicle.GetDisplayRotationTurns() * MathF.PI / 2f,
+                GetPlacedVehicleOrigin(vehicle));
         }
     }
 
@@ -1830,7 +1978,7 @@ public sealed partial class GameApp
 
                 var tilePoint = new GridPoint(location.X + x, location.Y + y);
                 var tile = cave.GetTile(tilePoint);
-                if (tile is null || !cave.IsTileRevealed(tile))
+                if (tile is null || !IsMapTileVisible(cave, tile))
                 {
                     continue;
                 }
@@ -1842,10 +1990,15 @@ public sealed partial class GameApp
         }
     }
 
-    private void DrawCreatures(Cave cave)
+    private void DrawCreatures(Cave cave, bool drawBelowBuildings)
     {
         foreach (var trilobite in cave.Trilobites)
         {
+            if (!trilobite.IsVisible || trilobite.DrawBelowBuildings != drawBelowBuildings)
+            {
+                continue;
+            }
+
             DrawWorldTextureNative(
                 "Trilobite",
                 GetCreatureWorldPosition(trilobite),
@@ -1854,6 +2007,11 @@ public sealed partial class GameApp
 
         foreach (var enemy in cave.Enemies)
         {
+            if (!enemy.IsVisible || enemy.DrawBelowBuildings != drawBelowBuildings)
+            {
+                continue;
+            }
+
             DrawWorldTextureNative(
                 "Enemy",
                 GetCreatureWorldPosition(enemy),
@@ -1888,6 +2046,11 @@ public sealed partial class GameApp
 
         foreach (var trilobite in cave.Trilobites)
         {
+            if (!trilobite.CanBeDirectlySelected())
+            {
+                continue;
+            }
+
             var position = GetCreatureScreenPosition(trilobite);
             var label = GetAssignmentLabel(trilobite.Assignment);
             var size = GumTextLayout.Measure(label, GumTextStyle.Debug);
@@ -1934,6 +2097,19 @@ public sealed partial class GameApp
         }
         else if (_selectedObject is Building building)
         {
+            if (building is SoilArea soilArea)
+            {
+                soilArea.RefreshSelectionFootprint(soilArea.Ranch);
+            }
+            else if (building is SoilAreaSelection soilAreaSelection)
+            {
+                soilAreaSelection.RefreshSelectionFootprint();
+            }
+            else if (building is WallSelection wallSelection)
+            {
+                wallSelection.RefreshSelectionFootprint();
+            }
+
             if (building is MiningPost miningPost && miningPost.Location is not null)
             {
                 DrawWorldCircleOutline(
@@ -1943,31 +2119,41 @@ public sealed partial class GameApp
                     MathF.Max(2f, _camera.CurrentScale * 2f));
             }
 
-            foreach (var tile in building.TileArray)
-            {
-                var tilePoint = GridPoint.Parse(tile.Key);
-                foreach (var neighbor in tile.Neighbors)
-                {
-                    if (building.TileArray.Contains(neighbor))
-                    {
-                        continue;
-                    }
+            DrawTileSelectionOutline(building.TileArray);
+        }
+        else if (_selectedObject is Vehicle vehicle)
+        {
+            DrawTileSelectionOutline(vehicle.TileArray);
+        }
+    }
 
-                    var neighborPoint = GridPoint.Parse(neighbor.Key);
-                    var dx = neighborPoint.X - tilePoint.X;
-                    var dy = neighborPoint.Y - tilePoint.Y;
-                    var midpoint = new Vector2(
-                        (tilePoint.X * TileConstants.TileSize) + (dx * TileConstants.TileHalfSize),
-                        (tilePoint.Y * TileConstants.TileSize) + (dy * TileConstants.TileHalfSize));
-                    var origin = dy < 0 || dx < 0
-                        ? new Vector2(TileConstants.TileHalfSize, 4f)
-                        : new Vector2(TileConstants.TileHalfSize, 0f);
-                    DrawWorldTextureNative(
-                        "SelectedEdge",
-                        midpoint,
-                        dy == 0 ? MathF.PI / 2f : 0f,
-                        origin);
+    private void DrawTileSelectionOutline(IEnumerable<Tile> tiles)
+    {
+        var tileList = tiles as IReadOnlyCollection<Tile> ?? tiles.ToArray();
+        foreach (var tile in tileList)
+        {
+            var tilePoint = GridPoint.Parse(tile.Key);
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (tileList.Contains(neighbor))
+                {
+                    continue;
                 }
+
+                var neighborPoint = GridPoint.Parse(neighbor.Key);
+                var dx = neighborPoint.X - tilePoint.X;
+                var dy = neighborPoint.Y - tilePoint.Y;
+                var midpoint = new Vector2(
+                    (tilePoint.X * TileConstants.TileSize) + (dx * TileConstants.TileHalfSize),
+                    (tilePoint.Y * TileConstants.TileSize) + (dy * TileConstants.TileHalfSize));
+                var origin = dy < 0 || dx < 0
+                    ? new Vector2(TileConstants.TileHalfSize, 4f)
+                    : new Vector2(TileConstants.TileHalfSize, 0f);
+                DrawWorldTextureNative(
+                    "SelectedEdge",
+                    midpoint,
+                    dy == 0 ? MathF.PI / 2f : 0f,
+                    origin);
             }
         }
     }
@@ -2253,23 +2439,30 @@ public sealed partial class GameApp
             return;
         }
 
-        var tile = GetTileAtScreenPoint(_input.MousePoint);
-        if (tile is null)
+        if (!TryGetBuildPlacementLocations(out var locations) || locations.Count == 0)
         {
             return;
         }
 
-        var location = GridPoint.Parse(tile.Key);
-        var previewBuilding = _session.Runtime.NoCostBuildPlacement
-            ? _floatingBuilding.TargetBuilding
-            : _floatingBuilding;
-        var canBuild = _session.Cave!.CanBuild(previewBuilding, location, true);
-        DrawScreenTextureNative(
-            _floatingBuilding.TargetBuilding.TextureKey,
-            _input.MousePoint.ToVector2(),
-            _floatingBuilding.GetDisplayRotationTurns() * MathF.PI / 2f,
-            GetFloatingBuildingOrigin(_floatingBuilding),
-            (canBuild ? Color.White : new Color(255, 96, 96)) * 0.7f);
+        if (_floatingBuilding.TargetBuilding is SoilPatch soilPatch)
+        {
+            var canBuildGrid = CanBuildSoilPatchGrid(locations);
+            var soilPreviewColor = (canBuildGrid ? Color.White : new Color(255, 96, 96)) * 0.7f;
+            for (var index = 0; index < locations.Count; index++)
+            {
+                DrawSoilPatch(soilPatch, soilPreviewColor, locations[index]);
+            }
+
+            return;
+        }
+
+        if (_floatingBuilding.TargetBuilding is Wall)
+        {
+            DrawWallPlacementPreview(locations, CanBuildDraggedIndividualPlacements(locations));
+            return;
+        }
+
+        DrawBuildingPlacementPreview(locations, CanBuildDraggedIndividualPlacements(locations));
     }
 
     private void DrawDebugOverlay(Cave cave)
@@ -2285,7 +2478,7 @@ public sealed partial class GameApp
             return;
         }
 
-        foreach (var tile in cave.GetTiles().Where(cave.IsTileRevealed))
+        foreach (var tile in GetMapVisibleTiles(cave))
         {
             var value = field.GetValueOrDefault(tile.Key, int.MaxValue);
             if (value == int.MaxValue)
@@ -2413,6 +2606,8 @@ public sealed partial class GameApp
             _debugMenuOpen,
             _showRoleLabels,
             _session.Runtime.FreezeOpalProgression,
+            _session.Runtime.AllowManualMining,
+            _showFullMapVisibility,
             _session.Runtime.DisableEnemySpawns,
             _session.Runtime.NoCostBuildPlacement,
             pointer);
@@ -2881,6 +3076,12 @@ public sealed partial class GameApp
         return new Vector2(baseSize.X * TileConstants.TileHalfSize, baseSize.Y * TileConstants.TileHalfSize);
     }
 
+    private static Vector2 GetPlacedVehicleOrigin(Vehicle vehicle)
+    {
+        var baseSize = vehicle.Size;
+        return new Vector2(baseSize.X * TileConstants.TileHalfSize, baseSize.Y * TileConstants.TileHalfSize);
+    }
+
     private static Vector2 GetFloatingBuildingOrigin(Scaffolding scaffolding)
     {
         var pivotBaseSize = scaffolding.TargetBuilding.GetDisplayPivotBaseSize();
@@ -3077,6 +3278,391 @@ public sealed partial class GameApp
         return _session.Cave!.Build(targetBuilding, location);
     }
 
+    // Cancel placement without disturbing world/object selection so Tab can act as a build-only escape hatch.
+    private void CancelActiveBuildingPlacement()
+    {
+        _floatingBuilding = null;
+        _activeBuildFactory = null;
+        _leftPanActive = false;
+        ClearBuildPlacementDrag();
+        _input.EndDrag();
+        _menu.ClearBuildSelection(clearHover: false);
+    }
+
+    // Build placement drags keep camera zoom and keyboard pan active so players can extend footprints off-screen.
+    private static bool IsCameraControlDragBlocked(bool dragging, bool buildPlacementDragActive)
+    {
+        return dragging && !buildPlacementDragActive;
+    }
+
+    // Rebuild the active menu selection after placement so repeat placement stays armed.
+    private void ContinueSelectedBuildingPlacement(int displayRotationTurns)
+    {
+        if (_activeBuildFactory is null)
+        {
+            CleanActive();
+            return;
+        }
+
+        var nextPlacement = CreatePlacementScaffolding(_session, _activeBuildFactory, displayRotationTurns);
+        ClearActiveState(clearBuildPlacement: false, closeMenu: false);
+        _floatingBuilding = nextPlacement;
+    }
+
+    // Completed builds consume their scaffolding, so repeat placement must mint a fresh copy.
+    private static Scaffolding CreatePlacementScaffolding(GameSession session, Factory factory, int displayRotationTurns = 0)
+    {
+        var normalizedTurns = ((displayRotationTurns % 4) + 4) % 4;
+        var scaffolding = new Scaffolding(session, factory.Build(session));
+        for (var turn = 0; turn < normalizedTurns; turn++)
+        {
+            scaffolding.RotateMap();
+        }
+
+        scaffolding.SetDisplayRotationTurns(normalizedTurns);
+        scaffolding.TargetBuilding.SetDisplayRotationTurns(normalizedTurns);
+        return scaffolding;
+    }
+
+    // Buildings opt into drag placement through a shared placement interface instead of bespoke mouse code.
+    private bool TryBeginBuildPlacementDrag(Point point)
+    {
+        if (_floatingBuilding?.TargetBuilding is not IBuildPlacementDragTarget ||
+            _roleRadialMenu is not null ||
+            _menu.CoversScreenPoint(point, Window.ClientBounds.Size) ||
+            SettingsCoversPoint(point) ||
+            ResearchDraftCoversPoint(point))
+        {
+            return false;
+        }
+
+        var tile = GetTileAtScreenPoint(point);
+        if (tile is null)
+        {
+            return false;
+        }
+
+        _buildPlacementDragActive = true;
+        _buildPlacementDragStart = tile.Coordinates;
+        return true;
+    }
+
+    private void ClearBuildPlacementDrag()
+    {
+        _buildPlacementDragActive = false;
+        _buildPlacementDragStart = null;
+    }
+
+    private bool TryFinalizeBuildPlacementDrag()
+    {
+        if (_floatingBuilding?.TargetBuilding is not IBuildPlacementDragTarget ||
+            !TryGetBuildPlacementLocations(out var locations) ||
+            locations.Count == 0)
+        {
+            return false;
+        }
+
+        return _floatingBuilding.TargetBuilding is SoilPatch
+            ? TryFinalizeSoilPatchGridPlacement(locations)
+            : TryFinalizeDraggedIndividualPlacement(locations);
+    }
+
+    private bool TryFinalizeDraggedIndividualPlacement(IReadOnlyList<GridPoint> locations)
+    {
+        if (_floatingBuilding is null ||
+            _session.Cave is null ||
+            !CanBuildDraggedIndividualPlacements(locations))
+        {
+            return false;
+        }
+
+        for (var index = 0; index < locations.Count; index++)
+        {
+            if (!TryCreateIndependentPlacementScaffolding(out var placement))
+            {
+                return false;
+            }
+
+            var built = _session.Runtime.NoCostBuildPlacement
+                ? BuildWithoutCost(locations[index], placement)
+                : _session.Cave.Build(placement, locations[index]);
+            if (!built)
+            {
+                return false;
+            }
+        }
+
+        _audio.Play(GameAudioCue.BuildingPlace);
+        ContinueSelectedBuildingPlacement(_floatingBuilding.GetDisplayRotationTurns());
+        return true;
+    }
+
+    private bool TryFinalizeSoilPatchGridPlacement(IReadOnlyList<GridPoint> locations)
+    {
+        if (_floatingBuilding?.TargetBuilding is not SoilPatch || _session.Cave is null)
+        {
+            return false;
+        }
+
+        if (!CanBuildSoilPatchGrid(locations) ||
+            !TryCreateSoilAreaPlacement(locations, out var soilArea, out var location))
+        {
+            return false;
+        }
+
+        var built = _session.Runtime.NoCostBuildPlacement
+            ? _session.Cave.BuildSoilArea(soilArea, location)
+            : _session.Cave.Build(new Scaffolding(_session, soilArea), location);
+
+        if (built)
+        {
+            _audio.Play(GameAudioCue.BuildingPlace);
+            ContinueSelectedBuildingPlacement(_floatingBuilding.GetDisplayRotationTurns());
+        }
+
+        return built;
+    }
+
+    private bool CanBuildSoilPatchGrid(IReadOnlyList<GridPoint> locations)
+    {
+        if (_floatingBuilding?.TargetBuilding is not SoilPatch ||
+            _session.Cave is null ||
+            !TryCreateSoilAreaPlacement(locations, out var soilArea, out var location))
+        {
+            return false;
+        }
+
+        if (!_session.Cave.CanBuildSoilArea(soilArea, location, preserveReachability: true))
+        {
+            return false;
+        }
+
+        if (_session.Runtime.NoCostBuildPlacement)
+        {
+            return true;
+        }
+
+        var scaffold = new Scaffolding(_session, soilArea);
+        return _session.Cave.CanBuild(scaffold, location, preserveReachability: true);
+    }
+
+    private bool TryCreateSoilAreaPlacement(IReadOnlyList<GridPoint> locations, out SoilArea soilArea, out GridPoint location)
+    {
+        soilArea = new SoilArea(_session);
+        location = GridPoint.Zero;
+        if (locations.Count == 0)
+        {
+            return false;
+        }
+
+        var minX = int.MaxValue;
+        var minY = int.MaxValue;
+        for (var index = 0; index < locations.Count; index++)
+        {
+            minX = Math.Min(minX, locations[index].X);
+            minY = Math.Min(minY, locations[index].Y);
+        }
+
+        location = new GridPoint(minX, minY);
+        for (var index = 0; index < locations.Count; index++)
+        {
+            var soilPatch = new SoilPatch(_session);
+            soilArea.AddSoilPatch(soilPatch, new GridPoint(locations[index].X - minX, locations[index].Y - minY));
+        }
+
+        return true;
+    }
+
+    // Resolve the live placement anchors from the hovered tile so single buildings and drag rows share one snap path.
+    private bool TryGetBuildPlacementLocations(out List<GridPoint> locations)
+    {
+        locations = [];
+        if (_floatingBuilding is null)
+        {
+            return false;
+        }
+
+        var endTile = GetTileAtScreenPoint(_input.MousePoint);
+        if (endTile is null)
+        {
+            return false;
+        }
+
+        locations = BuildPlacementPreviewResolver.ResolveLocations(
+            _floatingBuilding.TargetBuilding,
+            endTile.Coordinates,
+            BuildPlacementDragActive ? _buildPlacementDragStart : null);
+        return locations.Count > 0;
+    }
+
+    private bool CanBuildDraggedIndividualPlacements(IReadOnlyList<GridPoint> locations)
+    {
+        var cave = _session.Cave;
+        if (cave is null ||
+            locations.Count == 0 ||
+            !TryCreatePlacementPreviewBuilding(out var previewBuilding))
+        {
+            return false;
+        }
+
+        var occupiedTiles = new HashSet<GridPoint>();
+        for (var index = 0; index < locations.Count; index++)
+        {
+            for (var x = 0; x < previewBuilding.Size.X; x++)
+            {
+                for (var y = 0; y < previewBuilding.Size.Y; y++)
+                {
+                    if (previewBuilding.OpenMap[y][x] > 1)
+                    {
+                        continue;
+                    }
+
+                    if (!occupiedTiles.Add(new GridPoint(locations[index].X + x, locations[index].Y + y)))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            if (!cave.CanBuild(previewBuilding, locations[index], preserveReachability: true))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool TryCreatePlacementPreviewBuilding(out Building previewBuilding)
+    {
+        previewBuilding = null!;
+        if (_floatingBuilding is null)
+        {
+            return false;
+        }
+
+        if (_activeBuildFactory is not null)
+        {
+            var previewPlacement = CreatePlacementScaffolding(
+                _session,
+                _activeBuildFactory,
+                _floatingBuilding.GetDisplayRotationTurns());
+            previewBuilding = _session.Runtime.NoCostBuildPlacement
+                ? previewPlacement.TargetBuilding
+                : previewPlacement;
+            return true;
+        }
+
+        previewBuilding = _session.Runtime.NoCostBuildPlacement
+            ? _floatingBuilding.TargetBuilding
+            : _floatingBuilding;
+        return true;
+    }
+
+    private bool TryCreateIndependentPlacementScaffolding(out Scaffolding placement)
+    {
+        placement = null!;
+        if (_floatingBuilding is null)
+        {
+            return false;
+        }
+
+        if (_activeBuildFactory is not null)
+        {
+            placement = CreatePlacementScaffolding(
+                _session,
+                _activeBuildFactory,
+                _floatingBuilding.GetDisplayRotationTurns());
+            return true;
+        }
+
+        if (_floatingBuilding.TargetBuilding is Wall)
+        {
+            placement = new Scaffolding(_session, new Wall(_session));
+            return true;
+        }
+
+        return false;
+    }
+
+    private void DrawBuildingPlacementPreview(IReadOnlyList<GridPoint> locations, bool canBuild)
+    {
+        var previewColor = (canBuild ? Color.White : new Color(255, 96, 96)) * 0.7f;
+        for (var index = 0; index < locations.Count; index++)
+        {
+            DrawFloatingBuildingPreviewAt(locations[index], previewColor);
+        }
+    }
+
+    private void DrawFloatingBuildingPreviewAt(GridPoint location, Color previewColor)
+    {
+        if (_floatingBuilding is null)
+        {
+            return;
+        }
+
+        DrawWorldTextureNative(
+            _floatingBuilding.TargetBuilding.TextureKey,
+            new Vector2(location.X * TileConstants.TileSize, location.Y * TileConstants.TileSize),
+            _floatingBuilding.GetDisplayRotationTurns() * MathF.PI / 2f,
+            GetFloatingBuildingOrigin(_floatingBuilding),
+            previewColor);
+    }
+
+    // Preview the snapped line as separate connected wall segments rather than one footprint.
+    private void DrawWallPlacementPreview(IReadOnlyList<GridPoint> locations, bool canBuild)
+    {
+        var previewColor = (canBuild ? Color.White : new Color(255, 96, 96)) * 0.7f;
+        for (var index = 0; index < locations.Count; index++)
+        {
+            var (textureKey, rotationTurns) = ResolveWallPreviewAppearance(locations, index);
+            DrawWorldTextureNative(
+                textureKey,
+                new Vector2(locations[index].X * TileConstants.TileSize, locations[index].Y * TileConstants.TileSize),
+                rotationTurns * MathF.PI / 2f,
+                color: previewColor);
+        }
+    }
+
+    private static (string TextureKey, int RotationTurns) ResolveWallPreviewAppearance(IReadOnlyList<GridPoint> locations, int index)
+    {
+        const int topBit = 1;
+        const int rightBit = 2;
+        const int bottomBit = 4;
+        const int leftBit = 8;
+
+        var connectionMask = 0;
+        if (index > 0)
+        {
+            var previous = locations[index - 1];
+            var current = locations[index];
+            if (previous.X == current.X)
+            {
+                connectionMask |= previous.Y < current.Y ? topBit : bottomBit;
+            }
+            else
+            {
+                connectionMask |= previous.X < current.X ? leftBit : rightBit;
+            }
+        }
+
+        if (index + 1 < locations.Count)
+        {
+            var next = locations[index + 1];
+            var current = locations[index];
+            if (next.X == current.X)
+            {
+                connectionMask |= next.Y < current.Y ? topBit : bottomBit;
+            }
+            else
+            {
+                connectionMask |= next.X < current.X ? leftBit : rightBit;
+            }
+        }
+
+        return WallType.Default.ResolveAppearance(connectionMask);
+    }
+
     private void SpawnDebugTrilobite()
     {
         var cave = _session.Cave;
@@ -3151,7 +3737,7 @@ public sealed partial class GameApp
 
                 foreach (var trilobite in tile.Trilobites)
                 {
-                    if (selection.Contains(GetCreatureScreenPosition(trilobite)))
+                    if (trilobite.CanBeDirectlySelected() && selection.Contains(GetCreatureScreenPosition(trilobite)))
                     {
                         _selectionResultBuffer.Add(trilobite);
                     }
@@ -3169,7 +3755,7 @@ public sealed partial class GameApp
             return _selectedTrilobites.First();
         }
 
-        return _selectedObject is Trilobite or Building ? _selectedObject : null;
+        return _selectedObject is Creature or Building or Vehicle ? _selectedObject : null;
     }
 
     private bool TryGetFocusHintTarget(out object focusTarget, out Vector2 screenPosition)
@@ -3186,6 +3772,8 @@ public sealed partial class GameApp
             case Creature creature when creature.Cave is null:
             case Building { Cave: null }:
             case Building { Location: null }:
+            case Vehicle { Cave: null }:
+            case Vehicle { Location: null }:
                 return false;
         }
 
@@ -3206,6 +3794,7 @@ public sealed partial class GameApp
         {
             Creature creature => GetCreatureWorldPosition(creature),
             Building building when building.Location is not null => GetPlacedBuildingWorldCenter(building),
+            Vehicle vehicle when vehicle.Location is not null => ToFrameworkVector(vehicle.GetWorldCenter()),
             _ => Vector2.Zero
         };
     }
@@ -3293,6 +3882,7 @@ public sealed partial class GameApp
             Trilobite trilobite => $"Trilobite:{trilobite.Name}@{trilobite.Location}",
             Creature creature => $"Creature:{creature.Name}@{creature.Location}",
             Building building => $"Building:{building.Name}@{building.Location?.ToString() ?? "none"}",
+            Vehicle vehicle => $"Vehicle:{vehicle.Name}@{vehicle.Location?.ToString() ?? "none"}",
             null => "none",
             _ => _selectedObject.GetType().Name
         };
@@ -3434,7 +4024,7 @@ public sealed partial class GameApp
 
         foreach (var candidate in cave.GetTrilobiteList())
         {
-            if (GetCreatureHitBounds(candidate).Contains(point))
+            if (candidate.CanBeDirectlySelected() && GetCreatureHitBounds(candidate).Contains(point))
             {
                 trilobite = candidate;
                 return true;
@@ -3456,7 +4046,7 @@ public sealed partial class GameApp
 
         foreach (var candidate in cave.GetTrilobiteList())
         {
-            if (GetCreatureHitBounds(candidate).Contains(point))
+            if (candidate.CanBeDirectlySelected() && GetCreatureHitBounds(candidate).Contains(point))
             {
                 creature = candidate;
                 return true;
@@ -3465,7 +4055,7 @@ public sealed partial class GameApp
 
         foreach (var candidate in cave.GetEnemyList())
         {
-            if (GetCreatureHitBounds(candidate).Contains(point))
+            if (candidate.CanBeDirectlySelected() && GetCreatureHitBounds(candidate).Contains(point))
             {
                 creature = candidate;
                 return true;
@@ -3511,6 +4101,25 @@ public sealed partial class GameApp
         }
 
         building = null!;
+        return false;
+    }
+
+    private bool TryHitVehicle(Point point, out Vehicle vehicle)
+    {
+        foreach (var candidate in _session.Cave?.GetVehicles() ?? [])
+        {
+            if (candidate.TileArray.Any(tile =>
+            {
+                var tilePoint = GridPoint.Parse(tile.Key);
+                return GetTileHitBounds(tilePoint).Contains(point);
+            }))
+            {
+                vehicle = candidate;
+                return true;
+            }
+        }
+
+        vehicle = null!;
         return false;
     }
 

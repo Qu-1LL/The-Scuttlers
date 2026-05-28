@@ -20,6 +20,9 @@ public sealed class GameSessionBootstrapperTests
         Assert.Equal("builder", assignments["Quinton"]);
         Assert.Equal("farmer", assignments["Yeetmuncher"]);
         Assert.Equal("fighter", assignments["Sigma"]);
+        Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Soil Patch");
+        Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Garage");
+        Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Silo");
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Turret");
         Assert.NotNull(queen);
     }
@@ -30,6 +33,7 @@ public sealed class GameSessionBootstrapperTests
         var result = new GameSessionBootstrapper().CreateNewGame();
 
         Assert.True(result.Session.Runtime.DisableEnemySpawns);
+        Assert.False(result.Session.Runtime.AllowManualMining);
     }
 
     [Fact]

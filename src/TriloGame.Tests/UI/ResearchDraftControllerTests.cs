@@ -35,19 +35,22 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void ResolveHoverPlacement_UsesLeftRightAndBranchColumnTargetsAsExpected()
+    public void ResolveHoverPlacement_UsesTheSharedInfoPanelForAnyVisibleNodeDetails()
     {
         Assert.Equal(
-            ResearchNodeHoverPlacement.LeftDock,
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: true, hasSkillTreeHover: true, hasBranchHover: false));
         Assert.Equal(
-            ResearchNodeHoverPlacement.RightDock,
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: true, hasSkillTreeHover: true, hasBranchHover: true));
         Assert.Equal(
-            ResearchNodeHoverPlacement.BranchColumn,
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: false, hasSkillTreeHover: true, hasBranchHover: false));
-        Assert.Null(
+        Assert.Equal(
+            ResearchNodeHoverPlacement.InfoPanel,
             ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: false, hasSkillTreeHover: false, hasBranchHover: true));
+        Assert.Null(
+            ResearchDraftController.ResolveHoverPlacement(hasPendingDraft: false, hasSkillTreeHover: false, hasBranchHover: false));
     }
 
     [Fact]
@@ -241,14 +244,14 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void HandlePointerUp_SelectedPlacedNodeCanBeUnlockedFromTheBranchColumn()
+    public void HandlePointerUp_SelectedPlacedNodeCanBeUnlockedFromTheInfoPanel()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
         var draftSystem = new ResearchDraftSystem();
         var controller = new ResearchDraftController();
         controller.Open(draftSystem);
         var viewport = new Point(1280, 800);
-        var layout = ResearchDraftLayout.Build(viewport);
+        var layout = ResearchDraftLayout.Build(viewport, branchCardCount: 0);
         var root = Assert.IsType<BinarySkillNode>(session.SkillTree.Root);
         var featureTree = Assert.IsType<FeatureTree>(session.GetFeatureTree("B1"));
         var node = session.SkillTree.AddLeftChild(root, session.SkillTree.IntakeSkillNode(featureTree.Root!, GridPoint.Zero, featureTree.Name));
@@ -258,8 +261,8 @@ public sealed class ResearchDraftControllerTests
 
         var selectOutcome = controller.HandlePointerUp(GetTreeNodePoint(layout, new GridPoint(1, 0)), viewport, session, draftSystem);
         var buttonLayout = ResearchDraftController.CalculateNodeInfoPanelLayout(
-            layout.BranchColumnBounds,
-            ResearchNodeHoverPlacement.BranchColumn,
+            layout.InfoPanelBounds,
+            ResearchNodeHoverPlacement.InfoPanel,
             hasActionStatus: true,
             hasUnlockButton: true);
         var unlockOutcome = controller.HandlePointerUp(GetCenter(buttonLayout.UnlockButtonBounds!.Value), viewport, session, draftSystem);

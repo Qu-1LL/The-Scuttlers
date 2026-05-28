@@ -21,9 +21,7 @@ public enum ResearchDraftInteractionOutcome
 
 internal enum ResearchNodeHoverPlacement
 {
-    LeftDock,
-    RightDock,
-    BranchColumn
+    InfoPanel
 }
 
 public sealed class ResearchDraftController
@@ -89,7 +87,7 @@ public sealed class ResearchDraftController
             return false;
         }
 
-        var layout = ResearchDraftLayout.Build(viewport);
+        var layout = BuildLayout(viewport, draftSystem);
         if (!layout.PanelBounds.Contains(point))
         {
             return false;
@@ -144,7 +142,7 @@ public sealed class ResearchDraftController
     public bool HandlePointerDown(Point point, Point viewport, ResearchDraftSystem draftSystem)
     {
         _pointerPoint = point;
-        return IsOpen && ResearchDraftLayout.Build(viewport).PanelBounds.Contains(point);
+        return IsOpen && BuildLayout(viewport, draftSystem).PanelBounds.Contains(point);
     }
 
     public ResearchDraftInteractionOutcome HandlePointerUp(
@@ -159,7 +157,7 @@ public sealed class ResearchDraftController
             return ResearchDraftInteractionOutcome.None;
         }
 
-        var layout = ResearchDraftLayout.Build(viewport);
+        var layout = BuildLayout(viewport, draftSystem);
         if (!layout.PanelBounds.Contains(point))
         {
             _selectedBranchIndex = null;
@@ -219,7 +217,7 @@ public sealed class ResearchDraftController
         bool canSkipGracePeriod,
         GumUiRenderer gumUi)
     {
-        var layout = ResearchDraftLayout.Build(viewport);
+        var layout = BuildLayout(viewport, draftSystem);
         DrawSkillTreeButton(layout.SkillTreeButtonBounds, draftSystem.HasPendingDraft, gumUi);
         DrawSkipButton(layout.SkipButtonBounds, canSkipGracePeriod, gumUi);
 
@@ -277,8 +275,8 @@ public sealed class ResearchDraftController
         }
 
         var panelLayout = CalculateNodeInfoPanelLayout(
-            layout.BranchColumnBounds,
-            ResearchNodeHoverPlacement.BranchColumn,
+            layout.InfoPanelBounds,
+            ResearchNodeHoverPlacement.InfoPanel,
             hasActionStatus: true,
             hasUnlockButton: true);
         if (panelLayout.UnlockButtonBounds is not Rectangle unlockButtonBounds ||
@@ -438,7 +436,6 @@ public sealed class ResearchDraftController
         var pendingDraft = draftSystem.PendingDraft;
         var skillTreeDisplayContext = GetSkillTreeDisplayContext(layout, session, draftSystem);
         var hoverDisplay = GetHoveredNodeDisplay(layout, session, draftSystem);
-        DrawDockedHoverInfoPanel(layout, hoverDisplay, gumUi);
 
         gumUi.AddRoundedFrame(layout.PanelBounds, new Color(9, 18, 27, 248), new Color(83, 125, 145), 3, 20);
         gumUi.AddRoundedFrame(
@@ -459,6 +456,18 @@ public sealed class ResearchDraftController
             new Color(177, 203, 214),
             GumTextStyle.Small);
 
+        if (pendingDraft is not null)
+        {
+            gumUi.AddRoundedFrame(layout.DraftAreaBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
+            AddText(
+                gumUi,
+                layout.DraftHeaderBounds,
+                "Branch Options",
+                new Color(204, 228, 238),
+                GumTextStyle.Small);
+            DrawBranchCards(layout.BranchCardBounds, pendingDraft.Branches, session, gumUi);
+        }
+
         gumUi.AddRoundedFrame(layout.TreeBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
         AddText(
             gumUi,
@@ -468,32 +477,20 @@ public sealed class ResearchDraftController
             GumTextStyle.Small);
         DrawSkillTreePanel(layout, session, draftSystem, gumUi);
 
-        if (pendingDraft is null)
+        if (hoverDisplay is ResearchNodeHoverDisplay infoDisplay)
         {
-            if (skillTreeDisplayContext is ResearchSkillTreeDisplayContext displayContext)
-            {
-                DrawNodeInfoPanel(
-                    layout.BranchColumnBounds,
-                    displayContext.HoverInfo,
-                    BuildSelectedNodeActionInfo(session, draftSystem, displayContext),
-                    gumUi,
-                    ResearchNodeHoverPlacement.BranchColumn);
-            }
-            else
-            {
-                gumUi.AddRoundedFrame(layout.BranchColumnBounds, new Color(12, 25, 37), new Color(58, 87, 103), 2, 16);
-                AddCenteredText(
-                    gumUi,
-                    Inset(layout.BranchColumnBounds, 18),
-                    "No pending research branches.\nDefeat another wave to generate three new options.",
-                    new Color(210, 228, 236),
-                    GumTextStyle.Small,
-                    maxLines: 3);
-            }
+            DrawNodeInfoPanel(
+                layout.InfoPanelBounds,
+                infoDisplay.HoverInfo,
+                skillTreeDisplayContext is ResearchSkillTreeDisplayContext displayContext
+                    ? BuildSelectedNodeActionInfo(session, draftSystem, displayContext)
+                    : null,
+                gumUi,
+                ResearchNodeHoverPlacement.InfoPanel);
         }
         else
         {
-            DrawBranchCards(layout.BranchCardBounds, pendingDraft.Branches, session, gumUi);
+            DrawNodeInfoPlaceholder(layout.InfoPanelBounds, pendingDraft is not null, gumUi);
         }
 
         AddText(
@@ -586,29 +583,9 @@ public sealed class ResearchDraftController
             return null;
         }
 
-        return resolvedPlacement == ResearchNodeHoverPlacement.RightDock
-            ? new ResearchNodeHoverDisplay(branchHoverInfo!.Value, resolvedPlacement)
+        return branchHoverInfo is ResearchNodeHoverInfo hoveredBranchInfo
+            ? new ResearchNodeHoverDisplay(hoveredBranchInfo, resolvedPlacement)
             : new ResearchNodeHoverDisplay(skillTreeDisplayContext!.Value.HoverInfo, resolvedPlacement);
-    }
-
-    private void DrawDockedHoverInfoPanel(
-        ResearchDraftLayoutInfo layout,
-        ResearchNodeHoverDisplay? hoverDisplay,
-        GumUiRenderer gumUi)
-    {
-        if (hoverDisplay is not ResearchNodeHoverDisplay dockedHoverDisplay)
-        {
-            return;
-        }
-
-        if (dockedHoverDisplay.Placement == ResearchNodeHoverPlacement.LeftDock)
-        {
-            DrawNodeInfoPanel(layout.HoverInfoBounds, dockedHoverDisplay.HoverInfo, null, gumUi, dockedHoverDisplay.Placement);
-        }
-        else if (dockedHoverDisplay.Placement == ResearchNodeHoverPlacement.RightDock)
-        {
-            DrawNodeInfoPanel(layout.RightHoverInfoBounds, dockedHoverDisplay.HoverInfo, null, gumUi, dockedHoverDisplay.Placement);
-        }
     }
 
     private ResearchNodeHoverInfo? DrawBranchCards(
@@ -1367,20 +1344,6 @@ public sealed class ResearchDraftController
         GumUiRenderer gumUi,
         ResearchNodeHoverPlacement placement)
     {
-        const int hiddenInset = 30;
-        var hiddenLeftInset = placement == ResearchNodeHoverPlacement.RightDock ? hiddenInset : 0;
-        var hiddenRightInset = placement == ResearchNodeHoverPlacement.LeftDock ? hiddenInset : 0;
-        if (placement == ResearchNodeHoverPlacement.LeftDock)
-        {
-            var bridgeBounds = new Rectangle(bounds.Right - hiddenRightInset, bounds.Y + 28, hiddenRightInset + 10, Math.Max(56, bounds.Height - 56));
-            gumUi.AddRoundedFrame(bridgeBounds, new Color(9, 18, 28, 248), new Color(116, 156, 174), 2, 10);
-        }
-        else if (placement == ResearchNodeHoverPlacement.RightDock)
-        {
-            var bridgeBounds = new Rectangle(bounds.X - 10, bounds.Y + 28, hiddenLeftInset + 10, Math.Max(56, bounds.Height - 56));
-            gumUi.AddRoundedFrame(bridgeBounds, new Color(9, 18, 28, 248), new Color(116, 156, 174), 2, 10);
-        }
-
         gumUi.AddRoundedFrame(bounds, new Color(9, 18, 28, 248), new Color(204, 228, 238), 2, 16);
 
         var panelLayout = CalculateNodeInfoPanelLayout(
@@ -1412,6 +1375,26 @@ public sealed class ResearchDraftController
         }
     }
 
+    private void DrawNodeInfoPlaceholder(Rectangle bounds, bool hasPendingDraft, GumUiRenderer gumUi)
+    {
+        gumUi.AddRoundedFrame(bounds, new Color(9, 18, 28, 248), new Color(204, 228, 238), 2, 16);
+        AddText(
+            gumUi,
+            new Rectangle(bounds.X + 14, bounds.Y + 12, bounds.Width - 28, 18),
+            "Node Details",
+            new Color(204, 228, 238),
+            GumTextStyle.Compact);
+        AddCenteredText(
+            gumUi,
+            Inset(new Rectangle(bounds.X, bounds.Y + 26, bounds.Width, bounds.Height - 26), 18),
+            hasPendingDraft
+                ? "Hover a branch or skill tree node to inspect it here."
+                : "Hover or select a skill tree node to inspect it here.",
+            new Color(210, 228, 236),
+            GumTextStyle.Small,
+            maxLines: 3);
+    }
+
     private static void DrawInfoSection(
         GumUiRenderer gumUi,
         Rectangle bounds,
@@ -1440,15 +1423,12 @@ public sealed class ResearchDraftController
         bool hasActionStatus,
         bool hasUnlockButton)
     {
-        const int hiddenInset = 30;
         const int actionStatusHeight = 32;
         const int buttonHeight = 34;
         const int sectionGap = 8;
 
-        var hiddenLeftInset = placement == ResearchNodeHoverPlacement.RightDock ? hiddenInset : 0;
-        var hiddenRightInset = placement == ResearchNodeHoverPlacement.LeftDock ? hiddenInset : 0;
-        var contentX = bounds.X + 14 + hiddenLeftInset;
-        var contentWidth = bounds.Width - 28 - hiddenLeftInset - hiddenRightInset;
+        var contentX = bounds.X + 14;
+        var contentWidth = bounds.Width - 28;
         var titleBounds = new Rectangle(contentX, bounds.Y + 12, contentWidth, 18);
         var nodeBounds = new Rectangle(contentX, bounds.Y + 38, contentWidth, 44);
         var featureTreeBounds = new Rectangle(contentX, bounds.Y + 88, contentWidth, 40);
@@ -1837,17 +1817,9 @@ public sealed class ResearchDraftController
         bool hasSkillTreeHover,
         bool hasBranchHover)
     {
-        if (!hasPendingDraft)
-        {
-            return hasSkillTreeHover ? ResearchNodeHoverPlacement.BranchColumn : null;
-        }
-
-        if (hasBranchHover)
-        {
-            return ResearchNodeHoverPlacement.RightDock;
-        }
-
-        return hasSkillTreeHover ? ResearchNodeHoverPlacement.LeftDock : null;
+        return hasSkillTreeHover || hasBranchHover
+            ? ResearchNodeHoverPlacement.InfoPanel
+            : null;
     }
 
     internal static string BuildNodeAffectText(GameSession session, BinarySkillNode node)
@@ -1996,6 +1968,12 @@ public sealed class ResearchDraftController
     private static string BuildDefaultStatus(ResearchDraftSystem draftSystem)
     {
         return draftSystem.HasPendingDraft ? PendingStatus : EmptyStatus;
+    }
+
+    private static ResearchDraftLayoutInfo BuildLayout(Point viewport, ResearchDraftSystem draftSystem)
+    {
+        ArgumentNullException.ThrowIfNull(draftSystem);
+        return ResearchDraftLayout.Build(viewport, draftSystem.PendingDraft?.Branches.Count ?? 0);
     }
 
     private static Color GetNodeFillColor(GameSession session, BinarySkillNode node)

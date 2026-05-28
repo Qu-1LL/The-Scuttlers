@@ -95,7 +95,7 @@ public sealed class WallTests
     }
 
     [Fact]
-    public void WallScaffoldingPlacement_SkipsExistingBuildingAccessCheck()
+    public void WallScaffoldingPlacement_PreservesExistingBuildingAccess()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(16, 10, new GridPoint(1, 1));
         var existingStorage = new Storage(session);
@@ -117,8 +117,68 @@ public sealed class WallTests
         var entranceTile = new GridPoint(10, 4);
 
         Assert.True(cave.SimulatedBuildPreservesReachability(scaffolding, entranceTile));
-        Assert.False(cave.SimulatedBuildPreservesBuildingAccess(scaffolding, entranceTile));
+        Assert.True(cave.SimulatedBuildPreservesBuildingAccess(scaffolding, entranceTile));
         Assert.True(cave.CanBuild(scaffolding, entranceTile, preserveReachability: true));
+    }
+
+    [Fact]
+    public void WallScaffoldingPlacement_StorageFieldRemainsReachableWithoutHanging()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(16, 10, new GridPoint(1, 1));
+        var existingStorage = new Storage(session);
+        Assert.True(cave.Build(existingStorage, new GridPoint(11, 4)));
+
+        foreach (var location in new[]
+                 {
+                     new GridPoint(10, 3), new GridPoint(11, 3), new GridPoint(12, 3), new GridPoint(13, 3),
+                     new GridPoint(10, 5), new GridPoint(10, 6), new GridPoint(11, 6), new GridPoint(12, 6), new GridPoint(13, 6),
+                     new GridPoint(13, 4), new GridPoint(13, 5)
+                 })
+        {
+            SetWallTile(cave, location);
+        }
+
+        cave.RefreshReachableTiles();
+
+        var accessLocation = new GridPoint(9, 4);
+        var field = cave.GetBuildingBfsFieldObject(existingStorage);
+        field.Rebuild();
+        Assert.NotEqual(int.MaxValue, field.GetFieldValue(accessLocation, refresh: false));
+
+        var scaffolding = new Scaffolding(session, new Wall(session));
+        var entranceTile = new GridPoint(10, 4);
+
+        Assert.True(cave.CanBuild(scaffolding, entranceTile, preserveReachability: true));
+        Assert.True(cave.Build(scaffolding, entranceTile));
+        field.Refresh();
+
+        Assert.True(field.IsUpdated());
+        Assert.NotEqual(int.MaxValue, field.GetFieldValue(accessLocation, refresh: false));
+    }
+
+    [Fact]
+    public void AdjacentWallScaffolds_CompleteIndependently()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(12, 8, new GridPoint(1, 1));
+        var left = new Scaffolding(session, new Wall(session));
+        var middle = new Scaffolding(session, new Wall(session));
+        var right = new Scaffolding(session, new Wall(session));
+        var leftLocation = new GridPoint(4, 4);
+        var middleLocation = new GridPoint(5, 4);
+        var rightLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(left, leftLocation));
+        Assert.True(cave.Build(middle, middleLocation));
+        Assert.True(cave.Build(right, rightLocation));
+
+        CompleteScaffolding(middle);
+
+        Assert.Contains(left, cave.Buildings);
+        Assert.DoesNotContain(middle, cave.Buildings);
+        Assert.Contains(right, cave.Buildings);
+        Assert.IsType<Wall>(cave.GetTile(middleLocation)!.Built);
+        Assert.Same(left, cave.GetTile(leftLocation)!.Built);
+        Assert.Same(right, cave.GetTile(rightLocation)!.Built);
     }
 
     private static void SetWallTile(TriloGame.Game.Core.World.Cave cave, GridPoint location)
@@ -128,5 +188,18 @@ public sealed class WallTests
         tile.SetBase("wall");
         tile.CreatureCanFit = false;
         tile.ConfigureWall(1);
+    }
+
+    private static void CompleteScaffolding(Scaffolding scaffolding)
+    {
+        foreach (var pair in scaffolding.RecipeRequired.ToArray())
+        {
+            var required = scaffolding.GetRemainingRequirement(pair.Key);
+            Assert.Equal(required, scaffolding.Deposit(pair.Key, required));
+        }
+
+        Assert.Equal(
+            scaffolding.ConstructionRequired,
+            scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
     }
 }

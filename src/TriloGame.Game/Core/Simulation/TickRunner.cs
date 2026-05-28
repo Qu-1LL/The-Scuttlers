@@ -82,6 +82,8 @@ public static class TickRunner
         {
             building.Tick(cave);
         }
+        cave.TickRanches();
+        cave.TickVehicles();
         phaseObserver?.OnPhaseCompleted(TickPhase.BuildingTick);
         phaseObserver?.OnTickCompleted(session);
     }

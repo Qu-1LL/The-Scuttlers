@@ -15,8 +15,7 @@ public sealed partial class GameApp
 {
     private enum SelectionDragMode
     {
-        Trilobites,
-        MiningTiles
+        Trilobites
     }
 
     private readonly List<string> _selectedMiningTileKeys = [];
@@ -39,12 +38,6 @@ public sealed partial class GameApp
         if (TryHitTrilobite(point, out _))
         {
             return SelectionDragMode.Trilobites;
-        }
-
-        var tile = GetTileAtScreenPoint(point);
-        if (tile is not null && CanSelectMiningTile(tile))
-        {
-            return SelectionDragMode.MiningTiles;
         }
 
         return SelectionDragMode.Trilobites;
@@ -77,106 +70,17 @@ public sealed partial class GameApp
     {
         var cave = _session.Cave;
         return cave is not null &&
-               (cave.HasOpal(tile) || Building.IsMineableType(tile.Base) || !cave.IsTileRevealed(tile));
+               IsManualMiningTileSelectable(_session.Runtime.AllowManualMining, cave.HasOpal(tile), tile.Base, cave.IsTileRevealed(tile));
     }
 
-    private bool TryBeginLeftMiningSelectionDrag(Point point)
+    private void SelectMiningTile(Tile tile)
     {
-        if (_roleRadialMenu is not null || _miningOrderMenu is not null || !ShouldStartSelectionDrag(point))
-        {
-            return false;
-        }
-
-        var tile = GetTileAtScreenPoint(point);
-        if (tile is null || !CanSelectMiningTile(tile))
-        {
-            return false;
-        }
-
-        _selectionDragAppend = ControlHeld();
-        _selectionDragMode = SelectionDragMode.MiningTiles;
-        _selectionDragActive = true;
-        _selectionBoxBounds = CreateScreenRectangle(point, point);
-        return true;
-    }
-
-    private void SelectMiningTile(Tile tile, bool append, bool toggleIfAlreadySelected)
-    {
-        if (!append)
-        {
-            _selectedMiningTileKeys.Clear();
-        }
-
-        if (toggleIfAlreadySelected && _selectedMiningTileKeys.Remove(tile.Key))
-        {
-            if (_selectedMiningTileKeys.Count == 0)
-            {
-                _miningOrderMenu = null;
-            }
-
-            return;
-        }
+        _selectedMiningTileKeys.Clear();
 
         if (!_selectedMiningTileKeys.Contains(tile.Key, StringComparer.Ordinal))
         {
             _selectedMiningTileKeys.Add(tile.Key);
         }
-    }
-
-    private void SelectMiningTiles(IEnumerable<string> tileKeys, bool append)
-    {
-        if (!append)
-        {
-            _selectedMiningTileKeys.Clear();
-        }
-
-        foreach (var tileKey in tileKeys)
-        {
-            if (!_selectedMiningTileKeys.Contains(tileKey, StringComparer.Ordinal))
-            {
-                _selectedMiningTileKeys.Add(tileKey);
-            }
-        }
-    }
-
-    private IReadOnlyList<string> GetMiningTilesInScreenRectangle(Rectangle selection)
-    {
-        var cave = _session.Cave;
-        if (cave is null)
-        {
-            return [];
-        }
-
-        var selectedKeys = new List<string>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var topLeft = _camera.ScreenToWorld(new Point(selection.Left, selection.Top));
-        var bottomRight = _camera.ScreenToWorld(new Point(selection.Right, selection.Bottom));
-        var minTileX = (int)MathF.Floor(MathF.Min(topLeft.X, bottomRight.X) / TileConstants.TileSize) - 1;
-        var minTileY = (int)MathF.Floor(MathF.Min(topLeft.Y, bottomRight.Y) / TileConstants.TileSize) - 1;
-        var maxTileX = (int)MathF.Ceiling(MathF.Max(topLeft.X, bottomRight.X) / TileConstants.TileSize) + 1;
-        var maxTileY = (int)MathF.Ceiling(MathF.Max(topLeft.Y, bottomRight.Y) / TileConstants.TileSize) + 1;
-
-        for (var y = minTileY; y <= maxTileY; y++)
-        {
-            for (var x = minTileX; x <= maxTileX; x++)
-            {
-                var tile = cave.GetTile(new Shared.Math.GridPoint(x, y).ToString());
-                if (tile is null || !CanSelectMiningTile(tile))
-                {
-                    continue;
-                }
-
-                var tileBounds = GetTileScreenBounds(tile.Coordinates);
-                if (!selection.Intersects(tileBounds) || !seen.Add(tile.Key))
-                {
-                    continue;
-                }
-
-                selectedKeys.Add(tile.Key);
-            }
-        }
-
-        return selectedKeys;
     }
 
     private bool TryHandleMiningTileSelectionClick(Tile tile)
@@ -187,37 +91,15 @@ public sealed partial class GameApp
         }
 
         ClearObjectSelection();
-        SelectMiningTile(tile, ControlHeld(), ControlHeld());
+        SelectMiningTile(tile);
         PlayUiSelectSound();
         return true;
-    }
-
-    private void FinalizeMiningTileSelectionBox()
-    {
-        if (_selectionBoxBounds is null)
-        {
-            return;
-        }
-
-        var selectedKeys = GetMiningTilesInScreenRectangle(_selectionBoxBounds.Value);
-        if (selectedKeys.Count == 0)
-        {
-            if (!_selectionDragAppend)
-            {
-                ClearMiningTileSelection();
-            }
-
-            return;
-        }
-
-        ClearObjectSelection();
-        SelectMiningTiles(selectedKeys, _selectionDragAppend);
     }
 
     private void OpenMiningOrderMenu(Point point)
     {
         var cave = _session.Cave;
-        if (cave is null || _selectedMiningTileKeys.Count == 0)
+        if (cave is null || !_session.Runtime.AllowManualMining || _selectedMiningTileKeys.Count == 0)
         {
             _miningOrderMenu = null;
             return;
@@ -302,8 +184,9 @@ public sealed partial class GameApp
     private void DispatchSelectedMinersToMiningTiles()
     {
         var cave = _session.Cave;
-        if (cave is null || _miningOrderMenu is null)
+        if (cave is null || _miningOrderMenu is null || !_session.Runtime.AllowManualMining)
         {
+            ClearMiningTileSelection();
             return;
         }
 
@@ -324,6 +207,18 @@ public sealed partial class GameApp
         }
 
         ClearMiningTileSelection();
+    }
+
+    // Manual mining can only target tiles when the toggle is enabled and the tile is mineable or unexplored.
+    private static bool IsManualMiningTileSelectable(bool allowManualMining, bool hasOpal, string baseType, bool isRevealed)
+    {
+        return allowManualMining && (hasOpal || Building.IsMineableType(baseType) || !isRevealed);
+    }
+
+    // Hover labels stay available for revealed mineable tiles even when manual mining is disabled.
+    private static bool ShouldShowMiningTileHoverLabel(bool hasOpal, string baseType, bool isRevealed)
+    {
+        return isRevealed && (hasOpal || Building.IsMineableType(baseType));
     }
 
     private void DrawMiningTileSelection()
@@ -356,13 +251,19 @@ public sealed partial class GameApp
         }
 
         var tile = GetTileAtScreenPoint(_input.MousePoint);
-        if (tile is null || !CanSelectMiningTile(tile) || !cave.IsTileRevealed(tile))
+        if (tile is null)
+        {
+            return;
+        }
+
+        var hasOpal = cave.HasOpal(tile);
+        if (!ShouldShowMiningTileHoverLabel(hasOpal, tile.Base, IsMapTileVisible(cave, tile)))
         {
             return;
         }
 
         var lines = new List<string> { GetTileDisplayName(tile) };
-        if (cave.HasOpal(tile))
+        if (hasOpal)
         {
             var opal = cave.GetOpalNode(tile);
             if (opal is not null)
