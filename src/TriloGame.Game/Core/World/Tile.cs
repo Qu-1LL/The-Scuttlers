@@ -30,6 +30,10 @@ public sealed class Tile
 
     public int HitsRemaining { get; private set; }
 
+    public BiomeRegion? Biome { get; private set; }
+
+    public string? BiomeName => Biome?.Name;
+
     public Buildings.Building? Built { get; private set; }
 
     public Entities.Enemy? EnemyOccupant { get; private set; }
@@ -182,6 +186,11 @@ public sealed class Tile
     public void SetBuilt(Buildings.Building? building)
     {
         Built = building;
+    }
+
+    internal void SetBiome(BiomeRegion? biome)
+    {
+        Biome = biome;
     }
 
     public bool CreatureFits() => CreatureCanFit;

@@ -234,52 +234,24 @@ public sealed partial class Cave : Graph
         FillCircle(0, 0, Radius);
 
         var origins = new List<GridPoint> { GridPoint.Zero };
-        var successfulCaverns = 0;
-        while (successfulCaverns < CavernCount)
+        for (var cavernIndex = 0; cavernIndex < CavernCount; cavernIndex++)
         {
-            var parent = origins[RandomUtil.NextInt(origins.Count)];
-            var t = RandomUtil.NextDouble();
-            var xOffset = (Radius * 2d * t) + (Radius * RandomUtil.NextDouble());
-            var yOffset = (Radius * 2d * (1d - t)) + (Radius * RandomUtil.NextDouble());
-
-            var candidateX = (int)System.Math.Floor(parent.X + xOffset);
-            var candidateY = (int)System.Math.Floor(parent.Y + yOffset);
-
-            if (RandomUtil.NextDouble() > 0.5d)
-            {
-                candidateX = -candidateX;
-            }
-
-            if (RandomUtil.NextDouble() > 0.5d)
-            {
-                candidateY = -candidateY;
-            }
-
-            var tooClose = false;
-            foreach (var o in origins)
-            {
-                var dx = candidateX - o.X;
-                var dy = candidateY - o.Y;
-                if ((dx * dx) + (dy * dy) <= Radius * Radius)
-                {
-                    tooClose = true;
-                    break;
-                }
-            }
-
-            if (tooClose)
-            {
-                continue;
-            }
-
-            var origin = new GridPoint(candidateX, candidateY);
-            origins.Add(origin);
-            var newRadius = (int)System.Math.Floor((0.5d + RandomUtil.NextDouble()) * Radius);
-            FillCircle(origin.X, origin.Y, newRadius);
-            successfulCaverns++;
+            AddGeneratedCavern(origins);
         }
 
-        var protectedCenterRadius = Radius / 2;
+        var sandBiome = AddBiomeCavern(origins, BiomeNames.Sand);
+        ApplySandBiomeGeneration(sandBiome);
+
+        var lushBiome = AddBiomeCavern(origins, BiomeNames.Lush);
+        ApplyLushBiomeGeneration(lushBiome);
+
+        var greenBiome = AddBiomeCavern(origins, BiomeNames.Green);
+        ApplyGreenBiomeGeneration(greenBiome);
+
+        var lavaBiome = AddBiomeCavern(origins, BiomeNames.Lava);
+        ApplyLavaBiomeGeneration(lavaBiome);
+
+        var protectedCenterRadius = Radius / 2 ;
         var holeBreakThreshold = (Radius * HoleLimit) + (CavernCount * HoleLimit);
         var tileKeys = RandomUtil.Shuffle(Tiles.Keys);
         var removedHoleCount = 0;
@@ -435,7 +407,7 @@ public sealed partial class Cave : Graph
             RandomUtil.NextInt(GameConstants.MinOreHitsPerYield, GameConstants.MaxOreHitsPerYield + 1));
     }
 
-    private void FillCircle(int originX, int originY, int radius)
+    private void FillCircle(int originX, int originY, int radius, BiomeRegion? biome = null)
     {
         for (var x = originX - radius; x <= originX + radius; x++)
         {
@@ -446,7 +418,12 @@ public sealed partial class Cave : Graph
                     continue;
                 }
 
-                AddTile(new GridPoint(x, y).ToString());
+                var tile = AddTile(new GridPoint(x, y).ToString());
+                if (biome is not null)
+                {
+                    SetTileBiome(tile, biome);
+                }
+
                 if (Tiles.ContainsKey(new GridPoint(x - 1, y).ToString()))
                 {
                     AddEdge(new GridPoint(x, y).ToString(), new GridPoint(x - 1, y).ToString());
