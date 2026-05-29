@@ -241,6 +241,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         var sprites = new SpriteFactory();
         RegisterTexture(sprites, "empty", "Textures/EmptyTile");
+        RegisterTexture(sprites, "empty_Sand", "Textures/EmptyTile_Sand");
+        RegisterTexture(sprites, "empty_Lush", "Textures/EmptyTile_Lush");
+        RegisterTexture(sprites, "empty_Green", "Textures/EmptyTile_Green");
+        RegisterTexture(sprites, "empty_Lava", "Textures/EmptyTile_Lava");
         RegisterTexture(sprites, "wall", "Textures/CaveWall");
         RegisterTexture(sprites, "wall_0", "Textures/wall_0");
         RegisterTexture(sprites, "wall_1", "Textures/wall_1");
@@ -1840,9 +1844,22 @@ public sealed partial class GameApp
     {
         foreach (var tile in GetMapVisibleTiles(cave))
         {
-            var key = tile.Base == "wall" ? "wall" : tile.Base;
+            var key = GetTileTextureKey(tile);
             DrawTileTexture(key, tile.Coordinates, GetTileDrawColor(tile));
         }
+    }
+
+    private static string GetTileTextureKey(Tile tile)
+    {
+        if (tile.Base == "wall")
+        {
+            return "wall";
+        }
+
+        return string.Equals(tile.Base, "empty", StringComparison.Ordinal) &&
+               !string.IsNullOrWhiteSpace(tile.BiomeName)
+            ? $"empty_{tile.BiomeName}"
+            : tile.Base;
     }
 
     private void DrawDroppedResources(Cave cave)
