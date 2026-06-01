@@ -12,5 +12,7 @@ public enum GameAudioCue
     TrilobiteBirth,
     TrilobiteSelected,
     UiSelect,
-    VolumeSound
+    VolumeSound,
+    MiningPostFocus,
+    AlgaeFarmFocus
 }
