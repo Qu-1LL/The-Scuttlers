@@ -2041,6 +2041,16 @@ public sealed partial class Cave
         return tile is not null && tile.CreatureFits(creature);
     }
 
+    public bool IsResourceCompleteScaffoldingTile(Tile? tile)
+    {
+        return tile?.Built is Scaffolding { ResourceComplete: true };
+    }
+
+    public bool IsResourceCompleteScaffoldingLocation(GridPoint location)
+    {
+        return IsResourceCompleteScaffoldingTile(GetTile(location));
+    }
+
     public bool PlaceCreatureOnTile(Creature creature, GridPoint location, bool randomizeMovementOffset = false)
     {
         var tile = GetTile(location.ToString());
@@ -2173,7 +2183,7 @@ public sealed partial class Cave
         return true;
     }
 
-    public bool MoveCreature(Creature creature, GridPoint nextLocation)
+    public bool MoveCreature(Creature creature, GridPoint nextLocation, bool allowResourceCompleteScaffolding = false)
     {
         if (!creature.IsTrackedInTileSystem)
         {
@@ -2183,6 +2193,13 @@ public sealed partial class Cave
         var current = creature.Location;
         var nextTile = GetTile(nextLocation);
         if (!CanCreatureTraverseTile(creature, nextTile))
+        {
+            return false;
+        }
+
+        if (!allowResourceCompleteScaffolding &&
+            creature is Trilobite &&
+            IsResourceCompleteScaffoldingTile(nextTile))
         {
             return false;
         }

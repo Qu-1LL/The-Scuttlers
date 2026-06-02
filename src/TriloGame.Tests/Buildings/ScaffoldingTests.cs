@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -35,6 +36,50 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
+    public void CompletedScaffolding_WaitsForTrilobitesToLeaveBeforeReplacingItself()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var targetBuilding = new AlgaeFarm(session);
+        var scaffolding = new Scaffolding(session, targetBuilding);
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, buildLocation);
+
+        CompleteScaffolding(scaffolding);
+
+        Assert.True(scaffolding.ResourceComplete);
+        Assert.True(scaffolding.CompletionPending);
+        Assert.Contains(scaffolding, cave.Buildings);
+        Assert.DoesNotContain(targetBuilding, cave.Buildings);
+
+        TickRunner.RunTick(session);
+
+        Assert.DoesNotContain(scaffolding, cave.Buildings);
+        Assert.Contains(targetBuilding, cave.Buildings);
+        Assert.Equal(buildLocation, targetBuilding.Location);
+        Assert.False(cave.IsResourceCompleteScaffoldingLocation(trilobite.Location));
+    }
+
+    [Fact]
+    public void TrilobiteMovement_DoesNotEnterResourceCompleteScaffolding()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var scaffolding = new Scaffolding(session, new AlgaeFarm(session));
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+        TestWorldFactory.SpawnTrilobite(cave, session, buildLocation, "Blocker");
+        var walker = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 4), "Walker");
+
+        CompleteScaffolding(scaffolding);
+
+        Assert.True(scaffolding.ResourceComplete);
+        Assert.False(cave.MoveCreature(walker, new GridPoint(6, 4)));
+        Assert.Equal(new GridPoint(5, 4), walker.Location);
+    }
+
+    [Fact]
     public void RegularScaffoldingPlacement_IsRejectedWhenItCutsOffExistingBuildingAccess()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
@@ -64,6 +109,13 @@ public sealed class ScaffoldingTests
         Assert.Equal(BuildPlacementFailureReason.BlocksExistingBuildingAccess, placement.FailureReasons);
         Assert.All(placement.Cells.Where(cell => cell.Required), cell => Assert.True(cell.CanBuild));
         Assert.False(cave.CanBuild(scaffolding, locationToBlock, preserveReachability: true));
+    }
+
+    private static void CompleteScaffolding(Scaffolding scaffolding)
+    {
+        var requiredSandstone = scaffolding.GetRemainingRequirement("Sandstone");
+        Assert.Equal(requiredSandstone, scaffolding.Deposit("Sandstone", requiredSandstone));
+        Assert.Equal(scaffolding.ConstructionRequired, scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
     }
 
     private static void SetWallTile(TriloGame.Game.Core.World.Cave cave, GridPoint location)

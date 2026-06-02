@@ -44,6 +44,8 @@ public sealed class Scaffolding : Building
 
     public bool ConstructionComplete { get; private set; }
 
+    public bool ResourceComplete { get; private set; }
+
     public bool CompletionPending { get; private set; }
 
     public override int[][] RotateMap()
@@ -193,12 +195,14 @@ public sealed class Scaffolding : Building
 
     public bool IsInProgress()
     {
-        return CompletionPending || !IsRecipeComplete() || !IsConstructionComplete();
+        return CompletionPending || !IsResourceComplete();
     }
+
+    public bool IsResourceComplete() => UpdateResourceCompleteState();
 
     public bool TryCompleteConstruction(object? source = null)
     {
-        if (!IsRecipeComplete() || !IsConstructionComplete())
+        if (!IsResourceComplete())
         {
             CompletionPending = false;
             return false;
@@ -218,9 +222,15 @@ public sealed class Scaffolding : Building
 
     public bool CompleteConstruction(object? source = null)
     {
-        if (!IsRecipeComplete() || !IsConstructionComplete() || Cave is null || Location is null)
+        if (!IsResourceComplete() || Cave is null || Location is null)
         {
             CompletionPending = false;
+            return false;
+        }
+
+        if (HasTrilobitesInConstructionArea())
+        {
+            CompletionPending = true;
             return false;
         }
 
@@ -247,6 +257,24 @@ public sealed class Scaffolding : Building
         return false;
     }
 
+    public override int Tick(World.Cave cave)
+    {
+        return TryCompleteConstruction("scaffoldingTick") ? 1 : 0;
+    }
+
+    private bool HasTrilobitesInConstructionArea()
+    {
+        foreach (var tile in TileArray)
+        {
+            if (ReferenceEquals(tile.Built, this) && tile.Trilobites.Count > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool UpdateRecipeCompleteState()
     {
         RecipeComplete = RecipeRequired.All(pair => RecipeDeposited.GetValueOrDefault(pair.Key, 0) >= pair.Value);
@@ -257,6 +285,12 @@ public sealed class Scaffolding : Building
     {
         ConstructionComplete = ConstructionProgress >= ConstructionRequired;
         return ConstructionComplete;
+    }
+
+    private bool UpdateResourceCompleteState()
+    {
+        ResourceComplete = UpdateRecipeCompleteState() && UpdateConstructionCompleteState();
+        return ResourceComplete;
     }
 
     private static int[][] BuildScaffoldOpenMap(int[][] targetOpenMap)
