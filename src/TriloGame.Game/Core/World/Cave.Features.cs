@@ -9,6 +9,7 @@ namespace TriloGame.Game.Core.World;
 
 public sealed partial class Cave
 {
+    private OpalNode? _opalNode;
     private readonly Dictionary<string, AntHole> _antHolesByTileKey = new(StringComparer.Ordinal);
     private readonly Dictionary<Enemy, AntHole> _antHoleByEnemy = [];
 
@@ -18,9 +19,25 @@ public sealed partial class Cave
         return queen is not null && ContainsProjectedBuilding(tile.Projections, queen);
     }
 
+    public OpalNode? GetOpalNode() => GameConstants.EnableOpal ? _opalNode : null;
+
+    public OpalNode? GetOpalNode(Tile tile)
+    {
+        if (!GameConstants.EnableOpal)
+        {
+            return null;
+        }
+
+        return _opalNode is not null && string.Equals(_opalNode.TileKey, tile.Key, StringComparison.Ordinal)
+            ? _opalNode
+            : null;
+    }
+
+    public bool HasOpal(Tile tile) => GetOpalNode(tile) is not null;
+
     public bool HasAntHole(Tile tile) => _antHolesByTileKey.ContainsKey(tile.Key);
 
-    public bool HasBlockingSurfaceFeature(Tile tile) => HasAntHole(tile);
+    public bool HasBlockingSurfaceFeature(Tile tile) => HasOpal(tile) || HasAntHole(tile);
 
     public IReadOnlyCollection<AntHole> GetAntHoles() => _antHolesByTileKey.Values;
 
@@ -32,6 +49,56 @@ public sealed partial class Cave
                holeTile.Trilobites.Count == 0 &&
                holeTile.EnemyOccupant is null &&
                !HasBlockingSurfaceFeature(holeTile);
+    }
+
+    public bool TrySpawnQueenOpal()
+    {
+        if (!GameConstants.EnableOpal)
+        {
+            _opalNode = null;
+            return false;
+        }
+
+        if (_opalNode is not null)
+        {
+            return true;
+        }
+
+        var queen = GetQueenBuilding();
+        if (queen is null)
+        {
+            return false;
+        }
+
+        var candidate = queen.TileArray
+            .SelectMany(tile => tile.Neighbors)
+            .Where(tile =>
+                IsTileRevealed(tile) &&
+                CanPlaceAntHole(tile) &&
+                !queen.TileArray.Contains(tile))
+            .Distinct()
+            .OrderBy(tile => GridPoint.ManhattanDistance(tile.Coordinates, queen.GetCenter()))
+            .ThenBy(tile => tile.Key, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        if (candidate is null)
+        {
+            candidate = GetTiles()
+                .Where(tile =>
+                    IsTileRevealed(tile) &&
+                    CanPlaceAntHole(tile))
+                .OrderBy(tile => GridPoint.ManhattanDistance(tile.Coordinates, queen.GetCenter()))
+                .ThenBy(tile => tile.Key, StringComparer.Ordinal)
+                .FirstOrDefault();
+        }
+
+        if (candidate is null)
+        {
+            return false;
+        }
+
+        _opalNode = new OpalNode(candidate.Key);
+        return true;
     }
 
     public bool TrySpawnAntHole()
@@ -107,11 +174,23 @@ public sealed partial class Cave
 
     public void TickSurfaceFeatures()
     {
+        if (!GameConstants.EnableOpal)
+        {
+            _opalNode = null;
+            return;
+        }
+
+        _opalNode?.Tick();
     }
 
     public int GetAntHoleSpawnChanceDenominator()
     {
-        return GameConstants.AntHoleBaseSpawnChanceDenominator;
+        if (!GameConstants.EnableOpal)
+        {
+            return GameConstants.AntHoleBaseSpawnChanceDenominator;
+        }
+
+        return _opalNode?.GetAntHoleSpawnChanceDenominator() ?? GameConstants.AntHoleBaseSpawnChanceDenominator;
     }
 
     public bool AllowsNaturalEnemySpawns()
@@ -121,7 +200,39 @@ public sealed partial class Cave
             return false;
         }
 
-        return true;
+        return !GameConstants.EnableOpal || _opalNode?.BlocksNaturalAntHoleSpawns() != true;
+    }
+
+    public MineTileResult MineOpal(Tile tile)
+    {
+        if (!GameConstants.EnableOpal)
+        {
+            return MineTileResult.NotApplied;
+        }
+
+        var opal = GetOpalNode(tile);
+        if (opal is null || !opal.ApplyMineHit())
+        {
+            return MineTileResult.NotApplied;
+        }
+
+        var remainingYield = opal.RemainingYield;
+        var depleted = opal.IsDepleted;
+        if (depleted)
+        {
+            _opalNode = null;
+        }
+
+        return new MineTileResult(
+            true,
+            false,
+            null,
+            0,
+            depleted,
+            null,
+            0,
+            remainingYield,
+            remainingYield);
     }
 
     public void HandleRemovedEnemySurfaceFeature(Enemy enemy)

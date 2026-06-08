@@ -592,6 +592,38 @@ public class BuildingOwnershipField<TBuilding>
         }
     }
 
+    // Ownership invalidation mirrors BFS invalidation: when a tile's best source got
+    // worse, clear it first so sealed-off regions can collapse before alternate owners settle.
+    private void InvalidateOwnership(Tile tile, ISet<int> adjacencyImpactedTiles)
+    {
+        _owners[tile.Id] = null;
+        _distances[tile.Id] = int.MaxValue;
+        adjacencyImpactedTiles.Add(tile.Id);
+
+        foreach (var neighbor in tile.Neighbors)
+        {
+            EnqueueTile(neighbor);
+            adjacencyImpactedTiles.Add(neighbor.Id);
+        }
+
+        EnqueueTile(tile);
+    }
+
+    private static bool ShouldInvalidateOwnership(TBuilding? currentOwner, int currentDistance, BuildingOwnership<TBuilding> nextOwnership)
+    {
+        if (currentOwner is null || currentDistance == int.MaxValue)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(currentOwner, nextOwnership.Building) && currentDistance == nextOwnership.Distance)
+        {
+            return false;
+        }
+
+        return nextOwnership.Distance == int.MaxValue || nextOwnership.Distance > currentDistance;
+    }
+
     private void RemoveTileAdjacencyContributions(int tileId)
     {
         var contributions = _tileAdjacencyEdges[tileId];
@@ -1003,6 +1035,12 @@ public class BuildingOwnershipField<TBuilding>
             var currentDistance = _distances[currentId];
             if (ReferenceEquals(currentOwner, nextOwnership.Building) && currentDistance == nextOwnership.Distance)
             {
+                continue;
+            }
+
+            if (ShouldInvalidateOwnership(currentOwner, currentDistance, nextOwnership))
+            {
+                InvalidateOwnership(currentTile, adjacencyImpactedTiles);
                 continue;
             }
 

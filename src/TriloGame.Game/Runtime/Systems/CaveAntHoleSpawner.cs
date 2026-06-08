@@ -6,6 +6,7 @@ namespace TriloGame.Game.Runtime.Systems;
 
 public sealed class CaveAntHoleSpawner : IAntHoleSpawner
 {
+    // Find a legal ant-hole tile and spawn point pair that respects queen-distance constraints.
     public AntSpawnAttemptResult TrySpawnAnt(GameSession session, AntSpawnConstraints constraints)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -29,8 +30,10 @@ public sealed class CaveAntHoleSpawner : IAntHoleSpawner
         var outOfRangeSpawnCount = 0;
         var unreachableSpawnCount = 0;
 
+        // Gradually relax the minimum distance so late-game maps still have legal spawn options.
         for (var minimumDistance = constraints.MinDistanceFromQueen; minimumDistance >= 0; minimumDistance--)
         {
+            // Scan candidate hole tiles from nearest to farthest for stable, explainable selection.
             foreach (var tile in orderedCandidates)
             {
                 if (!cave.IsTileRevealed(tile) || !cave.CanPlaceAntHole(tile))
@@ -86,6 +89,7 @@ public sealed class CaveAntHoleSpawner : IAntHoleSpawner
 
         var selectedHoleTile = selectedCandidate.Value.HoleTile;
         var selectedSpawnTile = selectedCandidate.Value.SpawnTile;
+        // Re-run the actual spawn call only after the hole/spawn pair has passed every preview check.
         if (!cave.SpawnAntHole(selectedHoleTile, 1))
         {
             return new AntSpawnAttemptResult(

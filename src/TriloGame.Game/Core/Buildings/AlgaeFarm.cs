@@ -50,6 +50,8 @@ public sealed class AlgaeFarm : Building
 
     public int AssignmentCapacity => MaxTrilobites;
 
+    public int FarmerAssignmentPriority => 0;
+
     public int[][] TraversalPath { get; private set; }
 
     public IReadOnlyCollection<Creature> Assignments => _assignments;

@@ -132,6 +132,11 @@ public static class MineOrderPlanner
 
     public static Tile? ResolveTarget(Cave cave, Tile tile)
     {
+        if (cave.IsTileRevealed(tile) && cave.HasOpal(tile) && GetNavigationTarget(cave, tile) is not null)
+        {
+            return tile;
+        }
+
         if (cave.IsTileRevealed(tile) &&
             Building.IsMineableType(tile.Base) &&
             GetNavigationTarget(cave, tile) is not null)

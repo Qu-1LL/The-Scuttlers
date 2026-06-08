@@ -4,14 +4,14 @@ namespace TriloGame.Game.Core.Progression;
 // It owns feature metadata plus tree traversal and lookup helpers.
 public sealed class FeatureTree
 {
+    // Capture the authored tree metadata and optionally seed the root node.
     public FeatureTree(
         string name,
         string description,
         IEnumerable<string>? featuresAffected,
         int tier,
         IEnumerable<string>? prerequisiteTrees = null,
-        SkillNode? root = null,
-        FeatureTreeColor? displayColor = null)
+        SkillNode? root = null)
     {
         Name = RequireText(name, nameof(name));
         Description = RequireText(description, nameof(description));
@@ -20,7 +20,6 @@ public sealed class FeatureTree
             ? tier
             : throw new ArgumentOutOfRangeException(nameof(tier), "Tier must be at least 1.");
         PrerequisiteTrees = NormalizeTreeNames(prerequisiteTrees);
-        DisplayColor = displayColor;
 
         if (root is not null)
         {
@@ -40,14 +39,13 @@ public sealed class FeatureTree
 
     public bool HasPrerequisites => PrerequisiteTrees.Count > 0;
 
-    public FeatureTreeColor? DisplayColor { get; }
-
     public SkillNode? Root { get; private set; }
 
     public bool HasRoot => Root is not null;
 
     public int Count => TraverseDepthFirst().Count();
 
+    // Install the tree root after verifying it is still detached from other trees.
     public void SetRoot(SkillNode root)
     {
         ArgumentNullException.ThrowIfNull(root);
@@ -60,6 +58,7 @@ public sealed class FeatureTree
         Root = root;
     }
 
+    // Attach a child node only when the proposed parent already belongs to this tree.
     public void AddChild(SkillNode parent, SkillNode child)
     {
         ArgumentNullException.ThrowIfNull(parent);
@@ -73,6 +72,7 @@ public sealed class FeatureTree
         parent.AddChild(child);
     }
 
+    // Remove either the entire root or a descendant subtree from its current parent.
     public bool RemoveSubtree(SkillNode node)
     {
         if (node is null || Root is null)
@@ -89,11 +89,13 @@ public sealed class FeatureTree
         return node.Parent?.RemoveChild(node) ?? false;
     }
 
+    // Check membership by walking the currently connected node graph.
     public bool Contains(SkillNode node)
     {
         return node is not null && TraverseDepthFirst().Any(current => ReferenceEquals(current, node));
     }
 
+    // Resolve an authored skill node name using ordinal matching.
     public SkillNode? FindByName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -104,6 +106,7 @@ public sealed class FeatureTree
         return TraverseDepthFirst().FirstOrDefault(node => string.Equals(node.Name, name, StringComparison.Ordinal));
     }
 
+    // Yield nodes in parent-before-children order for deterministic scans.
     public IEnumerable<SkillNode> TraverseDepthFirst()
     {
         if (Root is null)
@@ -117,6 +120,7 @@ public sealed class FeatureTree
         }
     }
 
+    // Yield nodes level by level for preview and lookup flows that care about breadth.
     public IEnumerable<SkillNode> TraverseBreadthFirst()
     {
         if (Root is null)
@@ -127,6 +131,7 @@ public sealed class FeatureTree
         var queue = new Queue<SkillNode>();
         queue.Enqueue(Root);
 
+        // Walk outward from the root one breadth layer at a time.
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
@@ -139,6 +144,7 @@ public sealed class FeatureTree
         }
     }
 
+    // Normalize authored feature tags into a distinct ordinal list.
     private static IReadOnlyList<string> NormalizeFeatures(IEnumerable<string>? featuresAffected)
     {
         return featuresAffected?
@@ -148,6 +154,7 @@ public sealed class FeatureTree
             .ToArray() ?? [];
     }
 
+    // Normalize prerequisite tree names so authored lookups stay stable.
     private static IReadOnlyList<string> NormalizeTreeNames(IEnumerable<string>? treeNames)
     {
         return treeNames?
@@ -157,6 +164,7 @@ public sealed class FeatureTree
             .ToArray() ?? [];
     }
 
+    // Reject blank authored text fields before they enter progression data.
     private static string RequireText(string value, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))

@@ -27,6 +27,7 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
     private int _farmerRoleCount;
     private int _fighterRoleCount;
 
+    // Start a fresh profiler sample and reset all per-tick accumulators.
     public void OnTickStarted(GameSession session)
     {
         _tickStart = Stopwatch.GetTimestamp();
@@ -51,10 +52,12 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         NavigationInstrumentation.BeginTick();
     }
 
+    // The observer only needs phase-complete timings for the current profiler output.
     public void OnPhaseStarted(TickPhase phase)
     {
     }
 
+    // Record elapsed time against the completed simulation phase.
     public void OnPhaseCompleted(TickPhase phase)
     {
         var elapsedMs = ConsumeElapsedMs();
@@ -85,11 +88,13 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         }
     }
 
+    // Start measuring one trilobite move so the role bucket can absorb it afterward.
     public void OnTrilobiteMoveStarted(string assignment)
     {
         _trilobiteMoveStart = Stopwatch.GetTimestamp();
     }
 
+    // Attribute one completed trilobite move to the appropriate role timing bucket.
     public void OnTrilobiteMoveCompleted(string assignment)
     {
         var elapsedMs = Stopwatch.GetElapsedTime(_trilobiteMoveStart).TotalMilliseconds;
@@ -114,6 +119,7 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         }
     }
 
+    // Finalize the profiler snapshot and push it to both runtime state and disk logs.
     public void OnTickCompleted(GameSession session)
     {
         var cave = session.Cave;
@@ -147,6 +153,7 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         TickProfilerLogWriter.WriteTick(session, snapshot);
     }
 
+    // Measure elapsed time since the last recorded phase boundary and move the boundary forward.
     private double ConsumeElapsedMs()
     {
         var now = Stopwatch.GetTimestamp();

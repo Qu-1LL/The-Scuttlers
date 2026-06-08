@@ -37,6 +37,7 @@ public sealed record ResearchEffectDescriptor(
 
     public string? TargetKey { get; } = NormalizeTargetKey(TargetKey);
 
+    // Normalize authored stat keys before effect descriptors enter runtime lookups.
     private static string RequireText(string value, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -47,6 +48,7 @@ public sealed record ResearchEffectDescriptor(
         return value.Trim();
     }
 
+    // Collapse blank scoped target keys to null so matching stays consistent.
     private static string? NormalizeTargetKey(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();

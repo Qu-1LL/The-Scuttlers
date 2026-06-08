@@ -1,7 +1,5 @@
-using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
-using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Game;
@@ -10,15 +8,25 @@ public sealed partial class GameApp
 {
     private bool HandleResearchDraftButtonClick(Point point)
     {
-        var outcome = _researchDraft.HandleClosedButtonClick(point, Window.ClientBounds.Size);
-        if (outcome != ResearchDraftInteractionOutcome.RequestedOpen)
+        var outcome = _researchDraft.HandleClosedButtonClick(point, Window.ClientBounds.Size, CanSkipCurrentRoundGracePeriod());
+        switch (outcome)
         {
-            return false;
-        }
+            case ResearchDraftInteractionOutcome.RequestedOpen:
+                PlayUiSelectSound();
+                OpenResearchDraftMenu();
+                return true;
+            case ResearchDraftInteractionOutcome.RequestedSkipGracePeriod:
+                if (_roundManager.TrySkipCurrentGracePeriod(_session))
+                {
+                    PlayUiSelectSound();
+                }
 
-        PlayUiSelectSound();
-        OpenResearchDraftMenu();
-        return true;
+                return true;
+            case ResearchDraftInteractionOutcome.Consumed:
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void HandleResearchDraftMenuInput()
@@ -44,16 +52,6 @@ public sealed partial class GameApp
                 _researchDraftSystem);
         }
 
-        if (_input.LeftPressed)
-        {
-            _researchDraft.HandlePointerDown(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
-        }
-
-        if (_input.LeftHeld)
-        {
-            _researchDraft.HandlePointerDrag(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
-        }
-
         if (!_input.LeftReleased)
         {
             return;
@@ -67,25 +65,23 @@ public sealed partial class GameApp
                 CloseResearchDraftMenu();
                 break;
             case ResearchDraftInteractionOutcome.BranchPlaced:
-                _roundManager.TryStartDeferredNextRound(_session);
-                if (_infiniteDraft)
-                {
-                    _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
-                }
-
                 PlayUiSelectSound();
+                CloseResearchDraftMenu();
+                _roundManager.TryStartDeferredNextRound(_session);
                 break;
         }
     }
 
     private void OpenResearchDraftMenu(bool pauseSimulationIfNeeded = true)
     {
-        EnsureInfiniteDraftOffer();
         CloseSettingsMenu();
-        ForceCloseTrilodexMenu();
         _debugMenuOpen = false;
         _roleRadialMenu = null;
-        ResetPointerInteractionState();
+        _leftPanActive = false;
+        _selectionDragActive = false;
+        _selectionDragMode = null;
+        _selectionBoxBounds = null;
+        _input.EndDrag();
         _researchDraft.Open(_researchDraftSystem);
 
         if (pauseSimulationIfNeeded && !_mainMenuOpen && !_gamePaused)
@@ -124,22 +120,17 @@ public sealed partial class GameApp
         _resumeSimulationAfterClosingResearchDraft = false;
     }
 
-    private void EnsureInfiniteDraftOffer()
-    {
-        if (!_infiniteDraft || _researchDraftSystem.HasPendingDraft)
-        {
-            return;
-        }
-
-        var createdDraft = _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
-        if (createdDraft is null)
-        {
-            Trace.WriteLine($"[ResearchDraft][Tick {_session.TickCount}] Infinite draft requested a new offer, but no draftable branches were available.");
-        }
-    }
-
     private bool ResearchDraftCoversPoint(Point point)
     {
         return _researchDraft.CoversScreenPoint(point, Window.ClientBounds.Size);
+    }
+
+    private bool CanSkipCurrentRoundGracePeriod()
+    {
+        return !_mainMenuOpen &&
+               !_isGameOver &&
+               !HasLostQueen() &&
+               !_roundManager.HasDeferredNextRoundStart &&
+               _roundManager.IsGracePeriodActive;
     }
 }

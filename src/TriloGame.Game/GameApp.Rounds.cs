@@ -11,7 +11,6 @@ public sealed partial class GameApp
 {
     private readonly RoundManager _roundManager = new();
     private readonly AntHandler _antHandler = new(new CaveAntHoleSpawner());
-    private readonly RoundDebugWidgetRenderer _roundDebugWidgetRenderer = new();
 
     private void ResetRoundSystems()
     {
@@ -40,31 +39,20 @@ public sealed partial class GameApp
 
         if (_researchDraftSystem.HasPendingDraft)
         {
-            if (!_infiniteDraft)
-            {
-                _roundManager.DeferNextRoundStart();
-            }
-
+            _roundManager.DeferNextRoundStart();
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Preserved the existing research draft instead of overwriting it after round {round.RoundNumber}.");
             OpenResearchDraftMenu();
             return;
         }
 
-        var draft = _researchDraftSystem.CreateDraft(
-            _session,
-            round,
-            _infiniteDraft ? ResearchDraftSource.InfiniteDraft : ResearchDraftSource.RoundReward);
+        var draft = _researchDraftSystem.CreateDraft(_session, round);
         if (draft is null)
         {
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] No research draft could be generated after round {round.RoundNumber}.");
             return;
         }
 
-        if (!_infiniteDraft)
-        {
-            _roundManager.DeferNextRoundStart();
-        }
-
+        _roundManager.DeferNextRoundStart();
         Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Generated {draft.Branches.Count} research branches after round {round.RoundNumber}.");
         OpenResearchDraftMenu();
     }
@@ -77,7 +65,12 @@ public sealed partial class GameApp
         }
 
         _roundManager.Advance(session, GameConstants.GameTimePerSimulationTickMs);
-        _antHandler.Advance(session, _roundManager.CurrentRound);
+        var currentRound = _roundManager.CurrentRound;
+        _antHandler.Advance(session, currentRound);
+        if (_antHandler.CanCompleteCurrentRound(session, currentRound))
+        {
+            _roundManager.CompleteCurrentRound(session);
+        }
     }
 
     private bool HandleRoundDebugWidgetClick(Point point)
@@ -94,7 +87,7 @@ public sealed partial class GameApp
         }
 
         var currentRound = _roundManager.CurrentRound;
-        if (!_antHandler.CanSkipCurrentRound(_session, currentRound))
+        if (!_antHandler.CanCompleteCurrentRound(_session, currentRound))
         {
             var remainingKills = _antHandler.GetRemainingKillsForRound(_session, currentRound);
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skip ignored for round {currentRound.RoundNumber}; remaining ants to defeat this round: {remainingKills}.");
@@ -120,7 +113,64 @@ public sealed partial class GameApp
         }
 
         var currentRound = _roundManager.CurrentRound;
-        var canSkipRound = _antHandler.CanSkipCurrentRound(_session, currentRound);
-        _roundDebugWidgetRenderer.Draw(_gumUiRenderer, layout, _input.MousePoint, currentRound, canSkipRound);
+        var canSkipRound = _antHandler.CanCompleteCurrentRound(_session, currentRound);
+        var pointer = _input.MousePoint;
+        var timerHovered = layout.TimerBounds.Contains(pointer);
+        var roundHovered = canSkipRound && layout.RoundBounds.Contains(pointer);
+
+        DrawRoundedScreenFrame(
+            layout.TimerBounds,
+            timerHovered ? new Color(26, 60, 79) : new Color(14, 35, 50),
+            timerHovered ? new Color(188, 228, 242) : new Color(105, 147, 165),
+            2,
+            12);
+        DrawRoundedScreenFrame(
+            layout.RoundBounds,
+            !canSkipRound ? new Color(33, 40, 44) : roundHovered ? new Color(74, 104, 87) : new Color(48, 74, 61),
+            !canSkipRound ? new Color(92, 104, 112) : roundHovered ? new Color(207, 242, 220) : new Color(132, 173, 150),
+            2,
+            12);
+
+        DrawScreenTextFittedCentered(
+            currentRound.GracePeriodActive ? "Next Round" : "Status",
+            layout.TimerLabelBounds,
+            new Color(182, 220, 234),
+            _rendering.SmallFont,
+            minScale: 0.7f);
+        DrawScreenTextFittedCentered(
+            GetRoundWidgetCountdownText(currentRound),
+            layout.TimerValueBounds,
+            Color.White,
+            _rendering.SmallFont,
+            minScale: 0.9f);
+        DrawScreenTextFittedCentered(
+            GetRoundBadgeLabel(currentRound),
+            layout.RoundValueBounds,
+            canSkipRound ? Color.White : new Color(183, 191, 196),
+            _rendering.SmallFont,
+            minScale: 0.66f);
+    }
+
+    private static string GetRoundBadgeLabel(RoundInfo round)
+    {
+        return $"Round {round.RoundNumber}";
+    }
+
+    private static string GetRoundWidgetCountdownText(RoundInfo round)
+    {
+        if (!round.GracePeriodActive)
+        {
+            return "Defend!";
+        }
+
+        return FormatRoundCountdown(round.RemainingDurationMs);
+    }
+
+    private static string FormatRoundCountdown(double remainingDurationMs)
+    {
+        var totalSeconds = Math.Max(0, (int)Math.Ceiling(remainingDurationMs / 1000d));
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return $"{minutes}:{seconds:00}";
     }
 }

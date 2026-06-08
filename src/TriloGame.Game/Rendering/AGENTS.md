@@ -19,3 +19,11 @@ Put code in `Rendering` when it is:
 
 World-space debug labels and world rendering overlays may still use the world render path when
 they are part of the scene rather than the screen-space UI layer.
+
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial rendering helpers when camera math, placement,
+  or coordinate-space intent is not obvious
+- keep comments focused on render-space conversions and ownership boundaries
+- skip self-explanatory accessors and simple wrappers unless they hide an important rendering rule
+- add brief notes before dense loops or conditionals that enforce sprite-placement or camera behavior

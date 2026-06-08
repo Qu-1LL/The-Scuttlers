@@ -22,6 +22,7 @@ public class Building
         BfsField = new BfsField(name, "building", null, this);
         Health = 100;
         MaxHealth = 100;
+        IgnoredByAnts = false;
         Selectable = true;
     }
 
@@ -48,6 +49,8 @@ public class Building
     public int Health { get; protected set; }
 
     public int MaxHealth { get; protected set; }
+
+    public bool IgnoredByAnts { get; protected set; }
 
     public World.Cave? Cave { get; set; }
 

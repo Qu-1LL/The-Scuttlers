@@ -57,7 +57,7 @@ or note the assumption in the final response.
 - farm algae and feed the queen
 - build through scaffolding and recipes
 - defend against ants and ant holes
-- manage other world hazards
+- manage opal pressure and other world hazards
 
 The project already contains:
 
@@ -131,6 +131,7 @@ Repository-level guidance is split so agents can read the narrowest relevant con
 - `src/TriloGame.Game/Audio/AGENTS.md`
   - cue registration and playback boundaries
   - session audio bridge ownership
+  - opal warning audio state ownership
 - `src/TriloGame.Game/Rendering/AGENTS.md`
   - camera/render helper placement
   - world-space versus screen-space rendering boundary
@@ -182,6 +183,17 @@ Prefer:
 - numeric ids and cached coordinates over string churn in hot paths
 - one-pass scoring over repeated sort-heavy selection
 - pooling only when justified by real hot-path pressure
+
+## Documentation Comment Contract
+
+- add short one-line `//` comments before non-trivial methods when their system role or invariant is
+  not obvious from the signature alone
+- keep comments intent-focused rather than narrating each statement
+- skip boilerplate accessors, obvious mutators, and tiny forwarding methods unless local context would
+  otherwise be unclear
+- add brief comments before especially dense loops or conditionals only when they encode important
+  selection, timing, or invariant logic
+- when updating a subsystem, refresh nearby comments if the behavior or ownership has changed
 
 ## Testing Contract
 

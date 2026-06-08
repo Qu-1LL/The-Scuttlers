@@ -24,3 +24,12 @@ Put code in `Shared` when it is:
   scattering host-only toggles directly across `GameSession`.
 - If a change adds structured runtime data, prefer typed models over stringly-typed commands.
 - Keep reusable shared data host-agnostic when `Core` also needs to consume it.
+
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial shared helpers when their cross-layer role is
+  not obvious from the signature
+- keep comments focused on reusable contracts, data-shape intent, or math/utility invariants
+- skip tiny accessors and obvious value transforms unless they would otherwise be ambiguous
+- add brief notes before dense loops or conditionals when they protect shared invariants or file/log
+  behavior

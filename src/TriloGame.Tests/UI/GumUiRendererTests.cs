@@ -6,6 +6,18 @@ namespace TriloGame.Tests.UI;
 public sealed class GumUiRendererTests
 {
     [Theory]
+    [InlineData("Skill Tree", 0, 1)]
+    [InlineData("Status\nDefend!", 0, 2)]
+    [InlineData("Wrapped", 3, 3)]
+    public void ResolveMaxNumberOfLines_UsesExplicitValuesOrDerivesFromText(
+        string text,
+        int requestedMaxLines,
+        int expected)
+    {
+        Assert.Equal(expected, GumUiRenderer.ResolveMaxNumberOfLines(text, requestedMaxLines));
+    }
+
+    [Theory]
     [InlineData(120f, 240f, 200f, 240f, 4)]
     [InlineData(120f, 240f, 72f, 192f, 3)]
     [InlineData(120f, 240f, 168f, 144f, 5)]

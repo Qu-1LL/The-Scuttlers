@@ -11,11 +11,13 @@ public sealed class AudioService
 
     public float NormalizedVolume => VolumePercent / 100f;
 
+    // Register or replace the sound effect used for one logical game cue.
     public void Register(GameAudioCue cue, SoundEffect effect)
     {
         _effects[cue] = effect;
     }
 
+    // Clamp the master volume and push the new level to any active loop instances.
     public bool SetVolumePercent(int volumePercent)
     {
         var clamped = Math.Clamp(volumePercent, 0, 100);
@@ -33,11 +35,13 @@ public sealed class AudioService
         return true;
     }
 
+    // Adjust the current master volume by a signed delta.
     public bool ChangeVolume(int delta)
     {
         return SetVolumePercent(VolumePercent + delta);
     }
 
+    // Play a one-shot cue if the sound has been registered.
     public bool Play(GameAudioCue cue)
     {
         if (!_effects.TryGetValue(cue, out var effect))
@@ -49,6 +53,7 @@ public sealed class AudioService
         return true;
     }
 
+    // Start or resume a looped cue while reusing an existing instance when possible.
     public bool StartLoop(GameAudioCue cue)
     {
         if (_loopInstances.TryGetValue(cue, out var existing))
@@ -76,6 +81,7 @@ public sealed class AudioService
         return true;
     }
 
+    // Stop and dispose one loop instance if it is currently tracked.
     public void StopLoop(GameAudioCue cue)
     {
         if (!_loopInstances.Remove(cue, out var instance))
@@ -87,6 +93,7 @@ public sealed class AudioService
         instance.Dispose();
     }
 
+    // Stop every active loop without leaving disposed instances in the lookup.
     public void StopAllLoops()
     {
         foreach (var cue in _loopInstances.Keys.ToArray())
@@ -95,11 +102,13 @@ public sealed class AudioService
         }
     }
 
+    // Check whether the requested loop is currently playing.
     public bool IsLoopPlaying(GameAudioCue cue)
     {
         return _loopInstances.TryGetValue(cue, out var instance) && instance.State == SoundState.Playing;
     }
 
+    // Report the registered clip duration for timing-sensitive systems.
     public TimeSpan GetDuration(GameAudioCue cue)
     {
         return _effects.TryGetValue(cue, out var effect) ? effect.Duration : TimeSpan.Zero;

@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -7,11 +8,22 @@ namespace TriloGame.Tests.World;
 public sealed class SurfaceFeatureTests
 {
     [Fact]
-    public void TickSurfaceFeatures_UsesBaseAntHoleSpawnRules()
+    public void TrySpawnQueenOpal_WhenOpalIsDisabled_ReturnsFalse()
     {
-        var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        var (_, cave, _) = TestWorldFactory.CreateSessionWithQueen();
         cave.RevealCave();
-        session.Runtime.DisableEnemySpawns = false;
+
+        var spawned = cave.TrySpawnQueenOpal();
+
+        Assert.False(spawned);
+        Assert.Null(cave.GetOpalNode());
+    }
+
+    [Fact]
+    public void TickSurfaceFeatures_WhenOpalIsDisabled_UsesBaseAntHoleSpawnRules()
+    {
+        var (_, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        cave.RevealCave();
         Assert.Equal(GameConstants.AntHoleBaseSpawnChanceDenominator, cave.GetAntHoleSpawnChanceDenominator());
         Assert.True(cave.AllowsNaturalEnemySpawns());
     }
@@ -24,6 +36,19 @@ public sealed class SurfaceFeatureTests
         session.Runtime.DisableEnemySpawns = true;
 
         Assert.False(cave.AllowsNaturalEnemySpawns());
+    }
+
+    [Fact]
+    public void RunTick_WhenOpalIsDisabled_DoesNotCreateOrAdvanceOpalState()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        cave.RevealCave();
+        session.Runtime.FreezeOpalProgression = true;
+
+        TickRunner.RunTick(session);
+        TickRunner.RunTick(session);
+
+        Assert.Null(cave.GetOpalNode());
     }
 
     [Fact]

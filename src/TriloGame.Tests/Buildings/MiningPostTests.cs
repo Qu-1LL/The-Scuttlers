@@ -1,6 +1,6 @@
 using TriloGame.Game.Core.Buildings;
-using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
@@ -9,6 +9,51 @@ namespace TriloGame.Tests.Buildings;
 
 public sealed class MiningPostTests
 {
+    [Fact]
+    public void InventoryChanges_UpdateSessionStoredResourceTotalsAndEmitStorageEvents()
+    {
+        var session = new GameSession();
+        var post = new MiningPost(session);
+        var creature = new Trilobite("Miner", GridPoint.Zero, session);
+        var observedDeltas = new List<int>();
+        var observedSources = new List<object?>();
+        var unsubscribe = session.On(
+            GameEvents.StorageInventoryChanged,
+            payload =>
+            {
+                if (!string.Equals(payload.ResourceType, "Sandstone", StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                observedDeltas.Add(payload.ResourceDelta);
+                observedSources.Add(payload.Source);
+            });
+
+        try
+        {
+            Assert.IsAssignableFrom<IStorage>(post);
+
+            Assert.Equal(15, post.Deposit("Sandstone", 15));
+            Assert.Equal(15, session.GetStoredResourceTotal("Sandstone"));
+
+            Assert.Equal(5, post.Withdraw("Sandstone", 5));
+            Assert.Equal(10, session.GetStoredResourceTotal("sandstone"));
+
+            Assert.Equal(10, post.ReserveMaterial(creature, "Sandstone", 10));
+            var withdrawn = post.WithdrawReservedMaterial(creature);
+
+            Assert.NotNull(withdrawn);
+            Assert.Equal(0, session.GetStoredResourceTotal("Sandstone"));
+            Assert.Equal([15, -5, -10], observedDeltas);
+            Assert.All(observedSources, source => Assert.Same(post, source));
+        }
+        finally
+        {
+            unsubscribe();
+        }
+    }
+
     [Fact]
     public void ReservedWithdrawals_DoNotOverdrawMiningPostInventory()
     {
@@ -28,10 +73,42 @@ public sealed class MiningPostTests
     }
 
     [Fact]
+    public void MiningPostInventoryChanges_UpdateGlobalAvailabilityCache()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
+        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+
+        Assert.True(post.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+
+        Assert.Equal(post.Capacity, post.Deposit("Sandstone", post.Capacity));
+        Assert.True(post.AssignmentsAvailable);
+        Assert.False(cave.HasAvailableMiningPostAssignments);
+
+        Assert.Equal(1, post.Withdraw("Sandstone", 1));
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+    }
+
+    [Fact]
+    public void RemovingMiningPost_ClearsItsStoredResourcesFromGlobalTotals()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+
+        Assert.Equal(25, post.Deposit("Sandstone", 25));
+        Assert.Equal(25, session.GetStoredResourceTotal("Sandstone"));
+
+        Assert.True(cave.RemoveBuilding(post, "test"));
+
+        Assert.Equal(0, session.GetStoredResourceTotal("Sandstone"));
+    }
+
+    [Fact]
     public void ExhaustedAssignmentsRemainFalse_AfterReservationReleaseAndInvalidation()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
-        SetTileBase(cave, new GridPoint(3, 10), OreType.CHITINSTONE.Name);
+        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
 
         var reservedBy = new List<Trilobite>();
@@ -78,7 +155,7 @@ public sealed class MiningPostTests
     public void AssignmentsAvailable_RemainsFalse_AfterReservedTilesAreReleased()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
-        SetTileBase(cave, new GridPoint(3, 10), OreType.CHITINSTONE.Name);
+        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
         var availablePost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
         var emptyPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
         var reservingMiner = new Trilobite("Miner", GridPoint.Zero, session);
@@ -114,7 +191,7 @@ public sealed class MiningPostTests
         Assert.False(depletedPost.AssignmentsAvailable);
         Assert.False(cave.HasAvailableMiningPostAssignments);
 
-        SetTileBase(cave, new GridPoint(24, 11), OreType.CHITINSTONE.Name);
+        SetTileBase(cave, new GridPoint(24, 11), "Sandstone");
         var freshPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(22, 7));
 
         Assert.True(freshPost.AssignmentsAvailable);
@@ -129,7 +206,7 @@ public sealed class MiningPostTests
         Assert.True(cave.Build(queen, new GridPoint(1, 1)));
 
         var oreLocation = new GridPoint(8, 6);
-        SetTileBase(cave, oreLocation, OreType.CHITINSTONE.Name);
+        SetTileBase(cave, oreLocation, "Sandstone");
 
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 4));
 
@@ -150,7 +227,7 @@ public sealed class MiningPostTests
         Assert.True(cave.Build(queen, new GridPoint(1, 1)));
 
         var oreLocation = new GridPoint(8, 6);
-        SetTileBase(cave, oreLocation, OreType.CHITINSTONE.Name);
+        SetTileBase(cave, oreLocation, "Sandstone");
         cave.RevealTile(cave.GetTile(oreLocation.ToString())!);
 
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 4));

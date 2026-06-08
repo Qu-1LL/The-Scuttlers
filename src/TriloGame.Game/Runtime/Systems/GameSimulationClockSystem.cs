@@ -14,6 +14,7 @@ public sealed class GameSimulationClockSystem
 
     public double TickAccumulatorMs { get; set; }
 
+    // Restore pause state, tick speed, and accumulated budget to their baseline values.
     public void ResetToDefaults(bool paused = false, double tickSpeedMs = GameConstants.TickSpeedFast)
     {
         IsPaused = paused;
@@ -21,6 +22,7 @@ public sealed class GameSimulationClockSystem
         TickAccumulatorMs = 0d;
     }
 
+    // Advance projectile travel and then run exactly one deterministic simulation tick.
     public void RunSingleTick(GameSession session, Action<GameSession>? afterTick = null)
     {
         session.Runtime.CurrentTickSpeedMs = TickSpeedMs;
@@ -29,6 +31,7 @@ public sealed class GameSimulationClockSystem
         afterTick?.Invoke(session);
     }
 
+    // Consume elapsed wall time into projectile motion and fixed-step simulation ticks.
     public int Advance(GameSession session, double elapsedMs, Func<bool>? shouldStop = null, Action<GameSession>? afterTick = null)
     {
         if (IsPaused)
@@ -39,6 +42,7 @@ public sealed class GameSimulationClockSystem
         session.Runtime.CurrentTickSpeedMs = TickSpeedMs;
         var executedTicks = 0;
         var remainingElapsedMs = Math.Max(0d, elapsedMs);
+        // Spend elapsed time in fixed-step chunks so draw cadence never changes sim behavior.
         while (remainingElapsedMs > 0d)
         {
             var timeToNextTick = Math.Max(0d, TickSpeedMs - TickAccumulatorMs);

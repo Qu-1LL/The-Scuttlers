@@ -23,3 +23,11 @@ Minimum expectations for refactors:
 
 `GamePlayApi`, tests, and tooling code may use LINQ when it materially improves clarity, because
 they are not part of the real-time simulation hot path.
+
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial test helpers or setup methods when the scenario
+  intent is not obvious
+- keep comments focused on fixture purpose, expectation setup, or tricky assertions
+- skip routine test methods whose names already fully describe the behavior under test
+- add brief notes before dense setup loops or branch-heavy helper code when it would speed up reading

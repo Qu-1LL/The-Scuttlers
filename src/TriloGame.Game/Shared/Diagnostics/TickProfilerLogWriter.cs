@@ -17,6 +17,7 @@ public static class TickProfilerLogWriter
 
     public static string ReportFilePath => Path.Combine(ReportDirectoryPath, "tick-profiler.jsonl");
 
+    // Append one profiler snapshot as a JSON line for later analysis.
     public static void WriteTick(GameSession session, TickTimingSnapshot snapshot)
     {
         lock (Sync)
@@ -76,6 +77,7 @@ public static class TickProfilerLogWriter
         }
     }
 
+    // Flush and release the current log writer when the session shuts down.
     public static void Shutdown()
     {
         lock (Sync)
@@ -86,6 +88,7 @@ public static class TickProfilerLogWriter
         }
     }
 
+    // Reset the writer so tests can control the output directory and file lifetime.
     public static void ResetForTests(string? reportDirectoryPath = null)
     {
         lock (Sync)
@@ -99,6 +102,7 @@ public static class TickProfilerLogWriter
         }
     }
 
+    // Lazily create the JSONL writer the first time a snapshot is logged.
     private static StreamWriter EnsureWriter()
     {
         if (_writer is not null)

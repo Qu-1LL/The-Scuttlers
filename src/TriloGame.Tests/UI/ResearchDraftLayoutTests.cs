@@ -7,16 +7,29 @@ namespace TriloGame.Tests.UI;
 public sealed class ResearchDraftLayoutTests
 {
     [Fact]
-    public void GetButtonBounds_PlacesResearchButtonInTopHudRow()
+    public void GetButtonBounds_PlacesResearchButtonBelowSettings()
     {
         var viewport = new Point(1440, 900);
 
         var settingsBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
-        var buttonBounds = ResearchDraftLayout.GetButtonBounds(viewport);
+        var buttonBounds = ResearchDraftLayout.GetSkillTreeButtonBounds(viewport);
 
-        Assert.Equal(settingsBounds.Y, buttonBounds.Y);
-        Assert.Equal(settingsBounds.Size, buttonBounds.Size);
-        Assert.True(buttonBounds.Left > settingsBounds.Right);
+        Assert.Equal(settingsBounds.X, buttonBounds.X);
+        Assert.True(buttonBounds.Width > settingsBounds.Width);
+        Assert.True(buttonBounds.Top > settingsBounds.Bottom);
+    }
+
+    [Fact]
+    public void GetSkipButtonBounds_PlacesSkipButtonToTheRightOfTheSkillTreeButton()
+    {
+        var viewport = new Point(1440, 900);
+
+        var skillTreeButtonBounds = ResearchDraftLayout.GetSkillTreeButtonBounds(viewport);
+        var skipButtonBounds = ResearchDraftLayout.GetSkipButtonBounds(viewport);
+
+        Assert.Equal(skillTreeButtonBounds.Y, skipButtonBounds.Y);
+        Assert.Equal(skillTreeButtonBounds.Height, skipButtonBounds.Height);
+        Assert.True(skipButtonBounds.Left > skillTreeButtonBounds.Right);
     }
 
     [Fact]
@@ -45,11 +58,12 @@ public sealed class ResearchDraftLayoutTests
         var layout = ResearchDraftLayout.Build(viewport);
 
         Assert.True(layout.DraftAreaBounds.Top < layout.TreeBounds.Top);
+        Assert.Equal(layout.TreeBounds.Left, layout.DraftAreaBounds.Left);
+        Assert.Equal(layout.InfoPanelBounds.Right, layout.DraftAreaBounds.Right);
         Assert.All(layout.BranchCardBounds, bounds =>
         {
             Assert.True(bounds.Top > layout.DraftHeaderBounds.Bottom);
             Assert.True(bounds.Bottom <= layout.DraftAreaBounds.Bottom);
-            Assert.Equal(ResearchTreeCardRenderer.PreferredCardHeight, bounds.Height);
         });
         Assert.True(layout.BranchCardBounds[0].Right < layout.BranchCardBounds[1].Left);
         Assert.True(layout.BranchCardBounds[1].Right < layout.BranchCardBounds[2].Left);
@@ -67,7 +81,9 @@ public sealed class ResearchDraftLayoutTests
         Assert.Empty(withoutDrafts.BranchCardBounds);
         Assert.True(withoutDrafts.TreeBounds.Top < withDrafts.TreeBounds.Top);
         Assert.True(withoutDrafts.TreeBounds.Height > withDrafts.TreeBounds.Height);
+        Assert.Equal(withoutDrafts.PanelBounds.Y + 84, withoutDrafts.TreeBounds.Top);
         Assert.Equal(withoutDrafts.TreeBounds.Top, withoutDrafts.InfoPanelBounds.Top);
+        Assert.Equal(withoutDrafts.TreeBounds.Bottom, withoutDrafts.InfoPanelBounds.Bottom);
     }
 
     [Fact]
@@ -77,8 +93,8 @@ public sealed class ResearchDraftLayoutTests
         var layout = ResearchDraftLayout.Build(viewport);
 
         Assert.True(layout.InfoPanelBounds.Left > layout.TreeBounds.Right);
-        Assert.True(layout.InfoPanelBounds.Left > layout.DraftAreaBounds.Right);
-        Assert.Equal(layout.DraftAreaBounds.Top, layout.InfoPanelBounds.Top);
+        Assert.True(layout.InfoPanelBounds.Top > layout.DraftAreaBounds.Bottom);
+        Assert.Equal(layout.TreeBounds.Top, layout.InfoPanelBounds.Top);
         Assert.Equal(layout.TreeBounds.Bottom, layout.InfoPanelBounds.Bottom);
     }
 }

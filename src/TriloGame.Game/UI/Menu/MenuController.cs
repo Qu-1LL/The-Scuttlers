@@ -3,9 +3,11 @@ using Microsoft.Xna.Framework.Input;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Input;
+using TriloGame.Game.UI.Selection;
 using TriloGame.Game.UI.ViewModels;
 
 namespace TriloGame.Game.UI.Menu;
@@ -21,9 +23,9 @@ public sealed partial class MenuController
 
     private Point _pointerPoint;
     private GumUiRenderer? _gumUi;
+    private bool _buildSelectionExplicitlyCleared;
     private bool _renamingSelectedTrilobite;
     private string _renameBuffer = string.Empty;
-    private string? _buildPreviewScrollKey;
 
     public object? SelectedObject { get; private set; }
 
@@ -44,10 +46,6 @@ public sealed partial class MenuController
     public float AssignmentUnassignedScroll { get; private set; }
 
     public float SelectedInventoryScroll { get; private set; }
-
-    public float BuildPreviewDescriptionScroll { get; private set; }
-
-    public float SelectedDescriptionScroll { get; private set; }
 
     public bool IsRenamingSelectedTrilobite => _renamingSelectedTrilobite;
 
@@ -84,6 +82,23 @@ public sealed partial class MenuController
         OpenPanel();
     }
 
+    public void OpenBuildingsPanel()
+    {
+        CancelRenameSelectedTrilobite();
+        ActiveTab = TabBuildings;
+        PanelOpen = true;
+    }
+
+    public void ClearBuildSelection(bool clearHover = false)
+    {
+        SelectedBuildOption = null;
+        _buildSelectionExplicitlyCleared = true;
+        if (clearHover)
+        {
+            HoveredBuildOption = null;
+        }
+    }
+
     public void ResetState()
     {
         CancelRenameSelectedTrilobite();
@@ -92,14 +107,12 @@ public sealed partial class MenuController
         PanelOpen = true;
         HoveredBuildOption = null;
         SelectedBuildOption = null;
+        _buildSelectionExplicitlyCleared = false;
         AssignmentFilter = "miner";
         BuildGridScroll = 0f;
         AssignmentActiveScroll = 0f;
         AssignmentUnassignedScroll = 0f;
         SelectedInventoryScroll = 0f;
-        BuildPreviewDescriptionScroll = 0f;
-        SelectedDescriptionScroll = 0f;
-        _buildPreviewScrollKey = null;
     }
 
     public void SetSelectedObject(object? selectedObject)
@@ -108,7 +121,6 @@ public sealed partial class MenuController
         {
             CancelRenameSelectedTrilobite();
             SelectedInventoryScroll = 0f;
-            SelectedDescriptionScroll = 0f;
         }
 
         SelectedObject = selectedObject;
@@ -238,11 +250,7 @@ public sealed partial class MenuController
             return false;
         }
 
-        if (ActiveTab == TabBuildings && layout.BuildPreviewDescriptionLayout.ViewportBounds.Contains(point))
-        {
-            BuildPreviewDescriptionScroll = Clamp(BuildPreviewDescriptionScroll + delta, 0f, layout.BuildPreviewDescriptionLayout.MaxScroll);
-        }
-        else if (ActiveTab == TabBuildings && layout.BuildGridFrameBounds.Contains(point))
+        if (ActiveTab == TabBuildings && layout.BuildGridFrameBounds.Contains(point))
         {
             BuildGridScroll = Clamp(BuildGridScroll + delta, 0f, layout.BuildGridMaxScroll);
         }
@@ -256,10 +264,6 @@ public sealed partial class MenuController
             {
                 AssignmentUnassignedScroll = Clamp(AssignmentUnassignedScroll + delta, 0f, layout.AssignmentUnassignedMaxScroll);
             }
-        }
-        else if (ActiveTab == TabSelected && layout.SelectedDescriptionLayout.ViewportBounds.Contains(point))
-        {
-            SelectedDescriptionScroll = Clamp(SelectedDescriptionScroll + delta, 0f, layout.SelectedDescriptionLayout.MaxScroll);
         }
         else if (ActiveTab == TabSelected && layout.SelectedInventoryFrameBounds?.Contains(point) == true)
         {
@@ -284,7 +288,7 @@ public sealed partial class MenuController
             .Factory;
     }
 
-    public MenuInteractionResult HandleClick(Point point, Point viewport, GameSession session)
+    public bool HandleClick(Point point, Point viewport, GameApp? game, GameSession session)
     {
         _pointerPoint = point;
         var layout = GetLayout(viewport, session);
@@ -292,17 +296,19 @@ public sealed partial class MenuController
         {
             if (layout.MenuButton.Contains(point))
             {
+                game?.PlayUiSelectSound();
                 OpenPanel();
-                return MenuInteractionResult.ConsumedWithSelectSound;
+                return true;
             }
 
-            return MenuInteractionResult.NotHandled;
+            return false;
         }
 
         if (layout.CollapseButton.Contains(point))
         {
+            game?.PlayUiSelectSound();
             ClosePanel();
-            return MenuInteractionResult.ConsumedWithSelectSound;
+            return true;
         }
 
         foreach (var tab in layout.Tabs)
@@ -312,6 +318,7 @@ public sealed partial class MenuController
                 continue;
             }
 
+            game?.PlayUiSelectSound();
             if (tab.Key != TabSelected)
             {
                 CancelRenameSelectedTrilobite();
@@ -319,7 +326,7 @@ public sealed partial class MenuController
 
             ActiveTab = tab.Key;
             NormalizeActiveTab();
-            return MenuInteractionResult.ConsumedWithSelectSound;
+            return true;
         }
 
         if (ActiveTab == TabBuildings)
@@ -331,9 +338,15 @@ public sealed partial class MenuController
                     continue;
                 }
 
-                SelectedBuildOption = card.Factory;
-                HoveredBuildOption = card.Factory;
-                return MenuInteractionResult.RequestBuildingPlacement(CreateBuildingPlacement(card.Factory, session));
+                game?.PlayUiSelectSound();
+                SelectBuildOption(card.Factory);
+                if (game is null)
+                {
+                    return true;
+                }
+
+                StartBuildingPlacement(card.Factory, game);
+                return true;
             }
         }
         else if (ActiveTab == TabAssignments)
@@ -345,15 +358,17 @@ public sealed partial class MenuController
                     continue;
                 }
 
+                game?.PlayUiSelectSound();
                 AssignmentFilter = filter.Key;
-                return MenuInteractionResult.ConsumedWithSelectSound;
+                return true;
             }
 
             foreach (var row in layout.ActiveAssignmentRows)
             {
                 if (row.Bounds.Contains(point))
                 {
-                    return MenuInteractionResult.WithSelectSound(TransferCreatureAssignment(row.FromAssignment, row.ToAssignment, session));
+                    game?.PlayUiSelectSound();
+                    return TransferCreatureAssignment(row.FromAssignment, row.ToAssignment, session);
                 }
             }
 
@@ -361,7 +376,8 @@ public sealed partial class MenuController
             {
                 if (row.Bounds.Contains(point))
                 {
-                    return MenuInteractionResult.WithSelectSound(TransferCreatureAssignment(row.FromAssignment, row.ToAssignment, session));
+                    game?.PlayUiSelectSound();
+                    return TransferCreatureAssignment(row.FromAssignment, row.ToAssignment, session);
                 }
             }
         }
@@ -371,45 +387,47 @@ public sealed partial class MenuController
             {
                 if (layout.SelectedRenameFieldBounds.Contains(point))
                 {
-                    return MenuInteractionResult.ConsumedSilently;
+                    return true;
                 }
 
                 if (layout.SelectedRenamePrimaryButtonBounds?.Contains(point) == true)
                 {
+                    game?.PlayUiSelectSound();
                     CommitRenameSelectedTrilobite();
-                    return MenuInteractionResult.ConsumedWithSelectSound;
+                    return true;
                 }
 
                 if (layout.SelectedRenameSecondaryButtonBounds?.Contains(point) == true)
                 {
+                    game?.PlayUiSelectSound();
                     CancelRenameSelectedTrilobite();
-                    return MenuInteractionResult.ConsumedWithSelectSound;
+                    return true;
                 }
             }
             else if (SelectedObject is Trilobite && layout.SelectedRenamePrimaryButtonBounds?.Contains(point) == true)
             {
+                game?.PlayUiSelectSound();
                 BeginRenameSelectedTrilobite();
-                return MenuInteractionResult.ConsumedWithSelectSound;
+                return true;
             }
 
             if (layout.DeleteSelectedBounds.Contains(point))
             {
-                return MenuInteractionResult.WithSelectSound(DeleteSelectedObject());
+                game?.PlayUiSelectSound();
+                return DeleteSelectedObject();
             }
         }
 
-        return layout.PanelBounds.Contains(point)
-            ? MenuInteractionResult.ConsumedSilently
-            : MenuInteractionResult.NotHandled;
+        return layout.PanelBounds.Contains(point);
     }
 
-    public void Draw(RenderingContext context, Point viewport, GameSession session, GumUiRenderer gumUi)
+    public void Draw(RenderingContext context, Point viewport, GameApp game, GameSession session, GumUiRenderer gumUi)
     {
         _gumUi = gumUi;
-        DrawInternal(context, viewport, session);
+        DrawInternal(context, viewport, game, session);
     }
 
-    private void DrawInternal(RenderingContext context, Point viewport, GameSession session)
+    private void DrawInternal(RenderingContext context, Point viewport, GameApp game, GameSession session)
     {
         var layout = GetLayout(viewport, session);
         if (!PanelOpen)
@@ -471,6 +489,91 @@ public sealed partial class MenuController
 
     private bool HasRenderer => _gumUi is not null;
 
+    private static string GetSelectedTitle(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Creature creature => creature.Name,
+            IVehicle vehicle => vehicle.Name,
+            Building building => building.Name,
+            _ => "No Selection"
+        };
+    }
+
+    private static string GetSelectedObjectType(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Trilobite => "Trilobite",
+            Ranch => "Ranch",
+            SoilArea => "Soil Area",
+            SoilAreaSelection selection => selection.Mode == SoilAreaSelectionMode.Row ? "Soil Row" : "Soil Column",
+            WallSelection selection => selection.Mode switch
+            {
+                WallSelectionMode.HorizontalRow => "Wall Row",
+                WallSelectionMode.VerticalRow => "Wall Column",
+                _ => "Wall Group"
+            },
+            Creature => "Creature",
+            IVehicle => "Vehicle",
+            _ => "Building"
+        };
+    }
+
+    private static string? GetSelectedHealthText(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Creature creature => $"Health: {creature.Health}/{creature.MaxHealth}",
+            IVehicle vehicle => $"Health: {vehicle.Health}/{vehicle.MaxHealth}",
+            _ => null
+        };
+    }
+
+    private static string GetSelectedDetailText(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Creature creature => $"Assignment: {creature.Assignment}",
+            Scaffolding scaffolding => $"Construction: {scaffolding.ConstructionProgress}/{scaffolding.ConstructionRequired}",
+            IStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
+            IVehicle vehicle => $"Assignment: {vehicle.AssignmentClassification}",
+            _ => $"Type: {GetSelectedTitle(selectedObject)}"
+        };
+    }
+
+    private static string? GetSelectedSupplementalText(object? selectedObject)
+    {
+        if (selectedObject is Scaffolding scaffolding)
+        {
+            return $"Assigned Trilobites: {scaffolding.GetVolume()}";
+        }
+
+        if (selectedObject is Building building)
+        {
+            var assignedCount = GetSelectedBuildingAssignmentCount(building);
+            if (assignedCount > 0)
+            {
+                return $"Assigned Trilobites: {assignedCount}";
+            }
+        }
+
+        return selectedObject is IVehicle vehicle
+            ? $"Stationed Trilobites: {vehicle.StationedCreatures.Count}/{vehicle.MaxStationedCreatures}"
+            : null;
+    }
+
+    private static string GetSelectedDescriptionText(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Building building when !string.IsNullOrWhiteSpace(building.Description) => building.Description,
+            Creature creature when !string.IsNullOrWhiteSpace(creature.Description) => creature.Description,
+            IVehicle vehicle when !string.IsNullOrWhiteSpace(vehicle.Description) => vehicle.Description,
+            _ => "No description is available for this selection yet."
+        };
+    }
+
     private IReadOnlyList<Factory> GetBuildableOptions(GameSession session)
     {
         if (SelectedObject is Creature creature)
@@ -485,9 +588,22 @@ public sealed partial class MenuController
         return session.UnlockedBuildings;
     }
 
+    private void SelectBuildOption(Factory factory)
+    {
+        SelectedBuildOption = factory;
+        HoveredBuildOption = factory;
+        _buildSelectionExplicitlyCleared = false;
+    }
+
     private void SyncBuildSelection(IReadOnlyList<Factory> options)
     {
-        if (SelectedBuildOption is null || options.All(factory => factory.Name != SelectedBuildOption.Name))
+        if (SelectedBuildOption is not null &&
+            options.All(factory => factory.Name != SelectedBuildOption.Name))
+        {
+            SelectedBuildOption = null;
+        }
+
+        if (SelectedBuildOption is null && !_buildSelectionExplicitlyCleared)
         {
             SelectedBuildOption = options.FirstOrDefault();
         }
@@ -530,10 +646,9 @@ public sealed partial class MenuController
         return tabs;
     }
 
-    private static Scaffolding CreateBuildingPlacement(Factory factory, GameSession session)
+    private void StartBuildingPlacement(Factory factory, GameApp game)
     {
-        var targetBuilding = factory.Build(session);
-        return new Scaffolding(session, targetBuilding);
+        game.BeginBuildingPlacement(factory);
     }
 
     private bool DeleteSelectedObject()
@@ -541,6 +656,7 @@ public sealed partial class MenuController
         var removed = SelectedObject switch
         {
             Creature creature => creature.TakeDamage(Math.Max(1, creature.Health), "menuKill") > 0,
+            IVehicle vehicle => vehicle.RemoveFromGame("menuDelete"),
             Building building => building.RemoveFromGame("menuDelete"),
             _ => false
         };

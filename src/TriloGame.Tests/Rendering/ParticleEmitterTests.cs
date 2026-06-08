@@ -1,5 +1,4 @@
 using Microsoft.Xna.Framework;
-using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Rendering.Particles;
 
 namespace TriloGame.Tests.Rendering;
@@ -11,18 +10,18 @@ public sealed class ParticleEmitterTests
     {
         Span<Vector2> centers = stackalloc Vector2[8];
 
-        ParticleEmitter.WriteAdjacentTileCenters(new Point(10, 6), TileConstants.TileSize, centers);
+        ParticleEmitter.WriteAdjacentTileCenters(new Point(10, 6), 80, centers);
 
         var expected = new HashSet<string>(StringComparer.Ordinal)
         {
-            "5120,2560",
-            "5632,2560",
-            "5632,3072",
-            "5632,3584",
-            "5120,3584",
-            "4608,3584",
-            "4608,3072",
-            "4608,2560"
+            "800,400",
+            "880,400",
+            "880,480",
+            "880,560",
+            "800,560",
+            "720,560",
+            "720,480",
+            "720,400"
         };
 
         for (var index = 0; index < centers.Length; index++)
@@ -46,7 +45,7 @@ public sealed class ParticleEmitterTests
             MaxLifetimeSeconds = 1f
         };
 
-        var emitted = emitter.EmitAroundAdjacentTiles(new Point(10, 6), TileConstants.TileSize, null!, settings);
+        var emitted = emitter.EmitAroundAdjacentTiles(new Point(10, 6), 80, null!, settings);
 
         Assert.Equal(10, emitted);
         Assert.Equal(10, system.ActiveCount);
@@ -68,7 +67,7 @@ public sealed class ParticleEmitterTests
             Drag = 0f
         };
 
-        emitter.EmitAroundAdjacentTiles(new Point(0, 0), TileConstants.TileSize, null!, settings);
+        emitter.EmitAroundAdjacentTiles(new Point(0, 0), 80, null!, settings);
         Assert.Equal(8, system.ActiveCount);
 
         system.Update(0.2f);

@@ -2,13 +2,14 @@ namespace TriloGame.Game.Core.Constants;
 
 public static class GameConstants
 {
+    public static readonly bool EnableOpal = false;
+
     public const double TickSpeedSlow = 500d;
     public const double TickSpeedNormal = 250d;
     public const double TickSpeedFast = 100d;
     public const double TickSpeedFastest = 50d;
     public const double GameTimePerSimulationTickMs = TickSpeedFast;
-    public const double RoundDurationMs = 5d * 60d * 1000d;
-    public const double RoundZeroGraceDurationMs = 2d * 60d * 1000d;
+    public const double RoundGraceDurationMs = 5d * 60d * 1000d;
     public const double RoundSpawnWindowDurationMs = 30d * 1000d;
     public const int RoundBaseAntCount = 5;
     public const int RoundAntGrowthPerRound = 3;
@@ -21,9 +22,8 @@ public static class GameConstants
     public const float ExplosionShakeFrequencyHz = 18f;
     public const float ExplosionShakeDecayPerSecond = 2.75f;
 
-    public const float DefaultCameraScale = 80f / TileConstants.TileSize;
-    public const float MinScale = DefaultCameraScale * 0.25f;
-    public const float MaxScale = DefaultCameraScale * 4f;
+    public const float MinScale = 0.1f;
+    public const float MaxScale = 2.5f;
     public const float KeyboardPanSpeedPixelsPerSecond = 800f;
     public const float DragThresholdPixels = 10f;
     public const double DoubleClickThresholdMs = 300d;
@@ -32,19 +32,6 @@ public static class GameConstants
     public const int MaxOreYield = 50;
     public const int DarkestOreYield = 5;
     public const float MaxOreDarkness = 0.3f;
-    public const int CaveCrystalMinCount = 6;
-    public const int CaveCrystalMaxCount = 28;
-    public const int CaveCrystalTileDivisor = 180;
-    public const int CaveFloorHoleProtectedRadius = 8;
-    public const int CaveFloorHoleMinTileCount = 18;
-    public const int CaveFloorHoleMaxTileCount = 48;
-    public const int CaveFloorHoleTileDivisor = 210;
-    public const int CaveFloorHoleMinClusterSize = 3;
-    public const int CaveFloorHoleMaxClusterSize = 6;
-    public const int CaveFloorHoleCellularPasses = 2;
-    public const double CaveFloorHoleInitialFillChance = 0.48d;
-    public const float CaveBackgroundParallaxFactor = 0.16f;
-    public const float CaveBackgroundScaleMultiplier = 1.3f;
     public const int MinOreHitsPerYield = 1;
     public const int MaxOreHitsPerYield = 5;
     public const int TrilobiteCarryCapacity = 5;
@@ -52,6 +39,12 @@ public static class GameConstants
     public const int ExplosiveTraitBlastRadius = 3;
     public const float ExplosiveTraitScreenShakeIntensity = 1f;
     public const int AlgaeHarvestYield = 5;
+    public const int OpalYield = 2000;
+    public const int OpalInitialGraceTicks = 500;
+    public const int OpalDormantTicks = 100;
+    public const int OpalWarningTicks = 500;
+    public const float OpalMaxRedness = 0.3f;
+    public const float OpalMaxShakePixels = 6f;
     public const int WallHitsRequired = 3;
     public const int WallDropAmount = 5;
     public const int WallDropCarryAmount = 1;

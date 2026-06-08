@@ -32,6 +32,7 @@ public sealed class GameSession
             ["ilmenite"] = 0,
             ["cochinium"] = 0
         };
+        EventBus.Subscribe(GameEvents.StorageInventoryChanged, HandleStorageInventoryChanged);
         BfsFields = new Dictionary<string, BfsField>(StringComparer.Ordinal);
         UnlockedBuildings = [];
         ProgressionDex = TriloDex.Global;
@@ -88,6 +89,13 @@ public sealed class GameSession
         return EventBus.Emit(eventName, payload);
     }
 
+    public int GetStoredResourceTotal(string resourceType)
+    {
+        return string.IsNullOrWhiteSpace(resourceType)
+            ? 0
+            : Resources.GetValueOrDefault(resourceType, 0);
+    }
+
     public void RequestAudioCue(GameAudioCue cue)
     {
         AudioCueRequested?.Invoke(cue);
@@ -111,6 +119,23 @@ public sealed class GameSession
         }
 
         DeathMistRequested?.Invoke(new DeathMistRequest(originTile, radius));
+    }
+
+    private void HandleStorageInventoryChanged(GameEventPayload payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.ResourceType) || payload.ResourceDelta == 0)
+        {
+            return;
+        }
+
+        Resources.TryAdd(payload.ResourceType, 0);
+        var nextTotal = Resources[payload.ResourceType] + payload.ResourceDelta;
+        if (nextTotal < 0)
+        {
+            throw new InvalidOperationException($"Stored resource total for {payload.ResourceType} cannot become negative.");
+        }
+
+        Resources[payload.ResourceType] = nextTotal;
     }
 
     public Shared.State.ProjectileFlight? LaunchProjectile(Entities.Creature source, Entities.Creature target, Projectile projectile)
@@ -183,6 +208,11 @@ public sealed class GameSession
         if (tile is null)
         {
             return MineTileResult.NotApplied;
+        }
+
+        if (cave.HasOpal(tile))
+        {
+            return cave.MineOpal(tile);
         }
 
         var tileType = tile.Base;

@@ -38,7 +38,7 @@ Read these after this file when you need deeper detail:
 - farm algae and feed the queen
 - build through scaffolding and recipes
 - defend against ants and ant holes
-- manage other world hazards
+- manage opal pressure and other world hazards
 
 The project already contains:
 
@@ -83,6 +83,16 @@ Use `src/TriloGame.Tests` for unit, runtime, world, UI, performance, simulation,
   not depend on live playback.
 - `GameApp` is the MonoGame host and composition root, not the long-term home for new gameplay
   systems.
+
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial methods when the surrounding system intent is
+  not already obvious
+- keep comments at the ownership or invariant level instead of paraphrasing the code line by line
+- skip self-explanatory accessors and simple pass-through methods unless nearby context would be hard
+  to follow without them
+- add brief notes before complex loops or branch blocks when they encode placement, timing, or
+  selection rules
 
 ## Module Placement Guide
 
@@ -150,7 +160,7 @@ These are the current reference files for the preferred structure:
 - `Runtime/Bootstrap/GameSessionBootstrapper.cs`
 - `Runtime/Systems/GameSimulationClockSystem.cs`
 - `Runtime/Systems/GameOverStateSystem.cs`
-- `Audio/SessionAudioBridge.cs`
+- `Audio/OpalAudioSystem.cs`
 - `Runtime/Automation/GamePlayApi.cs`
 
 Use these as examples when extracting new systems out of `GameApp`.
@@ -164,7 +174,7 @@ These files are still structurally important and should be treated carefully:
 - `GameApp.MiningOrders.cs`
   - mining selection, dispatch, and order UI glue
 - `GameApp.SurfaceFeatures.cs`
-  - ant-hole presentation glue
+  - opal / ant-hole presentation glue
 - `UI/Menu/MenuController.cs`
 - `UI/Menu/MenuController.Layout.cs`
 - `UI/Menu/MenuController.Drawing.cs`

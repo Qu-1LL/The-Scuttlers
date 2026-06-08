@@ -23,17 +23,14 @@ public sealed class MainMenuLayoutTests
 
         var titleBounds = MainMenuLayout.GetTitleBounds(cardBounds);
         var startBounds = MainMenuLayout.GetStartGameButtonBounds(cardBounds);
-        var settingsBounds = MainMenuLayout.GetSettingsButtonBounds(cardBounds);
-        var trilodexBounds = MainMenuLayout.GetTrilodexButtonBounds(cardBounds);
         var quitBounds = MainMenuLayout.GetQuitGameButtonBounds(cardBounds);
+        var comingSoonBounds = MainMenuLayout.GetComingSoonBounds(cardBounds);
 
         Assert.True(cardBounds.Contains(startBounds));
-        Assert.True(cardBounds.Contains(settingsBounds));
-        Assert.True(cardBounds.Contains(trilodexBounds));
         Assert.True(cardBounds.Contains(quitBounds));
+        Assert.True(cardBounds.Contains(comingSoonBounds));
         Assert.True(titleBounds.Bottom < startBounds.Y);
-        Assert.True(startBounds.Bottom < settingsBounds.Y);
-        Assert.True(settingsBounds.Bottom < trilodexBounds.Y);
-        Assert.True(trilodexBounds.Bottom < quitBounds.Y);
+        Assert.True(startBounds.Bottom < quitBounds.Y);
+        Assert.True(quitBounds.Bottom < comingSoonBounds.Y);
     }
 }

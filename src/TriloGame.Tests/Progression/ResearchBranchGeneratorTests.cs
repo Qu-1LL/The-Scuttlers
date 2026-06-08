@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Progression;
 
@@ -12,9 +13,9 @@ public sealed class ResearchBranchGeneratorTests
         var skillTree = new SkillTree(dex);
         var session = new GameSession();
 
-        var bRoot = skillTree.SetRoot(skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!, "B1"));
-        var bChild = skillTree.AddChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!.Children[0], "B1"));
-        var mRoot = skillTree.AddChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("M1")!.Root!, "M1"));
+        var bRoot = skillTree.SetRoot(skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!, GridPoint.Zero, "B1"));
+        var bChild = skillTree.AddLeftChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!.Children[0], GridPoint.Zero, "B1"));
+        var mRoot = skillTree.AddRightChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("M1")!.Root!, GridPoint.Zero, "M1"));
 
         Assert.True(bRoot.TryUnlock(session));
         Assert.True(bChild.TryUnlock(session));
@@ -44,29 +45,18 @@ public sealed class ResearchBranchGeneratorTests
         {
             Assert.Equal(4, branch.Count);
             Assert.NotNull(branch.Root);
-            Assert.Equal(branch.Count, branch.Nodes.Select(node => (node.SourceFeatureTreeName, node.Name)).Distinct().Count());
+            Assert.True(
+                branch.Root!.Delta == new GridPoint(1, 0) ||
+                branch.Root.Delta == new GridPoint(0, 1));
+            Assert.Equal(branch.Count, branch.Nodes.Select(node => (node.Node.SourceFeatureTreeName, node.Node.Name)).Distinct().Count());
+            Assert.Equal(branch.Count, branch.NodesByDelta.Count);
             Assert.All(branch.Nodes, node =>
             {
-                Assert.True(node.IsLocked);
-                Assert.False(node.IsUnlocked);
+                Assert.Equal(node.Delta, node.Node.NodeDelta);
+                Assert.True(node.Node.IsLocked);
+                Assert.False(node.Node.IsUnlocked);
             });
         }
-    }
-
-    [Fact]
-    public void Generate_CanEmitBranchesWithMoreThanTwoChildrenWhenTheSourceTreeSupportsIt()
-    {
-        var root = new SkillNode("Wide-root", "Wide root.");
-        root.AddChild(new SkillNode("Wide-a", "Child a."));
-        root.AddChild(new SkillNode("Wide-b", "Child b."));
-        root.AddChild(new SkillNode("Wide-c", "Child c."));
-        var dex = new TriloDex([new FeatureTree("Wide", "Wide feature tree.", ["building"], 1, [], root)]);
-        var skillTree = new SkillTree(dex);
-
-        var result = new ResearchBranchGenerator(new Random(2)).Generate(skillTree, branchCount: 1, nodesPerBranch: 4);
-
-        var branch = Assert.Single(result.Branches);
-        Assert.Contains(branch.Nodes, node => node.ChildCount >= 3);
     }
 
     [Fact]
@@ -80,8 +70,8 @@ public sealed class ResearchBranchGeneratorTests
         Assert.NotNull(mRoot);
         Assert.True(mRoot!.IsUnlocked);
 
-        var bmRoot = skillTree.AddChild(mRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("BM1")!.Root!, "BM1"));
-        var bmChild = skillTree.AddChild(bmRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("BM1")!.Root!.Children[0], "BM1"));
+        var bmRoot = skillTree.AddLeftChild(mRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("BM1")!.Root!, GridPoint.Zero, "BM1"));
+        var bmChild = skillTree.AddRightChild(bmRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("BM1")!.Root!.Children[0], GridPoint.Zero, "BM1"));
 
         Assert.True(bmRoot.TryUnlock(session));
         Assert.True(bmChild.TryUnlock(session));
@@ -113,14 +103,14 @@ public sealed class ResearchBranchGeneratorTests
         var skillTree = new SkillTree(dex);
         var session = new GameSession();
 
-        var localRoot = skillTree.SetRoot(skillTree.IntakeSkillNode(root, "Chain"));
+        var localRoot = skillTree.SetRoot(skillTree.IntakeSkillNode(root, GridPoint.Zero, "Chain"));
         Assert.True(localRoot.TryUnlock(session));
 
         var parent = localRoot;
-        var placedNodes = new List<TreeInstanceNode> { localRoot };
+        var placedNodes = new List<BinarySkillNode> { localRoot };
         foreach (var templateNode in dex.FindFeatureTree("Chain")!.TraverseDepthFirst().Skip(1))
         {
-            var child = skillTree.AddChild(parent, skillTree.IntakeSkillNode(templateNode, "Chain"));
+            var child = skillTree.AddLeftChild(parent, skillTree.IntakeSkillNode(templateNode, GridPoint.Zero, "Chain"));
             placedNodes.Add(child);
             parent = child;
         }
@@ -150,9 +140,9 @@ public sealed class ResearchBranchGeneratorTests
         var skillTree = new SkillTree(dex);
         var session = new GameSession();
 
-        var bRoot = skillTree.SetRoot(skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!, "B1"));
-        var bChild = skillTree.AddChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!.Children[0], "B1"));
-        var mRoot = skillTree.AddChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("M1")!.Root!, "M1"));
+        var bRoot = skillTree.SetRoot(skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!, GridPoint.Zero, "B1"));
+        var bChild = skillTree.AddLeftChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("B1")!.Root!.Children[0], GridPoint.Zero, "B1"));
+        var mRoot = skillTree.AddRightChild(bRoot, skillTree.IntakeSkillNode(dex.FindFeatureTree("M1")!.Root!, GridPoint.Zero, "M1"));
 
         Assert.True(bRoot.TryUnlock(session));
         Assert.True(bChild.TryUnlock(session));
@@ -164,22 +154,28 @@ public sealed class ResearchBranchGeneratorTests
     private static TriloDex CreateProgressionDex()
     {
         var bRoot = new SkillNode("B-root", "Building root.");
-        bRoot.AddChild(new SkillNode("B-child", "Building child."));
+        var bChild = new SkillNode("B-child", "Building child.");
+        bRoot.AddChild(bChild);
 
         var mRoot = new SkillNode("M-root", "Mining root.");
-        mRoot.AddChild(new SkillNode("M-child", "Mining child."));
+        var mChild = new SkillNode("M-child", "Mining child.");
+        mRoot.AddChild(mChild);
 
         var cRoot = new SkillNode("C-root", "Combat root.");
-        cRoot.AddChild(new SkillNode("C-child", "Combat child."));
+        var cChild = new SkillNode("C-child", "Combat child.");
+        cRoot.AddChild(cChild);
 
         var fRoot = new SkillNode("F-root", "Farming root.");
-        fRoot.AddChild(new SkillNode("F-child", "Farming child."));
+        var fChild = new SkillNode("F-child", "Farming child.");
+        fRoot.AddChild(fChild);
 
         var bmRoot = new SkillNode("BM-root", "Building and mining root.");
-        bmRoot.AddChild(new SkillNode("BM-child", "Building and mining child."));
+        var bmChild = new SkillNode("BM-child", "Building and mining child.");
+        bmRoot.AddChild(bmChild);
 
         var bcmRoot = new SkillNode("BCM-root", "Tier three root.");
-        bcmRoot.AddChild(new SkillNode("BCM-child", "Tier three child."));
+        var bcmChild = new SkillNode("BCM-child", "Tier three child.");
+        bcmRoot.AddChild(bcmChild);
 
         return new TriloDex(
         [

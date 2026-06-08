@@ -17,6 +17,7 @@ Put code in `Audio` when it is:
 
 ## Audio Runtime Contract
 
+- `OpalAudioSystem` owns opal warning audio state transitions.
 - `SessionAudioBridge` owns session audio cue subscription so `GameApp` does not need to manually
   subscribe and relay cue events.
 - Audio may observe `Core` state through session/runtime boundaries, but simulation logic must not
@@ -25,3 +26,11 @@ Put code in `Audio` when it is:
   sounds indirectly through `GameSession.AudioCueRequested`.
 
 Keep live playback policy out of simulation rules.
+
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial audio methods when playback ownership or cue
+  timing is not obvious from the signature
+- keep comments focused on state-machine intent, routing, and lifecycle behavior
+- skip trivial accessors and obvious forwarding methods unless audio policy would otherwise be hidden
+- add brief notes before dense branching that coordinates loop start/stop behavior

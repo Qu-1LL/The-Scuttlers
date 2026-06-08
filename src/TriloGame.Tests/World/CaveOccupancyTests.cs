@@ -1,6 +1,5 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.World;
@@ -54,54 +53,9 @@ public sealed class CaveOccupancyTests
         var buildLocation = new GridPoint(enemyLocation.X - 1, enemyLocation.Y - 1);
 
         Assert.True(cave.Spawn(enemy, enemyTile));
-        var placement = cave.EvaluateBuildPlacement(miningPost, buildLocation);
-
-        Assert.False(placement.CanBuild);
-        Assert.Contains(placement.Cells, cell =>
-            cell.Location == enemyLocation &&
-            (cell.FailureReasons & BuildPlacementFailureReason.EnemyOccupant) != BuildPlacementFailureReason.None);
         Assert.False(cave.CanBuild(miningPost, buildLocation));
         Assert.False(cave.Build(miningPost, buildLocation));
         Assert.Same(enemy, cave.GetEnemyAtTileKey(enemyTile.Key));
-    }
-
-    [Fact]
-    public void FloorHoles_BlockCreaturesAndBuildingPlacement()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(12, 12, new GridPoint(1, 1));
-        var holeLocation = new GridPoint(8, 8);
-        var holeTile = cave.GetTile(holeLocation)
-            ?? throw new InvalidOperationException("Expected a floor-hole tile to exist.");
-        var trilobite = new Trilobite("Tester", new GridPoint(2, 2), session);
-        var wall = new Wall(session);
-
-        holeTile.SetFloorCover(false);
-
-        Assert.False(holeTile.CreatureFits());
-        Assert.False(cave.PlaceCreatureOnTile(trilobite, holeLocation));
-        var placement = cave.EvaluateBuildPlacement(wall, holeLocation);
-
-        Assert.False(placement.CanBuild);
-        Assert.Contains(placement.Cells, cell =>
-            cell.Location == holeLocation &&
-            (cell.FailureReasons & BuildPlacementFailureReason.ImpassableTile) != BuildPlacementFailureReason.None);
-        Assert.False(cave.CanBuild(wall, holeLocation));
-        Assert.False(cave.Build(wall, holeLocation));
-    }
-
-    [Fact]
-    public void EvaluateBuildPlacement_ReportsMissingTiles()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(12, 12, new GridPoint(1, 1));
-        var wall = new Wall(session);
-        var missingLocation = new GridPoint(100, 100);
-
-        var placement = cave.EvaluateBuildPlacement(wall, missingLocation);
-
-        Assert.False(placement.CanBuild);
-        Assert.Contains(placement.Cells, cell =>
-            cell.Location == missingLocation &&
-            (cell.FailureReasons & BuildPlacementFailureReason.MissingTile) != BuildPlacementFailureReason.None);
     }
 
     [Fact]

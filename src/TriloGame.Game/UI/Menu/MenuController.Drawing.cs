@@ -4,8 +4,10 @@ using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.UI.Gum;
+using TriloGame.Game.UI.Selection;
 
 namespace TriloGame.Game.UI.Menu;
 
@@ -34,27 +36,30 @@ public sealed partial class MenuController
             DrawTextFitted(
                 context,
                 activeFactory.Name,
-                new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 36, Math.Max(100, (layout.PreviewBounds.Width / 2) + 12), 28),
+                layout.PreviewTitleBounds,
                 Color.White,
                 large: true);
             DrawTextFitted(
                 context,
                 $"Size: {activeFactory.Size.X} x {activeFactory.Size.Y}",
-                new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 66, Math.Max(100, (layout.PreviewBounds.Width / 2) + 12), 20),
+                layout.PreviewSizeBounds,
                 new Color(135, 173, 187));
-
-            DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
-
-            DrawPreviewTexture(
+            DrawWrappedTextFlow(
                 context,
-                activeFactory.TextureKey,
-                new Rectangle(layout.PreviewBounds.Right - 160, layout.PreviewBounds.Y + 22, 132, 132));
+                activeFactory.Description,
+                layout.PreviewDescriptionIntroBounds,
+                layout.PreviewDescriptionBodyBounds,
+                new Color(226, 238, 244));
+            DrawPreviewTexture(context, activeFactory.TextureKey, layout.PreviewImageBounds);
         }
         else
         {
-            DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(210, 228, 236), GumTextStyle.Small);
+            DrawWrappedText(
+                context,
+                "Hover over a building card or click one to keep it selected here.",
+                new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 44, layout.PreviewBounds.Width - 24, layout.PreviewBounds.Height - 56),
+                new Color(210, 228, 236));
         }
-        DrawScrollbar(context, layout.BuildPreviewDescriptionLayout.ScrollbarTrackBounds, layout.BuildPreviewDescriptionLayout.ScrollbarThumbBounds);
 
         foreach (var card in layout.BuildCards)
         {
@@ -119,20 +124,12 @@ public sealed partial class MenuController
     {
         DrawFrame(context, layout.SelectedBounds, new Color(18, 37, 52), new Color(74, 114, 132));
 
-        var title = SelectedObject is Creature creature ? creature.Name : (SelectedObject as Core.Buildings.Building)?.Name ?? "No Selection";
-        var objectType = SelectedObject is Creature ? "Trilobite" : "Building";
-        var healthText = SelectedObject is Creature selectedHealthCreature
-            ? $"Health: {selectedHealthCreature.Health}/{selectedHealthCreature.MaxHealth}"
-            : null;
-        var assignmentText = SelectedObject switch
-        {
-            Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
-            MiningPost miningPost => $"Stored: {miningPost.GetInventoryTotal()}/{miningPost.Capacity}",
-            _ => $"Type: {title}"
-        };
-        var buildingAssignmentText = SelectedObject is Building selectedBuilding
-            ? $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}"
-            : null;
+        var title = GetSelectedTitle(SelectedObject);
+        var objectType = GetSelectedObjectType(SelectedObject);
+        var healthText = GetSelectedHealthText(SelectedObject);
+        var detailText = GetSelectedDetailText(SelectedObject);
+        var supplementalText = GetSelectedSupplementalText(SelectedObject);
+        var descriptionText = GetSelectedDescriptionText(SelectedObject);
         var canRename = SelectedObject is Trilobite;
         var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
         var healthBounds = healthText is null
@@ -168,14 +165,14 @@ public sealed partial class MenuController
             new Color(135, 173, 187));
         DrawTextFitted(
             context,
-            assignmentText,
+            detailText,
             new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
             new Color(135, 173, 187));
-        if (buildingAssignmentText is not null)
+        if (supplementalText is not null)
         {
             DrawTextFitted(
                 context,
-                buildingAssignmentText,
+                supplementalText,
                 new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 124, layout.SelectedBounds.Width - 32, 20),
                 new Color(135, 173, 187));
         }
@@ -245,7 +242,7 @@ public sealed partial class MenuController
             }
         }
 
-        if (SelectedObject is MiningPost miningPostSelected && layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
+        if (SelectedObject is IStorage storageSelected && layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
         {
             DrawFrame(context, inventoryFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
             DrawTextFitted(
@@ -255,9 +252,17 @@ public sealed partial class MenuController
                 new Color(159, 195, 210));
             DrawTextFittedRight(
                 context,
-                $"{miningPostSelected.GetInventoryTotal()}/{miningPostSelected.Capacity}",
+                $"{storageSelected.GetInventoryTotal()}/{storageSelected.Capacity}",
                 new Rectangle(inventoryFrameBounds.Right - 120, inventoryFrameBounds.Y + 8, 108, 20),
                 new Color(210, 228, 236));
+            if (layout.SelectedInventoryDescriptionBounds is { } inventoryDescriptionBounds)
+            {
+                DrawWrappedText(
+                    context,
+                    descriptionText,
+                    inventoryDescriptionBounds,
+                    new Color(226, 238, 244));
+            }
 
             if (layout.SelectedInventoryEntries.Count == 0)
             {
@@ -277,17 +282,40 @@ public sealed partial class MenuController
 
             DrawScrollbar(context, layout.SelectedInventoryScrollbarTrackBounds, layout.SelectedInventoryScrollbarThumbBounds);
         }
-        else
+        else if (SelectedObject is Scaffolding)
         {
-            DrawScrollableText(context, layout.SelectedDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
-            DrawScrollbar(context, layout.SelectedDescriptionLayout.ScrollbarTrackBounds, layout.SelectedDescriptionLayout.ScrollbarThumbBounds);
+            DrawScaffoldingResources(context, layout);
+        }
+
+        if (SelectedObject is not IStorage)
+        {
+            DrawWrappedText(
+                context,
+                descriptionText,
+                layout.SelectedDescriptionBounds,
+                new Color(226, 238, 244));
         }
 
         var hovered = layout.DeleteSelectedBounds.Contains(_pointerPoint);
         DrawButton(
             context,
             layout.DeleteSelectedBounds,
-            SelectedObject is Creature ? "Kill Trilobite" : "Delete Building",
+            SelectedObject switch
+            {
+                Trilobite => "Kill Trilobite",
+                Creature => "Kill Creature",
+                IVehicle => "Delete Vehicle",
+                Ranch => "Delete Ranch",
+                SoilArea => "Delete Soil Area",
+                SoilAreaSelection selection => selection.Mode == SoilAreaSelectionMode.Row ? "Delete Row" : "Delete Column",
+                WallSelection selection => selection.Mode switch
+                {
+                    WallSelectionMode.HorizontalRow => "Delete Wall Row",
+                    WallSelectionMode.VerticalRow => "Delete Wall Column",
+                    _ => "Delete Walls"
+                },
+                _ => "Delete Building"
+            },
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),
             hovered ? new Color(255, 195, 188) : new Color(242, 176, 170),
             Color.White);
@@ -354,6 +382,52 @@ public sealed partial class MenuController
             true);
     }
 
+    // Scaffolding mirrors storage-style resource cards so the player can compare required and deposited materials at a glance.
+    private void DrawScaffoldingResources(RenderingContext context, MenuLayout layout)
+    {
+        if (layout.SelectedScaffoldingResourcesFrameBounds is not { } frameBounds)
+        {
+            return;
+        }
+
+        DrawFrame(context, frameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+        DrawTextFitted(
+            context,
+            "CONSTRUCTION RESOURCES",
+            new Rectangle(frameBounds.X + 12, frameBounds.Y + 8, frameBounds.Width / 2, 20),
+            new Color(159, 195, 210));
+
+        if (layout.SelectedScaffoldingRequiredEntries.Count == 0 && layout.SelectedScaffoldingInputEntries.Count == 0)
+        {
+            DrawWrappedText(
+                context,
+                "This scaffold does not require construction resources.",
+                Inset(frameBounds, 10),
+                new Color(210, 228, 236));
+            return;
+        }
+
+        if (layout.SelectedScaffoldingRequiredLabelBounds is { } requiredLabelBounds)
+        {
+            DrawTextFitted(context, "REQUIRED RESOURCES", requiredLabelBounds, new Color(159, 195, 210));
+        }
+
+        foreach (var entry in layout.SelectedScaffoldingRequiredEntries)
+        {
+            DrawInventoryEntry(context, entry);
+        }
+
+        if (layout.SelectedScaffoldingInputLabelBounds is { } inputLabelBounds)
+        {
+            DrawTextFitted(context, "INPUT RESOURCE", inputLabelBounds, new Color(159, 195, 210));
+        }
+
+        foreach (var entry in layout.SelectedScaffoldingInputEntries)
+        {
+            DrawInventoryEntry(context, entry);
+        }
+    }
+
     private void DrawInventoryEntry(RenderingContext context, InventoryEntryRect entry)
     {
         var hovered = entry.Bounds.Contains(_pointerPoint);
@@ -388,16 +462,6 @@ public sealed partial class MenuController
 
         DrawFrame(context, trackBounds.Value, new Color(9, 19, 28), new Color(39, 64, 79));
         DrawFrame(context, thumbBounds.Value, new Color(109, 170, 192), new Color(191, 230, 244));
-    }
-
-    private void DrawScrollableText(RenderingContext context, GumScrollableTextLayout layout, Color color, GumTextStyle style)
-    {
-        if (!HasRenderer)
-        {
-            return;
-        }
-
-        GumScrollableText.Draw(_gumUi!, layout, color, style);
     }
 
     private void DrawRect(RenderingContext context, Rectangle bounds, Color color)
@@ -579,7 +643,7 @@ public sealed partial class MenuController
             (int)MathF.Round(position.Y),
             Math.Max(1, size.X),
             Math.Max(1, size.Y));
-        GumUiText.Add(_gumUi!, bounds, text, color, style, verticalAlignment: VerticalAlignment.Top);
+        _gumUi!.AddText(bounds, text, color, verticalAlignment: VerticalAlignment.Top, fontSize: GumTextLayout.GetMetrics(style).FontSize);
     }
 
     private void DrawTextFitted(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
@@ -590,12 +654,21 @@ public sealed partial class MenuController
         }
 
         var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
-        GumUiText.AddFittedLeft(_gumUi!, bounds, text, color, style);
+        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
+        var metrics = GumTextLayout.GetMetrics(style);
+        _gumUi!.AddText(
+            bounds,
+            textToDraw,
+            color,
+            HorizontalAlignment.Left,
+            VerticalAlignment.Center,
+            metrics.FontSize,
+            maxLines: 1);
     }
 
     private void DrawWrappedText(RenderingContext context, string text, Rectangle bounds, Color color)
     {
-        if (!HasRenderer)
+        if (!HasRenderer || string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
@@ -603,7 +676,117 @@ public sealed partial class MenuController
         var style = GumTextStyle.Small;
         var metrics = GumTextLayout.GetMetrics(style);
         var lines = GumTextLayout.Wrap([text], bounds.Width, Math.Max(1, bounds.Height / metrics.LineHeight), style);
-        GumUiText.Add(_gumUi!, bounds, string.Join('\n', lines), color, style, verticalAlignment: VerticalAlignment.Top, maxLines: lines.Count);
+        DrawWrappedTextLines(bounds, lines, color, style);
+    }
+
+    private void DrawWrappedTextFlow(
+        RenderingContext context,
+        string text,
+        Rectangle? introBounds,
+        Rectangle bodyBounds,
+        Color color)
+    {
+        if (!HasRenderer || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        if (introBounds is null || introBounds.Value.Width <= 0 || introBounds.Value.Height <= 0)
+        {
+            DrawWrappedText(context, text, bodyBounds, color);
+            return;
+        }
+
+        var style = GumTextStyle.Small;
+        var metrics = GumTextLayout.GetMetrics(style);
+        var words = text
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
+        {
+            return;
+        }
+
+        var nextWordIndex = 0;
+        var introLines = TakeWrappedLines(
+            words,
+            ref nextWordIndex,
+            introBounds.Value.Width,
+            introBounds.Value.Height / metrics.LineHeight,
+            style);
+        var bodyLines = TakeWrappedLines(
+            words,
+            ref nextWordIndex,
+            bodyBounds.Width,
+            bodyBounds.Height / metrics.LineHeight,
+            style);
+
+        if (nextWordIndex < words.Length)
+        {
+            if (bodyLines.Count > 0)
+            {
+                bodyLines[^1] = GumTextLayout.FitToWidth($"{bodyLines[^1].TrimEnd()}...", bodyBounds.Width, style);
+            }
+            else if (introLines.Count > 0)
+            {
+                introLines[^1] = GumTextLayout.FitToWidth($"{introLines[^1].TrimEnd()}...", introBounds.Value.Width, style);
+            }
+        }
+
+        DrawWrappedTextLines(introBounds.Value, introLines, color, style);
+        DrawWrappedTextLines(bodyBounds, bodyLines, color, style);
+    }
+
+    private void DrawWrappedTextLines(Rectangle bounds, IReadOnlyList<string> lines, Color color, GumTextStyle style)
+    {
+        if (!HasRenderer || bounds.Width <= 0 || bounds.Height <= 0 || lines.Count == 0)
+        {
+            return;
+        }
+
+        _gumUi!.AddText(
+            bounds,
+            string.Join('\n', lines),
+            color,
+            verticalAlignment: VerticalAlignment.Top,
+            fontSize: GumTextLayout.GetMetrics(style).FontSize,
+            maxLines: lines.Count);
+    }
+
+    private static List<string> TakeWrappedLines(
+        IReadOnlyList<string> words,
+        ref int nextWordIndex,
+        int maxWidth,
+        int maxLines,
+        GumTextStyle style)
+    {
+        var lines = new List<string>(Math.Max(0, maxLines));
+        if (maxWidth <= 0 || maxLines <= 0)
+        {
+            return lines;
+        }
+
+        while (nextWordIndex < words.Count && lines.Count < maxLines)
+        {
+            var current = words[nextWordIndex];
+            nextWordIndex++;
+            while (nextWordIndex < words.Count)
+            {
+                var candidate = $"{current} {words[nextWordIndex]}";
+                if (GumTextLayout.Measure(candidate, style).X > maxWidth)
+                {
+                    break;
+                }
+
+                current = candidate;
+                nextWordIndex++;
+            }
+
+            lines.Add(GumTextLayout.FitToWidth(current, maxWidth, style));
+        }
+
+        return lines;
     }
 
     private void DrawTextCentered(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
@@ -614,7 +797,16 @@ public sealed partial class MenuController
         }
 
         var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
-        GumUiText.AddFittedCentered(_gumUi!, bounds, text, color, style);
+        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
+        var metrics = GumTextLayout.GetMetrics(style);
+        _gumUi!.AddText(
+            bounds,
+            textToDraw,
+            color,
+            HorizontalAlignment.Center,
+            VerticalAlignment.Center,
+            metrics.FontSize,
+            maxLines: 1);
     }
 
     private void DrawTextFittedRight(RenderingContext context, string text, Rectangle bounds, Color color, bool large = false, float minScale = 0.72f)
@@ -625,14 +817,15 @@ public sealed partial class MenuController
         }
 
         var style = large ? GumTextStyle.UiLarge : GumTextStyle.Small;
-        GumUiText.Add(
-            _gumUi!,
+        var textToDraw = GumTextLayout.FitToWidth(text, bounds.Width, style);
+        var metrics = GumTextLayout.GetMetrics(style);
+        _gumUi!.AddText(
             bounds,
-            GumTextLayout.FitToWidth(text, bounds.Width, style),
+            textToDraw,
             color,
-            style,
             HorizontalAlignment.Right,
             VerticalAlignment.Center,
+            metrics.FontSize,
             maxLines: 1);
     }
 

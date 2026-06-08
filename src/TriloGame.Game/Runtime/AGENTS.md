@@ -29,6 +29,7 @@ Use `Runtime` for:
 - `Shared/State/GameSessionRuntimeState.cs` groups runtime/debug state that simulation can read
   without scattering host-only toggles directly across `GameSession`.
 - `GameOverStateSystem` owns queen-loss state.
+- `OpalAudioSystem` owns opal warning audio state transitions.
 - `Audio/SessionAudioBridge.cs` owns session audio cue subscription so `GameApp` does not need to
   manually subscribe and relay cue events.
 - Projectile travel/impact timing belongs in runtime state/systems so hits can resolve between
@@ -69,6 +70,14 @@ systems, especially:
 - debug command handling
 - scenario bootstrapping
 - automation bridges
+
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial runtime methods when they coordinate timing,
+  orchestration, or state ownership
+- keep comments focused on lifecycle intent and cross-system contracts, not line-by-line narration
+- skip obvious accessors and tiny forwarders unless they hide important runtime meaning
+- add brief notes before complicated time-budget loops or branching state machines
 
 ## Golden Path Files
 

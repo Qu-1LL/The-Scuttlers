@@ -14,12 +14,10 @@ public sealed class GumUiRenderer
     private readonly List<RoundedRectangleRuntime> _roundedRectangles = [];
     private readonly List<TextRuntime> _texts = [];
     private readonly List<SpriteRuntime> _sprites = [];
-    private readonly List<ContainerRuntime> _clippingContainers = [];
     private int _filledRectangleCount;
     private int _roundedRectangleCount;
     private int _textCount;
     private int _spriteCount;
-    private int _clippingContainerCount;
 
     public GumUiRenderer()
     {
@@ -42,7 +40,6 @@ public sealed class GumUiRenderer
         _roundedRectangleCount = 0;
         _textCount = 0;
         _spriteCount = 0;
-        _clippingContainerCount = 0;
     }
 
     public void EndFrame()
@@ -66,20 +63,9 @@ public sealed class GumUiRenderer
         {
             _sprites[index].Visible = false;
         }
-
-        for (var index = _clippingContainerCount; index < _clippingContainers.Count; index++)
-        {
-            _clippingContainers[index].Visible = false;
-            _clippingContainers[index].Children.Clear();
-        }
     }
 
     public void AddFilledRectangle(Rectangle bounds, Color color)
-    {
-        AddFilledRectangle(Root, bounds, color);
-    }
-
-    public void AddFilledRectangle(ContainerRuntime parent, Rectangle bounds, Color color)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0 || color.A == 0)
         {
@@ -94,7 +80,7 @@ public sealed class GumUiRenderer
         rectangle.Height = bounds.Height;
         rectangle.Color = color;
         rectangle.Rotation = 0f;
-        parent.Children.Add(rectangle);
+        Root.Children.Add(rectangle);
     }
 
     public void AddRectangleOutline(Rectangle bounds, Color color, int thickness)
@@ -130,31 +116,6 @@ public sealed class GumUiRenderer
         Root.Children.Add(rectangle);
     }
 
-    public void AddRoundedOutline(Rectangle bounds, Color color, int thickness, int radius)
-    {
-        AddRoundedOutline(Root, bounds, color, thickness, radius);
-    }
-
-    public void AddRoundedOutline(ContainerRuntime parent, Rectangle bounds, Color color, int thickness, int radius)
-    {
-        if (bounds.Width <= 0 || bounds.Height <= 0 || thickness <= 0 || color.A == 0)
-        {
-            return;
-        }
-
-        var rectangle = GetRoundedRectangle(_roundedRectangleCount++);
-        rectangle.Visible = true;
-        rectangle.X = bounds.X;
-        rectangle.Y = bounds.Y;
-        rectangle.Width = bounds.Width;
-        rectangle.Height = bounds.Height;
-        rectangle.CornerRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        rectangle.Color = color;
-        rectangle.IsFilled = false;
-        rectangle.StrokeWidth = thickness;
-        parent.Children.Add(rectangle);
-    }
-
     public void AddRoundedFrame(Rectangle bounds, Color fill, Color border, int thickness, int radius)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0)
@@ -181,38 +142,7 @@ public sealed class GumUiRenderer
         AddRoundedRectangle(innerBounds, fill, Math.Max(0, radius - thickness));
     }
 
-    public void AddRoundedFrame(ContainerRuntime parent, Rectangle bounds, Color fill, Color border, int thickness, int radius)
-    {
-        if (bounds.Width <= 0 || bounds.Height <= 0)
-        {
-            return;
-        }
-
-        AddRoundedRectangle(parent, bounds, border, radius);
-        if (thickness <= 0)
-        {
-            return;
-        }
-
-        var innerBounds = new Rectangle(
-            bounds.X + thickness,
-            bounds.Y + thickness,
-            Math.Max(0, bounds.Width - (thickness * 2)),
-            Math.Max(0, bounds.Height - (thickness * 2)));
-        if (innerBounds.Width <= 0 || innerBounds.Height <= 0)
-        {
-            return;
-        }
-
-        AddRoundedRectangle(parent, innerBounds, fill, Math.Max(0, radius - thickness));
-    }
-
     public void AddLine(Vector2 start, Vector2 end, Color color, int thickness = 2)
-    {
-        AddLine(Root, start, end, color, thickness);
-    }
-
-    public void AddLine(ContainerRuntime parent, Vector2 start, Vector2 end, Color color, int thickness = 2)
     {
         if (color.A == 0 || thickness <= 0)
         {
@@ -228,7 +158,7 @@ public sealed class GumUiRenderer
                 (int)MathF.Round(start.Y) - (thickness / 2),
                 thickness,
                 thickness);
-            AddFilledRectangle(parent, singlePointBounds, color);
+            AddFilledRectangle(singlePointBounds, color);
             return;
         }
 
@@ -241,7 +171,7 @@ public sealed class GumUiRenderer
         rectangle.Height = layout.Height;
         rectangle.Color = color;
         rectangle.Rotation = layout.Rotation;
-        parent.Children.Add(rectangle);
+        Root.Children.Add(rectangle);
     }
 
     internal static GumLineLayout CreateLineLayout(Vector2 start, Vector2 end, int thickness)
@@ -279,19 +209,6 @@ public sealed class GumUiRenderer
         int fontSize = 18,
         int maxLines = 0)
     {
-        AddText(Root, bounds, text, color, horizontalAlignment, verticalAlignment, fontSize, maxLines);
-    }
-
-    public void AddText(
-        ContainerRuntime parent,
-        Rectangle bounds,
-        string text,
-        Color color,
-        HorizontalAlignment horizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment verticalAlignment = VerticalAlignment.Center,
-        int fontSize = 18,
-        int maxLines = 0)
-    {
         if (string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0 || color.A == 0)
         {
             return;
@@ -308,36 +225,31 @@ public sealed class GumUiRenderer
         textRuntime.VerticalAlignment = verticalAlignment;
         textRuntime.FontScale = 1f;
         textRuntime.FontSize = fontSize;
-        textRuntime.MaxNumberOfLines = maxLines;
+        textRuntime.MaxNumberOfLines = ResolveMaxNumberOfLines(text, maxLines);
         textRuntime.Text = text;
-        parent.Children.Add(textRuntime);
+        Root.Children.Add(textRuntime);
+    }
+
+    internal static int ResolveMaxNumberOfLines(string text, int maxLines)
+    {
+        if (maxLines > 0)
+        {
+            return maxLines;
+        }
+
+        var lineCount = 1;
+        foreach (var character in text)
+        {
+            if (character == '\n')
+            {
+                lineCount++;
+            }
+        }
+
+        return lineCount;
     }
 
     public void AddSprite(Rectangle bounds, Texture2D texture, Color? color = null)
-    {
-        AddSprite(bounds, texture, new Rectangle(0, 0, texture.Width, texture.Height), color);
-    }
-
-    public void AddSprite(Rectangle bounds, Texture2D texture, Rectangle sourceRectangle, Color? color = null)
-    {
-        AddSprite(Root, bounds, texture, sourceRectangle, color);
-    }
-
-    public ContainerRuntime AddClippingContainer(Rectangle bounds)
-    {
-        var container = GetClippingContainer(_clippingContainerCount++);
-        container.Visible = true;
-        container.X = bounds.X;
-        container.Y = bounds.Y;
-        container.Width = bounds.Width;
-        container.Height = bounds.Height;
-        container.ClipsChildren = true;
-        container.Children.Clear();
-        Root.Children.Add(container);
-        return container;
-    }
-
-    public void AddSprite(ContainerRuntime parent, Rectangle bounds, Texture2D texture, Rectangle sourceRectangle, Color? color = null)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0)
         {
@@ -351,29 +263,8 @@ public sealed class GumUiRenderer
         sprite.Width = bounds.Width;
         sprite.Height = bounds.Height;
         sprite.Texture = texture;
-        sprite.SourceRectangle = sourceRectangle;
         sprite.Color = color ?? Color.White;
-        parent.Children.Add(sprite);
-    }
-
-    public void AddRoundedRectangle(ContainerRuntime parent, Rectangle bounds, Color color, int radius)
-    {
-        if (bounds.Width <= 0 || bounds.Height <= 0 || color.A == 0)
-        {
-            return;
-        }
-
-        var rectangle = GetRoundedRectangle(_roundedRectangleCount++);
-        rectangle.Visible = true;
-        rectangle.X = bounds.X;
-        rectangle.Y = bounds.Y;
-        rectangle.Width = bounds.Width;
-        rectangle.Height = bounds.Height;
-        rectangle.CornerRadius = Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        rectangle.Color = color;
-        rectangle.IsFilled = true;
-        rectangle.StrokeWidth = 1f;
-        parent.Children.Add(rectangle);
+        Root.Children.Add(sprite);
     }
 
     private ColoredRectangleRuntime GetFilledRectangle(int index)
@@ -434,21 +325,6 @@ public sealed class GumUiRenderer
         }
 
         return _sprites[index];
-    }
-
-    private ContainerRuntime GetClippingContainer(int index)
-    {
-        while (_clippingContainers.Count <= index)
-        {
-            var container = new ContainerRuntime
-            {
-                Visible = false
-            };
-            ConfigureElement(container);
-            _clippingContainers.Add(container);
-        }
-
-        return _clippingContainers[index];
     }
 
     private static void ConfigureElement(ContainerRuntime container)

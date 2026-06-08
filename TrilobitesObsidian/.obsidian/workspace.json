@@ -31,30 +31,15 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Trilobites CSharp/04 Game Wiki/Trilobite Roles.md",
+                "file": "Trilobites CSharp/04 Game Wiki/Skill Tree and Quest Overview.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Trilobite Roles"
-            }
-          },
-          {
-            "id": "c4d53b17cfdf10e4",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Codex Prompt.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "Codex Prompt"
+              "title": "Skill Tree and Quest Overview"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -216,12 +201,10 @@
       "bases:Create new base": false
     }
   },
-  "active": "c4d53b17cfdf10e4",
+  "active": "967200f25ddc8ded",
   "lastOpenFiles": [
-    "Trilobites CSharp/04 Game Wiki/Trilobite Roles.md",
-    "Codex Prompt.md",
-    "Trilobites CSharp/SkillBranchExample.drawio.svg",
     "Trilobites CSharp/SkillLineExample.drawio.svg",
+    "Trilobites CSharp/SkillBranchExample.drawio.svg",
     "Trilobites CSharp/04 Game Wiki/Skill Tree and Quest Overview.md",
     "Trilobites CSharp/00 Home/Using This Vault.md",
     "Trilobites CSharp/02 Systems/Entities and Roles.md",
@@ -240,6 +223,7 @@
     "Trilobites CSharp/04 Game Wiki/Core Loop and Colony Growth.md",
     "Trilobites CSharp/04 Game Wiki/Game Wiki Home.md",
     "Trilobites CSharp/04 Game Wiki/Resources Mining and Danger.md",
+    "Trilobites CSharp/04 Game Wiki/Trilobite Roles.md",
     "Trilobites CSharp/01 Architecture/Runtime Flow.md",
     "Trilobites CSharp/02 Systems/Rendering.md",
     "Trilobites CSharp/01 Architecture/System Map.md",

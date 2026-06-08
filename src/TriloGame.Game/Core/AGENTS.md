@@ -49,6 +49,36 @@ Prefer:
 - one-pass scoring over repeated sort-heavy selection
 - pooling only when justified by real hot-path pressure
 
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial methods in simulation code when the gameplay
+  intent or invariant is not obvious from the signature
+- keep comments focused on rules, ownership, and deterministic behavior rather than restating each
+  line
+- skip trivial accessors and simple mutators unless nearby hot-path logic would otherwise be hard to
+  follow
+- add brief notes before dense loops or conditionals when they preserve important sim invariants or
+  selection behavior
+
+## Ranch Plow Coverage Path
+
+Ranch soil is placed as 2x2 `SoilPatch` buildings. Each patch owns four independently growing
+`SoilTile` simulation objects, while placement, removal, and direct building selection still operate
+on the whole 2x2 patch.
+
+- Ranch ownership and connectivity are tracked on the individual `SoilTile` objects rather than on
+  the `SoilPatch` wrapper building.
+- `SoilArea` groups soil patches placed as one player action; ranch work still runs through soil
+  tiles, while area objects exist for selection and edge-row/column refinement.
+- Keep patch ownership deterministic when a new patch touches more than one ranch; do not merge
+  ranches implicitly through a bridge patch.
+- Rebuild the cached linked-list plow path whenever ranch soil membership changes.
+- Prefer a plow start on the garage side defined by the garage display rotation; if no
+  garage-adjacent 2x2 soil pose exists on any side, the plow must not spawn.
+- Build the plow path from legal 2x2 plow poses whose whole footprint is ranch soil, so movement
+  never requires non-soil tiles.
+- Keep the solver deterministic and mutation-driven; do not rerun it every tick.
+
 ## Creature Tracking And Building Projections
 
 When adding buildings that care about nearby moving units, use the current projection/tracking
@@ -93,8 +123,8 @@ These are current live rules. If a task changes them, update tests and docs in t
 - Ore has finite yield, darkens as it depletes, and takes `1-5` hits per yielded unit.
 - Walls take `3` hits, drop sandstone, and miners haul dropped stone.
 - Queen death triggers a screen overlay rather than closing the app.
-- Ant-hole systems are active world features.
-- Natural ant-hole spawning follows the current ambient spawn rules.
+- Opal and ant-hole systems are active world features.
+- Natural ant-hole spawning is governed by the opal grace/warning system.
 
 ## Subsystem Reading Guide
 

@@ -1,5 +1,3 @@
-using TriloGame.Game.Core.Constants;
-
 namespace TriloGame.Game.Core.Combat;
 
 public sealed class Projectile
@@ -26,5 +24,5 @@ public sealed class Projectile
 
 public static class ProjectileCatalog
 {
-    public static Projectile Rock { get; } = new("Rock", "Rock", 10, 0.5f, TileConstants.TileSize * 2f);
+    public static Projectile Rock { get; } = new("Rock", "Rock", 10, 0.5f, 160f);
 }

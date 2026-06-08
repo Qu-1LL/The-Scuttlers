@@ -42,6 +42,14 @@ These files are still structurally important and should be treated carefully:
 
 If you change these files, actively look for an extraction opportunity instead of just growing them.
 
+## Documentation Comments
+
+- add short one-line `//` comments before non-trivial UI methods when layout, interaction, or render
+  intent is not obvious from the signature
+- keep comments focused on player-facing intent, layout rules, or ownership boundaries
+- skip obvious accessors and tiny pass-through handlers unless they need extra context
+- add brief notes before dense draw/layout loops or complex input conditionals
+
 ## Additional UI Guidance
 
 See [../../../docs/agents.md](../../../docs/agents.md) for the current player-facing UI style

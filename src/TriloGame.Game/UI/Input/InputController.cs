@@ -43,12 +43,6 @@ public sealed class InputController
 
     public bool RightHeld => CurrentMouse.RightButton == ButtonState.Pressed;
 
-    public bool MiddlePressed => CurrentMouse.MiddleButton == ButtonState.Pressed && PreviousMouse.MiddleButton == ButtonState.Released;
-
-    public bool MiddleReleased => CurrentMouse.MiddleButton == ButtonState.Released && PreviousMouse.MiddleButton == ButtonState.Pressed;
-
-    public bool MiddleHeld => CurrentMouse.MiddleButton == ButtonState.Pressed;
-
     public bool KeyPressed(Keys key) => CurrentKeyboard.IsKeyDown(key) && PreviousKeyboard.IsKeyUp(key);
 
     public bool KeyReleased(Keys key) => CurrentKeyboard.IsKeyUp(key) && PreviousKeyboard.IsKeyDown(key);

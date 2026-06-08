@@ -1,5 +1,4 @@
 using TriloGame.Game.Core.Buildings;
-using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Runtime.Systems;
@@ -142,7 +141,7 @@ public sealed class TurretTests
 
         var projectile = Assert.Single(session.Runtime.ActiveProjectileFlights);
         Assert.Equal(fighter.HostedWorldPosition!.Value, projectile.SourceWorldPosition);
-        Assert.NotEqual(new System.Numerics.Vector2(fighter.Location.X * TileConstants.TileSize, fighter.Location.Y * TileConstants.TileSize), projectile.SourceWorldPosition);
+        Assert.NotEqual(new System.Numerics.Vector2(fighter.Location.X * 80f, fighter.Location.Y * 80f), projectile.SourceWorldPosition);
     }
 
     [Fact]
@@ -167,7 +166,7 @@ public sealed class TurretTests
         }
 
         var projectile = Assert.Single(session.Runtime.ActiveProjectileFlights);
-        var expectedRotation = Microsoft.Xna.Framework.MathHelper.ToRadians(projectile.AngleDegrees) + (MathF.PI / 2f);
+        var expectedRotation = Microsoft.Xna.Framework.MathHelper.ToRadians(projectile.AngleDegrees);
         Assert.Equal(expectedRotation, fighter.RotationRadians, 5);
     }
 
