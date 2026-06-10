@@ -176,8 +176,19 @@ public sealed class AntHandlerTests
 
         Assert.False(handler.CanSkipCurrentRound(session, round));
         Assert.Equal(1, handler.GetRemainingKillsForRound(session, round));
+        Assert.Single(cave.GetAntHoles());
+        Assert.Empty(cave.GetEnemyList());
+
+        for (var tick = 0; tick < GameConstants.AntHoleSpawnDelayTicks; tick++)
+        {
+            cave.TickSurfaceFeatures();
+        }
 
         var ant = cave.GetEnemyList().Single();
+        Assert.Empty(cave.GetAntHoles());
+        Assert.False(handler.CanSkipCurrentRound(session, round));
+        Assert.Equal(1, handler.GetRemainingKillsForRound(session, round));
+
         Assert.True(ant.RemoveFromGame("test"));
         Assert.False(session.Danger);
         Assert.Empty(cave.GetAntHoles());
@@ -211,11 +222,10 @@ public sealed class AntHandlerTests
                         GridPoint.ManhattanDistance(tile.Coordinates, queenCenter) >= constraints.MinDistanceFromQueen &&
                         GridPoint.ManhattanDistance(tile.Coordinates, queenCenter) <= constraints.MaxDistanceFromQueen &&
                         cave.PreviewAntHoleSpawnTiles(tile, 1).Count > 0);
-                var spawned = cave.SpawnAntHole(holeTile, 1);
+                var spawned = cave.SpawnAntHole(holeTile, 1, constraints.SpawnSourceId);
                 Assert.True(spawned);
-                var spawnedEnemy = cave.GetAntHoles().Single(hole => hole.TileKey == holeTile.Key).Ants.Single();
-                var spawnTileKey = spawnedEnemy.Location.ToString();
-                return new AntSpawnAttemptResult(true, "ok", spawnedEnemy, holeTile.Key, spawnTileKey);
+                var spawnTileKey = cave.PreviewAntHoleSpawnTiles(holeTile, 1).Single().Key;
+                return new AntSpawnAttemptResult(true, "ok", null, holeTile.Key, spawnTileKey);
             }
 
             return new AntSpawnAttemptResult(true, "ok", null, $"hole-{AttemptCount}", $"spawn-{AttemptCount}");

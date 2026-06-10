@@ -86,7 +86,7 @@ public sealed class CaveAntHoleSpawner : IAntHoleSpawner
 
         var selectedHoleTile = selectedCandidate.Value.HoleTile;
         var selectedSpawnTile = selectedCandidate.Value.SpawnTile;
-        if (!cave.SpawnAntHole(selectedHoleTile, 1))
+        if (!cave.SpawnAntHole(selectedHoleTile, 1, constraints.SpawnSourceId))
         {
             return new AntSpawnAttemptResult(
                 false,
@@ -96,18 +96,13 @@ public sealed class CaveAntHoleSpawner : IAntHoleSpawner
                 selectedSpawnTile.Key);
         }
 
-        var spawnedEnemy = cave.GetAntHoles()
-            .FirstOrDefault(hole => string.Equals(hole.TileKey, selectedHoleTile.Key, StringComparison.Ordinal))
-            ?.Ants
-            .FirstOrDefault();
-
         var rangeMessage = relaxedMinDistance == constraints.MinDistanceFromQueen
-            ? $"Spawned ant through hole {selectedHoleTile.Key}."
-            : $"Spawned ant through hole {selectedHoleTile.Key} after relaxing minimum distance from {constraints.MinDistanceFromQueen} to {relaxedMinDistance}.";
+            ? $"Scheduled ant through hole {selectedHoleTile.Key}."
+            : $"Scheduled ant through hole {selectedHoleTile.Key} after relaxing minimum distance from {constraints.MinDistanceFromQueen} to {relaxedMinDistance}.";
         return new AntSpawnAttemptResult(
             true,
             rangeMessage,
-            spawnedEnemy,
+            null,
             selectedHoleTile.Key,
             selectedSpawnTile.Key);
     }

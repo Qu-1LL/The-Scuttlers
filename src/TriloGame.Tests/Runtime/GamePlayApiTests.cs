@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Runtime.Automation;
 using TriloGame.Game.Runtime.Bootstrap;
@@ -71,7 +72,13 @@ public sealed class GamePlayApiTests
         Assert.True(api.SpawnAntHole(holeTile.Coordinates));
 
         var hole = cave.GetAntHoles().Single();
-        var ant = hole.Ants.Single();
+        Assert.Equal(1, hole.PendingAntCount);
+        Assert.Empty(cave.GetEnemyList());
+
+        api.RunTicks(GameConstants.AntHoleSpawnDelayTicks);
+
+        Assert.Empty(cave.GetAntHoles());
+        var ant = cave.GetEnemyList().Single();
         var antTile = cave.GetTile(ant.Location)!;
         cave.RevealTile(antTile);
         cave.RefreshDangerState();

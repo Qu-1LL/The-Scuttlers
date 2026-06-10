@@ -11,6 +11,7 @@ public sealed partial class Cave
 {
     private readonly Dictionary<string, AntHole> _antHolesByTileKey = new(StringComparer.Ordinal);
     private readonly Dictionary<Enemy, AntHole> _antHoleByEnemy = [];
+    private readonly List<AntHole> _antHoleTickBuffer = [];
 
     private bool IsEnemySpawnBlockedTile(Tile tile)
     {
@@ -73,7 +74,7 @@ public sealed partial class Cave
         return SpawnAntHole(holeTile, spawnCount);
     }
 
-    public bool SpawnAntHole(Tile holeTile, int requestedCount)
+    public bool SpawnAntHole(Tile holeTile, int requestedCount, int? spawnSourceId = null)
     {
         var clampedCount = Math.Min(requestedCount, GameConstants.MaxAmbientAntSpawnCount);
         if (clampedCount <= 0 || !CanPlaceAntHole(holeTile))
@@ -81,25 +82,13 @@ public sealed partial class Cave
             return false;
         }
 
-        var antHole = new AntHole(holeTile.Key);
         var spawnTiles = PreviewAntHoleSpawnTiles(holeTile, clampedCount);
-        foreach (var tile in spawnTiles)
-        {
-            var ant = new Enemy($"Ant {Session.Runtime.AllocateDebugEnemyId()}", tile.Coordinates, Session);
-            if (!Spawn(ant, tile))
-            {
-                continue;
-            }
-
-            antHole.RegisterAnt(ant);
-            _antHoleByEnemy[ant] = antHole;
-        }
-
-        if (antHole.IsCleared)
+        if (spawnTiles.Count == 0)
         {
             return false;
         }
 
+        var antHole = new AntHole(holeTile.Key, clampedCount, GameConstants.AntHoleSpawnDelayTicks, spawnSourceId);
         _antHolesByTileKey[holeTile.Key] = antHole;
         Session.RequestAudioCue(GameAudioCue.AntHoleSpawn);
         return true;
@@ -107,6 +96,41 @@ public sealed partial class Cave
 
     public void TickSurfaceFeatures()
     {
+        if (_antHolesByTileKey.Count == 0)
+        {
+            return;
+        }
+
+        _antHoleTickBuffer.Clear();
+        if (_antHoleTickBuffer.Capacity < _antHolesByTileKey.Count)
+        {
+            _antHoleTickBuffer.Capacity = _antHolesByTileKey.Count;
+        }
+
+        foreach (var antHole in _antHolesByTileKey.Values)
+        {
+            _antHoleTickBuffer.Add(antHole);
+        }
+
+        for (var index = 0; index < _antHoleTickBuffer.Count; index++)
+        {
+            var antHole = _antHoleTickBuffer[index];
+            if (!_antHolesByTileKey.ContainsKey(antHole.TileKey))
+            {
+                continue;
+            }
+
+            antHole.Tick();
+            if (!antHole.IsReadyToSpawn)
+            {
+                continue;
+            }
+
+            ReleaseAntHole(antHole);
+            _antHolesByTileKey.Remove(antHole.TileKey);
+        }
+
+        _antHoleTickBuffer.Clear();
     }
 
     public int GetAntHoleSpawnChanceDenominator()
@@ -146,9 +170,56 @@ public sealed partial class Cave
         }
 
         var removedCount = _antHolesByTileKey.Count;
+        foreach (var antHole in _antHolesByTileKey.Values)
+        {
+            ReportFailedAntHoleSpawns(antHole);
+        }
+
         _antHolesByTileKey.Clear();
         _antHoleByEnemy.Clear();
         return removedCount;
+    }
+
+    private void ReleaseAntHole(AntHole antHole)
+    {
+        var holeTile = GetTile(antHole.TileKey);
+        if (holeTile is null)
+        {
+            ReportFailedAntHoleSpawns(antHole);
+            return;
+        }
+
+        var spawnTiles = PreviewAntHoleSpawnTiles(holeTile, antHole.PendingAntCount);
+        var spawnedCount = 0;
+        var resolvedCount = 0;
+        for (var index = 0; index < spawnTiles.Count && resolvedCount < antHole.PendingAntCount; index++)
+        {
+            var tile = spawnTiles[index];
+            var ant = new Enemy($"Ant {Session.Runtime.AllocateDebugEnemyId()}", tile.Coordinates, Session);
+            if (!Spawn(ant, tile))
+            {
+                resolvedCount++;
+                Session.ReportAntHoleSpawnResolved(null, antHole.SpawnSourceId);
+                continue;
+            }
+
+            spawnedCount++;
+            resolvedCount++;
+            Session.ReportAntHoleSpawnResolved(ant, antHole.SpawnSourceId);
+        }
+
+        for (var index = resolvedCount; index < antHole.PendingAntCount; index++)
+        {
+            Session.ReportAntHoleSpawnResolved(null, antHole.SpawnSourceId);
+        }
+    }
+
+    private void ReportFailedAntHoleSpawns(AntHole antHole)
+    {
+        for (var index = 0; index < antHole.PendingAntCount; index++)
+        {
+            Session.ReportAntHoleSpawnResolved(null, antHole.SpawnSourceId);
+        }
     }
 
     public IReadOnlyList<Tile> PreviewAntHoleSpawnTiles(Tile holeTile, int requestedCount)

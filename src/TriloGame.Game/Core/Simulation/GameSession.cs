@@ -77,6 +77,7 @@ public sealed class GameSession
     public event Action<GameAudioCue>? AudioCueRequested;
     public event Action<float>? ScreenShakeRequested;
     public event Action<DeathMistRequest>? DeathMistRequested;
+    public event Action<Entities.Enemy?, int?>? AntHoleSpawnResolved;
 
     public Action On(string eventName, Action<GameEventPayload> listener)
     {
@@ -111,6 +112,11 @@ public sealed class GameSession
         }
 
         DeathMistRequested?.Invoke(new DeathMistRequest(originTile, radius));
+    }
+
+    public void ReportAntHoleSpawnResolved(Entities.Enemy? spawnedEnemy, int? spawnSourceId)
+    {
+        AntHoleSpawnResolved?.Invoke(spawnedEnemy, spawnSourceId);
     }
 
     public Shared.State.ProjectileFlight? LaunchProjectile(Entities.Creature source, Entities.Creature target, Projectile projectile)

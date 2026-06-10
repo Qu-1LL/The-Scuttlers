@@ -64,6 +64,7 @@ public static class GameConstants
     public const int MaxAmbientAntSpawnCount = 1;
     public const int MaxAmbientAntCount = 24;
     public const int AntHoleSpawnRadius = 2;
+    public const int AntHoleSpawnDelayTicks = 30;
     public const int TurretProjectionRadius = 10;
     public const int TurretMaxHealth = 100;
 }

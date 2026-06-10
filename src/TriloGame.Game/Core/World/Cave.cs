@@ -139,7 +139,6 @@ public sealed partial class Cave : Graph
 
         if (!Session.Danger)
         {
-            DespawnAntHoles();
             if (previousDanger)
             {
                 GetBfsFieldObject("enemy")?.ClearField();

@@ -103,6 +103,7 @@ public sealed partial class Cave
     {
         if (_antHolesByTileKey.Remove(tile.Key, out var antHole))
         {
+            ReportFailedAntHoleSpawns(antHole);
             foreach (var ant in antHole.Ants.ToArray())
             {
                 _antHoleByEnemy.Remove(ant);

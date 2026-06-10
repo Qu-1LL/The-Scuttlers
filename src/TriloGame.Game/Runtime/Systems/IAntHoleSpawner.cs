@@ -3,7 +3,10 @@ using TriloGame.Game.Core.Simulation;
 
 namespace TriloGame.Game.Runtime.Systems;
 
-public readonly record struct AntSpawnConstraints(int MinDistanceFromQueen, int MaxDistanceFromQueen);
+public readonly record struct AntSpawnConstraints(
+    int MinDistanceFromQueen,
+    int MaxDistanceFromQueen,
+    int? SpawnSourceId = null);
 
 public readonly record struct AntSpawnAttemptResult(
     bool Success,

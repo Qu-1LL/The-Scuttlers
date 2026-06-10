@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.Shared.Math;
 
@@ -24,6 +25,14 @@ public sealed class CaveAntHoleSpawnerTests
         Assert.InRange(GridPoint.ManhattanDistance(spawnTile!.Coordinates, queen.GetCenter()), 30, 50);
         Assert.True(cave.IsTileReachable(spawnTile!));
         Assert.Single(cave.GetAntHoles());
+        Assert.Empty(cave.GetEnemyList());
+
+        for (var tick = 0; tick < GameConstants.AntHoleSpawnDelayTicks; tick++)
+        {
+            cave.TickSurfaceFeatures();
+        }
+
+        Assert.Empty(cave.GetAntHoles());
         Assert.Single(cave.GetEnemyList());
     }
 

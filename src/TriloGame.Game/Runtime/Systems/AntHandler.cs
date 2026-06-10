@@ -12,6 +12,7 @@ public sealed class AntHandler
     private readonly Dictionary<int, HashSet<Enemy>> _spawnedAntsByRound = [];
     private readonly Dictionary<int, int> _remainingKillsByRound = [];
     private readonly HashSet<int> _killTargetsArmedRounds = [];
+    private readonly HashSet<GameSession> _observedSessions = [];
     private int _activeRoundNumber = -1;
     private double _lastObservedRoundElapsedGameTimeMs;
 
@@ -22,6 +23,12 @@ public sealed class AntHandler
 
     public void Reset()
     {
+        foreach (var session in _observedSessions)
+        {
+            session.AntHoleSpawnResolved -= HandleAntHoleSpawnResolved;
+        }
+
+        _observedSessions.Clear();
         _scheduledSpawns.Clear();
         _spawnedAntsByRound.Clear();
         _remainingKillsByRound.Clear();
@@ -89,6 +96,7 @@ public sealed class AntHandler
             return false;
         }
 
+        ObserveSession(session);
         EnsureRoundKillTargetState(round);
         PruneDefeatedRoundAnts(session, round.RoundNumber);
         return GetRemainingKills(round.RoundNumber) == 0;
@@ -99,6 +107,7 @@ public sealed class AntHandler
         ArgumentNullException.ThrowIfNull(session);
 
         EnsureRoundKillTargetState(round);
+        ObserveSession(session);
         PruneDefeatedRoundAnts(session, round.RoundNumber);
 
         if (session.Runtime.DisableEnemySpawns)
@@ -122,7 +131,8 @@ public sealed class AntHandler
 
         var constraints = new AntSpawnConstraints(
             GameConstants.RoundAntHoleMinDistanceFromQueen,
-            GameConstants.RoundAntHoleMaxDistanceFromQueen);
+            GameConstants.RoundAntHoleMaxDistanceFromQueen,
+            round.RoundNumber);
 
         for (var index = 0; index < _scheduledSpawns.Count; index++)
         {
@@ -144,6 +154,7 @@ public sealed class AntHandler
                 if (!result.Success)
                 {
                     Trace.WriteLine($"[AntHandler][Tick {session.TickCount}] Failed spawn attempt for round {round.RoundNumber} ant {antOrdinal}/{round.AntsToSpawn}: {result.Message}");
+                    ResolveUnspawnedAnt(round.RoundNumber);
                     continue;
                 }
 
@@ -172,6 +183,7 @@ public sealed class AntHandler
     {
         ArgumentNullException.ThrowIfNull(session);
 
+        ObserveSession(session);
         EnsureRoundKillTargetState(round);
         PruneDefeatedRoundAnts(session, round.RoundNumber);
         return GetRemainingKills(round.RoundNumber);
@@ -222,6 +234,42 @@ public sealed class AntHandler
 
         _remainingKillsByRound.TryGetValue(roundNumber, out var remainingKills);
         _remainingKillsByRound[roundNumber] = Math.Max(0, remainingKills - defeatedCount);
+    }
+
+    private void ObserveSession(GameSession session)
+    {
+        if (_observedSessions.Add(session))
+        {
+            session.AntHoleSpawnResolved += HandleAntHoleSpawnResolved;
+        }
+    }
+
+    private void HandleAntHoleSpawnResolved(Enemy? enemy, int? spawnSourceId)
+    {
+        if (spawnSourceId is not { } roundNumber)
+        {
+            return;
+        }
+
+        if (!_remainingKillsByRound.ContainsKey(roundNumber))
+        {
+            return;
+        }
+
+        if (enemy is null)
+        {
+            ResolveUnspawnedAnt(roundNumber);
+            return;
+        }
+
+        _spawnedAntsByRound.TryAdd(roundNumber, []);
+        _spawnedAntsByRound[roundNumber].Add(enemy);
+    }
+
+    private void ResolveUnspawnedAnt(int roundNumber)
+    {
+        _remainingKillsByRound.TryGetValue(roundNumber, out var remainingKills);
+        _remainingKillsByRound[roundNumber] = Math.Max(0, remainingKills - 1);
     }
 
     private static IReadOnlyList<int> BuildSpawnBatchSizes(int roundNumber, int antsToSpawn)
