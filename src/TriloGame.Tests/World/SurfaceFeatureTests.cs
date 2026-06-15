@@ -42,6 +42,7 @@ public sealed class SurfaceFeatureTests
         Assert.True(cave.SpawnAntHole(holeTile, 1));
         var hole = cave.GetAntHoles().Single();
         Assert.Equal(GameConstants.AntHoleSpawnDelayTicks, hole.RemainingSpawnDelayTicks);
+        Assert.Equal(0f, hole.SpawnProgress);
         Assert.Empty(cave.GetEnemyList());
 
         for (var tick = 0; tick < GameConstants.AntHoleSpawnDelayTicks - 1; tick++)
@@ -50,6 +51,7 @@ public sealed class SurfaceFeatureTests
         }
 
         Assert.Single(cave.GetAntHoles());
+        Assert.Equal(1f, hole.SpawnProgress);
         Assert.Empty(cave.GetEnemyList());
 
         cave.TickSurfaceFeatures();

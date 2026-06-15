@@ -133,10 +133,12 @@ public sealed class WorldSceneRenderer
                 continue;
             }
 
+            var alpha = SmoothStep(antHole.SpawnProgress);
             DrawWorldTextureNative(
                 context,
                 "AntHole",
-                new FrameworkVector2(tile.Coordinates.X * TileConstants.TileSize, tile.Coordinates.Y * TileConstants.TileSize));
+                new FrameworkVector2(tile.Coordinates.X * TileConstants.TileSize, tile.Coordinates.Y * TileConstants.TileSize),
+                color: Color.White * alpha);
         }
     }
 
@@ -264,6 +266,12 @@ public sealed class WorldSceneRenderer
         var hash = (coordinates.X * 73856093) ^ (coordinates.Y * 19349663);
         hash &= 0x7fffffff;
         return (hash % 1000) / 1000f;
+    }
+
+    private static float SmoothStep(float progress)
+    {
+        var clamped = Math.Clamp(progress, 0f, 1f);
+        return clamped * clamped * (3f - (2f * clamped));
     }
 
     internal static float GetTileOverlayRotationRadians(Tile tile)

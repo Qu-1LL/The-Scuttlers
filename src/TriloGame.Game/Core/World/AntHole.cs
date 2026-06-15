@@ -10,13 +10,16 @@ public sealed class AntHole
     {
         TileKey = tileKey;
         PendingAntCount = Math.Max(0, pendingAntCount);
-        RemainingSpawnDelayTicks = Math.Max(0, spawnDelayTicks);
+        SpawnDelayTicks = Math.Max(1, spawnDelayTicks);
+        RemainingSpawnDelayTicks = SpawnDelayTicks;
         SpawnSourceId = spawnSourceId;
     }
 
     public string TileKey { get; }
 
     public int PendingAntCount { get; }
+
+    public int SpawnDelayTicks { get; }
 
     public int RemainingSpawnDelayTicks { get; private set; }
 
@@ -29,6 +32,20 @@ public sealed class AntHole
     public bool IsReadyToSpawn => RemainingSpawnDelayTicks <= 0;
 
     public bool IsCleared => PendingAntCount <= 0 && _ants.Count == 0;
+
+    public float SpawnProgress
+    {
+        get
+        {
+            if (SpawnDelayTicks <= 1)
+            {
+                return 1f;
+            }
+
+            var elapsedTicks = SpawnDelayTicks - RemainingSpawnDelayTicks;
+            return Math.Clamp(elapsedTicks / (float)(SpawnDelayTicks - 1), 0f, 1f);
+        }
+    }
 
     public void Tick()
     {
