@@ -249,6 +249,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.68f, 1f, 2.1f));
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
         RegisterTexture(sprites, "Enemy", "Textures/Enemy");
+        RegisterTexture(sprites, "CombatIndicator", "Textures/combatIndicator");
         RegisterTexture(sprites, "AntHole", "Textures/AntHole");
         RegisterTexture(sprites, "CaveCrystal", "Textures/CaveCrystalClean");
         RegisterTexture(sprites, "Scaffold", "Textures/Scaffold");

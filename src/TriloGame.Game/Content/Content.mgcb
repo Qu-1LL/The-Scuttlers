@@ -108,6 +108,11 @@
 /processor:TextureProcessor
 /build:Textures/Chitinstone.png
 
+#begin Textures/combatIndicator.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/combatIndicator.png
+
 #begin Textures/CaveCrystalClean.png
 /importer:TextureImporter
 /processor:TextureProcessor

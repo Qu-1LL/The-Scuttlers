@@ -90,7 +90,6 @@ public sealed partial class Cave
 
         var antHole = new AntHole(holeTile.Key, clampedCount, GameConstants.AntHoleSpawnDelayTicks, spawnSourceId);
         _antHolesByTileKey[holeTile.Key] = antHole;
-        Session.RequestAudioCue(GameAudioCue.AntHoleSpawn);
         return true;
     }
 
@@ -206,6 +205,11 @@ public sealed partial class Cave
             spawnedCount++;
             resolvedCount++;
             Session.ReportAntHoleSpawnResolved(ant, antHole.SpawnSourceId);
+        }
+
+        if (spawnedCount > 0)
+        {
+            Session.RequestAudioCue(GameAudioCue.AntHoleSpawn);
         }
 
         for (var index = resolvedCount; index < antHole.PendingAntCount; index++)

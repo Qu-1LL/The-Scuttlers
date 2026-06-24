@@ -72,6 +72,7 @@ public sealed class WorldSceneRenderer
         DrawDroppedResources(context, cave);
         DrawBuildings(context, cave);
         DrawCreatures(context, cave);
+        DrawCombatIndicators(context, cave);
         DrawProjectiles(context, session);
     }
 
@@ -217,6 +218,59 @@ public sealed class WorldSceneRenderer
                 GetCreatureWorldPosition(enemy),
                 enemy.RotationRadians);
         }
+    }
+
+    private static void DrawCombatIndicators(RenderingContext context, Cave cave)
+    {
+        foreach (var trilobite in cave.Trilobites)
+        {
+            var trilobiteTile = cave.GetTile(trilobite.Location);
+            if (trilobiteTile is null || !cave.IsTileRevealed(trilobiteTile))
+            {
+                continue;
+            }
+
+            foreach (var neighbor in trilobiteTile.Neighbors)
+            {
+                var enemy = neighbor.EnemyOccupant;
+                if (enemy is null ||
+                    !cave.IsTileRevealed(neighbor) ||
+                    !IsMeleeCombatPair(cave, trilobite, enemy))
+                {
+                    continue;
+                }
+
+                DrawWorldTextureNative(
+                    context,
+                    "CombatIndicator",
+                    CalculateCombatIndicatorWorldPosition(trilobite, enemy));
+            }
+        }
+    }
+
+    internal static bool IsMeleeCombatPair(Cave cave, Trilobite trilobite, Enemy enemy)
+    {
+        if (trilobite.Health <= 0 ||
+            enemy.Health <= 0 ||
+            !ReferenceEquals(trilobite.Cave, cave) ||
+            !ReferenceEquals(enemy.Cave, cave) ||
+            GridPoint.ManhattanDistance(trilobite.Location, enemy.Location) != 1)
+        {
+            return false;
+        }
+
+        if (string.Equals(trilobite.FighterTargetTileKey, enemy.Location.ToString(), StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return string.Equals(enemy.EnemyTargetTileKey, trilobite.Location.ToString(), StringComparison.Ordinal) &&
+               ReferenceEquals(cave.GetTrilobiteAtTileKey(enemy.EnemyTargetTileKey), trilobite);
+    }
+
+    internal static FrameworkVector2 CalculateCombatIndicatorWorldPosition(Trilobite trilobite, Enemy enemy)
+    {
+        return (GetCreatureWorldPosition(trilobite) + GetCreatureWorldPosition(enemy)) * 0.5f;
     }
 
     private static void DrawProjectiles(RenderingContext context, GameSession session)

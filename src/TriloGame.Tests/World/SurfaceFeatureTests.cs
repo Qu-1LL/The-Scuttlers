@@ -1,3 +1,4 @@
+using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
@@ -29,7 +30,9 @@ public sealed class SurfaceFeatureTests
     [Fact]
     public void SpawnAntHole_WaitsForDelayThenSpawnsAntAndRemovesHole()
     {
-        var (_, cave, queen) = TestWorldFactory.CreateSessionWithQueen();
+        var (session, cave, queen) = TestWorldFactory.CreateSessionWithQueen();
+        var requestedCues = new List<GameAudioCue>();
+        session.AudioCueRequested += requestedCues.Add;
         cave.RevealCave();
         var holeTile = cave.GetTiles()
             .First(tile =>
@@ -44,6 +47,7 @@ public sealed class SurfaceFeatureTests
         Assert.Equal(GameConstants.AntHoleSpawnDelayTicks, hole.RemainingSpawnDelayTicks);
         Assert.Equal(0f, hole.SpawnProgress);
         Assert.Empty(cave.GetEnemyList());
+        Assert.DoesNotContain(GameAudioCue.AntHoleSpawn, requestedCues);
 
         for (var tick = 0; tick < GameConstants.AntHoleSpawnDelayTicks - 1; tick++)
         {
@@ -53,11 +57,13 @@ public sealed class SurfaceFeatureTests
         Assert.Single(cave.GetAntHoles());
         Assert.Equal(1f, hole.SpawnProgress);
         Assert.Empty(cave.GetEnemyList());
+        Assert.DoesNotContain(GameAudioCue.AntHoleSpawn, requestedCues);
 
         cave.TickSurfaceFeatures();
 
         Assert.Empty(cave.GetAntHoles());
         Assert.Single(cave.GetEnemyList());
+        Assert.Equal([GameAudioCue.AntHoleSpawn], requestedCues);
     }
 
     [Fact]
@@ -140,7 +146,9 @@ public sealed class SurfaceFeatureTests
     [Fact]
     public void TickSurfaceFeatures_WhenReleaseTileBecomesBlocked_RemovesHoleWithoutSpawningAnt()
     {
-        var (_, cave, queen) = TestWorldFactory.CreateSessionWithQueen();
+        var (session, cave, queen) = TestWorldFactory.CreateSessionWithQueen();
+        var requestedCues = new List<GameAudioCue>();
+        session.AudioCueRequested += requestedCues.Add;
         cave.RevealCave();
         var holeTile = cave.GetTiles()
             .First(tile =>
@@ -177,5 +185,6 @@ public sealed class SurfaceFeatureTests
 
         Assert.Empty(cave.GetAntHoles());
         Assert.Empty(cave.GetEnemyList());
+        Assert.DoesNotContain(GameAudioCue.AntHoleSpawn, requestedCues);
     }
 }

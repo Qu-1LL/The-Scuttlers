@@ -1,6 +1,8 @@
 using Microsoft.Xna.Framework;
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.Shared.Math;
@@ -68,5 +70,68 @@ public sealed class WorldSceneRendererTests
 
         tile.ClearResourceState();
         Assert.Equal(0f, WorldSceneRenderer.GetTileOverlayRotationRadians(tile));
+    }
+
+    [Fact]
+    public void IsMeleeCombatPair_ReturnsTrueWhenFighterTargetsAdjacentEnemy()
+    {
+        var (session, cave) = TestWorldFactory.CreateRectangularSession(2, 1);
+        var trilobite = SpawnTrilobite(cave, session, new GridPoint(0, 0), "fighter");
+        var enemy = SpawnEnemy(cave, session, new GridPoint(1, 0));
+        trilobite.SetFighterTargetTileKey(enemy.Location.ToString());
+
+        Assert.True(WorldSceneRenderer.IsMeleeCombatPair(cave, trilobite, enemy));
+    }
+
+    [Fact]
+    public void IsMeleeCombatPair_ReturnsTrueWhenEnemyTargetsAdjacentWorker()
+    {
+        var (session, cave) = TestWorldFactory.CreateRectangularSession(2, 1);
+        var trilobite = SpawnTrilobite(cave, session, new GridPoint(0, 0), "miner");
+        var enemy = SpawnEnemy(cave, session, new GridPoint(1, 0));
+
+        Assert.True(enemy.EnemyStep1());
+        Assert.True(WorldSceneRenderer.IsMeleeCombatPair(cave, trilobite, enemy));
+    }
+
+    [Fact]
+    public void IsMeleeCombatPair_ReturnsFalseForUntargetedAdjacentEntities()
+    {
+        var (session, cave) = TestWorldFactory.CreateRectangularSession(2, 1);
+        var trilobite = SpawnTrilobite(cave, session, new GridPoint(0, 0), "miner");
+        var enemy = SpawnEnemy(cave, session, new GridPoint(1, 0));
+
+        Assert.False(WorldSceneRenderer.IsMeleeCombatPair(cave, trilobite, enemy));
+    }
+
+    [Fact]
+    public void CalculateCombatIndicatorWorldPosition_ReturnsEntityMidpoint()
+    {
+        var (session, cave) = TestWorldFactory.CreateRectangularSession(2, 1);
+        var trilobite = SpawnTrilobite(cave, session, new GridPoint(0, 0), "fighter");
+        var enemy = SpawnEnemy(cave, session, new GridPoint(1, 0));
+
+        var position = WorldSceneRenderer.CalculateCombatIndicatorWorldPosition(trilobite, enemy);
+
+        Assert.Equal(TileConstants.TileHalfSize, position.X);
+        Assert.Equal(0f, position.Y);
+    }
+
+    private static Trilobite SpawnTrilobite(Cave cave, GameSession session, GridPoint location, string assignment)
+    {
+        cave.ReachableTiles.Add(cave.GetTile(location)!);
+        var trilobite = new Trilobite("Test Trilobite", location, session)
+        {
+            Assignment = assignment
+        };
+        Assert.True(cave.Spawn(trilobite, cave.GetTile(location)!));
+        return trilobite;
+    }
+
+    private static Enemy SpawnEnemy(Cave cave, GameSession session, GridPoint location)
+    {
+        var enemy = new Enemy("Test Enemy", location, session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(location)!));
+        return enemy;
     }
 }
