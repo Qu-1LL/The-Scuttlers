@@ -78,6 +78,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private object? _selectedObject;
     private string? _activeBfsDebugField;
     private bool _debugMenuOpen;
+    private bool _mainMenuWorldGenerationDropdownOpen;
     private bool _settingsMenuOpen;
     private bool _resumeSimulationAfterClosingSettings;
     private bool _resumeSimulationAfterClosingResearchDraft;
@@ -89,6 +90,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _selectionDragActive;
     private bool _buildPlacementDragActive;
     private double _uiClockMs;
+    private WorldGenerationMethod _worldGenerationMethod = WorldGenerationMethod.Version0;
     private AppScreen _appScreen = AppScreen.MainMenu;
     private ScreenUiPass _screenUiPass = ScreenUiPass.Foreground;
     private Scaffolding? _floatingBuilding;
@@ -173,6 +175,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"GameOver: {_isGameOver}");
         builder.AppendLine($"MainMenuOpen: {_mainMenuOpen}");
         builder.AppendLine($"DebugMenuOpen: {_debugMenuOpen}");
+        builder.AppendLine($"WorldGenerationMethod: {WorldGenerationMethods.GetDisplayName(_worldGenerationMethod)}");
         builder.AppendLine($"SettingsMenuOpen: {_settingsMenuOpen}");
         builder.AppendLine($"ResearchDraftOpen: {_researchDraft.IsOpen}");
         builder.AppendLine($"BuildMode: {BuildMode}");
@@ -210,6 +213,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         builder.AppendLine($"MenuPanelOpen: {_menu.PanelOpen}");
         builder.AppendLine($"MenuActiveTab: {_menu.ActiveTab}");
         builder.AppendLine($"MenuAssignmentFilter: {_menu.AssignmentFilter}");
+        builder.AppendLine($"MainMenuWorldGenerationDropdownOpen: {_mainMenuWorldGenerationDropdownOpen}");
         builder.AppendLine($"PendingResearchBranches: {_researchDraftSystem.PendingDraft?.Branches.Count ?? 0}");
         builder.AppendLine($"SelectedObject: {DescribeSelectedObject()}");
         builder.AppendLine($"SelectedTrilobites: {FormatSelectedTrilobites()}");
@@ -641,6 +645,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             DrawMainMenuOverlayBackground();
             DrawMainMenuOverlayForeground();
+            if (_debugMenuOpen)
+            {
+                DrawMainMenuDebugOverlay();
+            }
             DrawSettingsMenu();
         }
         else if (_isGameOver)
@@ -749,7 +757,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     {
         _appScreen = AppScreen.Gameplay;
         var allowManualMining = _session.Runtime.AllowManualMining;
-        var bootstrap = _bootstrapper.CreateNewGame();
+        var bootstrap = _bootstrapper.CreateNewGame(_worldGenerationMethod);
         _session = bootstrap.Session;
         _session.Runtime.DisableEnemySpawns = false;
         _session.Runtime.AllowManualMining = allowManualMining;
@@ -776,6 +784,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ClearMiningTileSelection();
         _mainMenuOpen = false;
         _debugMenuOpen = false;
+        _mainMenuWorldGenerationDropdownOpen = false;
         _settingsMenuOpen = false;
         _showRoleLabels = false;
         _showFullMapVisibility = false;
@@ -809,6 +818,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _isGameOver = false;
         _mainMenuOpen = true;
         _debugMenuOpen = false;
+        _mainMenuWorldGenerationDropdownOpen = false;
         _showFullMapVisibility = false;
         _researchDraftSystem.Reset();
         _researchDraft.Reset();
@@ -839,6 +849,18 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     private void HandleMainMenuInput()
     {
+        if (_input.KeyPressed(Keys.OemTilde))
+        {
+            ToggleDebugMenu();
+            return;
+        }
+
+        if (_debugMenuOpen)
+        {
+            HandleMainMenuDebugMenuInput();
+            return;
+        }
+
         if (_settingsMenuOpen && _input.KeyPressed(Keys.Escape))
         {
             PlayUiSelectSound();
@@ -877,6 +899,51 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             PlayUiSelectSound();
             Exit();
         }
+    }
+
+    // Route main-menu debug clicks through the same panel-first flow as the in-session debug overlay.
+    private void HandleMainMenuDebugMenuInput()
+    {
+        if (_input.KeyPressed(Keys.Escape))
+        {
+            _debugMenuOpen = false;
+            _mainMenuWorldGenerationDropdownOpen = false;
+            return;
+        }
+
+        if (!_input.LeftReleased)
+        {
+            return;
+        }
+
+        var layout = MainMenuDebugLayout.Build(
+            Window.ClientBounds.Size,
+            WorldGenerationMethods.All.Length,
+            _mainMenuWorldGenerationDropdownOpen);
+        if (layout.DropdownBounds.Contains(_input.MousePoint))
+        {
+            PlayUiSelectSound();
+            _mainMenuWorldGenerationDropdownOpen = !_mainMenuWorldGenerationDropdownOpen;
+            return;
+        }
+
+        if (_mainMenuWorldGenerationDropdownOpen && layout.DropdownOptionsBounds is { } optionBounds)
+        {
+            foreach (var option in BuildMainMenuWorldGenerationOptions(optionBounds, layout.RowGap))
+            {
+                if (!option.Bounds.Contains(_input.MousePoint))
+                {
+                    continue;
+                }
+
+                PlayUiSelectSound();
+                _worldGenerationMethod = option.Method;
+                _mainMenuWorldGenerationDropdownOpen = false;
+                return;
+            }
+        }
+
+        _mainMenuWorldGenerationDropdownOpen = false;
     }
 
     private void SetSelectedObject(object? selectedObject)
@@ -1009,6 +1076,7 @@ public sealed partial class GameApp
     {
         ClearPendingManualMove();
         _debugMenuOpen = !_debugMenuOpen;
+        _mainMenuWorldGenerationDropdownOpen = false;
         if (_debugMenuOpen)
         {
             CloseSettingsMenu();
@@ -2619,6 +2687,66 @@ public sealed partial class GameApp
         DrawScreenTextFittedCentered("Trilodeck coming soon!", comingSoonBounds, new Color(171, 198, 208), _rendering.SmallFont, minScale: 0.72f);
     }
 
+    private void DrawMainMenuDebugOverlay()
+    {
+        var viewport = Window.ClientBounds.Size;
+        var layout = MainMenuDebugLayout.Build(
+            viewport,
+            WorldGenerationMethods.All.Length,
+            _mainMenuWorldGenerationDropdownOpen);
+        var pointer = _input.MousePoint;
+
+        _gumUiRenderer.AddFilledRectangle(new Rectangle(0, 0, viewport.X, viewport.Y), new Color(5, 10, 16) * 0.4f);
+        _gumUiRenderer.AddFilledRectangle(layout.PanelBounds, new Color(13, 24, 34) * 0.96f);
+        DrawScreenBorder(layout.PanelBounds, new Color(187, 163, 114), 2);
+
+        DrawScreenTextFittedCentered("Debug", layout.HeaderBounds, Color.White, _rendering.UiFont, minScale: 0.72f);
+        DrawDebugInfoCard(
+            layout.SummaryBounds,
+            "Startup Options",
+            ["These settings apply to the next colony you start from the main menu."],
+            _rendering.SmallFont,
+            new Color(220, 228, 235),
+            new Color(10, 19, 28),
+            new Color(83, 121, 139));
+        DrawDebugSectionLabel(layout.WorldGenerationLabelBounds, "World Generation Method");
+
+        var dropdownLabel = WorldGenerationMethods.GetDisplayName(_worldGenerationMethod);
+        var dropdownHovered = layout.DropdownBounds.Contains(pointer);
+        DrawDebugButton(layout.DropdownBounds, dropdownLabel, dropdownHovered, true, _mainMenuWorldGenerationDropdownOpen);
+        var dropdownArrowBounds = new Rectangle(
+            layout.DropdownBounds.Right - 40,
+            layout.DropdownBounds.Y,
+            32,
+            layout.DropdownBounds.Height);
+        DrawScreenTextFittedCentered(
+            _mainMenuWorldGenerationDropdownOpen ? "^" : "v",
+            dropdownArrowBounds,
+            _mainMenuWorldGenerationDropdownOpen ? new Color(10, 23, 34) : Color.White,
+            _rendering.SmallFont,
+            minScale: 0.72f);
+
+        if (_mainMenuWorldGenerationDropdownOpen && layout.DropdownOptionsBounds is { } optionBounds)
+        {
+            foreach (var option in BuildMainMenuWorldGenerationOptions(optionBounds, layout.RowGap))
+            {
+                DrawDebugButton(
+                    option.Bounds,
+                    option.Label,
+                    option.Bounds.Contains(pointer),
+                    true,
+                    option.Selected);
+            }
+        }
+
+        DrawWrappedScreenText(
+            ["` closes this panel."],
+            layout.FooterBounds,
+            new Color(141, 183, 199),
+            _rendering.SmallFont,
+            lineGap: 1);
+    }
+
     private void DrawDebugMenuOverlay()
     {
         var viewport = Window.ClientBounds.Size;
@@ -2673,17 +2801,22 @@ public sealed partial class GameApp
 
     private void DrawDebugMenuButton(DebugMenuButton button, bool hovered)
     {
+        DrawDebugButton(button.Bounds, button.Label, hovered, button.Enabled, button.Selected);
+    }
+
+    private void DrawDebugButton(Rectangle bounds, string label, bool hovered, bool enabled, bool selected)
+    {
         var fill = new Color(36, 50, 64);
         var border = new Color(96, 120, 138);
         var textColor = Color.White;
 
-        if (!button.Enabled)
+        if (!enabled)
         {
             fill = new Color(26, 34, 42);
             border = new Color(60, 70, 80);
             textColor = new Color(128, 139, 148);
         }
-        else if (button.Selected)
+        else if (selected)
         {
             fill = hovered ? new Color(194, 171, 122) : new Color(170, 148, 102);
             border = hovered ? new Color(255, 232, 184) : new Color(235, 210, 158);
@@ -2695,11 +2828,11 @@ public sealed partial class GameApp
             border = new Color(210, 187, 136);
         }
 
-        _gumUiRenderer.AddFilledRectangle(button.Bounds, fill);
-        DrawScreenBorder(button.Bounds, border, 2);
+        _gumUiRenderer.AddFilledRectangle(bounds, fill);
+        DrawScreenBorder(bounds, border, 2);
 
-        var textBounds = new Rectangle(button.Bounds.X + 8, button.Bounds.Y + 4, Math.Max(0, button.Bounds.Width - 16), Math.Max(0, button.Bounds.Height - 8));
-        DrawScreenTextFittedCentered(button.Label, textBounds, textColor, _rendering.SmallFont, minScale: 0.64f);
+        var textBounds = new Rectangle(bounds.X + 8, bounds.Y + 4, Math.Max(0, bounds.Width - 16), Math.Max(0, bounds.Height - 8));
+        DrawScreenTextFittedCentered(label, textBounds, textColor, _rendering.SmallFont, minScale: 0.64f);
     }
 
     private void DrawDebugSectionLabel(Rectangle bounds, string label)
@@ -3212,6 +3345,23 @@ public sealed partial class GameApp
     private Rectangle GetDebugMenuBounds(Point viewport)
     {
         return DebugMenuLayout.Build(viewport).PanelBounds;
+    }
+
+    private IReadOnlyList<MainMenuWorldGenerationOptionButton> BuildMainMenuWorldGenerationOptions(Rectangle optionBounds, int gap)
+    {
+        var bounds = MainMenuDebugLayout.StackRows(optionBounds, WorldGenerationMethods.All.Length, gap);
+        var options = new MainMenuWorldGenerationOptionButton[bounds.Count];
+        for (var index = 0; index < bounds.Count; index++)
+        {
+            var method = WorldGenerationMethods.All[index];
+            options[index] = new MainMenuWorldGenerationOptionButton(
+                method,
+                WorldGenerationMethods.GetDisplayName(method),
+                bounds[index],
+                method == _worldGenerationMethod);
+        }
+
+        return options;
     }
 
     private IReadOnlyList<DebugMenuButton> BuildDebugMenuButtons(Point viewport)
@@ -4273,6 +4423,12 @@ public sealed partial class GameApp
         string Label,
         Rectangle Bounds,
         bool Enabled,
+        bool Selected);
+
+    private readonly record struct MainMenuWorldGenerationOptionButton(
+        WorldGenerationMethod Method,
+        string Label,
+        Rectangle Bounds,
         bool Selected);
 
     private readonly record struct RoleRadialButton(

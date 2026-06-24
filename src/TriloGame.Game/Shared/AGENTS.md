@@ -22,6 +22,8 @@ Put code in `Shared` when it is:
   systems and debug surfaces without putting stopwatch logic back into `Core`.
 - `State/GameSessionRuntimeState.cs` groups runtime/debug state that simulation can read without
   scattering host-only toggles directly across `GameSession`.
+- `Utilities/XorShift64.cs` is the preferred shared deterministic PRNG when `Core`, `Runtime`, or
+  generation code needs explicit seed/state ownership instead of the ambient shared `Random`.
 - If a change adds structured runtime data, prefer typed models over stringly-typed commands.
 - Keep reusable shared data host-agnostic when `Core` also needs to consume it.
 
