@@ -42,6 +42,7 @@ public sealed class ResearchBranchGeneratorTests
         Assert.Equal(3, result.Branches.Count);
         foreach (var branch in result.Branches)
         {
+            Assert.False(string.IsNullOrWhiteSpace(branch.Name));
             Assert.Equal(4, branch.Count);
             Assert.NotNull(branch.Root);
             Assert.Equal(branch.Count, branch.Nodes.Select(node => (node.SourceFeatureTreeName, node.Name)).Distinct().Count());

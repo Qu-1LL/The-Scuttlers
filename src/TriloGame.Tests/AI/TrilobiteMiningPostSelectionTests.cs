@@ -22,7 +22,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         var supplyOption = builder.GetBuilderSupplyOptionForScaffold(scaffold);
 
         Assert.NotNull(supplyOption);
-        Assert.Same(leftPost, supplyOption.Value.Post);
+        Assert.Same(leftPost, supplyOption.Value.SourceBuilding);
         Assert.Equal("Sandstone", supplyOption.Value.ResourceType);
         Assert.Equal(builder.InventoryCapacity, supplyOption.Value.Amount);
 
@@ -138,7 +138,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         var supplyOption = builder.GetBuilderSupplyOptionForScaffold(scaffold);
 
         Assert.NotNull(supplyOption);
-        Assert.Same(validPost, supplyOption.Value.Post);
+        Assert.Same(validPost, supplyOption.Value.SourceBuilding);
 
         var metrics = builder.LastMiningPostSelectionMetrics;
         Assert.NotNull(metrics);

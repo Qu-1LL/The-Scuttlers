@@ -11,9 +11,13 @@ public sealed class FeatureTree
         int tier,
         IEnumerable<string>? prerequisiteTrees = null,
         SkillNode? root = null,
-        FeatureTreeColor? displayColor = null)
+        FeatureTreeColor? displayColor = null,
+        string? displayName = null,
+        string? branchName = null)
     {
         Name = RequireText(name, nameof(name));
+        DisplayName = string.IsNullOrWhiteSpace(displayName) ? Name : displayName.Trim();
+        BranchName = string.IsNullOrWhiteSpace(branchName) ? DisplayName : branchName.Trim();
         Description = RequireText(description, nameof(description));
         FeaturesAffected = NormalizeFeatures(featuresAffected);
         Tier = tier >= 1
@@ -29,6 +33,10 @@ public sealed class FeatureTree
     }
 
     public string Name { get; }
+
+    public string DisplayName { get; }
+
+    public string BranchName { get; }
 
     public string Description { get; }
 

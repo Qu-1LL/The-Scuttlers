@@ -4,11 +4,28 @@ namespace TriloGame.Game.Core.Progression;
 // copies before it is grafted into the run's persistent skill tree.
 public sealed class ResearchBranch
 {
+    public ResearchBranch(string? name = null)
+    {
+        Name = string.IsNullOrWhiteSpace(name) ? "Unnamed Branch" : name.Trim();
+    }
+
+    public string Name { get; private set; }
+
     public TreeInstanceNode? Root { get; private set; }
 
     public IReadOnlyList<TreeInstanceNode> Nodes => Root is null ? [] : Root.TraverseDepthFirst().ToArray();
 
     public int Count => Root is null ? 0 : Root.TraverseDepthFirst().Count();
+
+    public void Rename(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Value cannot be null or whitespace.", nameof(name));
+        }
+
+        Name = name.Trim();
+    }
 
     public TreeInstanceNode SetRoot(TreeInstanceNode node)
     {

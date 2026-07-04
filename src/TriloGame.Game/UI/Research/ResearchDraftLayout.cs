@@ -6,8 +6,9 @@ namespace TriloGame.Game.UI.Research;
 public static class ResearchDraftLayout
 {
     public const int TreeCatalogCardColumns = 4;
-    private const int DraftCardTopPadding = 40;
-    private const int DraftCardBottomPadding = 14;
+    public const int TreeViewportRimThickness = 4;
+    private const int DraftCardTopPadding = 0;
+    private const int DraftCardBottomPadding = 8;
     private const int TreeCatalogCardGap = 14;
 
     public static Rectangle GetButtonBounds(Point viewport)
@@ -30,13 +31,13 @@ public static class ResearchDraftLayout
         var subtitleBounds = new Rectangle(panelBounds.X + 24, panelBounds.Y + 50, panelBounds.Width - 48, 22);
 
         var contentTop = panelBounds.Y + 86;
-        var contentBottom = panelBounds.Bottom - 50;
+        var contentBottom = panelBounds.Bottom - 36;
         var contentHeight = Math.Max(120, contentBottom - contentTop);
         var contentWidth = panelBounds.Width - 48;
         var infoPanelWidth = Math.Clamp((int)MathF.Round(contentWidth * 0.25f), 220, 286);
-        var contentGap = 18;
-        var leftContentWidth = Math.Max(360, contentWidth - infoPanelWidth - contentGap);
         var hasDraftArea = safeBranchCardCount > 0;
+        var contentGap = hasDraftArea ? 14 : 18;
+        var leftContentWidth = Math.Max(360, contentWidth - infoPanelWidth - contentGap);
         var preferredDraftAreaHeight = ResearchTreeCardRenderer.PreferredCardHeight + DraftCardTopPadding + DraftCardBottomPadding;
         var maxDraftAreaHeight = Math.Max(150, contentHeight - 180);
         var draftAreaHeight = hasDraftArea
@@ -48,9 +49,7 @@ public static class ResearchDraftLayout
         var draftAreaBounds = hasDraftArea
             ? new Rectangle(panelBounds.X + 24, contentTop, leftContentWidth, draftAreaHeight)
             : Rectangle.Empty;
-        var draftHeaderBounds = hasDraftArea
-            ? new Rectangle(draftAreaBounds.X + 16, draftAreaBounds.Y + 10, draftAreaBounds.Width - 32, 20)
-            : Rectangle.Empty;
+        var draftHeaderBounds = Rectangle.Empty;
         var treeTop = hasDraftArea ? draftAreaBounds.Bottom + contentGap : contentTop;
         var treeBounds = new Rectangle(
             panelBounds.X + 24,
@@ -58,7 +57,7 @@ public static class ResearchDraftLayout
             leftContentWidth,
             Math.Max(160, contentBottom - treeTop));
         var treeHeaderBounds = new Rectangle(treeBounds.X + 16, treeBounds.Y + 10, treeBounds.Width - 32, 20);
-        var treeViewportBounds = new Rectangle(treeBounds.X + 14, treeBounds.Y + 38, treeBounds.Width - 28, treeBounds.Height - 52);
+        var treeViewportBounds = BuildTreeViewportBounds(treeBounds);
         var infoPanelBounds = new Rectangle(treeBounds.Right + contentGap, contentTop, infoPanelWidth, contentHeight);
         var branchCards = BuildBranchCards(draftAreaBounds, safeBranchCardCount);
         var footerBounds = new Rectangle(panelBounds.X + 24, panelBounds.Bottom - 36, panelBounds.Width - 48, 18);
@@ -85,14 +84,14 @@ public static class ResearchDraftLayout
         var panelBounds = panelLayout.PanelBounds;
         var closeButtonBounds = panelLayout.CloseButtonBounds;
         var backButtonBounds = new Rectangle(panelBounds.X + 18, panelBounds.Y + 16, 44, 38);
-        var titleBounds = new Rectangle(panelBounds.X + 78, panelBounds.Y + 16, panelBounds.Width - 156, 34);
-        var subtitleBounds = new Rectangle(panelBounds.X + 78, panelBounds.Y + 52, panelBounds.Width - 156, 22);
+        var titleBounds = new Rectangle(panelBounds.X + 96, panelBounds.Y + 18, panelBounds.Width - 192, 128);
+        var subtitleBounds = Rectangle.Empty;
 
         var catalogFrameBounds = new Rectangle(
             panelBounds.X + 24,
-            panelBounds.Y + 88,
+            panelBounds.Y + 158,
             panelBounds.Width - 48,
-            panelBounds.Height - 138);
+            panelBounds.Height - 208);
         var catalogViewportBounds = new Rectangle(
             catalogFrameBounds.X + 14,
             catalogFrameBounds.Y + 14,
@@ -106,11 +105,7 @@ public static class ResearchDraftLayout
             catalogFrameBounds.Y,
             Math.Max(360, catalogFrameBounds.Width - detailInfoPanelWidth - detailGap),
             catalogFrameBounds.Height);
-        var detailTreeViewportBounds = new Rectangle(
-            detailTreeFrameBounds.X + 14,
-            detailTreeFrameBounds.Y + 14,
-            detailTreeFrameBounds.Width - 28,
-            detailTreeFrameBounds.Height - 28);
+        var detailTreeViewportBounds = BuildTreeViewportBounds(detailTreeFrameBounds);
         var detailInfoPanelBounds = new Rectangle(
             detailTreeFrameBounds.Right + detailGap,
             catalogFrameBounds.Y,
@@ -171,6 +166,15 @@ public static class ResearchDraftLayout
         }
 
         return cards;
+    }
+
+    private static Rectangle BuildTreeViewportBounds(Rectangle frameBounds)
+    {
+        return new Rectangle(
+            frameBounds.X + TreeViewportRimThickness,
+            frameBounds.Y + TreeViewportRimThickness,
+            Math.Max(0, frameBounds.Width - (TreeViewportRimThickness * 2)),
+            Math.Max(0, frameBounds.Height - (TreeViewportRimThickness * 2)));
     }
 
     private static IReadOnlyList<Rectangle> BuildTreeCatalogCards(Rectangle viewportBounds, int treeCount, float scroll, out float maxScroll)

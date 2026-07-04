@@ -256,6 +256,15 @@ public sealed partial class Cave : Graph
             case Scaffolding scaffolding:
                 _scaffolds.Add(scaffolding);
                 break;
+            case SoilPatch soilPatch:
+                _soilPatches.Add(soilPatch);
+                break;
+            case Garage garage:
+                _garages.Add(garage);
+                break;
+            case Silo silo:
+                _silos.Add(silo);
+                break;
         }
     }
 
@@ -295,6 +304,15 @@ public sealed partial class Cave : Graph
                 break;
             case Scaffolding scaffolding:
                 _scaffolds.Remove(scaffolding);
+                break;
+            case SoilPatch soilPatch:
+                _soilPatches.Remove(soilPatch);
+                break;
+            case Garage garage:
+                _garages.Remove(garage);
+                break;
+            case Silo silo:
+                _silos.Remove(silo);
                 break;
         }
     }
@@ -633,13 +651,35 @@ public sealed partial class Cave : Graph
         return true;
     }
 
-    public bool Build(Building building, GridPoint location)
+    public bool Build(Building building, GridPoint location, bool preserveReachability = false)
     {
-        if (!CanBuild(building, location))
+        if (!CanBuild(building, location, preserveReachability))
         {
             return false;
         }
 
+        AddBuildingUnchecked(building, location);
+        return true;
+    }
+
+    public bool ReplaceBuilding(Building existingBuilding, Building replacementBuilding, GridPoint location, object? source = null)
+    {
+        if (!EvaluateBuildReplacement(existingBuilding, replacementBuilding, location).CanBuild)
+        {
+            return false;
+        }
+
+        if (!RemoveBuilding(existingBuilding, source))
+        {
+            return false;
+        }
+
+        AddBuildingUnchecked(replacementBuilding, location);
+        return true;
+    }
+
+    private void AddBuildingUnchecked(Building building, GridPoint location)
+    {
         Buildings.Add(building);
         _buildingList.Add(building);
         building.Cave = this;
@@ -652,7 +692,12 @@ public sealed partial class Cave : Graph
         {
             for (var y = 0; y < building.Size.Y; y++)
             {
-                var tile = GetTile(new GridPoint(location.X + x, location.Y + y).ToString())!;
+                var tile = GetTile(new GridPoint(location.X + x, location.Y + y).ToString());
+                if (tile is null)
+                {
+                    continue;
+                }
+
                 building.TileArray.Add(tile);
                 if (building.OpenMap[y][x] > 1)
                 {
@@ -666,6 +711,7 @@ public sealed partial class Cave : Graph
 
         building.OnBuilt(this);
         RegisterBuilding(building);
+        OnSoilAndStorageBuildingBuilt(building);
         AdvanceTopologyVersion();
 
         var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
@@ -682,7 +728,6 @@ public sealed partial class Cave : Graph
         {
             RebuildWallBfsField();
         }
-        return true;
     }
 
     public bool RemoveBuilding(Building building, object? source = null)
@@ -712,7 +757,7 @@ public sealed partial class Cave : Graph
                 }
             }
 
-            if (creature is Trilobite trilobite && ReferenceEquals(trilobite.BuilderSourcePost, building))
+            if (creature is Trilobite trilobite && ReferenceEquals(trilobite.BuilderSourceBuilding, building))
             {
                 trilobite.ClearBuilderSourcePost();
                 creatureWasAffected = true;
@@ -752,6 +797,7 @@ public sealed partial class Cave : Graph
         }
 
         _buildingList.Remove(building);
+        OnSoilAndStorageBuildingRemoved(building);
         UnregisterBuilding(building);
 
         var dirtyKeys = new List<string>();
@@ -761,9 +807,8 @@ public sealed partial class Cave : Graph
             if (ReferenceEquals(tile.Built, building))
             {
                 tile.SetBuilt(null);
+                tile.CreatureCanFit = true;
             }
-
-            tile.CreatureCanFit = true;
         }
 
         building.CleanupBeforeRemoval(source);

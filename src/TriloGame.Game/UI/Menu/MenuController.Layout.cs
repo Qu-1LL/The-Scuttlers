@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.UI.Gum;
@@ -154,7 +155,53 @@ public sealed partial class MenuController
             Math.Min((int)MathF.Round(240f * buildingScale), selectedBounds.Width - 32),
             (int)MathF.Round(50f * selectedScale));
 
-        if (SelectedObject is MiningPost miningPost)
+        if (SelectedObject is Trilobite selectedTrilobite)
+        {
+            var selectedBodyTop = selectedDetailTop + (int)MathF.Round(14f * selectedScale);
+            var bodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(10f * selectedScale);
+            var bodyHeight = Math.Max(96, bodyBottom - selectedBodyTop);
+            var inventoryDescriptionGap = (int)MathF.Round(12f * selectedScale);
+            var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(86f * selectedScale));
+            var descriptionHeight = Math.Clamp(
+                (int)MathF.Round(78f * selectedScale),
+                48,
+                Math.Max(48, bodyHeight - minimumInventoryHeight - inventoryDescriptionGap));
+            var inventoryHeight = Math.Max(48, bodyHeight - descriptionHeight - inventoryDescriptionGap);
+
+            selectedInventoryFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                inventoryHeight);
+            selectedInventoryViewportBounds = new Rectangle(
+                selectedInventoryFrameBounds.Value.X + 10,
+                selectedInventoryFrameBounds.Value.Y + 38,
+                selectedInventoryFrameBounds.Value.Width - 20,
+                Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
+
+            var inventoryEntries = BuildInventoryEntries(selectedTrilobite);
+            selectedInventoryEntries = BuildInventoryLayout(
+                selectedInventoryViewportBounds.Value,
+                inventoryEntries,
+                selectedScale,
+                out selectedInventoryMaxScroll,
+                out selectedInventoryScrollbarTrackBounds,
+                out selectedInventoryScrollbarThumbBounds);
+            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+
+            var selectedDescriptionViewportBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedInventoryFrameBounds.Value.Bottom + inventoryDescriptionGap,
+                selectedBounds.Width - 32,
+                Math.Max(48, deleteSelectedBounds.Y - selectedInventoryFrameBounds.Value.Bottom - inventoryDescriptionGap));
+            selectedDescriptionLayout = GumScrollableText.Build(
+                selectedDescriptionViewportBounds,
+                "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+                GumTextStyle.Small,
+                SelectedDescriptionScroll);
+            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+        }
+        else if (SelectedObject is IResourceStorage storage)
         {
             var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(96f * selectedScale));
             var selectedBodyTop = Math.Min(
@@ -170,7 +217,7 @@ public sealed partial class MenuController
                 selectedInventoryFrameBounds.Value.Y + 38,
                 selectedInventoryFrameBounds.Value.Width - 20,
                 Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
-            var inventoryEntries = BuildInventoryEntries(miningPost);
+            var inventoryEntries = BuildInventoryEntries(storage);
             selectedInventoryEntries = BuildInventoryLayout(
                 selectedInventoryViewportBounds.Value,
                 inventoryEntries,
@@ -442,20 +489,35 @@ public sealed partial class MenuController
         return rows;
     }
 
-    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(MiningPost miningPost)
+    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IResourceStorage storage)
     {
         var result = new List<InventoryEntryData>();
-        foreach (var pair in miningPost.GetInventory())
+        foreach (var pair in storage.GetStoredResources())
         {
             if (pair.Value <= 0)
             {
                 continue;
             }
 
-            result.Add(new InventoryEntryData(pair.Key, pair.Value, GetInventoryTextureKey(pair.Key)));
+            result.Add(new InventoryEntryData(pair.Key, pair.Value, ItemCatalog.GetTextureKey(pair.Key)));
         }
 
         return result;
+    }
+
+    private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IInventoryCarrier carrier)
+    {
+        if (!carrier.HasInventory() ||
+            string.IsNullOrWhiteSpace(carrier.Inventory.Type) ||
+            carrier.Inventory.Amount <= 0)
+        {
+            return [];
+        }
+
+        return [new InventoryEntryData(
+            carrier.Inventory.Type,
+            carrier.Inventory.Amount,
+            ItemCatalog.GetTextureKey(carrier.Inventory.Type))];
     }
 
     private IReadOnlyList<InventoryEntryRect> BuildInventoryLayout(
@@ -511,15 +573,6 @@ public sealed partial class MenuController
         scrollbarTrackBounds = new Rectangle(scrollbarX, viewportBounds.Y, 6, trackHeight);
         scrollbarThumbBounds = new Rectangle(scrollbarX, thumbY, 6, (int)MathF.Round(thumbHeight));
         return cards;
-    }
-
-    private static string GetInventoryTextureKey(string resourceType)
-    {
-        return resourceType switch
-        {
-            "wall" => "wall",
-            _ => resourceType
-        };
     }
 
     private static MenuMetrics GetMetrics(Point viewport)

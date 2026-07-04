@@ -29,11 +29,9 @@ public sealed class ResearchDraftLayoutTests
         Assert.True(viewportBounds.Contains(layout.PanelBounds));
         Assert.True(viewportBounds.Contains(layout.DraftAreaBounds));
         Assert.True(viewportBounds.Contains(layout.TreeBounds));
-        Assert.True(viewportBounds.Contains(layout.TreeViewportBounds));
         Assert.True(viewportBounds.Contains(layout.InfoPanelBounds));
-        Assert.True(layout.DraftAreaBounds.Contains(layout.DraftHeaderBounds));
-        Assert.True(layout.TreeBounds.Contains(layout.TreeViewportBounds));
-        Assert.True(layout.TreeViewportBounds.Top > layout.TreeHeaderBounds.Bottom);
+        Assert.Equal(Rectangle.Empty, layout.DraftHeaderBounds);
+        Assert.Equal(InsetByRim(layout.TreeBounds), layout.TreeViewportBounds);
         Assert.All(layout.BranchCardBounds, bounds => Assert.True(viewportBounds.Contains(bounds)));
         Assert.All(layout.BranchCardBounds, bounds => Assert.True(layout.DraftAreaBounds.Contains(bounds)));
     }
@@ -45,12 +43,14 @@ public sealed class ResearchDraftLayoutTests
         var layout = ResearchDraftLayout.Build(viewport);
 
         Assert.True(layout.DraftAreaBounds.Top < layout.TreeBounds.Top);
+        Assert.Equal(Rectangle.Empty, layout.DraftHeaderBounds);
         Assert.All(layout.BranchCardBounds, bounds =>
         {
-            Assert.True(bounds.Top > layout.DraftHeaderBounds.Bottom);
+            Assert.Equal(layout.InfoPanelBounds.Top, bounds.Top);
             Assert.True(bounds.Bottom <= layout.DraftAreaBounds.Bottom);
             Assert.Equal(ResearchTreeCardRenderer.PreferredCardHeight, bounds.Height);
         });
+        Assert.True(layout.TreeBounds.Top - layout.BranchCardBounds[0].Bottom <= 24);
         Assert.True(layout.BranchCardBounds[0].Right < layout.BranchCardBounds[1].Left);
         Assert.True(layout.BranchCardBounds[1].Right < layout.BranchCardBounds[2].Left);
     }
@@ -71,6 +71,15 @@ public sealed class ResearchDraftLayoutTests
     }
 
     [Fact]
+    public void BuildTreeCatalog_DetailTreeViewportUsesSharedTreeViewportSizeRule()
+    {
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, treeCount: 4);
+
+        Assert.Equal(InsetByRim(layout.DetailTreeFrameBounds), layout.DetailTreeViewportBounds);
+    }
+
+    [Fact]
     public void Build_ReservesRightSideForInfoPanel()
     {
         var viewport = new Point(1280, 800);
@@ -80,5 +89,15 @@ public sealed class ResearchDraftLayoutTests
         Assert.True(layout.InfoPanelBounds.Left > layout.DraftAreaBounds.Right);
         Assert.Equal(layout.DraftAreaBounds.Top, layout.InfoPanelBounds.Top);
         Assert.Equal(layout.TreeBounds.Bottom, layout.InfoPanelBounds.Bottom);
+        Assert.Equal(layout.FooterBounds.Top, layout.InfoPanelBounds.Bottom);
+    }
+
+    private static Rectangle InsetByRim(Rectangle bounds)
+    {
+        return new Rectangle(
+            bounds.X + ResearchDraftLayout.TreeViewportRimThickness,
+            bounds.Y + ResearchDraftLayout.TreeViewportRimThickness,
+            bounds.Width - (ResearchDraftLayout.TreeViewportRimThickness * 2),
+            bounds.Height - (ResearchDraftLayout.TreeViewportRimThickness * 2));
     }
 }

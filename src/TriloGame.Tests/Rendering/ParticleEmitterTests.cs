@@ -75,4 +75,62 @@ public sealed class ParticleEmitterTests
 
         Assert.Equal(0, system.ActiveCount);
     }
+
+    [Fact]
+    public void ParticleUpdate_AppliesBrownianDisplacementInTwoDimensions()
+    {
+        var particle = Particle.Create(
+            Vector2.Zero,
+            Vector2.Zero,
+            lifetimeSeconds: 1f,
+            drag: 0f,
+            brownianMotion: 80f,
+            texture: null,
+            sourceRectangle: null,
+            startColor: Color.White,
+            endColor: Color.White,
+            startScale: 1f,
+            endScale: 1f,
+            fadeOutFraction: 0f,
+            rotation: 0f,
+            rotationSpeed: 0f,
+            blendMode: ParticleBlendMode.Alpha);
+
+        particle.Update(0.1f);
+
+        Assert.Equal(Vector2.Zero, particle.Velocity);
+        Assert.True(particle.Position.LengthSquared() > 0f);
+    }
+
+    [Fact]
+    public void EmitFromCircleEdge_SpawnsParticlesOnEdgeWithOutwardVelocity()
+    {
+        var system = new ParticleSystem(maxParticles: 6);
+        var emitter = new ParticleEmitter(system);
+        var settings = new ParticleSpraySettings
+        {
+            MinLifetimeSeconds = 1f,
+            MaxLifetimeSeconds = 1f,
+            MinSpeed = 10f,
+            MaxSpeed = 10f,
+            DirectionalSpreadRadians = 0f,
+            DriftAmount = 0f,
+            Drag = 0f,
+            SpawnJitterPixels = 0f
+        };
+        var center = new Vector2(100f, 80f);
+        const float radius = 18f;
+
+        var emitted = emitter.EmitFromCircleEdge(center, radius, null!, Color.White, Color.Transparent, settings, particleCount: 6);
+
+        Assert.Equal(6, emitted);
+        Assert.Equal(6, system.ActiveCount);
+        foreach (ref readonly var particle in system.ActiveParticles)
+        {
+            var fromCenter = particle.Position - center;
+            Assert.InRange(MathF.Abs(fromCenter.Length() - radius), 0f, 0.001f);
+            Assert.True(Vector2.Dot(fromCenter, particle.Velocity) > 0f);
+            Assert.Equal(1f, particle.LifetimeSeconds);
+        }
+    }
 }

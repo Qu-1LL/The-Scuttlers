@@ -47,6 +47,26 @@ public sealed class WorldSceneRendererTests
     }
 
     [Fact]
+    public void GetTileDrawColor_AppliesLumeniteAlphaPulseOverTime()
+    {
+        var tile = new Tile(0, "0,0");
+        tile.SetBase(OreType.LUMENITE.Name);
+        tile.ConfigureOre(GameConstants.MaxOreYield, 1);
+        var spriteEffects = new WorldSpriteEffectSystem();
+        spriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.38f, 1f, 2.1f));
+
+        var initial = WorldSceneRenderer.GetTileDrawColor(spriteEffects, tile, tile.Base, tile.Coordinates);
+        for (var index = 0; index < 5; index++)
+        {
+            spriteEffects.Update(new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(100)));
+        }
+
+        var pulsed = WorldSceneRenderer.GetTileDrawColor(spriteEffects, tile, tile.Base, tile.Coordinates);
+
+        Assert.True(initial.A < pulsed.A, $"Expected lumenite alpha to pulse. Initial: {initial.A}, pulsed: {pulsed.A}.");
+    }
+
+    [Fact]
     public void ShouldDrawFloorTile_RequiresFloorCoverWhenTileHasNoBuilding()
     {
         var tile = new Tile(0, "0,0");

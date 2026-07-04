@@ -2,6 +2,8 @@ namespace TriloGame.Game.Core.World;
 
 public sealed class Tile
 {
+    public const string CaveCrystalBase = "CaveCrystal";
+
     private readonly HashSet<Tile> _adjacent = [];
     private readonly List<Entities.Trilobite> _trilobites = [];
     private readonly Dictionary<string, int> _droppedResources = new(StringComparer.Ordinal);
@@ -81,7 +83,7 @@ public sealed class Tile
             ClearDecoration();
         }
 
-        if (!string.Equals(tileBase, "wall", StringComparison.Ordinal))
+        if (!IsResourcelessBreakableBase(tileBase))
         {
             HitsRemaining = 0;
         }
@@ -100,6 +102,12 @@ public sealed class Tile
     }
 
     public void ConfigureWall(int hitsRequired)
+    {
+        ClearResourceState();
+        HitsRemaining = Math.Max(1, hitsRequired);
+    }
+
+    public void ConfigureCaveCrystal(int hitsRequired)
     {
         ClearResourceState();
         HitsRemaining = Math.Max(1, hitsRequired);
@@ -140,6 +148,14 @@ public sealed class Tile
 
     public bool IsOreTile() => ResourceYield > 0 && HitsPerYield > 0 && !string.Equals(Base, "wall", StringComparison.Ordinal);
 
+    public bool IsCaveCrystal() => string.Equals(Base, CaveCrystalBase, StringComparison.Ordinal);
+
+    public static bool IsResourcelessBreakableBase(string tileBase)
+    {
+        return string.Equals(tileBase, "wall", StringComparison.Ordinal) ||
+               string.Equals(tileBase, CaveCrystalBase, StringComparison.Ordinal);
+    }
+
     public bool ApplyOreMineHit(out bool depleted)
     {
         depleted = false;
@@ -167,6 +183,17 @@ public sealed class Tile
     public bool ApplyWallMineHit()
     {
         if (!string.Equals(Base, "wall", StringComparison.Ordinal) || HitsRemaining <= 0)
+        {
+            return false;
+        }
+
+        HitsRemaining--;
+        return HitsRemaining <= 0;
+    }
+
+    public bool ApplyCaveCrystalMineHit()
+    {
+        if (!IsCaveCrystal() || HitsRemaining <= 0)
         {
             return false;
         }

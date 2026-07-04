@@ -62,6 +62,36 @@ public sealed class BuildingPlacementGridTests
         Assert.Equal((float)(TileConstants.TileSize + TileConstants.TileHalfSize), origin.Y);
     }
 
+    [Fact]
+    public void GetTextureFootprintScale_ScalesSingleTileImportToBuildingFootprint()
+    {
+        var building = new Garage(new GameSession());
+
+        var scale = BuildingPlacementGrid.GetTextureFootprintScale(
+            building,
+            textureWidth: TileConstants.TileSize,
+            textureHeight: TileConstants.TileSize,
+            cameraScale: 1f);
+
+        Assert.Equal(2f, scale.X);
+        Assert.Equal(2f, scale.Y);
+    }
+
+    [Fact]
+    public void GetTextureFootprintScale_KeepsAlreadySizedFootprintTextureAtCameraScale()
+    {
+        var building = new AlgaeFarm(new GameSession());
+
+        var scale = BuildingPlacementGrid.GetTextureFootprintScale(
+            building,
+            textureWidth: TileConstants.TileSize * 2,
+            textureHeight: TileConstants.TileSize * 3,
+            cameraScale: 0.5f);
+
+        Assert.Equal(0.5f, scale.X);
+        Assert.Equal(0.5f, scale.Y);
+    }
+
     private static CameraController CreateCamera()
     {
         var camera = new CameraController { CurrentScale = 1f };

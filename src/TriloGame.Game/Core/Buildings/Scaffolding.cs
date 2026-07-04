@@ -229,20 +229,13 @@ public sealed class Scaffolding : Building
         var displayRotationTurns = GetDisplayRotationTurns();
         TargetBuilding.SetDisplayRotationTurns(displayRotationTurns);
 
-        if (!cave.RemoveBuilding(this, source ?? "scaffoldingComplete"))
-        {
-            return false;
-        }
-
-        if (cave.Build(TargetBuilding, location))
+        if (cave.ReplaceBuilding(this, TargetBuilding, location, source ?? "scaffoldingComplete"))
         {
             CompletionPending = false;
             Session.RequestAudioCue(GameAudioCue.BuildingFinished);
             return true;
         }
 
-        SetDisplayRotationTurns(displayRotationTurns);
-        cave.Build(this, location);
         CompletionPending = true;
         return false;
     }

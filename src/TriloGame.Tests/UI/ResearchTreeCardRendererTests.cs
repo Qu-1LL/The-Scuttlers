@@ -1,5 +1,9 @@
 using Microsoft.Xna.Framework;
+using MonoGameGum.GueDeriving;
+using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
+using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Tests.UI;
@@ -15,8 +19,9 @@ public sealed class ResearchTreeCardRendererTests
 
         Assert.Equal(bounds, layout.Bounds);
         Assert.True(bounds.Contains(layout.TitleBounds));
-        Assert.True(bounds.Contains(layout.SubtitleBounds));
+        Assert.Equal(Rectangle.Empty, layout.SubtitleBounds);
         Assert.True(bounds.Contains(layout.PreviewBounds));
+        Assert.True(layout.PreviewBounds.Y > layout.TitleBounds.Bottom);
         Assert.True(layout.PreviewBounds.Width > layout.PreviewBounds.Height);
     }
 
@@ -55,6 +60,66 @@ public sealed class ResearchTreeCardRendererTests
         AssertTreeFits(layout, previewBounds);
         Assert.True(GetContentWidth(layout) >= previewBounds.Width * 0.35f);
         Assert.True(GetContentHeight(layout) >= previewBounds.Height * 0.35f);
+    }
+
+    [Fact]
+    public void Draw_PlacesTheTitleTextAboveTheTreePreview()
+    {
+        var gumUi = new GumUiRenderer(addToManagers: false);
+        gumUi.BeginFrame(new Point(640, 480));
+        var session = new GameSession();
+        var bounds = new Rectangle(20, 24, 260, 190);
+        var layout = ResearchTreeCardRenderer.BuildLayout(bounds);
+        var card = new ResearchTreeCardData(
+            "Shellwright Basics",
+            string.Empty,
+            bounds,
+            ResearchTreeViewNode.FromFeatureTree(TriloDex.Global.FindFeatureTree("B1")!),
+            IsHovered: false,
+            IsSelected: false);
+
+        ResearchTreeCardRenderer.Draw(
+            gumUi,
+            session,
+            card,
+            ResearchTreeUiRenderer.TreeEntryCardConfig,
+            Point.Zero);
+
+        var title = gumUi.Root.Children.OfType<MonoGameGum.GueDeriving.TextRuntime>().Single();
+        Assert.Equal(1f, title.FontScale);
+        Assert.Equal(GumTextLayout.GetMetrics(GumTextStyle.Small).FontSize, title.FontSize);
+        Assert.True(title.Y >= layout.TitleBounds.Y);
+        Assert.True(title.Y + title.Height <= layout.PreviewBounds.Y);
+    }
+
+    [Fact]
+    public void Draw_DoesNotAddATitleBackgroundBand()
+    {
+        var gumUi = new GumUiRenderer(addToManagers: false);
+        gumUi.BeginFrame(new Point(640, 480));
+        var card = new ResearchTreeCardData(
+            "Shellwright Basics",
+            string.Empty,
+            new Rectangle(20, 24, 260, 190),
+            Root: null,
+            IsHovered: false,
+            IsSelected: false);
+        var titleBounds = ResearchTreeCardRenderer.BuildLayout(card.Bounds).TitleBounds;
+
+        ResearchTreeCardRenderer.Draw(
+            gumUi,
+            session: null!,
+            card,
+            ResearchTreeUiRenderer.TreeEntryCardConfig,
+            Point.Zero);
+
+        Assert.DoesNotContain(
+            gumUi.Root.Children,
+            child => child.GetType().Name.Contains("RectangleRuntime", StringComparison.Ordinal) &&
+                     (int)MathF.Round(child.X) == titleBounds.X &&
+                     (int)MathF.Round(child.Y) == titleBounds.Y &&
+                     (int)MathF.Round(child.Width) == titleBounds.Width &&
+                     (int)MathF.Round(child.Height) == titleBounds.Height);
     }
 
     private static void AssertTreeFits(ResearchTreeViewLayout layout, Rectangle bounds)

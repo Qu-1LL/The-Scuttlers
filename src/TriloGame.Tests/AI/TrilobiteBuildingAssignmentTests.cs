@@ -1,5 +1,7 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
 
@@ -353,6 +355,29 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Same(secondScaffold, builder.GetAssignedScaffolding());
         Assert.DoesNotContain(builder, firstScaffold.GetAssignments());
         Assert.Contains(builder, secondScaffold.GetAssignments());
+    }
+
+    [Fact]
+    public void BuilderBuildsSoilPatchUsingSandstoneFromReachableMiningPost()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
+        Assert.Equal(5, post.Deposit(OreType.SANDSTONE.Name, 5));
+        var scaffold = new Scaffolding(session, new SoilPatch(session));
+        var scaffoldLocation = new GridPoint(12, 6);
+        Assert.True(cave.Build(scaffold, scaffoldLocation));
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 6), "Builder", "builder");
+        builder.RestartBehavior();
+
+        for (var tick = 0; tick < 80 && cave.GetSoilPatches().All(patch => patch.Location != scaffoldLocation); tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
+        Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
+        Assert.Equal(0, post.GetInventory().GetValueOrDefault(OreType.SANDSTONE.Name, 0));
+        Assert.False(builder.HasInventory());
     }
 
     [Fact]

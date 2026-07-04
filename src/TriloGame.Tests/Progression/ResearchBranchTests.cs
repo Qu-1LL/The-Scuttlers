@@ -13,6 +13,7 @@ public sealed class ResearchBranchTests
         var secondChild = branch.AddChild(root, new TreeInstanceNode(new SkillNode("Second Child", "Branch child."), "Mobility"));
 
         Assert.Equal(3, branch.Count);
+        Assert.Equal("Unnamed Branch", branch.Name);
         Assert.Same(root, branch.Root);
         Assert.Equal(2, root.ChildCount);
         Assert.Same(firstChild, root.Children[0]);
@@ -21,6 +22,17 @@ public sealed class ResearchBranchTests
         Assert.Same(root, secondChild.Parent);
         Assert.True(branch.ContainsSourceSkill("Mobility", "Root Node"));
         Assert.True(branch.ContainsSourceSkill("Mobility", "First Child"));
+    }
+
+    [Fact]
+    public void ResearchBranch_StoresEditableDisplayName()
+    {
+        var branch = new ResearchBranch("Amber Fork");
+
+        branch.Rename("  Moonlit Sprig  ");
+
+        Assert.Equal("Moonlit Sprig", branch.Name);
+        Assert.Throws<ArgumentException>(() => branch.Rename(" "));
     }
 
     [Fact]

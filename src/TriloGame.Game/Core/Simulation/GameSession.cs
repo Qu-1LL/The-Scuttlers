@@ -160,7 +160,7 @@ public sealed class GameSession
             tileKey,
             GridPoint.Parse(tileKey),
             tileType,
-            string.Equals(tileType, "wall", StringComparison.Ordinal) ? OreType.SANDSTONE.Name : tileType,
+            Tile.IsResourcelessBreakableBase(tileType) ? null : tileType,
             source);
 
         Emit(GameEvents.TileMined, payload);
@@ -191,6 +191,11 @@ public sealed class GameSession
             return MineWallTile(cave, tile, tileKey, dropTargetTileKey, source);
         }
 
+        if (tile.IsCaveCrystal())
+        {
+            return MineCaveCrystalTile(cave, tile, tileKey, source);
+        }
+
         if (!IsOreTileType(tileType))
         {
             return MineTileResult.NotApplied;
@@ -213,6 +218,45 @@ public sealed class GameSession
 
         EmitMineEvents(tileType, cave, tileKey, source);
         return new MineTileResult(true, true, tileType, 1, depleted, null, 0, tile.ResourceYield, tile.HitsRemaining);
+    }
+
+    private MineTileResult MineCaveCrystalTile(Cave cave, Tile tile, string tileKey, object? source = null)
+    {
+        if (!tile.IsCaveCrystal())
+        {
+            return MineTileResult.NotApplied;
+        }
+
+        if (!tile.ApplyCaveCrystalMineHit())
+        {
+            return new MineTileResult(true, false, null, 0, false, null, 0, 0, tile.HitsRemaining);
+        }
+
+        tile.SetBase("empty");
+        tile.ClearResourceState();
+        tile.CreatureCanFit = true;
+
+        var reachabilityResult = cave.RefreshReachableTiles();
+        string[] ownershipDirtyKeys = reachabilityResult.ChangedKeys.Count == 0
+            ? [tileKey]
+            : reachabilityResult.ChangedKeys.Append(tileKey).Distinct(StringComparer.Ordinal).ToArray();
+
+        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
+        cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
+        cave.NotifyMineableTilesChanged([tileKey]);
+        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
+
+        EmitMineEvents(Tile.CaveCrystalBase, cave, tileKey, source);
+        return new MineTileResult(
+            true,
+            false,
+            null,
+            0,
+            true,
+            null,
+            0,
+            0,
+            0);
     }
 
     public MineTileResult MineWallTile(Cave cave, Tile tile, string emptyCoords, string? dropTargetTileKey = null, object? source = null)
@@ -376,9 +420,9 @@ public sealed class GameSession
         EmitMineEvents("wall", cave, emptyCoords, source);
         return new MineTileResult(
             true,
-            true,
-            OreType.SANDSTONE.Name,
-            GameConstants.WallDropAmount,
+            false,
+            null,
+            0,
             true,
             null,
             0,

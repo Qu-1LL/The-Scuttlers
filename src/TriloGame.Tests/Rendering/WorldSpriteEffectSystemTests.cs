@@ -20,24 +20,28 @@ public sealed class WorldSpriteEffectSystemTests
     public void ApplyColor_PulsesRegisteredSpriteAlphaOverTime()
     {
         var system = new WorldSpriteEffectSystem();
-        system.RegisterAlphaPulse("Lumenite", new AlphaPulseEffect(0.68f, 1f, 2.1f));
+        system.RegisterAlphaPulse("Lumenite", new AlphaPulseEffect(0.38f, 1f, 2.1f));
         var baseColor = Color.White;
 
         var initial = system.ApplyColor("Lumenite", baseColor);
 
-        system.Update(new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(500)));
+        for (var index = 0; index < 5; index++)
+        {
+            system.Update(new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(100)));
+        }
+
         var pulsed = system.ApplyColor("Lumenite", baseColor);
 
         Assert.True(initial.A < pulsed.A, $"Expected pulsed alpha to rise. Initial: {initial.A}, pulsed: {pulsed.A}.");
-        Assert.InRange(initial.A, 212, 215);
-        Assert.InRange(pulsed.A, 224, 255);
+        Assert.InRange(initial.A, 175, 176);
+        Assert.InRange(pulsed.A, 236, 255);
     }
 
     [Fact]
     public void ApplyColor_UsesPhaseOffsetToDesynchronizeInstances()
     {
         var system = new WorldSpriteEffectSystem();
-        system.RegisterAlphaPulse("Lumenite", new AlphaPulseEffect(0.68f, 1f, 2.1f));
+        system.RegisterAlphaPulse("Lumenite", new AlphaPulseEffect(0.38f, 1f, 2.1f));
         var baseColor = Color.White;
 
         var first = system.ApplyColor("Lumenite", baseColor, 0f);

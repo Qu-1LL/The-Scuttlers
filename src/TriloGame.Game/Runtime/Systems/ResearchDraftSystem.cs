@@ -64,6 +64,13 @@ public sealed class ResearchDraftSystem
         }
 
         var branch = PendingDraft.Branches[branchIndex];
+        var placementValidation = ResearchDraftPlacementValidator.Validate(session.SkillTree, branch, anchorNode);
+        if (!placementValidation.CanPlace)
+        {
+            failureReason = placementValidation.FailureReason;
+            return false;
+        }
+
         if (!session.SkillTree.TryPlaceResearchBranch(branch, anchorNode, out failureReason))
         {
             return false;

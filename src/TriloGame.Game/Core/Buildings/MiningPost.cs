@@ -6,7 +6,7 @@ using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class MiningPost : Building
+public sealed class MiningPost : Building, IResourceStorage
 {
     private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
     private readonly Dictionary<Creature, string?> _assignments = [];
@@ -44,6 +44,8 @@ public sealed class MiningPost : Building
     public bool AssignmentsAvailable { get; private set; } = true;
 
     public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
+
+    public IReadOnlyDictionary<string, int> GetStoredResources() => _inventory;
 
     public int GetInventoryTotal() => _inventoryTotal;
 
@@ -754,9 +756,14 @@ public sealed class MiningPost : Building
     {
         var center = GetCenter();
 
-        if (!string.Equals(tile.Base, "wall", StringComparison.Ordinal))
+        if (tile.CreatureFits())
         {
-            return tile.CreatureFits() ? tile.Coordinates : null;
+            return tile.Coordinates;
+        }
+
+        if (!Building.IsMineableType(tile.Base))
+        {
+            return null;
         }
 
         GridPoint? bestTarget = null;

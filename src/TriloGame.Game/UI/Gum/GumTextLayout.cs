@@ -4,6 +4,7 @@ namespace TriloGame.Game.UI.Gum;
 
 public enum GumTextStyle
 {
+    Display,
     UiLarge,
     Ui,
     Small,
@@ -19,6 +20,7 @@ public static class GumTextLayout
     {
         return style switch
         {
+            GumTextStyle.Display => new GumTextMetrics(48, 26.4f, 56),
             GumTextStyle.UiLarge => new GumTextMetrics(24, 13.2f, 30),
             GumTextStyle.Ui => new GumTextMetrics(21, 11.4f, 26),
             GumTextStyle.Debug => new GumTextMetrics(19, 10.2f, 24),

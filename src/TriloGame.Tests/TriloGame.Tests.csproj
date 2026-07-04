@@ -22,4 +22,13 @@
     <ProjectReference Include="..\TriloGame.Game\TriloGame.Game.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\TriloGame.Game\Content\Fonts\Display\TrebuchetDisplay48.fnt" Link="Content\Fonts\Display\TrebuchetDisplay48.fnt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\TriloGame.Game\Content\Fonts\Display\TrebuchetDisplay48_0.png" Link="Content\Fonts\Display\TrebuchetDisplay48_0.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

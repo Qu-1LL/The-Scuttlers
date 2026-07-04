@@ -496,7 +496,7 @@ internal sealed class CaveGenerator
             var neighborHasCrystal = false;
             foreach (var neighbor in tile.Neighbors)
             {
-                if (neighbor.Decoration == TileDecoration.CaveCrystal)
+                if (neighbor.IsCaveCrystal())
                 {
                     neighborHasCrystal = true;
                     break;
@@ -508,13 +508,21 @@ internal sealed class CaveGenerator
                 continue;
             }
 
-            tile.SetDecoration(TileDecoration.CaveCrystal);
+            ConfigureGeneratedCaveCrystalTile(tile);
             placed++;
             if (placed >= targetCount)
             {
                 break;
             }
         }
+    }
+
+    private static void ConfigureGeneratedCaveCrystalTile(Tile tile)
+    {
+        tile.SetBase(Tile.CaveCrystalBase);
+        tile.CreatureCanFit = false;
+        tile.ConfigureCaveCrystal(GameConstants.CaveCrystalHitsRequired);
+        GeneratedTileSpriteRotation.AssignCaveCrystalRotation(tile);
     }
 
     private static void FillCircle(Cave cave, int originX, int originY, int radius)

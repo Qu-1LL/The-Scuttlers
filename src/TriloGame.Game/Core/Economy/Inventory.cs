@@ -30,6 +30,12 @@ public sealed class Inventory
         return accepted;
     }
 
+    public int Add(ItemType itemType, int amount, int capacity)
+    {
+        ArgumentNullException.ThrowIfNull(itemType);
+        return Add(itemType.Name, amount, capacity);
+    }
+
     public int Remove(int amount)
     {
         if (amount <= 0)

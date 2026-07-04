@@ -1,7 +1,12 @@
 using Microsoft.Xna.Framework;
+using MonoGameGum.GueDeriving;
+using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Runtime.Bootstrap;
 using TriloGame.Game.Runtime.Systems;
+using TriloGame.Game.Shared.Math;
+using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Tests.UI;
@@ -52,7 +57,7 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void GetSkillTreeConnectorColor_UsesWhiteForLockedNodesAndYellowForUnlockedNodes()
+    public void GetSkillTreeConnectorColor_DistinguishesLockedAvailableAndUnlockedNodes()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
         var root = new TreeInstanceNode(new SkillNode("Root", "Root"));
@@ -60,9 +65,12 @@ public sealed class ResearchDraftControllerTests
         root.AddChild(child);
 
         var lockedColor = ResearchDraftController.GetSkillTreeConnectorColor(child);
-        Assert.Equal(new Color(246, 251, 253), lockedColor);
+        Assert.Equal(new Color(126, 141, 150, 64), lockedColor);
 
         Assert.True(root.TryUnlock(session));
+        var availableColor = ResearchDraftController.GetSkillTreeConnectorColor(child);
+        Assert.Equal(new Color(194, 225, 235, 210), availableColor);
+
         Assert.True(child.TryUnlock(session));
 
         var unlockedColor = ResearchDraftController.GetSkillTreeConnectorColor(child);
@@ -215,28 +223,131 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
-    public void ClampTreeZoom_StaysWithinSensibleLimits()
+    public void HandlePointerDrag_DoesNotPanAdaptationTree()
     {
-        Assert.Equal(0.55f, ResearchTreeViewportState.ClampZoom(0.1f));
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        controller.Open(draftSystem);
+
+        controller.HandlePointerDown(layout.TreeViewportBounds.Center, viewport, session, draftSystem);
+        controller.HandlePointerDrag(layout.TreeViewportBounds.Center + new Point(80, -40), viewport, session, draftSystem);
+
+        Assert.Equal(Vector2.Zero, controller.TreePanOffset);
+    }
+
+    [Fact]
+    public void HandlePanPointerDrag_PansAdaptationTree()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        controller.Open(draftSystem);
+
+        Assert.True(controller.HandlePanPointerDown(layout.TreeViewportBounds.Center, viewport, session, draftSystem));
+        controller.HandlePanPointerDrag(layout.TreeViewportBounds.Center + new Point(80, -40));
+
+        Assert.Equal(new Vector2(80f, -40f), controller.TreePanOffset);
+    }
+
+    [Fact]
+    public void BuildDraftMenuModel_UsesSharedTreeViewportRootAndBoundaryOverlayForAdaptationTree()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        controller.Open(draftSystem);
+
+        var model = controller.BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture: null);
+
+        Assert.NotNull(model.TreeViewport.Root);
+        Assert.NotNull(model.TreeViewport.DrawOverlay);
+        Assert.False(model.TreeViewport.OverlayReplacesTreeContent);
+        Assert.False(model.Config.EnablePlacementPreview);
+    }
+
+    [Fact]
+    public void BuildDraftMenuModel_UsesPlacementOverlayInsteadOfReplacingTreeViewport()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var round = new RoundInfo(0, 180000d, 180000d, 120000d, 30000d, 4, false);
+        draftSystem.CreateDraft(session, round);
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        controller.Open(draftSystem);
+
+        controller.HandlePointerUp(GetCenter(layout.BranchCardBounds[0]), viewport, session, draftSystem);
+        var model = controller.BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture: null);
+
+        Assert.NotNull(model.TreeViewport.Root);
+        Assert.NotNull(model.TreeViewport.DrawOverlay);
+        Assert.False(model.TreeViewport.OverlayReplacesTreeContent);
+        Assert.True(model.Config.EnablePlacementPreview);
+    }
+
+    [Fact]
+    public void BuildDraftMenuModel_ReplacesTreeContentWhenPlacementPreviewIsAnchored()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var round = new RoundInfo(0, 180000d, 180000d, 120000d, 30000d, 4, false);
+        draftSystem.CreateDraft(session, round);
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        controller.Open(draftSystem);
+
+        controller.HandlePointerUp(GetCenter(layout.BranchCardBounds[0]), viewport, session, draftSystem);
+        controller.UpdatePointer(layout.TreeViewportBounds.Center);
+        var model = controller.BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture: null);
+
+        Assert.NotNull(model.TreeViewport.Root);
+        Assert.NotNull(model.TreeViewport.DrawOverlay);
+        Assert.True(model.TreeViewport.OverlayReplacesTreeContent);
+    }
+
+    [Fact]
+    public void ClampTreeZoom_AllowsArbitrarilySmallPositiveValuesAndCapsZoomIn()
+    {
+        Assert.Equal(0.000001f, ResearchTreeViewportState.ClampZoom(0.000001f));
         Assert.Equal(1.25f, ResearchTreeViewportState.ClampZoom(1.25f));
         Assert.Equal(2.25f, ResearchTreeViewportState.ClampZoom(9f));
     }
 
     [Fact]
-    public void CalculateTreeBackgroundStartCoordinate_AnchorsTilesToTheTreeSurfaceOrigin()
+    public void CalculateZoomAfterWheel_AllowsRepeatedZoomOutWithoutAConfiguredMinimum()
     {
-        const int viewportLeft = 100;
-        const float treeSurfaceOrigin = 421f;
+        var zoom = 1f;
+        for (var index = 0; index < 40; index++)
+        {
+            zoom = ResearchTreeViewportState.CalculateZoomAfterWheel(zoom, wheelDelta: 90);
+        }
 
-        var normalZoomStart = ResearchDraftController.CalculateTreeBackgroundStartCoordinate(viewportLeft, treeSurfaceOrigin, tileLength: 64);
-        var zoomedInStart = ResearchDraftController.CalculateTreeBackgroundStartCoordinate(viewportLeft, treeSurfaceOrigin, tileLength: 96);
+        Assert.InRange(zoom, float.Epsilon, 0.01f);
+    }
 
-        Assert.True(normalZoomStart <= viewportLeft);
-        Assert.True(zoomedInStart <= viewportLeft);
-        Assert.True(viewportLeft - normalZoomStart < 64);
-        Assert.True(viewportLeft - zoomedInStart < 96);
-        Assert.Equal(0, ((int)treeSurfaceOrigin - normalZoomStart) % 64);
-        Assert.Equal(0, ((int)treeSurfaceOrigin - zoomedInStart) % 96);
+    [Fact]
+    public void BuildTreeViewportMetrics_ScalesNodeRadiusAcrossZoomLevels()
+    {
+        var bounds = new Rectangle(100, 80, 620, 420);
+        var skillTree = CreateWideSkillTree();
+
+        var zoomedOut = ResearchTreeViewportState.BuildMetrics(bounds, skillTree, zoom: 0.05f);
+        var normal = ResearchTreeViewportState.BuildMetrics(bounds, skillTree, zoom: 1f);
+        var zoomedIn = ResearchTreeViewportState.BuildMetrics(bounds, skillTree, zoom: 2.25f);
+
+        Assert.True(zoomedOut.NodeRadius < normal.NodeRadius);
+        Assert.True(normal.NodeRadius < zoomedIn.NodeRadius);
+        Assert.True(zoomedOut.EdgeLength < normal.EdgeLength);
+        Assert.True(zoomedIn.EdgeLength > normal.EdgeLength);
     }
 
     [Fact]
@@ -297,6 +408,86 @@ public sealed class ResearchDraftControllerTests
         Assert.Equal(1 + draft.Branches[1].Count, session.SkillTree.Count);
     }
 
+    [Fact]
+    public void HandlePointerUp_ClickingSkillTreeNodePinsInfoPanelAndUnlockAction()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var child = session.SkillTree.AddChild(
+            session.SkillTree.Root!,
+            session.SkillTree.IntakeSkillNode(new SkillNode("Pinned Node", "Pinned description."), "B1"));
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport, branchCardCount: 0);
+        controller.Open(draftSystem);
+
+        var outcome = controller.HandlePointerUp(GetFirstChildPoint(layout), viewport, session, draftSystem);
+        var model = controller.BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture: null);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.NodeSelected, outcome);
+        Assert.Equal(child.Name, model.InfoPanel.NodeInfo!.Value.TitleText);
+        Assert.NotNull(model.InfoPanel.UnlockAction);
+        Assert.Equal(40, model.InfoPanel.UnlockAction!.Value.Cost);
+        Assert.False(model.InfoPanel.UnlockAction.Value.CanUnlock);
+        Assert.Equal(SkillTreeUnlockBlockReason.NotEnoughResources, model.InfoPanel.UnlockAction.Value.BlockReason);
+    }
+
+    [Fact]
+    public void HandlePointerUp_ClickingEnabledUnlockButtonUnlocksSelectedNode()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var child = session.SkillTree.AddChild(
+            session.SkillTree.Root!,
+            session.SkillTree.IntakeSkillNode(new SkillNode("Unlockable Node", "Unlockable description."), "B1"));
+        DepositChitinstone(session, 40);
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport, branchCardCount: 0);
+        controller.Open(draftSystem);
+        controller.HandlePointerUp(GetFirstChildPoint(layout), viewport, session, draftSystem);
+
+        var outcome = controller.HandlePointerUp(
+            ResearchTreeInfoPanelLayout.GetUnlockButtonBounds(layout.InfoPanelBounds).Center,
+            viewport,
+            session,
+            draftSystem);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.NodeUnlocked, outcome);
+        Assert.True(child.IsUnlocked);
+        Assert.Equal(0, ResourceStockpileSystem.GetStoredAmount(session, OreType.CHITINSTONE.Name));
+    }
+
+    [Fact]
+    public void Draw_SelectedSkillTreeNodeUsesDoubleCyanHalo()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        session.SkillTree.AddChild(
+            session.SkillTree.Root!,
+            session.SkillTree.IntakeSkillNode(new SkillNode("Selected Node", "Selected description."), "B1"));
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport, branchCardCount: 0);
+        controller.Open(draftSystem);
+        controller.HandlePointerUp(GetFirstChildPoint(layout), viewport, session, draftSystem);
+        controller.UpdatePointer(layout.InfoPanelBounds.Center);
+        var gumUi = new GumUiRenderer(addToManagers: false);
+        gumUi.BeginFrame(viewport);
+
+        controller.Draw(viewport, session, draftSystem, gumUi, treeBackgroundTexture: null);
+
+        var cyanOutlines = gumUi.Root.Children
+            .OfType<RoundedRectangleRuntime>()
+            .Where(shape =>
+                !shape.IsFilled &&
+                shape.Color.R == 105 &&
+                shape.Color.G == 226 &&
+                shape.Color.B == 239)
+            .ToArray();
+        Assert.Equal(2, cyanOutlines.Length);
+    }
+
     private static Point GetCenter(Rectangle bounds)
     {
         return new Point(bounds.Center.X, bounds.Center.Y);
@@ -304,20 +495,27 @@ public sealed class ResearchDraftControllerTests
 
     private static Point GetRootAnchorPoint(ResearchDraftLayoutInfo layout)
     {
-        const int sidePadding = 12;
-        const int topPadding = 8;
-        const int bottomPadding = 12;
-
-        var contentBounds = new Rectangle(
-            layout.TreeViewportBounds.X + sidePadding,
-            layout.TreeViewportBounds.Y + topPadding,
-            Math.Max(120, layout.TreeViewportBounds.Width - (sidePadding * 2)),
-            Math.Max(120, layout.TreeViewportBounds.Height - topPadding - bottomPadding));
-        var nodeRadius = Math.Clamp((int)MathF.Round(76f * 0.18f), 9, 18);
+        var contentBounds = layout.TreeViewportBounds;
+        var nodeRadius = Math.Clamp((int)MathF.Round(92f * 0.18f), 9, 18);
 
         return new Point(
             contentBounds.Center.X,
             contentBounds.Bottom - nodeRadius - 8);
+    }
+
+    private static Point GetFirstChildPoint(ResearchDraftLayoutInfo layout)
+    {
+        var root = GetRootAnchorPoint(layout);
+        return new Point(root.X, root.Y - 92);
+    }
+
+    private static void DepositChitinstone(TriloGame.Game.Core.Simulation.GameSession session, int amount)
+    {
+        var cave = session.Cave ?? new TriloGame.Game.Core.World.Cave(session);
+        TestWorldFactory.ResetToRectangularMap(cave, 8, 8);
+        var post = new MiningPost(session);
+        Assert.True(cave.Build(post, new GridPoint(0, 0)));
+        Assert.Equal(amount, post.Deposit(OreType.CHITINSTONE.Name, amount));
     }
 
     private static SkillTree CreateRootOnlySkillTree()

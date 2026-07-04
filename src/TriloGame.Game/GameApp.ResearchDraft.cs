@@ -54,6 +54,21 @@ public sealed partial class GameApp
             _researchDraft.HandlePointerDrag(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
         }
 
+        if (_input.MiddlePressed)
+        {
+            _researchDraft.HandlePanPointerDown(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
+        if (_input.MiddleHeld)
+        {
+            _researchDraft.HandlePanPointerDrag(_input.MousePoint);
+        }
+
+        if (_input.MiddleReleased)
+        {
+            _researchDraft.HandlePanPointerUp(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
         if (!_input.LeftReleased)
         {
             return;
@@ -73,6 +88,10 @@ public sealed partial class GameApp
                     _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
                 }
 
+                PlayUiSelectSound();
+                break;
+            case ResearchDraftInteractionOutcome.NodeUnlocked:
+            case ResearchDraftInteractionOutcome.NodeSelected:
                 PlayUiSelectSound();
                 break;
         }

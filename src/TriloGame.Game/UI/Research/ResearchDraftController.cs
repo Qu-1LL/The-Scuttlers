@@ -2,8 +2,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System.Linq;
 using TriloGame.Game.Core.Research;
-using MonoGameGum.GueDeriving;
-using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Runtime.Systems;
@@ -18,7 +16,9 @@ public enum ResearchDraftInteractionOutcome
     Consumed,
     RequestedOpen,
     RequestedClose,
-    BranchPlaced
+    BranchPlaced,
+    NodeSelected,
+    NodeUnlocked
 }
 
 internal enum ResearchNodeHoverPlacement
@@ -36,25 +36,35 @@ public sealed class ResearchDraftController
     private static readonly Color InvalidBranchConnectorColor = new(242, 126, 119);
     private static readonly Color BranchCollisionColor = new(242, 72, 68);
     private static readonly Color BranchCollisionBorderColor = new(255, 220, 217);
+    private static readonly Color BoundaryColor = new(126, 149, 159, 184);
+    private static readonly Color BoundaryCollisionColor = new(242, 72, 68, 235);
     private const byte BranchPreviewFillAlpha = 150;
     private const byte BranchPreviewBorderAlpha = 190;
-    private static readonly Color LockedSkillTreeConnectorColor = new(246, 251, 253);
-    private static readonly Color UnlockedSkillTreeConnectorColor = new(247, 221, 92);
     private static readonly Color BranchOriginFillColor = new(238, 207, 106);
     private static readonly Color BranchOriginBorderColor = new(255, 247, 222);
-    private readonly ResearchTreeViewportState _treeViewport = new();
+    private static readonly ResearchTreeRenderConfig DraftTreeRenderConfig = new(
+        ShowBackButton: false,
+        ShowRootNode: true,
+        EnableNodeSelection: true,
+        EnableBranchDrafting: true,
+        EnablePlacementPreview: true);
+    private readonly ResearchTreeViewerController _treeViewer = new();
     private Point _pointerPoint;
     private int? _selectedBranchIndex;
+    private TreeInstanceNode? _selectedSkillTreeNode;
     private string _statusMessage = EmptyStatus;
     private float _infoPanelScroll;
 
     public bool IsOpen { get; private set; }
 
+    internal Vector2 TreePanOffset => _treeViewer.PanOffset;
+
     public void Reset()
     {
         _pointerPoint = Point.Zero;
-        _treeViewport.Reset();
+        _treeViewer.Reset();
         _selectedBranchIndex = null;
+        _selectedSkillTreeNode = null;
         _statusMessage = EmptyStatus;
         _infoPanelScroll = 0f;
         IsOpen = false;
@@ -63,15 +73,17 @@ public sealed class ResearchDraftController
     public void Open(ResearchDraftSystem draftSystem)
     {
         IsOpen = true;
-        _treeViewport.Reset();
+        _treeViewer.Reset();
+        _selectedSkillTreeNode = null;
         _statusMessage = BuildDefaultStatus(draftSystem);
         _infoPanelScroll = 0f;
     }
 
     public void Close(ResearchDraftSystem draftSystem)
     {
-        _treeViewport.Reset();
+        _treeViewer.Reset();
         _selectedBranchIndex = null;
+        _selectedSkillTreeNode = null;
         _statusMessage = BuildDefaultStatus(draftSystem);
         _infoPanelScroll = 0f;
         IsOpen = false;
@@ -107,7 +119,12 @@ public sealed class ResearchDraftController
             return true;
         }
 
-        _treeViewport.ZoomAt(point, delta, layout.TreeViewportBounds, session.SkillTree);
+        _treeViewer.HandleWheel(
+            point,
+            delta,
+            layout.TreeViewportBounds,
+            BuildSkillTreeRoot(session),
+            DraftTreeRenderConfig);
         return true;
     }
 
@@ -143,15 +160,32 @@ public sealed class ResearchDraftController
             return false;
         }
 
-        if (layout.TreeViewportBounds.Contains(point))
-        {
-            _treeViewport.BeginPan(point);
-        }
-
         return true;
     }
 
     public void HandlePointerDrag(Point point, Point viewport, GameSession session, ResearchDraftSystem draftSystem)
+    {
+        _pointerPoint = point;
+    }
+
+    public bool HandlePanPointerDown(Point point, Point viewport, GameSession session, ResearchDraftSystem draftSystem)
+    {
+        _pointerPoint = point;
+        if (!IsOpen)
+        {
+            return false;
+        }
+
+        var layout = BuildLayout(viewport, draftSystem);
+        if (!layout.TreeViewportBounds.Contains(point))
+        {
+            return false;
+        }
+
+        return _treeViewer.HandlePanPointerDown(point, layout.TreeViewportBounds, BuildSkillTreeRoot(session));
+    }
+
+    public void HandlePanPointerDrag(Point point)
     {
         _pointerPoint = point;
         if (!IsOpen)
@@ -159,7 +193,19 @@ public sealed class ResearchDraftController
             return;
         }
 
-        _treeViewport.DragPan(point);
+        _treeViewer.HandlePanPointerDrag(point);
+    }
+
+    public bool HandlePanPointerUp(Point point, Point viewport, GameSession session, ResearchDraftSystem draftSystem)
+    {
+        _pointerPoint = point;
+        if (!IsOpen)
+        {
+            return false;
+        }
+
+        var layout = BuildLayout(viewport, draftSystem);
+        return _treeViewer.HandlePanPointerUp(layout.TreeViewportBounds, BuildSkillTreeRoot(session), DraftTreeRenderConfig);
     }
 
     public ResearchDraftInteractionOutcome HandlePointerUp(
@@ -175,7 +221,6 @@ public sealed class ResearchDraftController
         }
 
         var layout = BuildLayout(viewport, draftSystem);
-        var wasPanning = _treeViewport.EndPan(layout.TreeViewportBounds, session.SkillTree);
 
         if (!layout.PanelBounds.Contains(point))
         {
@@ -191,29 +236,32 @@ public sealed class ResearchDraftController
             return ResearchDraftInteractionOutcome.RequestedClose;
         }
 
-        if (draftSystem.PendingDraft is null)
+        var unlockOutcome = TryHandleUnlockClick(point, layout, session);
+        if (unlockOutcome != ResearchDraftInteractionOutcome.None)
         {
-            return ResearchDraftInteractionOutcome.Consumed;
+            return unlockOutcome;
         }
 
-        if (wasPanning)
-        {
-            return ResearchDraftInteractionOutcome.Consumed;
-        }
-
-        if (TryGetBranchCardSelection(point, layout, draftSystem.PendingDraft, out var selectedBranchIndex))
+        if (draftSystem.PendingDraft is not null &&
+            TryGetBranchCardSelection(point, layout, draftSystem.PendingDraft, out var selectedBranchIndex))
         {
             _selectedBranchIndex = selectedBranchIndex;
+            _selectedSkillTreeNode = null;
             _statusMessage = SelectedBranchStatus;
             return ResearchDraftInteractionOutcome.Consumed;
         }
 
-        if (_selectedBranchIndex is not int branchIndex)
+        if (_selectedBranchIndex is int branchIndex)
         {
-            return ResearchDraftInteractionOutcome.Consumed;
+            return TryPlaceSelectedBranch(point, layout, session, draftSystem, branchIndex);
         }
 
-        return TryPlaceSelectedBranch(point, layout, session, draftSystem, branchIndex);
+        if (TrySelectSkillTreeNode(point, layout, session))
+        {
+            return ResearchDraftInteractionOutcome.NodeSelected;
+        }
+
+        return ResearchDraftInteractionOutcome.Consumed;
     }
 
     public ResearchDraftInteractionOutcome HandleEscape(ResearchDraftSystem draftSystem)
@@ -233,7 +281,8 @@ public sealed class ResearchDraftController
         GameSession session,
         ResearchDraftSystem draftSystem,
         GumUiRenderer gumUi,
-        Texture2D? treeBackgroundTexture = null)
+        Texture2D? treeBackgroundTexture = null,
+        double visualTimeMs = 0d)
     {
         var layout = BuildLayout(viewport, draftSystem);
         DrawButton(layout.ButtonBounds, draftSystem.HasPendingDraft, gumUi);
@@ -244,7 +293,7 @@ public sealed class ResearchDraftController
         }
 
         gumUi.AddFilledRectangle(new Rectangle(0, 0, viewport.X, viewport.Y), new Color(5, 11, 17, 164));
-        DrawPanel(layout, session, draftSystem, gumUi, treeBackgroundTexture);
+        DrawPanel(layout, session, draftSystem, gumUi, treeBackgroundTexture, visualTimeMs);
     }
 
     private ResearchDraftInteractionOutcome TryPlaceSelectedBranch(
@@ -270,6 +319,58 @@ public sealed class ResearchDraftController
         _selectedBranchIndex = null;
         _statusMessage = "Research branch added to the colony skill tree.";
         return ResearchDraftInteractionOutcome.BranchPlaced;
+    }
+
+    private ResearchDraftInteractionOutcome TryHandleUnlockClick(
+        Point point,
+        ResearchDraftLayoutInfo layout,
+        GameSession session)
+    {
+        if (_selectedSkillTreeNode is not TreeInstanceNode selectedNode)
+        {
+            return ResearchDraftInteractionOutcome.None;
+        }
+
+        var buttonBounds = ResearchTreeInfoPanelLayout.GetUnlockButtonBounds(layout.InfoPanelBounds);
+        if (!buttonBounds.Contains(point))
+        {
+            return ResearchDraftInteractionOutcome.None;
+        }
+
+        var quote = SkillTreeUnlockSystem.GetUnlockQuote(session, selectedNode);
+        if (!quote.CanUnlock)
+        {
+            _statusMessage = BuildUnlockFailureStatus(quote.BlockReason);
+            return ResearchDraftInteractionOutcome.Consumed;
+        }
+
+        if (!SkillTreeUnlockSystem.TryUnlock(session, selectedNode, out var result))
+        {
+            _statusMessage = BuildUnlockFailureStatus(result.BlockReason);
+            return ResearchDraftInteractionOutcome.Consumed;
+        }
+
+        _statusMessage = "Skill node unlocked.";
+        return ResearchDraftInteractionOutcome.NodeUnlocked;
+    }
+
+    private bool TrySelectSkillTreeNode(
+        Point point,
+        ResearchDraftLayoutInfo layout,
+        GameSession session)
+    {
+        if (!layout.TreeViewportBounds.Contains(point) ||
+            session.SkillTree.Root is null ||
+            !TryGetPlacedSkillTreeNodeAtPoint(point, layout.TreeViewportBounds, session.SkillTree, out var node))
+        {
+            return false;
+        }
+
+        _selectedSkillTreeNode = node;
+        _selectedBranchIndex = null;
+        _infoPanelScroll = 0f;
+        _statusMessage = node!.IsUnlocked ? "Skill node selected." : "Locked skill node selected.";
+        return true;
     }
 
     private void DrawButton(Rectangle bounds, bool hasPendingDraft, GumUiRenderer gumUi)
@@ -298,24 +399,43 @@ public sealed class ResearchDraftController
         GameSession session,
         ResearchDraftSystem draftSystem,
         GumUiRenderer gumUi,
-        Texture2D? treeBackgroundTexture)
+        Texture2D? treeBackgroundTexture,
+        double visualTimeMs)
     {
         ResearchTreeMenuRenderer.Draw(
             gumUi,
             session,
-            BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture),
+            BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture, visualTimeMs),
             _pointerPoint);
     }
 
-    private ResearchTreeMenuModel BuildDraftMenuModel(
+    internal ResearchTreeMenuModel BuildDraftMenuModel(
         ResearchDraftLayoutInfo layout,
         GameSession session,
         ResearchDraftSystem draftSystem,
-        Texture2D? treeBackgroundTexture)
+        Texture2D? treeBackgroundTexture,
+        double visualTimeMs = 0d)
     {
         var pendingDraft = draftSystem.PendingDraft;
-        var hoverDisplay = GetHoveredNodeDisplay(layout, session, draftSystem);
-        var treeMetrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
+        UpdateSelectedBranchStatus(layout, session, draftSystem);
+        var branchCardHoverInfo = pendingDraft is null
+            ? null
+            : GetBranchCardHoverInfo(layout.BranchCardBounds, pendingDraft.Branches, session);
+        var selectedNodeInfo = BuildSelectedSkillTreeNodeInfo(session);
+        var infoPanelNodeInfo = branchCardHoverInfo ?? selectedNodeInfo;
+        var unlockAction = branchCardHoverInfo is null
+            ? BuildSelectedSkillTreeUnlockAction(session)
+            : null;
+        var skillTreeRoot = BuildSkillTreeRoot(session);
+        var placementOverlay = new Func<ResearchTreeViewportOverlayContext, ResearchNodeInfo?>(context =>
+            DrawDraftTreeOverlay(
+                context.ViewportBounds,
+                ConvertToPlacementMetrics(context.Metrics),
+                context.Session,
+                draftSystem,
+                context.GumUi,
+                visualTimeMs));
+        var overlayReplacesTreeContent = ShouldPlacementOverlayReplaceTreeContent(layout, session, draftSystem);
 
         return new ResearchTreeMenuModel(
             ResearchTreeMenuMode.Drafting,
@@ -343,22 +463,21 @@ public sealed class ResearchDraftController
             "Global Skill Tree",
             pendingDraft is null ? [] : BuildDraftCardModels(layout.BranchCardBounds, pendingDraft.Branches, session),
             new ResearchTreeViewportModel(
-                Root: null,
-                _treeViewport.PanOffset,
-                _treeViewport.Zoom,
+                skillTreeRoot,
+                _treeViewer.PanOffset,
+                _treeViewer.Zoom,
                 treeBackgroundTexture,
-                DrawCustomContent: ui =>
-                {
-                    DrawTiledTreeBackground(ui, layout.TreeViewportBounds, treeBackgroundTexture, 0, _treeViewport.PanOffset, _treeViewport.Zoom, treeMetrics.Origin);
-                    DrawSkillTreePanel(layout, session, draftSystem, ui);
-                }),
+                placementOverlay,
+                overlayReplacesTreeContent,
+                visualTimeMs),
             new ResearchTreeInfoPanelModel(
-                hoverDisplay is ResearchNodeHoverDisplay display ? display.HoverInfo : null,
+                infoPanelNodeInfo,
                 "Info",
                 pendingDraft is not null
                     ? "Hover a branch or tree node for details."
                     : "Hover a tree node for details.",
-                _infoPanelScroll),
+                _infoPanelScroll,
+                unlockAction),
             _statusMessage);
     }
 
@@ -386,149 +505,128 @@ public sealed class ResearchDraftController
         return cards;
     }
 
-    private ResearchNodeInfo? DrawSkillTreePanel(
-        ResearchDraftLayoutInfo layout,
-        GameSession session,
-        ResearchDraftSystem draftSystem,
-        GumUiRenderer gumUi)
-    {
-        var preview = _selectedBranchIndex is int selectedBranchIndex
-            ? BuildDragPreview(_pointerPoint, layout, session, draftSystem, selectedBranchIndex)
-            : ResearchDraftDragPreview.Empty;
-        if (_selectedBranchIndex is not null && !string.IsNullOrWhiteSpace(preview.StatusMessage))
-        {
-            _statusMessage = preview.StatusMessage;
-        }
-
-        var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
-        ResearchNodeInfo? hoverInfo = null;
-        if (_selectedBranchIndex is int activeBranchIndex &&
-            draftSystem.PendingDraft is not null &&
-            activeBranchIndex < draftSystem.PendingDraft.Branches.Count)
-        {
-            var branch = draftSystem.PendingDraft.Branches[activeBranchIndex];
-            if (preview.AnchorNode is not null)
-            {
-                hoverInfo = DrawProjectedPlacementPreview(metrics, session, branch, preview, gumUi);
-            }
-            else
-            {
-                hoverInfo = DrawPlacedTree(session, metrics, gumUi);
-                hoverInfo = DrawCursorBoundBranchPreview(metrics, session, branch, gumUi) ?? hoverInfo;
-            }
-        }
-        else
-        {
-            hoverInfo = DrawPlacedTree(session, metrics, gumUi);
-        }
-
-        return hoverInfo;
-    }
-
-    private ResearchNodeHoverDisplay? GetHoveredNodeDisplay(
+    private void UpdateSelectedBranchStatus(
         ResearchDraftLayoutInfo layout,
         GameSession session,
         ResearchDraftSystem draftSystem)
     {
-        var preview = _selectedBranchIndex is int selectedBranchIndex
-            ? BuildDragPreview(_pointerPoint, layout, session, draftSystem, selectedBranchIndex)
-            : ResearchDraftDragPreview.Empty;
-        var metrics = BuildTreeMetrics(layout.TreeViewportBounds, session.SkillTree);
-
-        var skillTreeHoverInfo = GetPlacedTreeHoverInfo(session, metrics);
-        ResearchNodeInfo? branchHoverInfo = null;
-        if (_selectedBranchIndex is int activeBranchIndex &&
-            draftSystem.PendingDraft is not null &&
-            activeBranchIndex < draftSystem.PendingDraft.Branches.Count)
+        if (_selectedBranchIndex is not int selectedBranchIndex)
         {
-            var branch = draftSystem.PendingDraft.Branches[activeBranchIndex];
-            if (preview.AnchorNode is TreeInstanceNode activeAnchor)
-            {
-                branchHoverInfo = GetProjectedPlacementHoverInfo(metrics, session, branch, activeAnchor) ?? branchHoverInfo;
-            }
-            else
-            {
-                branchHoverInfo = GetCursorBoundBranchHoverInfo(metrics, session, branch) ?? branchHoverInfo;
-            }
+            return;
         }
 
-        if (draftSystem.PendingDraft is not null)
+        var preview = BuildDragPreview(_pointerPoint, layout.TreeViewportBounds, session, draftSystem, selectedBranchIndex);
+        if (!string.IsNullOrWhiteSpace(preview.StatusMessage))
         {
-            branchHoverInfo = GetBranchCardHoverInfo(layout.BranchCardBounds, draftSystem.PendingDraft.Branches, session) ?? branchHoverInfo;
+            _statusMessage = preview.StatusMessage;
         }
-
-        var placement = ResolveHoverPlacement(
-            draftSystem.PendingDraft is not null,
-            skillTreeHoverInfo is not null,
-            branchHoverInfo is not null);
-        if (placement is not ResearchNodeHoverPlacement resolvedPlacement)
-        {
-            return null;
-        }
-
-        return branchHoverInfo is not null
-            ? new ResearchNodeHoverDisplay(branchHoverInfo.Value, resolvedPlacement)
-            : new ResearchNodeHoverDisplay(skillTreeHoverInfo!.Value, resolvedPlacement);
     }
 
-    private ResearchNodeInfo? DrawPlacedTree(
+    private bool ShouldPlacementOverlayReplaceTreeContent(
+        ResearchDraftLayoutInfo layout,
         GameSession session,
-        ResearchTreeViewportMetrics metrics,
-        GumUiRenderer gumUi,
-        ResearchTreeCollisionResult? collision = null)
+        ResearchDraftSystem draftSystem)
     {
-        if (session.SkillTree.Root is null)
+        if (_selectedBranchIndex is not int selectedBranchIndex)
         {
+            return false;
+        }
+
+        var preview = BuildDragPreview(_pointerPoint, layout.TreeViewportBounds, session, draftSystem, selectedBranchIndex);
+        return preview.AnchorNode is not null;
+    }
+
+    private ResearchNodeInfo? DrawDraftTreeOverlay(
+        Rectangle treeViewportBounds,
+        ResearchTreeViewportMetrics metrics,
+        GameSession session,
+        ResearchDraftSystem draftSystem,
+        GumUiRenderer gumUi,
+        double visualTimeMs)
+    {
+        ResearchDraftDragPreview preview = ResearchDraftDragPreview.Empty;
+        if (_selectedBranchIndex is not int activeBranchIndex ||
+            draftSystem.PendingDraft is null ||
+            activeBranchIndex >= draftSystem.PendingDraft.Branches.Count)
+        {
+            DrawBoundary(gumUi, metrics, _treeViewer.PanOffset, preview.Collision);
+            DrawSelectedSkillTreeNodeHighlight(gumUi, metrics, session, visualTimeMs);
             return null;
         }
 
-        var treeLayout = BuildPlacedTreeLayout(metrics, session.SkillTree.Root);
-        var hoveredNode = TryGetHoveredPlacedNode(metrics, treeLayout, out _);
-        for (var nodeIndex = 0; nodeIndex < treeLayout.Nodes.Count; nodeIndex++)
+        var branch = draftSystem.PendingDraft.Branches[activeBranchIndex];
+        preview = BuildDragPreview(_pointerPoint, treeViewportBounds, session, draftSystem, activeBranchIndex);
+        if (!string.IsNullOrWhiteSpace(preview.StatusMessage))
         {
-            var node = treeLayout.Nodes[nodeIndex];
-            if (node.Parent is null)
-            {
-                continue;
-            }
+            _statusMessage = preview.StatusMessage;
+        }
 
-            DrawClippedConnector(
+        DrawBoundary(gumUi, metrics, _treeViewer.PanOffset, preview.Collision);
+        return preview.AnchorNode is not null
+            ? DrawProjectedPlacementPreview(metrics, session, branch, preview, gumUi, visualTimeMs)
+            : DrawCursorBoundBranchPreview(metrics, session, branch, gumUi, visualTimeMs);
+    }
+
+    private static void DrawBoundary(
+        GumUiRenderer gumUi,
+        ResearchTreeViewportMetrics metrics,
+        Vector2 panOffset,
+        ResearchDraftPlacementCollision collision)
+    {
+        var offset = metrics.Origin + panOffset;
+        foreach (var segment in ResearchDraftBoundaryProfile.Default.CreateSegments(metrics.EdgeLength, offset))
+        {
+            DrawClippedLine(
                 gumUi,
                 metrics,
-                node.Parent.Position,
-                node.Position,
-                collision?.ContainsFixedLine(nodeIndex) == true
-                    ? WithAlpha(BranchCollisionColor, 240)
-                    : GetSkillTreeConnectorColor(node.SkillNode),
-                3,
-                metrics.NodeRadius + 2f,
-                metrics.NodeRadius + 2f);
+                segment.Start,
+                segment.End,
+                collision.ContainsBoundaryLine(segment.Id) ? BoundaryCollisionColor : BoundaryColor,
+                3);
+        }
+    }
+
+    private void DrawSelectedSkillTreeNodeHighlight(
+        GumUiRenderer gumUi,
+        ResearchTreeViewportMetrics metrics,
+        GameSession session,
+        double visualTimeMs)
+    {
+        if (_selectedSkillTreeNode is not TreeInstanceNode selectedNode ||
+            session.SkillTree.Root is null ||
+            !session.SkillTree.Contains(selectedNode))
+        {
+            return;
         }
 
-        for (var nodeIndex = 0; nodeIndex < treeLayout.Nodes.Count; nodeIndex++)
+        var layout = BuildPlacedTreeLayout(metrics, session.SkillTree.Root);
+        var selectedLayoutNode = FindLayoutNode(layout, selectedNode);
+        if (selectedLayoutNode is null ||
+            !IsNodeVisible(metrics, selectedLayoutNode.Position, metrics.NodeRadius + 12))
         {
-            var node = treeLayout.Nodes[nodeIndex];
-            if (!IsNodeVisible(metrics, node.Position, metrics.NodeRadius))
-            {
-                continue;
-            }
+            return;
+        }
 
-            var hasCollision = collision?.ContainsFixedNode(nodeIndex) == true;
-            DrawTreeNode(
-                gumUi,
-                node.Position,
+        if (TryGetHoveredPlacedNode(metrics, layout, _pointerPoint, out var hoveredNode, out _) &&
+            ReferenceEquals(hoveredNode, selectedNode))
+        {
+            return;
+        }
+
+        var drawPosition = selectedLayoutNode.Position;
+        if (selectedNode.CanUnlock())
+        {
+            drawPosition += ResearchTreeUiRenderer.CalculateAvailableNodeShakeOffset(
+                $"{selectedNode.SourceFeatureTreeName}:{selectedNode.Name}",
                 metrics.NodeRadius,
-                hasCollision ? WithAlpha(BranchCollisionColor, 235) : GetNodeFillColor(session, node.SkillNode),
-                hasCollision ? WithAlpha(BranchCollisionBorderColor, 255) : GetNodeBorderColor(session, node.SkillNode));
+                visualTimeMs);
         }
 
-        if (hoveredNode is TreeInstanceNode hovered)
-        {
-            DrawPlacedPrerequisiteHighlights(gumUi, metrics, session, hovered, treeLayout);
-            return BuildNodeHoverInfo(session, hovered);
-        }
-
-        return null;
+        ResearchTreeUiRenderer.DrawSelectedNodeHalo(
+            gumUi,
+            drawPosition,
+            metrics.NodeRadius,
+            visualTimeMs);
     }
 
     private ResearchNodeInfo? DrawProjectedPlacementPreview(
@@ -536,17 +634,18 @@ public sealed class ResearchDraftController
         GameSession session,
         ResearchBranch branch,
         ResearchDraftDragPreview preview,
-        GumUiRenderer gumUi)
+        GumUiRenderer gumUi,
+        double visualTimeMs)
     {
         if (session.SkillTree.Root is null || branch.Root is null || preview.AnchorNode is null)
         {
-            return DrawPlacedTree(session, metrics, gumUi);
+            return null;
         }
 
         var layout = BuildProjectedPlacementLayout(
             metrics.Origin,
             metrics.EdgeLength,
-            _treeViewport.PanOffset,
+            _treeViewer.PanOffset,
             session.SkillTree.Root,
             branch,
             preview.AnchorNode);
@@ -561,9 +660,10 @@ public sealed class ResearchDraftController
             }
 
             var isMovingLine = node.IsBranchNode || node.Parent.IsBranchNode;
+            var isFixedCollisionLine = !isMovingLine && preview.Collision.ContainsFixedLine(node.FixedNodeId);
             var lineColor = isMovingLine
                 ? GetBranchPreviewLineColor(preview, node.BranchNodeId)
-                : preview.Collision.ContainsFixedLine(node.FixedNodeId)
+                : isFixedCollisionLine
                     ? WithAlpha(BranchCollisionColor, 240)
                     : GetSkillTreeConnectorColor(node.SkillNode);
             var startInset = isMovingLine && !node.Parent.IsBranchNode
@@ -576,7 +676,7 @@ public sealed class ResearchDraftController
                 node.Parent.Position,
                 node.Position,
                 lineColor,
-                3,
+                ResearchTreeUiRenderer.DetailConnectorThickness,
                 startInset,
                 metrics.NodeRadius + 2f);
         }
@@ -601,12 +701,30 @@ public sealed class ResearchDraftController
             }
 
             var hasCollision = preview.Collision.ContainsFixedNode(node.FixedNodeId);
+            var isAvailable = !hasCollision && node.SkillNode.CanUnlock();
+            var drawPosition = node.Position;
+            if (isAvailable)
+            {
+                drawPosition += ResearchTreeUiRenderer.CalculateAvailableNodeShakeOffset(
+                    $"{node.SkillNode.SourceFeatureTreeName}:{node.SkillNode.Name}",
+                    metrics.NodeRadius,
+                    visualTimeMs);
+            }
+
             DrawTreeNode(
                 gumUi,
-                node.Position,
+                drawPosition,
                 metrics.NodeRadius,
                 hasCollision ? WithAlpha(BranchCollisionColor, 235) : GetNodeFillColor(session, node.SkillNode),
                 hasCollision ? WithAlpha(BranchCollisionBorderColor, 255) : GetNodeBorderColor(session, node.SkillNode));
+            if (!hasCollision && node.SkillNode.IsLocked && !node.SkillNode.CanUnlock() && metrics.NodeRadius >= 4)
+            {
+                ResearchTreeUiRenderer.DrawLockedNodeMarker(gumUi, drawPosition, metrics.NodeRadius);
+            }
+            else if (isAvailable)
+            {
+                ResearchTreeUiRenderer.DrawAvailableNodeMarker(gumUi, drawPosition, metrics.NodeRadius);
+            }
         }
 
         if (anchorLayout is not null && IsNodeVisible(metrics, anchorLayout.Position, metrics.NodeRadius + 5))
@@ -640,7 +758,7 @@ public sealed class ResearchDraftController
             return null;
         }
 
-        DrawProjectedPlacementHighlights(gumUi, metrics, branch, hoveredNode, layout);
+        DrawProjectedPlacementHighlights(gumUi, metrics, branch, hoveredNode, layout, visualTimeMs);
         return BuildNodeHoverInfo(session, hoveredNode.SkillNode);
     }
 
@@ -648,7 +766,8 @@ public sealed class ResearchDraftController
         ResearchTreeViewportMetrics metrics,
         GameSession session,
         ResearchBranch branch,
-        GumUiRenderer gumUi)
+        GumUiRenderer gumUi,
+        double visualTimeMs)
     {
         if (branch.Root is null)
         {
@@ -665,11 +784,27 @@ public sealed class ResearchDraftController
             var point = origin + node.LocalPosition;
             if (node.Parent is null)
             {
-                DrawClippedConnector(gumUi, metrics, origin, point, lineColor, 3, 7f, metrics.NodeRadius + 2f);
+                DrawClippedConnector(
+                    gumUi,
+                    metrics,
+                    origin,
+                    point,
+                    lineColor,
+                    ResearchTreeUiRenderer.DetailConnectorThickness,
+                    7f,
+                    metrics.NodeRadius + 2f);
                 continue;
             }
 
-            DrawClippedConnector(gumUi, metrics, origin + node.Parent.LocalPosition, point, lineColor, 3, metrics.NodeRadius + 2f, metrics.NodeRadius + 2f);
+            DrawClippedConnector(
+                gumUi,
+                metrics,
+                origin + node.Parent.LocalPosition,
+                point,
+                lineColor,
+                ResearchTreeUiRenderer.DetailConnectorThickness,
+                metrics.NodeRadius + 2f,
+                metrics.NodeRadius + 2f);
         }
 
         if (IsNodeVisible(metrics, origin, 5))
@@ -701,7 +836,8 @@ public sealed class ResearchDraftController
                 branchLayout,
                 origin,
                 branch,
-                hoveredBranchNode);
+                hoveredBranchNode,
+                visualTimeMs);
             if (session.SkillTree.Root is not null)
             {
                 DrawPlacedFeatureTreePrerequisiteHighlights(
@@ -720,7 +856,84 @@ public sealed class ResearchDraftController
 
     private ResearchTreeViewportMetrics BuildTreeMetrics(Rectangle bounds, SkillTree skillTree)
     {
-        return _treeViewport.BuildMetrics(bounds, skillTree);
+        if (skillTree.Root is null)
+        {
+            return new ResearchTreeViewportMetrics(
+                bounds,
+                bounds,
+                bounds.Center.ToVector2(),
+                0f,
+                0,
+                new ResearchTreeViewportBounds(0f, 0f, 0f, 0f));
+        }
+
+        var detailMetrics = ResearchTreeUiRenderer.CalculateDetailMetrics(
+            bounds,
+            ResearchTreeViewNode.FromSkillTree(skillTree),
+            _treeViewer.Zoom,
+            DraftTreeRenderConfig);
+        return ConvertToPlacementMetrics(detailMetrics);
+    }
+
+    private static ResearchTreeViewNode? BuildSkillTreeRoot(GameSession session)
+    {
+        return session.SkillTree.Root is null
+            ? null
+            : ResearchTreeViewNode.FromSkillTree(session.SkillTree);
+    }
+
+    private ResearchNodeInfo? BuildSelectedSkillTreeNodeInfo(GameSession session)
+    {
+        if (_selectedSkillTreeNode is not TreeInstanceNode selectedNode)
+        {
+            return null;
+        }
+
+        if (!session.SkillTree.Contains(selectedNode))
+        {
+            _selectedSkillTreeNode = null;
+            return null;
+        }
+
+        return BuildNodeHoverInfo(session, selectedNode);
+    }
+
+    private ResearchNodeUnlockActionModel? BuildSelectedSkillTreeUnlockAction(GameSession session)
+    {
+        if (_selectedSkillTreeNode is not TreeInstanceNode selectedNode)
+        {
+            return null;
+        }
+
+        if (!session.SkillTree.Contains(selectedNode))
+        {
+            _selectedSkillTreeNode = null;
+            return null;
+        }
+
+        var quote = SkillTreeUnlockSystem.GetUnlockQuote(session, selectedNode);
+        return new ResearchNodeUnlockActionModel(
+            quote.ResourceType,
+            quote.Available,
+            quote.Cost,
+            quote.CanUnlock,
+            selectedNode.IsUnlocked,
+            quote.BlockReason);
+    }
+
+    private static ResearchTreeViewportMetrics ConvertToPlacementMetrics(ResearchTreeDetailMetrics metrics)
+    {
+        return new ResearchTreeViewportMetrics(
+            metrics.Bounds,
+            metrics.ContentBounds,
+            metrics.Origin,
+            metrics.EdgeLength,
+            metrics.NodeRadius,
+            new ResearchTreeViewportBounds(
+                metrics.BaseBounds.MinX,
+                metrics.BaseBounds.MaxX,
+                metrics.BaseBounds.MinY,
+                metrics.BaseBounds.MaxY));
     }
 
     private ResearchDraftDragPreview BuildDragPreview(
@@ -730,126 +943,48 @@ public sealed class ResearchDraftController
         ResearchDraftSystem draftSystem,
         int branchIndex)
     {
+        return BuildDragPreview(point, layout.TreeViewportBounds, session, draftSystem, branchIndex);
+    }
+
+    private ResearchDraftDragPreview BuildDragPreview(
+        Point point,
+        Rectangle treeViewportBounds,
+        GameSession session,
+        ResearchDraftSystem draftSystem,
+        int branchIndex)
+    {
         if (draftSystem.PendingDraft is null || branchIndex < 0 || branchIndex >= draftSystem.PendingDraft.Branches.Count)
         {
-            return new ResearchDraftDragPreview(null, false, false, false, "That branch is no longer available.", ResearchTreeCollisionResult.Empty);
+            return new ResearchDraftDragPreview(null, false, false, false, "That branch is no longer available.", ResearchDraftPlacementCollision.Empty);
         }
 
         var branch = draftSystem.PendingDraft.Branches[branchIndex];
         if (branch.Root is null)
         {
-            return new ResearchDraftDragPreview(null, false, false, false, "That research branch is empty.", ResearchTreeCollisionResult.Empty);
+            return new ResearchDraftDragPreview(null, false, false, false, "That research branch is empty.", ResearchDraftPlacementCollision.Empty);
         }
 
-        if (!layout.TreeViewportBounds.Contains(point))
+        if (!treeViewportBounds.Contains(point))
         {
-            return new ResearchDraftDragPreview(null, false, false, false, SelectedBranchStatus, ResearchTreeCollisionResult.Empty);
+            return new ResearchDraftDragPreview(null, false, false, false, SelectedBranchStatus, ResearchDraftPlacementCollision.Empty);
         }
 
-        if (TryGetAnchorLocation(point, layout.TreeViewportBounds, session.SkillTree, out var anchorNode))
+        if (TryGetAnchorLocation(point, treeViewportBounds, session.SkillTree, out var anchorNode))
         {
-            var structurallyValid = session.SkillTree.CanPlaceResearchBranch(branch, anchorNode!, out var failureReason);
-            var collision = BuildPlacementCollision(layout.TreeViewportBounds, session.SkillTree, branch, anchorNode!);
-            var canPlace = structurallyValid && !collision.HasCollision;
+            var validation = ResearchDraftPlacementValidator.Validate(session.SkillTree, branch, anchorNode!);
+            var canPlace = validation.CanPlace;
             return new ResearchDraftDragPreview(
                 anchorNode,
                 canPlace,
-                structurallyValid,
+                validation.IsStructurallyValid,
                 true,
                 canPlace
                     ? "Click to graft this branch onto the tree."
-                    : collision.HasCollision
-                        ? "That branch collides with the existing tree."
-                        : failureReason ?? "That branch cannot be placed there.",
-                collision);
+                    : validation.FailureReason ?? "That branch cannot be placed there.",
+                validation.Collision);
         }
 
-        return new ResearchDraftDragPreview(null, false, false, true, "Drop the branch on the root anchor or an existing skill node.", ResearchTreeCollisionResult.Empty);
-    }
-
-    private ResearchTreeCollisionResult BuildPlacementCollision(
-        Rectangle treeBounds,
-        SkillTree skillTree,
-        ResearchBranch branch,
-        TreeInstanceNode anchorNode)
-    {
-        if (skillTree.Root is null || branch.Root is null)
-        {
-            return ResearchTreeCollisionResult.Empty;
-        }
-
-        var metrics = BuildTreeMetrics(treeBounds, skillTree);
-        var projectedLayout = BuildProjectedPlacementLayout(
-            metrics.Origin,
-            metrics.EdgeLength,
-            _treeViewport.PanOffset,
-            skillTree.Root,
-            branch,
-            anchorNode);
-        return DetectPlacementCollisions(projectedLayout, metrics.NodeRadius);
-    }
-
-    private static ResearchTreeCollisionResult DetectPlacementCollisions(
-        ProjectedTreeRenderLayout projectedLayout,
-        int nodeRadius)
-    {
-        var hitboxes = new List<ResearchTreeHitbox>(projectedLayout.Nodes.Count * 2);
-
-        for (var nodeIndex = 0; nodeIndex < projectedLayout.Nodes.Count; nodeIndex++)
-        {
-            var node = projectedLayout.Nodes[nodeIndex];
-            hitboxes.Add(ResearchTreeHitbox.Node(
-                GetProjectedNodeHitboxId(node),
-                GetProjectedNodeHitboxOwner(node),
-                node.Position,
-                nodeRadius));
-
-            if (node.Parent is null)
-            {
-                continue;
-            }
-
-            var isMovingLine = node.IsBranchNode || node.Parent.IsBranchNode;
-            var startInset = isMovingLine && !node.Parent.IsBranchNode
-                ? nodeRadius + 7f
-                : nodeRadius + 2f;
-            var start = node.Parent.Position;
-            var end = node.Position;
-            if (!TryInsetConnector(ref start, ref end, startInset, nodeRadius + 2f))
-            {
-                continue;
-            }
-
-            hitboxes.Add(ResearchTreeHitbox.Connector(
-                isMovingLine ? node.BranchNodeId : node.FixedNodeId,
-                isMovingLine ? ResearchTreeHitboxOwner.Moving : ResearchTreeHitboxOwner.Fixed,
-                start,
-                end,
-                thickness: 3,
-                GetProjectedNodeEndpoint(node.Parent),
-                GetProjectedNodeEndpoint(node)));
-        }
-
-        return ResearchTreeCollisionDetector.DetectHitboxes(
-            hitboxes,
-            includeFixedFixedPairs: true,
-            includeMovingMovingPairs: true,
-            padding: 2f);
-    }
-
-    private static int GetProjectedNodeHitboxId(ProjectedTreeRenderNode node)
-    {
-        return node.IsBranchNode ? node.BranchNodeId : node.FixedNodeId;
-    }
-
-    private static ResearchTreeHitboxOwner GetProjectedNodeHitboxOwner(ProjectedTreeRenderNode node)
-    {
-        return node.IsBranchNode ? ResearchTreeHitboxOwner.Moving : ResearchTreeHitboxOwner.Fixed;
-    }
-
-    private static ResearchTreeHitboxEndpoint GetProjectedNodeEndpoint(ProjectedTreeRenderNode node)
-    {
-        return new ResearchTreeHitboxEndpoint(GetProjectedNodeHitboxOwner(node), GetProjectedNodeHitboxId(node));
+        return new ResearchDraftDragPreview(null, false, false, true, "Drop the branch on the root anchor or an existing skill node.", ResearchDraftPlacementCollision.Empty);
     }
 
     private bool TryGetAnchorLocation(
@@ -886,6 +1021,56 @@ public sealed class ResearchDraftController
         }
 
         return bestDistanceSquared < float.MaxValue;
+    }
+
+    private bool TryGetPlacedSkillTreeNodeAtPoint(
+        Point point,
+        Rectangle treeBounds,
+        SkillTree skillTree,
+        out TreeInstanceNode? selectedNode)
+    {
+        selectedNode = null;
+        var metrics = BuildTreeMetrics(treeBounds, skillTree);
+        if (!metrics.ContentBounds.Contains(point) || skillTree.Root is null)
+        {
+            return false;
+        }
+
+        var treeLayout = BuildPlacedTreeLayout(metrics, skillTree.Root);
+        return TryGetHoveredPlacedNode(metrics, treeLayout, point, out selectedNode, out _);
+    }
+
+    private static bool TryGetHoveredPlacedNode(
+        ResearchTreeViewportMetrics metrics,
+        PlacedTreeRenderLayout layout,
+        Point point,
+        out TreeInstanceNode? hoveredNode,
+        out Vector2 center)
+    {
+        hoveredNode = null;
+        center = Vector2.Zero;
+        var hitRadius = metrics.NodeRadius + 6;
+        var hitRadiusSquared = hitRadius * hitRadius;
+        var bestDistanceSquared = float.MaxValue;
+        foreach (var node in layout.Nodes)
+        {
+            if (!IsNodeVisible(metrics, node.Position, metrics.NodeRadius))
+            {
+                continue;
+            }
+
+            var distanceSquared = Vector2.DistanceSquared(node.Position, point.ToVector2());
+            if (distanceSquared > hitRadiusSquared || distanceSquared >= bestDistanceSquared)
+            {
+                continue;
+            }
+
+            bestDistanceSquared = distanceSquared;
+            hoveredNode = node.SkillNode;
+            center = node.Position;
+        }
+
+        return hoveredNode is not null;
     }
 
     private static bool TryGetBranchCardSelection(
@@ -1004,12 +1189,13 @@ public sealed class ResearchDraftController
 
     private static void DrawTreeNode(GumUiRenderer gumUi, Vector2 center, int radius, Color fill, Color border)
     {
+        var borderThickness = ResearchTreeUiRenderer.CalculateDetailNodeBorderThickness(radius);
         var outerBounds = new Rectangle(
-            (int)MathF.Round(center.X - radius - 2),
-            (int)MathF.Round(center.Y - radius - 2),
-            (radius + 2) * 2,
-            (radius + 2) * 2);
-        gumUi.AddRoundedRectangle(outerBounds, border, radius + 2);
+            (int)MathF.Round(center.X - radius - borderThickness),
+            (int)MathF.Round(center.Y - radius - borderThickness),
+            (radius + borderThickness) * 2,
+            (radius + borderThickness) * 2);
+        gumUi.AddRoundedRectangle(outerBounds, border, radius + borderThickness);
 
         var innerBounds = new Rectangle(
             (int)MathF.Round(center.X - radius),
@@ -1017,206 +1203,6 @@ public sealed class ResearchDraftController
             radius * 2,
             radius * 2);
         gumUi.AddRoundedRectangle(innerBounds, fill, radius);
-    }
-
-    private static void DrawTiledTreeBackground(
-        GumUiRenderer gumUi,
-        Rectangle bounds,
-        Texture2D? texture,
-        int cornerRadius,
-        Vector2 panOffset = default,
-        float zoom = 1f,
-        Vector2? surfaceOrigin = null)
-    {
-        if (texture is null || bounds.Width <= 0 || bounds.Height <= 0 || texture.Width <= 0 || texture.Height <= 0)
-        {
-            return;
-        }
-
-        var clipLayer = gumUi.AddClippingContainer(bounds);
-        var tileSize = CalculateTreeBackgroundTileSize(texture, zoom);
-        var columns = Math.Max(1, (int)MathF.Ceiling(bounds.Width / (float)tileSize.X) + 2);
-        var rows = Math.Max(1, (int)MathF.Ceiling(bounds.Height / (float)tileSize.Y) + 2);
-        var anchoredOrigin = (surfaceOrigin ?? bounds.Location.ToVector2()) + panOffset;
-        var startX = CalculateTreeBackgroundStartCoordinate(bounds.Left, anchoredOrigin.X, tileSize.X);
-        var startY = CalculateTreeBackgroundStartCoordinate(bounds.Top, anchoredOrigin.Y, tileSize.Y);
-
-        if (cornerRadius <= 0)
-        {
-            DrawFullBackgroundTiles(gumUi, clipLayer, bounds, texture, tileSize, columns, rows, startX, startY);
-            return;
-        }
-
-        foreach (var maskBand in EnumerateRoundedClipBands(bounds, cornerRadius))
-        {
-            for (var row = 0; row < rows; row++)
-            {
-                for (var column = 0; column < columns; column++)
-                {
-                    var tileBounds = new Rectangle(
-                        startX + (column * tileSize.X),
-                        startY + (row * tileSize.Y),
-                        tileSize.X,
-                        tileSize.Y);
-                    var visibleBounds = Rectangle.Intersect(maskBand, tileBounds);
-                    if (visibleBounds.Width <= 0 || visibleBounds.Height <= 0)
-                    {
-                        continue;
-                    }
-
-                    gumUi.AddSprite(
-                        clipLayer,
-                        new Rectangle(
-                            visibleBounds.X - bounds.X,
-                            visibleBounds.Y - bounds.Y,
-                            visibleBounds.Width,
-                            visibleBounds.Height),
-                        texture,
-                        CalculateTreeBackgroundSourceRectangle(texture, tileBounds, visibleBounds),
-                        Color.White);
-                }
-            }
-        }
-    }
-
-    private static void DrawFullBackgroundTiles(
-        GumUiRenderer gumUi,
-        ContainerRuntime clipLayer,
-        Rectangle bounds,
-        Texture2D texture,
-        Point tileSize,
-        int columns,
-        int rows,
-        int startX,
-        int startY)
-    {
-        for (var row = 0; row < rows; row++)
-        {
-            for (var column = 0; column < columns; column++)
-            {
-                gumUi.AddSprite(
-                    clipLayer,
-                    new Rectangle(
-                        startX + (column * tileSize.X) - bounds.X,
-                        startY + (row * tileSize.Y) - bounds.Y,
-                        tileSize.X,
-                        tileSize.Y),
-                    texture,
-                    new Rectangle(0, 0, texture.Width, texture.Height),
-                    Color.White);
-            }
-        }
-    }
-
-    private static IEnumerable<Rectangle> EnumerateRoundedClipBands(Rectangle bounds, int cornerRadius)
-    {
-        var radius = Math.Clamp(cornerRadius, 0, Math.Min(bounds.Width, bounds.Height) / 2);
-        if (radius <= 0)
-        {
-            yield return bounds;
-            yield break;
-        }
-
-        var bandStart = bounds.Y;
-        var previousInset = CalculateRoundedClipInset(0, bounds.Height, radius);
-        for (var row = 1; row < bounds.Height; row++)
-        {
-            var inset = CalculateRoundedClipInset(row, bounds.Height, radius);
-            if (inset == previousInset)
-            {
-                continue;
-            }
-
-            var band = BuildRoundedClipBand(bounds, bandStart, row, previousInset);
-            if (band.Width > 0 && band.Height > 0)
-            {
-                yield return band;
-            }
-
-            bandStart = bounds.Y + row;
-            previousInset = inset;
-        }
-
-        var finalBand = BuildRoundedClipBand(bounds, bandStart, bounds.Height, previousInset);
-        if (finalBand.Width > 0 && finalBand.Height > 0)
-        {
-            yield return finalBand;
-        }
-    }
-
-    private static Rectangle BuildRoundedClipBand(Rectangle bounds, int bandStartY, int endRow, int inset)
-    {
-        return new Rectangle(
-            bounds.X + inset,
-            bandStartY,
-            Math.Max(0, bounds.Width - (inset * 2)),
-            bounds.Y + endRow - bandStartY);
-    }
-
-    private static int CalculateRoundedClipInset(int row, int height, int radius)
-    {
-        var distanceFromTop = row + 0.5f;
-        var distanceFromBottom = height - row - 0.5f;
-        var distanceIntoCorner = MathF.Min(distanceFromTop, distanceFromBottom);
-        if (distanceIntoCorner >= radius)
-        {
-            return 0;
-        }
-
-        var yFromCornerCenter = radius - distanceIntoCorner;
-        var xFromCornerCenter = MathF.Sqrt(MathF.Max(0f, (radius * radius) - (yFromCornerCenter * yFromCornerCenter)));
-        return (int)MathF.Ceiling(radius - xFromCornerCenter);
-    }
-
-    private static Point CalculateTreeBackgroundTileSize(Texture2D texture)
-    {
-        return CalculateTreeBackgroundTileSize(texture, 1f);
-    }
-
-    private static Point CalculateTreeBackgroundTileSize(Texture2D texture, float zoom)
-    {
-        var scale = ResearchTreeViewportState.ClampZoom(zoom);
-        return new Point(
-            Math.Max(1, (int)MathF.Round(texture.Width * scale)),
-            Math.Max(1, (int)MathF.Round(texture.Height * scale)));
-    }
-
-    internal static int CalculateTreeBackgroundStartCoordinate(int viewportMinimum, float surfaceOrigin, int tileLength)
-    {
-        if (tileLength <= 0)
-        {
-            return viewportMinimum;
-        }
-
-        var tileOffset = MathF.Floor((viewportMinimum - surfaceOrigin) / tileLength) * tileLength;
-        return (int)MathF.Round(surfaceOrigin + tileOffset);
-    }
-
-    private static Rectangle CalculateTreeBackgroundSourceRectangle(Texture2D texture, Rectangle tileBounds, Rectangle visibleBounds)
-    {
-        var sourceLeft = MapTileCoordinateToSource(visibleBounds.Left - tileBounds.Left, tileBounds.Width, texture.Width, roundUp: false);
-        var sourceTop = MapTileCoordinateToSource(visibleBounds.Top - tileBounds.Top, tileBounds.Height, texture.Height, roundUp: false);
-        var sourceRight = MapTileCoordinateToSource(visibleBounds.Right - tileBounds.Left, tileBounds.Width, texture.Width, roundUp: true);
-        var sourceBottom = MapTileCoordinateToSource(visibleBounds.Bottom - tileBounds.Top, tileBounds.Height, texture.Height, roundUp: true);
-        sourceLeft = Math.Clamp(sourceLeft, 0, texture.Width - 1);
-        sourceTop = Math.Clamp(sourceTop, 0, texture.Height - 1);
-        sourceRight = Math.Clamp(sourceRight, sourceLeft + 1, texture.Width);
-        sourceBottom = Math.Clamp(sourceBottom, sourceTop + 1, texture.Height);
-
-        return new Rectangle(sourceLeft, sourceTop, sourceRight - sourceLeft, sourceBottom - sourceTop);
-    }
-
-    private static int MapTileCoordinateToSource(int tileCoordinate, int tileLength, int textureLength, bool roundUp)
-    {
-        if (tileLength <= 0)
-        {
-            return 0;
-        }
-
-        var sourceCoordinate = tileCoordinate * (textureLength / (float)tileLength);
-        return roundUp
-            ? (int)MathF.Ceiling(sourceCoordinate)
-            : (int)MathF.Floor(sourceCoordinate);
     }
 
     private static void DrawCrispConnector(
@@ -1261,6 +1247,22 @@ public sealed class ResearchDraftController
         gumUi.AddLine(PixelSnap(start), PixelSnap(end), color, thickness);
     }
 
+    private static void DrawClippedLine(
+        GumUiRenderer gumUi,
+        ResearchTreeViewportMetrics metrics,
+        Vector2 start,
+        Vector2 end,
+        Color color,
+        int thickness)
+    {
+        if (!TryClipLineToBounds(metrics.ContentBounds, ref start, ref end))
+        {
+            return;
+        }
+
+        DrawCrispLine(gumUi, start, end, color, thickness);
+    }
+
     private static Vector2 PixelSnap(Vector2 point)
     {
         return new Vector2(MathF.Round(point.X), MathF.Round(point.Y));
@@ -1275,7 +1277,7 @@ public sealed class ResearchDraftController
 
     private PlacedTreeRenderLayout BuildPlacedTreeLayout(ResearchTreeViewportMetrics metrics, TreeInstanceNode root)
     {
-        return BuildPlacedTreeLayout(metrics.Origin, metrics.EdgeLength, _treeViewport.PanOffset, root);
+        return BuildPlacedTreeLayout(metrics.Origin, metrics.EdgeLength, _treeViewer.PanOffset, root);
     }
 
     private static PlacedTreeRenderLayout BuildPlacedTreeLayout(Vector2 origin, float edgeLength, Vector2 panOffset, TreeInstanceNode root)
@@ -1446,82 +1448,6 @@ public sealed class ResearchDraftController
         return null;
     }
 
-    private static PlacedTreeRenderNode? FindLayoutNodeBySkillNode(PlacedTreeRenderLayout layout, TreeInstanceNode node)
-    {
-        return layout.Nodes.FirstOrDefault(existing => ReferenceEquals(existing.SkillNode, node));
-    }
-
-    private TreeInstanceNode? TryGetHoveredPlacedNode(ResearchTreeViewportMetrics metrics, PlacedTreeRenderLayout layout, out Vector2 center)
-    {
-        center = Vector2.Zero;
-        var hitRadius = metrics.NodeRadius + 6;
-        var hitRadiusSquared = hitRadius * hitRadius;
-        var bestDistanceSquared = float.MaxValue;
-        TreeInstanceNode? hovered = null;
-        foreach (var node in layout.Nodes)
-        {
-            var point = node.Position;
-            if (!IsNodeVisible(metrics, point, metrics.NodeRadius))
-            {
-                continue;
-            }
-
-            var distanceSquared = Vector2.DistanceSquared(point, _pointerPoint.ToVector2());
-            if (distanceSquared > hitRadiusSquared || distanceSquared >= bestDistanceSquared)
-            {
-                continue;
-            }
-
-            bestDistanceSquared = distanceSquared;
-            hovered = node.SkillNode;
-            center = point;
-        }
-
-        return hovered;
-    }
-
-    private ResearchNodeInfo? GetPlacedTreeHoverInfo(GameSession session, ResearchTreeViewportMetrics metrics)
-    {
-        if (session.SkillTree.Root is null)
-        {
-            return null;
-        }
-
-        var hoveredNode = TryGetHoveredPlacedNode(metrics, BuildPlacedTreeLayout(metrics, session.SkillTree.Root), out _);
-        return hoveredNode is null ? null : BuildNodeHoverInfo(session, hoveredNode);
-    }
-
-    private ResearchNodeInfo? GetProjectedPlacementHoverInfo(
-        ResearchTreeViewportMetrics metrics,
-        GameSession session,
-        ResearchBranch branch,
-        TreeInstanceNode anchorNode)
-    {
-        if (session.SkillTree.Root is null || branch.Root is null)
-        {
-            return null;
-        }
-
-        var projectedLayout = BuildProjectedPlacementLayout(
-            metrics.Origin,
-            metrics.EdgeLength,
-            _treeViewport.PanOffset,
-            session.SkillTree.Root,
-            branch,
-            anchorNode);
-        var hoveredNode = TryGetHoveredProjectedNode(metrics, projectedLayout, out _);
-        return hoveredNode is null ? null : BuildNodeHoverInfo(session, hoveredNode.SkillNode);
-    }
-
-    private ResearchNodeInfo? GetCursorBoundBranchHoverInfo(
-        ResearchTreeViewportMetrics metrics,
-        GameSession session,
-        ResearchBranch branch)
-    {
-        var hoveredNode = TryGetHoveredBranchNode(metrics, BuildBranchLayout(branch, metrics.EdgeLength), _pointerPoint.ToVector2(), out _);
-        return hoveredNode is null ? null : BuildNodeHoverInfo(session, hoveredNode);
-    }
-
     private ResearchNodeInfo? GetBranchCardHoverInfo(
         IReadOnlyList<Rectangle> cardBounds,
         IReadOnlyList<ResearchBranch> branches,
@@ -1630,30 +1556,24 @@ public sealed class ResearchDraftController
         return hovered;
     }
 
-    private void DrawPlacedPrerequisiteHighlights(
-        GumUiRenderer gumUi,
-        ResearchTreeViewportMetrics metrics,
-        GameSession session,
-        TreeInstanceNode hoveredNode,
-        PlacedTreeRenderLayout layout)
-    {
-        var hoveredLayoutNode = FindLayoutNode(layout, hoveredNode);
-        if (hoveredLayoutNode is not null)
-        {
-            DrawNodeOutline(gumUi, hoveredLayoutNode.Position, metrics.NodeRadius, new Color(255, 255, 255, 240), 6, 2);
-        }
-
-        DrawPlacedFeatureTreePrerequisiteHighlights(gumUi, metrics, session, hoveredNode, branch: null, layout);
-    }
-
     private void DrawProjectedPlacementHighlights(
         GumUiRenderer gumUi,
         ResearchTreeViewportMetrics metrics,
         ResearchBranch branch,
         ProjectedTreeRenderNode hoveredNode,
-        ProjectedTreeRenderLayout layout)
+        ProjectedTreeRenderLayout layout,
+        double visualTimeMs)
     {
-        DrawNodeOutline(gumUi, hoveredNode.Position, metrics.NodeRadius, new Color(255, 255, 255, 240), 6, 2);
+        var hoveredPosition = hoveredNode.Position;
+        if (!hoveredNode.IsBranchNode && hoveredNode.SkillNode.CanUnlock())
+        {
+            hoveredPosition += ResearchTreeUiRenderer.CalculateAvailableNodeShakeOffset(
+                $"{hoveredNode.SkillNode.SourceFeatureTreeName}:{hoveredNode.SkillNode.Name}",
+                metrics.NodeRadius,
+                visualTimeMs);
+        }
+
+        ResearchTreeUiRenderer.DrawHoveredNodeHalo(gumUi, hoveredPosition, metrics.NodeRadius, visualTimeMs);
         if (string.IsNullOrWhiteSpace(hoveredNode.SkillNode.SourceFeatureTreeName))
         {
             return;
@@ -1686,9 +1606,10 @@ public sealed class ResearchDraftController
         Vector2 origin,
         ResearchBranch branch,
         TreeInstanceNode hoveredNode,
+        double visualTimeMs,
         Predicate<Vector2>? isVisible = null)
     {
-        DrawFloatingBranchPrerequisiteHighlights(gumUi, branch, hoveredNode, radius, layout, origin, isVisible);
+        DrawFloatingBranchPrerequisiteHighlights(gumUi, branch, hoveredNode, radius, layout, origin, visualTimeMs, isVisible);
     }
 
     private void DrawPlacedFeatureTreePrerequisiteHighlights(
@@ -1741,6 +1662,7 @@ public sealed class ResearchDraftController
         int radius,
         BranchRenderLayout layout,
         Vector2 origin,
+        double visualTimeMs,
         Predicate<Vector2>? isVisible = null)
     {
         var hoveredLayoutNode = FindLayoutNode(layout, hoveredNode);
@@ -1752,7 +1674,7 @@ public sealed class ResearchDraftController
         var hoveredPoint = origin + hoveredLayoutNode.LocalPosition;
         if (isVisible is null || isVisible(hoveredPoint))
         {
-            DrawNodeOutline(gumUi, hoveredPoint, radius, new Color(255, 255, 255, 240), 6, 2);
+            ResearchTreeUiRenderer.DrawHoveredNodeHalo(gumUi, hoveredPoint, radius, visualTimeMs);
         }
 
         if (string.IsNullOrWhiteSpace(hoveredNode.SourceFeatureTreeName))
@@ -1822,7 +1744,10 @@ public sealed class ResearchDraftController
     internal static Color GetSkillTreeConnectorColor(TreeInstanceNode child)
     {
         ArgumentNullException.ThrowIfNull(child);
-        return child.IsUnlocked ? UnlockedSkillTreeConnectorColor : LockedSkillTreeConnectorColor;
+        return ResearchTreeUiRenderer.ResolveConnectorColor(
+            child.IsUnlocked,
+            child.CanUnlock(),
+            showsProgressState: true);
     }
 
     internal static ResearchNodeHoverPlacement? ResolveHoverPlacement(
@@ -1858,18 +1783,21 @@ public sealed class ResearchDraftController
         return prerequisites;
     }
 
-    private static Rectangle Inset(Rectangle bounds, int inset)
-    {
-        return new Rectangle(
-            bounds.X + inset,
-            bounds.Y + inset,
-            Math.Max(0, bounds.Width - (inset * 2)),
-            Math.Max(0, bounds.Height - (inset * 2)));
-    }
-
     private static string BuildDefaultStatus(ResearchDraftSystem draftSystem)
     {
         return draftSystem.HasPendingDraft ? PendingStatus : EmptyStatus;
+    }
+
+    private static string BuildUnlockFailureStatus(SkillTreeUnlockBlockReason reason)
+    {
+        return reason switch
+        {
+            SkillTreeUnlockBlockReason.AlreadyUnlocked => "That node is already unlocked.",
+            SkillTreeUnlockBlockReason.NoPathToNode => "No path to node.",
+            SkillTreeUnlockBlockReason.NotEnoughResources => "Not enough resources to unlock.",
+            SkillTreeUnlockBlockReason.NotInTree => "That node is not in the skill tree.",
+            _ => "That node cannot be unlocked."
+        };
     }
 
     private static string BuildDraftSubtitle(ResearchDraftOffer pendingDraft)
@@ -1881,10 +1809,9 @@ public sealed class ResearchDraftController
 
     private static string BuildBranchCardTitle(ResearchBranch branch, int branchIndex)
     {
-        var sourceTreeName = branch.Root?.SourceFeatureTreeName;
-        return string.IsNullOrWhiteSpace(sourceTreeName)
+        return string.IsNullOrWhiteSpace(branch.Name)
             ? $"Branch {branchIndex + 1}"
-            : sourceTreeName;
+            : branch.Name;
     }
 
     private static string BuildBranchCardSubtitle(GameSession session, ResearchBranch branch)
@@ -1893,7 +1820,7 @@ public sealed class ResearchDraftController
         if (!string.IsNullOrWhiteSpace(sourceTreeName) &&
             session.GetFeatureTree(sourceTreeName) is FeatureTree featureTree)
         {
-            return $"Tier {featureTree.Tier}";
+            return $"{featureTree.DisplayName} - Tier {featureTree.Tier}";
         }
 
         return $"{branch.Count} nodes";
@@ -1907,26 +1834,22 @@ public sealed class ResearchDraftController
 
     private static Color GetNodeFillColor(GameSession session, TreeInstanceNode node)
     {
-        if (node.IsRoot && string.IsNullOrWhiteSpace(node.SourceFeatureTreeName))
-        {
-            return new Color(18, 22, 26);
-        }
-
-        var baseColor = ResearchTreeColorResolver.GetBaseFeatureColor(session, node.SourceFeatureTreeName);
-        return node.IsUnlocked
-            ? baseColor
-            : Color.Lerp(new Color(32, 38, 43), baseColor, 0.8f);
+        return ResearchTreeUiRenderer.ResolveNodeFillColor(
+            session,
+            node.SourceFeatureTreeName,
+            node.IsUnlocked,
+            node.CanUnlock(),
+            showsProgressState: true);
     }
 
     private static Color GetNodeBorderColor(GameSession session, TreeInstanceNode node)
     {
-        if (node.IsRoot && string.IsNullOrWhiteSpace(node.SourceFeatureTreeName))
-        {
-            return new Color(230, 238, 244);
-        }
-
-        var fill = ResearchTreeColorResolver.GetBaseFeatureColor(session, node.SourceFeatureTreeName);
-        return Color.Lerp(fill, Color.White, 0.38f);
+        return ResearchTreeUiRenderer.ResolveNodeBorderColor(
+            session,
+            node.SourceFeatureTreeName,
+            node.IsUnlocked,
+            node.CanUnlock(),
+            showsProgressState: true);
     }
 
     private static Color GetBranchNodePreviewColor(GameSession session, TreeInstanceNode node)
@@ -1994,7 +1917,7 @@ public sealed class ResearchDraftController
         bool IsStructurallyValid,
         bool IsHoveringTree,
         string StatusMessage,
-        ResearchTreeCollisionResult Collision)
+        ResearchDraftPlacementCollision Collision)
     {
         public static ResearchDraftDragPreview Empty => new(
             null,
@@ -2002,7 +1925,7 @@ public sealed class ResearchDraftController
             false,
             false,
             string.Empty,
-            ResearchTreeCollisionResult.Empty);
+            ResearchDraftPlacementCollision.Empty);
     }
 
     private sealed record PlacedTreeRenderNode(

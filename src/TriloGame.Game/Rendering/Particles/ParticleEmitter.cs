@@ -1,6 +1,5 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Rendering.Particles;
 
@@ -66,32 +65,45 @@ public sealed class ParticleEmitter
 
         for (var index = 0; index < particleCount; index++)
         {
-            var position = worldOrigin + RandomInCircle(settings.SpawnJitterPixels);
-            var velocityDirection = Rotate(normalizedDirection, NextRange(-settings.DirectionalSpreadRadians, settings.DirectionalSpreadRadians));
-            if (velocityDirection == Vector2.Zero)
+            if (!TryEmitParticle(
+                    worldOrigin + RandomInCircle(settings.SpawnJitterPixels),
+                    normalizedDirection,
+                    texture,
+                    settings,
+                    settings.StartColor,
+                    settings.EndColor))
             {
-                velocityDirection = RandomUnitVector();
+                break;
             }
 
-            var speed = NextRange(settings.MinSpeed, settings.MaxSpeed);
-            var drift = RandomInCircle(settings.DriftAmount);
-            var particle = Particle.Create(
-                position,
-                (velocityDirection * speed) + drift,
-                NextRange(settings.MinLifetimeSeconds, settings.MaxLifetimeSeconds),
-                settings.Drag,
-                texture,
-                settings.SourceRectangle,
-                settings.StartColor,
-                settings.EndColor,
-                settings.StartScale,
-                settings.EndScale,
-                settings.FadeOutFraction,
-                NextRange(0f, MathF.Tau),
-                NextRange(settings.MinRotationSpeed, settings.MaxRotationSpeed),
-                settings.BlendMode);
+            emitted++;
+        }
 
-            if (!_particleSystem.TryAdd(particle))
+        return emitted;
+    }
+
+    public int EmitFromCircleEdge(
+        Vector2 center,
+        float radius,
+        Texture2D texture,
+        Color startColor,
+        Color endColor,
+        ParticleSpraySettings settings,
+        int particleCount)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (particleCount <= 0)
+        {
+            return 0;
+        }
+
+        var emitted = 0;
+        var safeRadius = MathF.Max(0f, radius);
+        for (var index = 0; index < particleCount; index++)
+        {
+            var outwardDirection = RandomUnitVector();
+            var position = center + (outwardDirection * safeRadius) + RandomInCircle(settings.SpawnJitterPixels);
+            if (!TryEmitParticle(position, outwardDirection, texture, settings, startColor, endColor))
             {
                 break;
             }
@@ -123,16 +135,40 @@ public sealed class ParticleEmitter
         }
     }
 
-    private static float NextRange(float minValue, float maxValue)
+    private bool TryEmitParticle(
+        Vector2 position,
+        Vector2 outwardDirection,
+        Texture2D texture,
+        ParticleSpraySettings settings,
+        Color startColor,
+        Color endColor)
     {
-        var safeMin = MathF.Min(minValue, maxValue);
-        var safeMax = MathF.Max(minValue, maxValue);
-        if (MathF.Abs(safeMax - safeMin) <= float.Epsilon)
+        var velocityDirection = Rotate(outwardDirection, RenderingRandom.NextRange(-settings.DirectionalSpreadRadians, settings.DirectionalSpreadRadians));
+        if (velocityDirection == Vector2.Zero)
         {
-            return safeMin;
+            velocityDirection = RandomUnitVector();
         }
 
-        return safeMin + ((float)RandomUtil.NextDouble() * (safeMax - safeMin));
+        var speed = RenderingRandom.NextRange(settings.MinSpeed, settings.MaxSpeed);
+        var drift = RandomInCircle(settings.DriftAmount);
+        var particle = Particle.Create(
+            position,
+            (velocityDirection * speed) + drift,
+            RenderingRandom.NextRange(settings.MinLifetimeSeconds, settings.MaxLifetimeSeconds),
+            settings.Drag,
+            settings.BrownianMotion,
+            texture,
+            settings.SourceRectangle,
+            startColor,
+            endColor,
+            settings.StartScale,
+            settings.EndScale,
+            settings.FadeOutFraction,
+            RenderingRandom.NextRange(0f, MathF.Tau),
+            RenderingRandom.NextRange(settings.MinRotationSpeed, settings.MaxRotationSpeed),
+            settings.BlendMode);
+
+        return _particleSystem.TryAdd(particle);
     }
 
     private static Vector2 RandomInCircle(float radius)
@@ -142,14 +178,14 @@ public sealed class ParticleEmitter
             return Vector2.Zero;
         }
 
-        var angle = NextRange(0f, MathF.Tau);
-        var distance = radius * MathF.Sqrt((float)RandomUtil.NextDouble());
+        var angle = RenderingRandom.NextRange(0f, MathF.Tau);
+        var distance = radius * MathF.Sqrt(RenderingRandom.NextUnit());
         return new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
     }
 
     private static Vector2 RandomUnitVector()
     {
-        var angle = NextRange(0f, MathF.Tau);
+        var angle = RenderingRandom.NextRange(0f, MathF.Tau);
         return new Vector2(MathF.Cos(angle), MathF.Sin(angle));
     }
 

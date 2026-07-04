@@ -2,6 +2,7 @@ namespace TriloGame.Game.Core.Economy;
 
 public sealed record OreType(string Name)
 {
+    public static readonly OreType ALGAE = new("Algae");
     public static readonly OreType SANDSTONE = new("Sandstone");
     public static readonly OreType LUMENITE = new("Lumenite");
     public static readonly OreType CHITINSTONE = new("Chitinstone");

@@ -10,6 +10,7 @@ public struct Particle
     public float AgeSeconds;
     public float LifetimeSeconds;
     public float Drag;
+    public float BrownianMotion;
     public float Rotation;
     public float RotationSpeed;
     public float StartScale;
@@ -29,6 +30,7 @@ public struct Particle
         Vector2 velocity,
         float lifetimeSeconds,
         float drag,
+        float brownianMotion,
         Texture2D? texture,
         Rectangle? sourceRectangle,
         Color startColor,
@@ -50,6 +52,7 @@ public struct Particle
             AgeSeconds = 0f,
             LifetimeSeconds = MathF.Max(0.001f, lifetimeSeconds),
             Drag = MathF.Max(0f, drag),
+            BrownianMotion = MathF.Max(0f, brownianMotion),
             Rotation = rotation,
             RotationSpeed = rotationSpeed,
             StartScale = startScale,
@@ -78,6 +81,14 @@ public struct Particle
         }
 
         Position += Velocity * elapsedSeconds;
+
+        if (BrownianMotion > 0f)
+        {
+            var angle = RenderingRandom.NextRange(0f, MathF.Tau);
+            var scale = BrownianMotion * MathF.Sqrt(elapsedSeconds);
+            Position += new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * scale;
+        }
+
         Rotation += RotationSpeed * elapsedSeconds;
     }
 

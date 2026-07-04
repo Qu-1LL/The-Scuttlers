@@ -41,7 +41,7 @@ public sealed class ResearchBranchGenerator
         var branches = new List<ResearchBranch>(branchCount);
         for (var branchIndex = 0; branchIndex < branchCount; branchIndex++)
         {
-            branches.Add(BuildBranch(nodesPerBranch, weightedPool, registry, existingKeys));
+            branches.Add(BuildBranch(branchIndex, nodesPerBranch, weightedPool, registry, existingKeys));
         }
 
         return new ResearchBranchGenerationResult(branches, candidateScores, availableNodeCount);
@@ -110,12 +110,13 @@ public sealed class ResearchBranchGenerator
     }
 
     private ResearchBranch BuildBranch(
+        int branchIndex,
         int nodesPerBranch,
         IReadOnlyList<TemplateNodeKey> weightedPool,
         IReadOnlyDictionary<TemplateNodeKey, TemplateNodeEntry> registry,
         IReadOnlySet<TemplateNodeKey> existingKeys)
     {
-        var branch = new ResearchBranch();
+        var branch = new ResearchBranch(GetGeneratedBranchName(branchIndex));
         var pool = weightedPool.ToList();
         Shuffle(pool);
 
@@ -148,6 +149,21 @@ public sealed class ResearchBranchGenerator
         }
 
         return branch;
+    }
+
+    private static string GetGeneratedBranchName(int branchIndex)
+    {
+        string[] names =
+        [
+            "Moonlit Sprig",
+            "Amber Fork",
+            "Saltglass Tendril",
+            "Echoing Spur",
+            "Mossbound Crown",
+            "Dawncarved Root"
+        ];
+
+        return names[Math.Abs(branchIndex) % names.Length];
     }
 
     private TemplateNodeEntry? SelectRootNode(

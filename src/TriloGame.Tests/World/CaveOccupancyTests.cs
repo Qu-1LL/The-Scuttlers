@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -102,6 +103,43 @@ public sealed class CaveOccupancyTests
         Assert.Contains(placement.Cells, cell =>
             cell.Location == missingLocation &&
             (cell.FailureReasons & BuildPlacementFailureReason.MissingTile) != BuildPlacementFailureReason.None);
+    }
+
+    [Fact]
+    public void EvaluateBuildPlacement_ReportsMissingOptionalFootprintTiles()
+    {
+        var (session, cave) = TestWorldFactory.CreateRectangularSession(4, 4);
+        var building = new OptionalFootprintBuilding(session);
+        var location = new GridPoint(3, 1);
+
+        var placement = cave.EvaluateBuildPlacement(building, location);
+
+        Assert.False(placement.CanBuild);
+        Assert.Contains(placement.Cells, cell =>
+            cell.Location == new GridPoint(4, 1) &&
+            !cell.Required &&
+            (cell.FailureReasons & BuildPlacementFailureReason.MissingTile) != BuildPlacementFailureReason.None);
+        Assert.False(cave.Build(building, location));
+    }
+
+    [Fact]
+    public void RemoveBuilding_DoesNotRestorePassabilityForOptionalUnownedFootprintTiles()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(16, 12, new GridPoint(1, 1));
+        var optionalLocation = new GridPoint(10, 4);
+        var optionalTile = SetWallTile(cave, optionalLocation);
+        var turret = new Turret(session);
+        var buildLocation = new GridPoint(8, 4);
+
+        Assert.True(cave.Build(turret, buildLocation));
+        Assert.Null(optionalTile.Built);
+
+        Assert.True(cave.RemoveBuilding(turret));
+
+        Assert.Equal("wall", optionalTile.Base);
+        Assert.False(optionalTile.CreatureCanFit);
+        Assert.False(optionalTile.CreatureFits());
+        Assert.Null(optionalTile.Built);
     }
 
     [Fact]
@@ -226,5 +264,23 @@ public sealed class CaveOccupancyTests
         Assert.DoesNotContain(enemy, enemyField.UpdatedCreatures);
         Assert.Empty(enemyField.GetField(false));
         Assert.Equal(int.MaxValue, enemyField.GetFieldValue(trilobite.Location, refresh: false));
+    }
+
+    private static Tile SetWallTile(Cave cave, GridPoint location)
+    {
+        var tile = cave.GetTile(location)
+            ?? throw new InvalidOperationException($"Expected tile at {location}.");
+        tile.SetBase("wall");
+        tile.CreatureCanFit = false;
+        tile.ConfigureWall(1);
+        return tile;
+    }
+
+    private sealed class OptionalFootprintBuilding : Building
+    {
+        public OptionalFootprintBuilding(GameSession session)
+            : base("Optional Footprint", new GridPoint(2, 1), [[1, 2]], session, false)
+        {
+        }
     }
 }

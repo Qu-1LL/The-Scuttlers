@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoGameGum.GueDeriving;
+using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Research;
 using TriloGame.Game.Core.Simulation;
@@ -10,11 +11,21 @@ namespace TriloGame.Game.UI.Research;
 
 internal static class ResearchTreeUiRenderer
 {
-    public const float MinimumZoom = 0.55f;
+    public const int DetailNodeRadius = 17;
+    public const int DetailConnectorThickness = 3;
     public const float MaximumZoom = 2.25f;
+    private const int MinimumRenderedBackgroundTileLength = 8;
     private const float BaseDetailEdgeLength = 92f;
-    private static readonly Color ConnectorColor = new(246, 251, 253);
+    private static readonly Color PreviewConnectorColor = new(246, 251, 253, 128);
+    private static readonly Color LockedConnectorColor = new(126, 141, 150, 64);
+    private static readonly Color AvailableConnectorColor = new(194, 225, 235, 210);
     private static readonly Color UnlockedConnectorColor = new(247, 221, 92);
+    private static readonly Color LockedNodeBaseColor = new(27, 32, 36);
+    private static readonly Color LockedNodeBorderColor = new(94, 108, 116, 210);
+    private static readonly Color AvailableNodeBorderColor = new(205, 238, 246);
+    private static readonly Color LockedNodeMarkerColor = new(10, 15, 19, 230);
+    private static readonly Color CyanHaloColor = new(105, 226, 239);
+    private static readonly Color AvailableNodeMarkerColor = new(9, 35, 43);
 
     public static readonly ResearchTreeRenderConfig TreeEntryCardConfig = new(
         ShowBackButton: false,
@@ -64,77 +75,6 @@ internal static class ResearchTreeUiRenderer
         return new ResearchTreeViewLayout(nodes, radius, bounds);
     }
 
-    public static ResearchTreeViewNode? DrawTreeEntryCard(
-        GumUiRenderer gumUi,
-        GameSession session,
-        ResearchTreeCardData card,
-        ResearchTreeRenderConfig config,
-        Point pointerPoint)
-    {
-        return DrawTreeEntryCard(gumUi, parent: null, session, card, config, pointerPoint);
-    }
-
-    public static ResearchTreeViewNode? DrawTreeEntryCard(
-        GumUiRenderer gumUi,
-        ContainerRuntime? parent,
-        GameSession session,
-        ResearchTreeCardData card,
-        ResearchTreeRenderConfig config,
-        Point pointerPoint)
-    {
-        var fill = card.IsSelected
-            ? new Color(34, 70, 92)
-            : card.IsHovered ? new Color(20, 45, 63) : new Color(13, 30, 44);
-        var border = card.IsSelected
-            ? new Color(214, 236, 244)
-            : card.IsHovered ? new Color(132, 181, 198) : new Color(66, 101, 118);
-
-        var cardFrameStyle = new GumUiFrameStyle(fill, border, 2, 14);
-        DrawCardFrame(gumUi, parent, card.Bounds, cardFrameStyle);
-        var layout = ResearchTreeCardRenderer.BuildLayout(card.Bounds);
-        DrawCardText(
-            gumUi,
-            parent,
-            layout.TitleBounds,
-            card.Title,
-            Color.White,
-            GumTextStyle.Small);
-        DrawCardText(
-            gumUi,
-            parent,
-            layout.SubtitleBounds,
-            card.Subtitle,
-            new Color(184, 206, 216),
-            GumTextStyle.Compact);
-
-        if (card.Root is null)
-        {
-            DrawCardCenteredText(
-                gumUi,
-                parent,
-                layout.PreviewBounds,
-                "Unavailable",
-                new Color(191, 204, 211),
-                GumTextStyle.Small);
-            return null;
-        }
-
-        DrawCardTree(gumUi, parent, session, layout.PreviewBounds, card.Root, config);
-        if (!config.EnableNodeSelection)
-        {
-            return null;
-        }
-
-        var hoveredNode = TryGetHoveredCardNode(card.Root, layout.PreviewBounds, pointerPoint, config, out var hoveredCenter);
-        if (hoveredNode is not null)
-        {
-            var treeLayout = CalculateCardTreeLayout(card.Root, layout.PreviewBounds, config);
-            DrawNodeOutline(gumUi, parent, hoveredCenter, treeLayout.Radius, new Color(255, 255, 255, 240), 6, 2);
-        }
-
-        return hoveredNode;
-    }
-
     public static ResearchTreeViewNode? TryGetHoveredCardNode(
         ResearchTreeViewNode root,
         Rectangle bounds,
@@ -165,6 +105,29 @@ internal static class ResearchTreeUiRenderer
         return hovered;
     }
 
+    public static ResearchTreeViewNode? TryGetHoveredDetailNode(
+        Rectangle bounds,
+        ResearchTreeViewNode root,
+        Vector2 panOffset,
+        float zoom,
+        Point pointerPoint,
+        ResearchTreeRenderConfig config,
+        out Vector2 center)
+    {
+        var metrics = CalculateDetailMetrics(bounds, root, zoom, config);
+        var layout = BuildLayout(root, metrics.EdgeLength, config);
+        var nodes = new List<ResearchTreeDetailNode>(layout.Nodes.Count);
+        foreach (var node in layout.Nodes)
+        {
+            nodes.Add(new ResearchTreeDetailNode(
+                node.Node,
+                node.Parent is null ? null : nodes.First(existing => ReferenceEquals(existing.Node, node.Parent.Node)),
+                metrics.Origin + panOffset + node.LocalPosition));
+        }
+
+        return TryGetHoveredDetailNode(metrics, nodes, pointerPoint, out center);
+    }
+
     public static ResearchTreeDetailMetrics CalculateDetailMetrics(
         Rectangle bounds,
         ResearchTreeViewNode root,
@@ -173,9 +136,9 @@ internal static class ResearchTreeUiRenderer
     {
         ArgumentNullException.ThrowIfNull(root);
         var safeZoom = ClampZoom(zoom);
-        var contentBounds = Inset(bounds, 14);
+        var contentBounds = bounds;
         var edgeLength = BaseDetailEdgeLength * safeZoom;
-        var nodeRadius = Math.Clamp((int)MathF.Round(edgeLength * 0.18f), 9, 18);
+        var nodeRadius = CalculateDetailNodeRadius(safeZoom);
         var origin = new Vector2(contentBounds.Center.X, contentBounds.Bottom - nodeRadius - 8f);
         var layout = BuildLayout(root, edgeLength, config);
         var baseBounds = new ResearchTreeBounds(
@@ -206,10 +169,20 @@ internal static class ResearchTreeUiRenderer
 
     public static float ClampZoom(float zoom)
     {
-        return Math.Clamp(zoom, MinimumZoom, MaximumZoom);
+        return MathF.Min(zoom, MaximumZoom);
     }
 
-    public static ResearchTreeViewNode? DrawDetail(
+    internal static int CalculateDetailNodeRadius(float zoom)
+    {
+        return Math.Max(1, (int)MathF.Round(DetailNodeRadius * ClampZoom(zoom)));
+    }
+
+    internal static int CalculateDetailNodeBorderThickness(int radius)
+    {
+        return Math.Max(1, (int)MathF.Round(radius * (2f / DetailNodeRadius)));
+    }
+
+    public static ResearchTreeDetailDrawResult DrawDetail(
         GumUiRenderer gumUi,
         GameSession session,
         Rectangle bounds,
@@ -218,12 +191,35 @@ internal static class ResearchTreeUiRenderer
         float zoom,
         Texture2D? backgroundTexture,
         Point pointerPoint,
-        ResearchTreeRenderConfig config)
+        ResearchTreeRenderConfig config,
+        double visualTimeMs = 0d)
     {
         var metrics = CalculateDetailMetrics(bounds, root, zoom, config);
-        DrawTiledBackground(gumUi, metrics.ContentBounds, backgroundTexture, panOffset, zoom, metrics.Origin);
-        gumUi.AddRoundedOutline(metrics.ContentBounds, new Color(74, 115, 134), 1, 12);
+        DrawDetailBackground(gumUi, metrics, backgroundTexture, panOffset, zoom);
+        var hoveredNode = DrawDetailContent(gumUi, session, metrics, root, panOffset, pointerPoint, config, visualTimeMs);
+        return new ResearchTreeDetailDrawResult(metrics, hoveredNode);
+    }
 
+    internal static void DrawDetailBackground(
+        GumUiRenderer gumUi,
+        ResearchTreeDetailMetrics metrics,
+        Texture2D? backgroundTexture,
+        Vector2 panOffset,
+        float zoom)
+    {
+        DrawTiledBackground(gumUi, metrics.ContentBounds, backgroundTexture, panOffset, zoom, metrics.Origin);
+    }
+
+    public static ResearchTreeViewNode? DrawDetailContent(
+        GumUiRenderer gumUi,
+        GameSession session,
+        ResearchTreeDetailMetrics metrics,
+        ResearchTreeViewNode root,
+        Vector2 panOffset,
+        Point pointerPoint,
+        ResearchTreeRenderConfig config,
+        double visualTimeMs = 0d)
+    {
         var layout = BuildLayout(root, metrics.EdgeLength, config);
         var nodes = new List<ResearchTreeDetailNode>(layout.Nodes.Count);
         foreach (var node in layout.Nodes)
@@ -250,30 +246,37 @@ internal static class ResearchTreeUiRenderer
                 metrics.ContentBounds,
                 node.Parent.Position,
                 node.Position,
-                node.Node.IsUnlocked ? UnlockedConnectorColor : ConnectorColor,
-                3,
+                GetConnectorColor(node.Node),
+                DetailConnectorThickness,
                 metrics.NodeRadius + 2f,
                 metrics.NodeRadius + 2f);
         }
 
         foreach (var node in nodes)
         {
-            if (!IsNodeVisible(metrics.ContentBounds, node.Position, metrics.NodeRadius))
+            var drawPosition = node.Position + GetAvailableNodeShakeOffset(node.Node, metrics.NodeRadius, visualTimeMs);
+            if (!IsNodeVisible(metrics.ContentBounds, drawPosition, metrics.NodeRadius + 2))
             {
                 continue;
             }
 
             DrawTreeNode(
                 gumUi,
-                node.Position,
+                drawPosition,
                 metrics.NodeRadius,
                 GetNodeFillColor(session, node.Node),
-                GetNodeBorderColor(session, node.Node));
+                GetNodeBorderColor(session, node.Node),
+                ShouldDrawLockedMarker(node.Node));
+            if (ShouldDrawAvailableAdornment(node.Node))
+            {
+                DrawAvailableNodeMarker(gumUi, drawPosition, metrics.NodeRadius);
+            }
         }
 
         if (hoveredNode is not null)
         {
-            DrawNodeOutline(gumUi, hoveredPosition, metrics.NodeRadius, new Color(255, 255, 255, 240), 6, 2);
+            var drawPosition = hoveredPosition + GetAvailableNodeShakeOffset(hoveredNode, metrics.NodeRadius, visualTimeMs);
+            DrawHoveredNodeHalo(gumUi, drawPosition, metrics.NodeRadius, visualTimeMs);
         }
 
         return hoveredNode;
@@ -287,7 +290,7 @@ internal static class ResearchTreeUiRenderer
         return ResearchNodeTextFormatter.BuildNodeInfo(session, node);
     }
 
-    private static void DrawCardTree(
+    internal static void DrawCardPreview(
         GumUiRenderer gumUi,
         ContainerRuntime? parent,
         GameSession session,
@@ -309,7 +312,7 @@ internal static class ResearchTreeUiRenderer
                 parent,
                 node.Parent.Position,
                 node.Position,
-                ConnectorColor,
+                GetConnectorColor(node.Node),
                 2,
                 preview.Radius + 2f,
                 preview.Radius + 2f);
@@ -325,6 +328,15 @@ internal static class ResearchTreeUiRenderer
                 GetNodeFillColor(session, node.Node),
                 GetNodeBorderColor(session, node.Node));
         }
+    }
+
+    internal static void DrawCardNodeHover(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Vector2 center,
+        int radius)
+    {
+        DrawNodeOutline(gumUi, parent, center, radius, new Color(255, 255, 255, 240), 6, 2);
     }
 
     private static ResearchTreeLayout BuildLayout(
@@ -391,10 +403,15 @@ internal static class ResearchTreeUiRenderer
             return;
         }
 
+        var tileSize = CalculateBackgroundTileSize(texture.Width, texture.Height, zoom);
+        if (tileSize.X < MinimumRenderedBackgroundTileLength ||
+            tileSize.Y < MinimumRenderedBackgroundTileLength)
+        {
+            gumUi.AddRoundedRectangle(bounds, new Color(8, 19, 29), 12);
+            return;
+        }
+
         var clipLayer = gumUi.AddClippingContainer(bounds);
-        var tileSize = new Point(
-            Math.Max(1, (int)MathF.Round(texture.Width * ClampZoom(zoom))),
-            Math.Max(1, (int)MathF.Round(texture.Height * ClampZoom(zoom))));
         var columns = Math.Max(1, (int)MathF.Ceiling(bounds.Width / (float)tileSize.X) + 2);
         var rows = Math.Max(1, (int)MathF.Ceiling(bounds.Height / (float)tileSize.Y) + 2);
         var anchoredOrigin = surfaceOrigin + panOffset;
@@ -430,18 +447,133 @@ internal static class ResearchTreeUiRenderer
         return (int)MathF.Round(surfaceOrigin + tileOffset);
     }
 
-    private static Color GetNodeFillColor(GameSession session, ResearchTreeViewNode node)
+    internal static Point CalculateBackgroundTileSize(int textureWidth, int textureHeight, float zoom)
     {
-        var baseColor = ResearchTreeColorResolver.GetBaseFeatureColor(session, node.SourceFeatureTreeName);
-        return node.IsUnlocked
-            ? baseColor
-            : Color.Lerp(new Color(32, 38, 43), baseColor, 0.82f);
+        var safeZoom = ClampZoom(zoom);
+        return new Point(
+            Math.Max(1, (int)MathF.Round(textureWidth * safeZoom)),
+            Math.Max(1, (int)MathF.Round(textureHeight * safeZoom)));
     }
 
-    private static Color GetNodeBorderColor(GameSession session, ResearchTreeViewNode node)
+    internal static Color GetNodeFillColor(GameSession session, ResearchTreeViewNode node)
     {
-        var fill = ResearchTreeColorResolver.GetBaseFeatureColor(session, node.SourceFeatureTreeName);
-        return Color.Lerp(fill, Color.White, 0.38f);
+        return ResolveNodeFillColor(
+            session,
+            node.SourceFeatureTreeName,
+            node.IsUnlocked,
+            node.CanUnlock,
+            node.ShowsProgressState);
+    }
+
+    internal static Color ResolveNodeFillColor(
+        GameSession session,
+        string? sourceFeatureTreeName,
+        bool isUnlocked,
+        bool canUnlock,
+        bool showsProgressState)
+    {
+        var baseColor = ResearchTreeColorResolver.GetBaseFeatureColor(session, sourceFeatureTreeName);
+        if (!showsProgressState || isUnlocked)
+        {
+            return baseColor;
+        }
+
+        return canUnlock
+            ? Color.Lerp(baseColor, Color.White, 0.08f)
+            : Color.Lerp(LockedNodeBaseColor, baseColor, 0.30f);
+    }
+
+    internal static Color GetNodeBorderColor(GameSession session, ResearchTreeViewNode node)
+    {
+        return ResolveNodeBorderColor(
+            session,
+            node.SourceFeatureTreeName,
+            node.IsUnlocked,
+            node.CanUnlock,
+            node.ShowsProgressState);
+    }
+
+    internal static Color ResolveNodeBorderColor(
+        GameSession session,
+        string? sourceFeatureTreeName,
+        bool isUnlocked,
+        bool canUnlock,
+        bool showsProgressState)
+    {
+        var fill = ResearchTreeColorResolver.GetBaseFeatureColor(session, sourceFeatureTreeName);
+        if (!showsProgressState)
+        {
+            return WithAlpha(Color.Lerp(fill, Color.White, 0.38f), 210);
+        }
+
+        if (isUnlocked)
+        {
+            return Color.Lerp(fill, Color.White, 0.55f);
+        }
+
+        return canUnlock ? AvailableNodeBorderColor : LockedNodeBorderColor;
+    }
+
+    internal static Color GetConnectorColor(ResearchTreeViewNode node)
+    {
+        return ResolveConnectorColor(node.IsUnlocked, node.CanUnlock, node.ShowsProgressState);
+    }
+
+    internal static Color ResolveConnectorColor(bool isUnlocked, bool canUnlock, bool showsProgressState)
+    {
+        if (!showsProgressState)
+        {
+            return PreviewConnectorColor;
+        }
+
+        if (isUnlocked)
+        {
+            return UnlockedConnectorColor;
+        }
+
+        return canUnlock ? AvailableConnectorColor : LockedConnectorColor;
+    }
+
+    internal static bool ShouldDrawLockedMarker(ResearchTreeViewNode node)
+    {
+        return node.ShowsProgressState && !node.IsUnlocked && !node.CanUnlock;
+    }
+
+    internal static bool ShouldDrawAvailableAdornment(ResearchTreeViewNode node)
+    {
+        return node.ShowsProgressState && !node.IsUnlocked && node.CanUnlock;
+    }
+
+    internal static Vector2 GetAvailableNodeShakeOffset(
+        ResearchTreeViewNode node,
+        int radius,
+        double visualTimeMs)
+    {
+        return ShouldDrawAvailableAdornment(node)
+            ? CalculateAvailableNodeShakeOffset($"{node.SourceFeatureTreeName}:{node.Name}", radius, visualTimeMs)
+            : Vector2.Zero;
+    }
+
+    internal static Vector2 CalculateAvailableNodeShakeOffset(string stableKey, int radius, double visualTimeMs)
+    {
+        var hash = 2166136261u;
+        for (var index = 0; index < stableKey.Length; index++)
+        {
+            hash ^= stableKey[index];
+            hash *= 16777619u;
+        }
+
+        var phase = (hash % 6283u) / 1000f;
+        var time = (float)visualTimeMs;
+        var amplitude = Math.Clamp(radius / (float)DetailNodeRadius, 0.35f, 1.25f) * 1.25f;
+        return new Vector2(
+            MathF.Sin((time * 0.032f) + phase) * amplitude,
+            MathF.Sin((time * 0.043f) + (phase * 1.7f)) * amplitude * 0.65f);
+    }
+
+    private static Color WithAlpha(Color color, byte alpha)
+    {
+        return new Color(color.R, color.G, color.B, alpha);
     }
 
     private static void DrawClippedConnector(
@@ -537,9 +669,15 @@ internal static class ResearchTreeUiRenderer
         return hovered;
     }
 
-    private static void DrawTreeNode(GumUiRenderer gumUi, Vector2 center, int radius, Color fill, Color border)
+    private static void DrawTreeNode(
+        GumUiRenderer gumUi,
+        Vector2 center,
+        int radius,
+        Color fill,
+        Color border,
+        bool showLockedMarker = false)
     {
-        DrawTreeNode(gumUi, parent: null, center, radius, fill, border);
+        DrawTreeNode(gumUi, parent: null, center, radius, fill, border, showLockedMarker);
     }
 
     private static void DrawTreeNode(
@@ -548,14 +686,16 @@ internal static class ResearchTreeUiRenderer
         Vector2 center,
         int radius,
         Color fill,
-        Color border)
+        Color border,
+        bool showLockedMarker = false)
     {
+        var borderThickness = CalculateDetailNodeBorderThickness(radius);
         var outerBounds = new Rectangle(
-            (int)MathF.Round(center.X - radius - 2),
-            (int)MathF.Round(center.Y - radius - 2),
-            (radius + 2) * 2,
-            (radius + 2) * 2);
-        AddRoundedRectangle(gumUi, parent, outerBounds, border, radius + 2);
+            (int)MathF.Round(center.X - radius - borderThickness),
+            (int)MathF.Round(center.Y - radius - borderThickness),
+            (radius + borderThickness) * 2,
+            (radius + borderThickness) * 2);
+        AddRoundedRectangle(gumUi, parent, outerBounds, border, radius + borderThickness);
 
         var innerBounds = new Rectangle(
             (int)MathF.Round(center.X - radius),
@@ -563,6 +703,92 @@ internal static class ResearchTreeUiRenderer
             radius * 2,
             radius * 2);
         AddRoundedRectangle(gumUi, parent, innerBounds, fill, radius);
+
+        if (showLockedMarker && radius >= 4)
+        {
+            DrawLockedNodeMarker(gumUi, parent, center, radius);
+        }
+    }
+
+    internal static void DrawLockedNodeMarker(GumUiRenderer gumUi, Vector2 center, int radius)
+    {
+        DrawLockedNodeMarker(gumUi, parent: null, center, radius);
+    }
+
+    private static void DrawLockedNodeMarker(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Vector2 center,
+        int radius)
+    {
+        var markerRadius = Math.Max(2, (int)MathF.Round(radius * 0.24f));
+        var markerBounds = new Rectangle(
+            (int)MathF.Round(center.X) - markerRadius,
+            (int)MathF.Round(center.Y) - markerRadius,
+            markerRadius * 2,
+            markerRadius * 2);
+        AddRoundedRectangle(gumUi, parent, markerBounds, LockedNodeMarkerColor, markerRadius);
+    }
+
+    internal static void DrawHoveredNodeHalo(
+        GumUiRenderer gumUi,
+        Vector2 center,
+        int radius,
+        double visualTimeMs)
+    {
+        var phase = (float)((visualTimeMs % 1200d) / 1200d * MathHelper.TwoPi);
+        var pulse = (MathF.Sin(phase) + 1f) * 0.5f;
+        var padding = Math.Max(5, (int)MathF.Round(radius * 0.30f)) + (int)MathF.Round(pulse * 2f);
+        DrawNodeOutline(
+            gumUi,
+            center,
+            radius,
+            WithAlpha(CyanHaloColor, (byte)MathF.Round(170f + (pulse * 85f))),
+            padding,
+            thickness: 2);
+    }
+
+    internal static void DrawSelectedNodeHalo(
+        GumUiRenderer gumUi,
+        Vector2 center,
+        int radius,
+        double visualTimeMs)
+    {
+        var phase = (float)((visualTimeMs % 1200d) / 1200d * MathHelper.TwoPi);
+        var pulse = (MathF.Sin(phase) + 1f) * 0.5f;
+        var innerPadding = Math.Max(5, (int)MathF.Round(radius * 0.30f)) + (int)MathF.Round(pulse);
+        var outerPadding = innerPadding + Math.Max(4, (int)MathF.Round(radius * 0.24f)) + (int)MathF.Round(pulse);
+        DrawNodeOutline(
+            gumUi,
+            center,
+            radius,
+            WithAlpha(CyanHaloColor, (byte)MathF.Round(195f + (pulse * 60f))),
+            innerPadding,
+            thickness: 2);
+        DrawNodeOutline(
+            gumUi,
+            center,
+            radius,
+            WithAlpha(CyanHaloColor, (byte)MathF.Round(85f + (pulse * 70f))),
+            outerPadding,
+            thickness: 1);
+    }
+
+    internal static void DrawAvailableNodeMarker(GumUiRenderer gumUi, Vector2 center, int radius)
+    {
+        if (radius < 5)
+        {
+            return;
+        }
+
+        var halfLength = Math.Max(2, (int)MathF.Round(radius * 0.28f));
+        var thickness = Math.Max(1, (int)MathF.Round(radius * 0.12f));
+        var firstStart = new Vector2(center.X - halfLength, center.Y - halfLength);
+        var firstEnd = new Vector2(center.X + halfLength, center.Y + halfLength);
+        var secondStart = new Vector2(center.X + halfLength, center.Y - halfLength);
+        var secondEnd = new Vector2(center.X - halfLength, center.Y + halfLength);
+        gumUi.AddLine(firstStart, firstEnd, AvailableNodeMarkerColor, thickness);
+        gumUi.AddLine(secondStart, secondEnd, AvailableNodeMarkerColor, thickness);
     }
 
     private static void DrawNodeOutline(GumUiRenderer gumUi, Vector2 center, int radius, Color border, int padding, int thickness)
@@ -665,23 +891,6 @@ internal static class ResearchTreeUiRenderer
         return new Vector2(MathF.Round(point.X), MathF.Round(point.Y));
     }
 
-    private static Rectangle Inset(Rectangle bounds, int inset)
-    {
-        return new Rectangle(
-            bounds.X + inset,
-            bounds.Y + inset,
-            Math.Max(0, bounds.Width - (inset * 2)),
-            Math.Max(0, bounds.Height - (inset * 2)));
-    }
-    private static void DrawCardFrame(
-        GumUiRenderer gumUi,
-        ContainerRuntime? parent,
-        Rectangle bounds,
-        GumUiFrameStyle style)
-    {
-        GumUiChrome.DrawFrame(gumUi, parent, bounds, style);
-    }
-
     private static void DrawCardOutline(
         GumUiRenderer gumUi,
         ContainerRuntime? parent,
@@ -691,28 +900,6 @@ internal static class ResearchTreeUiRenderer
         int radius)
     {
         AddRoundedOutline(gumUi, parent, bounds, color, thickness, radius);
-    }
-
-    private static void DrawCardText(
-        GumUiRenderer gumUi,
-        ContainerRuntime? parent,
-        Rectangle bounds,
-        string text,
-        Color color,
-        GumTextStyle style)
-    {
-        GumUiText.Add(gumUi, parent, bounds, text, color, style);
-    }
-
-    private static void DrawCardCenteredText(
-        GumUiRenderer gumUi,
-        ContainerRuntime? parent,
-        Rectangle bounds,
-        string text,
-        Color color,
-        GumTextStyle style)
-    {
-        GumUiText.AddCentered(gumUi, parent, bounds, text, color, style);
     }
 
     private static void DrawCardConnector(
@@ -769,6 +956,10 @@ internal readonly record struct ResearchTreeDetailMetrics(
     float EdgeLength,
     int NodeRadius,
     ResearchTreeBounds BaseBounds);
+
+internal readonly record struct ResearchTreeDetailDrawResult(
+    ResearchTreeDetailMetrics Metrics,
+    ResearchTreeViewNode? HoveredNode);
 
 internal readonly record struct ResearchTreeBounds(float MinX, float MaxX, float MinY, float MaxY)
 {

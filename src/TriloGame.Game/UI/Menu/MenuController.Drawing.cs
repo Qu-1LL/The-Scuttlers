@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Rendering;
@@ -127,7 +128,7 @@ public sealed partial class MenuController
         var assignmentText = SelectedObject switch
         {
             Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
-            MiningPost miningPost => $"Stored: {miningPost.GetInventoryTotal()}/{miningPost.Capacity}",
+            IResourceStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
             _ => $"Type: {title}"
         };
         var buildingAssignmentText = SelectedObject is Building selectedBuilding
@@ -245,17 +246,21 @@ public sealed partial class MenuController
             }
         }
 
-        if (SelectedObject is MiningPost miningPostSelected && layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
+        if (TryGetSelectedInventorySummary(
+                out var inventoryTitle,
+                out var inventoryAmountText,
+                out var emptyInventoryText) &&
+            layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
         {
             DrawFrame(context, inventoryFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
             DrawTextFitted(
                 context,
-                "STORAGE",
+                inventoryTitle,
                 new Rectangle(inventoryFrameBounds.X + 12, inventoryFrameBounds.Y + 8, inventoryFrameBounds.Width / 2, 20),
                 new Color(159, 195, 210));
             DrawTextFittedRight(
                 context,
-                $"{miningPostSelected.GetInventoryTotal()}/{miningPostSelected.Capacity}",
+                inventoryAmountText,
                 new Rectangle(inventoryFrameBounds.Right - 120, inventoryFrameBounds.Y + 8, 108, 20),
                 new Color(210, 228, 236));
 
@@ -263,7 +268,7 @@ public sealed partial class MenuController
             {
                 DrawWrappedText(
                     context,
-                    "No resources are stored here yet.",
+                    emptyInventoryText,
                     Inset(layout.SelectedInventoryViewportBounds ?? inventoryFrameBounds, 10),
                     new Color(210, 228, 236));
             }
@@ -277,7 +282,9 @@ public sealed partial class MenuController
 
             DrawScrollbar(context, layout.SelectedInventoryScrollbarTrackBounds, layout.SelectedInventoryScrollbarThumbBounds);
         }
-        else
+
+        if (layout.SelectedDescriptionLayout.ViewportBounds.Width > 0 &&
+            layout.SelectedDescriptionLayout.ViewportBounds.Height > 0)
         {
             DrawScrollableText(context, layout.SelectedDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
             DrawScrollbar(context, layout.SelectedDescriptionLayout.ScrollbarTrackBounds, layout.SelectedDescriptionLayout.ScrollbarThumbBounds);
@@ -303,6 +310,31 @@ public sealed partial class MenuController
             Scaffolding scaffolding => scaffolding.GetVolume(),
             _ => 0
         };
+    }
+
+    private bool TryGetSelectedInventorySummary(
+        out string title,
+        out string amountText,
+        out string emptyText)
+    {
+        switch (SelectedObject)
+        {
+            case IResourceStorage storage:
+                title = "STORAGE";
+                amountText = $"{storage.GetInventoryTotal()}/{storage.Capacity}";
+                emptyText = "No resources are stored here yet.";
+                return true;
+            case IInventoryCarrier carrier:
+                title = "INVENTORY";
+                amountText = $"{carrier.Inventory.Amount}/{carrier.InventoryCapacity}";
+                emptyText = "No resources carried.";
+                return true;
+            default:
+                title = string.Empty;
+                amountText = string.Empty;
+                emptyText = string.Empty;
+                return false;
+        }
     }
 
     private void DrawPanelFrame(RenderingContext context, Rectangle bounds)

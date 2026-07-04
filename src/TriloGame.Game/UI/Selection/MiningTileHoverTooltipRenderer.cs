@@ -84,6 +84,7 @@ public sealed class MiningTileHoverTooltipRenderer
         return tile.Base switch
         {
             "wall" => "Wall",
+            Tile.CaveCrystalBase => "Crystal",
             "empty" => "Unknown",
             _ => tile.Base
         };

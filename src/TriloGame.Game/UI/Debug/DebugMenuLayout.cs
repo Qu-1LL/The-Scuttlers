@@ -17,7 +17,7 @@ public static class DebugMenuLayout
         const float baseButtonHeight = 40f;
         const float baseFooterHeight = 20f;
         const float baseButtonGap = 10f;
-        const float baseRequiredHeight = 500f;
+        const float baseRequiredHeight = 546f;
 
         var outerMargin = (int)MathF.Round(baseOuterMargin);
         var availableWidth = Math.Max(280, viewport.X - (outerMargin * 2));
@@ -37,7 +37,7 @@ public static class DebugMenuLayout
         var speedSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
         var bfsSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
         var visualSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
-        var actionsSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
+        var actionsSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
 
         var requiredPanelHeight = (contentPadding * 2)
             + headerHeight
@@ -84,7 +84,8 @@ public static class DebugMenuLayout
 
         var actionsLabelBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, sectionLabelHeight);
         var actionsRowBounds = new Rectangle(contentBounds.X, actionsLabelBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
-        cursorY = actionsRowBounds.Bottom + sectionGap;
+        var spawnActionsRowBounds = new Rectangle(contentBounds.X, actionsRowBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
+        cursorY = spawnActionsRowBounds.Bottom + sectionGap;
 
         var footerBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, footerHeight);
 
@@ -104,6 +105,7 @@ public static class DebugMenuLayout
             VisualRowBounds: visualRowBounds,
             ActionsLabelBounds: actionsLabelBounds,
             ActionsRowBounds: actionsRowBounds,
+            SpawnActionsRowBounds: spawnActionsRowBounds,
             FooterBounds: footerBounds,
             ButtonGap: buttonGap,
             ContentPadding: contentPadding,
@@ -163,6 +165,7 @@ public readonly record struct DebugMenuLayoutInfo(
     Rectangle VisualRowBounds,
     Rectangle ActionsLabelBounds,
     Rectangle ActionsRowBounds,
+    Rectangle SpawnActionsRowBounds,
     Rectangle FooterBounds,
     int ButtonGap,
     int ContentPadding,

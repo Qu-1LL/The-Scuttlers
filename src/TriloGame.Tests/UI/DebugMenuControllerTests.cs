@@ -14,6 +14,7 @@ public sealed class DebugMenuControllerTests
             IsPaused: true,
             TickSpeedMs: GameConstants.TickSpeedFast,
             ActiveBfsDebugField: "enemy",
+            DebugMapVisible: true,
             DebugAntHolePlacementMode: false);
 
         var buttons = controller.GetButtons(new Point(1440, 900), state);
@@ -21,6 +22,8 @@ public sealed class DebugMenuControllerTests
         Assert.Contains(buttons, button => button.Action == DebugMenuAction.TogglePause && button.Label == "Resume");
         Assert.Contains(buttons, button => button.Action == DebugMenuAction.SpeedFast && button.Selected);
         Assert.Contains(buttons, button => button.Action == DebugMenuAction.ShowEnemyField && button.Selected);
+        Assert.Contains(buttons, button => button.Action == DebugMenuAction.ToggleMapOverlay && button.Selected);
+        Assert.DoesNotContain(buttons, button => button.Action is DebugMenuAction.SpawnEnemy or DebugMenuAction.SpawnTrilobite);
     }
 
     [Fact]
@@ -32,6 +35,7 @@ public sealed class DebugMenuControllerTests
             IsPaused: false,
             TickSpeedMs: GameConstants.TickSpeedNormal,
             ActiveBfsDebugField: null,
+            DebugMapVisible: false,
             DebugAntHolePlacementMode: false);
         var closeButton = controller.GetButtons(viewport, state).Single(button => button.Action == DebugMenuAction.Close);
 
@@ -49,7 +53,7 @@ public sealed class DebugMenuControllerTests
         var handled = controller.TryGetButtonAction(
             new Point(1440, 900),
             Point.Zero,
-            new DebugMenuState(false, GameConstants.TickSpeedNormal, null, false),
+            new DebugMenuState(false, GameConstants.TickSpeedNormal, null, false, false),
             out _);
 
         Assert.False(handled);

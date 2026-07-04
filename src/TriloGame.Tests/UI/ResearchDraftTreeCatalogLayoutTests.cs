@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using TriloGame.Game.UI.Gum;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Tests.UI;
@@ -12,8 +13,17 @@ public sealed class ResearchDraftTreeCatalogLayoutTests
 
         var catalog = ResearchDraftLayout.BuildTreeCatalog(viewport, treeCount: 18);
         var drafter = ResearchDraftLayout.Build(viewport);
+        var displayStyle = GumTextStyleCatalog.Get(GumTextStyle.Display);
 
         Assert.Equal(drafter.PanelBounds, catalog.PanelBounds);
+        Assert.Equal(catalog.PanelBounds.Center.X, catalog.TitleBounds.Center.X);
+        Assert.Equal(48, GumTextLayout.GetMetrics(GumTextStyle.Display).FontSize);
+        Assert.Equal(1f, displayStyle.FontScale);
+        Assert.Equal(GumTextStyleCatalog.DisplayFontFile, displayStyle.CustomFontFile);
+        Assert.True(catalog.TitleBounds.Height >= GumTextLayout.GetMetrics(GumTextStyle.Display).LineHeight);
+        Assert.Equal(Rectangle.Empty, catalog.SubtitleBounds);
+        Assert.True(catalog.CatalogFrameBounds.Y > catalog.TitleBounds.Bottom);
+        Assert.Equal(12, catalog.CatalogFrameBounds.Y - catalog.TitleBounds.Bottom);
     }
 
     [Fact]

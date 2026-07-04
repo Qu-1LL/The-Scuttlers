@@ -54,6 +54,22 @@ public sealed class TriloDexTests
     }
 
     [Fact]
+    public void GlobalDex_AssignsReadableDisplayNamesToEveryTree()
+    {
+        Assert.All(TriloDex.GlobalFeatureTrees, tree =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(tree.DisplayName));
+            Assert.False(string.IsNullOrWhiteSpace(tree.BranchName));
+            Assert.NotEqual(tree.Name, tree.DisplayName);
+            Assert.NotEqual(tree.Name, tree.BranchName);
+        });
+        Assert.Equal("Shellwright Basics", TriloDex.Global.FindFeatureTree("B1")!.DisplayName);
+        Assert.Equal("Founder's Shell", TriloDex.Global.FindFeatureTree("B1")!.BranchName);
+        Assert.Equal("Citadel Ecology", TriloDex.Global.FindFeatureTree("BCF1")!.DisplayName);
+        Assert.Equal("Citadel Bloom", TriloDex.Global.FindFeatureTree("BCF1")!.BranchName);
+    }
+
+    [Fact]
     public void GameSession_ExposesTheSharedGlobalDex()
     {
         var session = new GameSession();

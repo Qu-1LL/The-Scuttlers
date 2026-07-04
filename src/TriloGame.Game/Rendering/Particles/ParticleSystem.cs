@@ -20,6 +20,8 @@ public sealed class ParticleSystem
 
     public int ActiveCount => _activeCount;
 
+    public ReadOnlySpan<Particle> ActiveParticles => _particles.AsSpan(0, _activeCount);
+
     public int MaxParticles => _particles.Length;
 
     public bool HasActiveParticles => _activeCount > 0;

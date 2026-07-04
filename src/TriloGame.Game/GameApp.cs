@@ -1,7 +1,6 @@
 using Gum.Forms;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
-using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoGameGum;
@@ -22,6 +21,7 @@ using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 using TriloGame.Game.UI.Debug;
 using TriloGame.Game.UI.Gum;
+using TriloGame.Game.UI.Hud;
 using TriloGame.Game.UI.Input;
 using TriloGame.Game.UI.MainMenu;
 using TriloGame.Game.UI.Overlays;
@@ -57,11 +57,15 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly GameOverOverlayRenderer _gameOverOverlayRenderer = new();
     private readonly ResearchDraftController _researchDraft = new();
     private readonly TrilodexController _trilodex = new();
+    private readonly ResourceHudRenderer _resourceHud = new();
     private readonly GameSessionBootstrapper _bootstrapper = new();
     private readonly GameSimulationClockSystem _simulationClock = new();
     private readonly GameOverStateSystem _gameOverState = new();
     private readonly ResearchDraftSystem _researchDraftSystem = new();
+    private readonly ResourceStockpileSystem _resourceStockpileSystem = new();
     private readonly DebugMenuController _debugMenu = new();
+    private readonly DebugSpawnAmountControl _debugEnemySpawnControl = new("Enemy");
+    private readonly DebugSpawnAmountControl _debugTrilobiteSpawnControl = new("Trilobite");
     private readonly DebugToggleControls _debugToggleControls;
     private readonly Func<bool> _stopSimulationAfterTick;
     private GameSession _session = new();
@@ -76,6 +80,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private object? _selectedObject;
     private string? _activeBfsDebugField;
     private bool _debugMenuOpen;
+    private bool _debugMapOverlayVisible;
     private bool _debugMetricsOverlayVisible;
     private bool _infiniteDraft;
     private bool _resumeSimulationAfterClosingResearchDraft;
@@ -85,9 +90,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _debugAntHolePlacementMode;
     private bool _cameraPanDragActive;
     private bool _selectionDragActive;
+    private bool _buildingPlacementDragActive;
+    private GridPoint _buildingPlacementDragStart;
     private double _uiClockMs;
     private AppScreen _appScreen = AppScreen.MainMenu;
-    private Scaffolding? _floatingBuilding;
+    private BuildingPlacementCursor? _buildingPlacementCursor;
     private Rectangle? _selectionBoxBounds;
     private RoleRadialMenuState? _roleRadialMenu;
     private bool _settingsMenuOpen => _settingsMenu.IsOpen;
@@ -119,7 +126,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     public GamePlayApi PlayApi { get; }
 
-    public bool BuildMode => _floatingBuilding is not null;
+    public bool BuildMode => _buildingPlacementCursor is not null;
 
     public MenuController Menu => _menu;
 
@@ -246,7 +253,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, OreType.LUMENITE.Name, "Textures/Lumenite");
         RegisterTexture(sprites, OreType.CHITINSTONE.Name, "Textures/Chitinstone");
         RegisterTexture(sprites, OreType.MYCOCORE.Name, "Textures/Mycocore");
-        _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.68f, 1f, 2.1f));
+        RegisterTexture(sprites, OreType.ALGAE.Name, "Textures/SoilTile_Algae_3");
+        _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.38f, 1f, 2.1f));
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
         RegisterTexture(sprites, "Enemy", "Textures/Enemy");
         RegisterTexture(sprites, "AntHole", "Textures/AntHole");
@@ -254,6 +262,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Scaffold", "Textures/Scaffold");
         RegisterTexture(sprites, "Queen", "Textures/Queen");
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
+        RegisterTexture(sprites, "Garage", "Textures/Garage");
+        RegisterTexture(sprites, "Silo", "Textures/Silo");
+        RegisterTexture(sprites, "SoilTile_0", "Textures/SoilTile_0");
+        RegisterTexture(sprites, "SoilTile_Algae_1", "Textures/SoilTile_Algae_1");
+        RegisterTexture(sprites, "SoilTile_Algae_2", "Textures/SoilTile_Algae_2");
+        RegisterTexture(sprites, "SoilTile_Algae_3", "Textures/SoilTile_Algae_3");
         RegisterTexture(sprites, "Storage", "Textures/Storage");
         RegisterTexture(sprites, "Smith", "Textures/Smith");
         RegisterTexture(sprites, "MiningPost", "Textures/MiningPost");
@@ -265,7 +279,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Path", "Textures/Path");
         RegisterTexture(sprites, "BackArrow", "Textures/BackArrow");
         RegisterTexture(sprites, "TreeBackground", "Textures/dark-rock-wall-seamless-texture-free-105");
-        TryRegisterTexture(sprites, "Rock", "Textures/Rock");
 
         _rendering = new RenderingContext
         {
@@ -441,7 +454,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_input.RightPressed)
         {
-            if (_roleRadialMenu is null)
+            if (_roleRadialMenu is null && !BuildMode)
             {
                 _input.BeginDrag();
                 _selectionDragAppend = ControlHeld();
@@ -454,7 +467,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_input.RightHeld)
         {
-            if (_roleRadialMenu is null)
+            if (_roleRadialMenu is null && !BuildMode)
             {
                 _input.UpdateDrag(GameConstants.DragThresholdPixels, _input.RightHeld);
                 if (_selectionDragActive && _input.Dragging)
@@ -466,7 +479,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_input.RightReleased)
         {
-            if (_selectionDragActive && _input.Dragging)
+            if (BuildMode)
+            {
+                CancelBuildingPlacement();
+                ResetPointerInteractionState();
+            }
+            else if (_selectionDragActive && _input.Dragging)
             {
                 FinalizeSelectionBox();
                 ResetPointerInteractionState();
@@ -486,7 +504,22 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             }
         }
 
-        if (_input.LeftReleased && !settingsHandled && !roundWidgetHandled)
+        if (BuildMode && _input.LeftPressed && !GameplayUiCoversPoint(_input.MousePoint))
+        {
+            BeginBuildingPlacementDrag(_input.MousePoint);
+        }
+
+        if (_buildingPlacementDragActive && _input.LeftHeld)
+        {
+            _input.UpdateDrag(GameConstants.DragThresholdPixels, _input.LeftHeld);
+        }
+
+        if (_input.LeftReleased && _buildingPlacementDragActive)
+        {
+            HandleBuildingPlacementRelease(_input.MousePoint);
+            ResetPointerInteractionState();
+        }
+        else if (_input.LeftReleased && !settingsHandled && !roundWidgetHandled)
         {
             if (TryHandleMiningOrderMenuClick(_input.MousePoint))
             {
@@ -502,7 +535,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                      !TrilodexCoversPoint(_input.MousePoint) &&
                      !HandleMenuClick(_input.MousePoint))
             {
-                HandleWorldClick(_input.MousePoint);
+                if (!BuildMode)
+                {
+                    HandleWorldClick(_input.MousePoint);
+                }
+
                 ResetPointerInteractionState();
             }
             else
@@ -563,7 +600,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, _trilodexCatalogViewport, GetTreeBackgroundTexture());
             if (_researchDraft.IsOpen)
             {
-                _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture());
+                _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture(), _uiClockMs);
             }
         }
         else if (_isGameOver)
@@ -572,6 +609,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
         else
         {
+            DrawResourceHud();
             _menu.Draw(_rendering, Window.ClientBounds.Size, _session, _gumUiRenderer);
             DrawSettingsMenu();
             DrawRoleRadialMenu();
@@ -580,7 +618,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawFocusHint();
             DrawRoundDebugWidget();
             _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, _trilodexCatalogViewport, GetTreeBackgroundTexture());
-            _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture());
+            _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture(), _uiClockMs);
 
             if (_debugMenuOpen)
             {
@@ -598,18 +636,70 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         base.Draw(gameTime);
     }
 
-    public void BeginBuildingPlacement(Scaffolding scaffolding)
+    public void BeginBuildingPlacement(Factory factory)
     {
         ClearPendingManualMove();
         _debugAntHolePlacementMode = false;
-        _floatingBuilding = scaffolding;
-        _floatingBuilding.SetDisplayRotationTurns(0);
+        _buildingPlacementCursor = new BuildingPlacementCursor(factory, _session);
+    }
+
+    private void CancelBuildingPlacement()
+    {
+        _buildingPlacementCursor = null;
+        _buildingPlacementDragActive = false;
+        _roleRadialMenu = null;
+        _miningOrderMenu.Close();
+    }
+
+    private void BeginBuildingPlacementDrag(Point point)
+    {
+        if (!TryGetBuildingPlacementLocation(point, out var location))
+        {
+            return;
+        }
+
+        _input.BeginDrag();
+        _buildingPlacementDragActive = true;
+        _buildingPlacementDragStart = location;
+    }
+
+    private void HandleBuildingPlacementRelease(Point point)
+    {
+        if (GameplayUiCoversPoint(point) || !TryGetBuildingPlacementLocation(point, out var endLocation))
+        {
+            return;
+        }
+
+        var locations = BuildPlacementPreviewResolver.ResolveLocations(
+            _buildingPlacementCursor!.TargetBuilding,
+            endLocation,
+            _buildingPlacementDragStart);
+        var placedAny = false;
+        foreach (var location in locations)
+        {
+            placedAny |= TryPlaceBuildingAt(location);
+        }
+
+        if (placedAny)
+        {
+            _audio.Play(GameAudioCue.BuildingPlace);
+            _buildingPlacementCursor!.RefreshAfterSuccessfulPlacement();
+        }
+    }
+
+    private bool GameplayUiCoversPoint(Point point)
+    {
+        return _menu.CoversScreenPoint(point, Window.ClientBounds.Size) ||
+               SettingsCoversPoint(point) ||
+               ResearchDraftCoversPoint(point) ||
+               TrilodexCoversPoint(point);
     }
 
     private void ResetPointerInteractionState()
     {
         _cameraPanDragActive = false;
         _selectionDragActive = false;
+        _buildingPlacementDragActive = false;
         _selectionBoxBounds = null;
         _input.EndDrag();
     }
@@ -618,7 +708,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     {
         ClearPendingManualMove();
         _activeBfsDebugField = null;
-        _floatingBuilding = null;
+        _debugMapOverlayVisible = false;
+        _buildingPlacementCursor = null;
         _debugAntHolePlacementMode = false;
         ResetPointerInteractionState();
         _roleRadialMenu = null;
@@ -665,7 +756,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _camera.SetOrigin(new Vector2((spawnX * TileConstants.TileSize) + TileConstants.TileSize, (spawnY * TileConstants.TileSize) + TileConstants.TileSize));
         _activeBfsDebugField = null;
         _selectedObject = null;
-        _floatingBuilding = null;
+        _buildingPlacementCursor = null;
         ResetPointerInteractionState();
         _roleRadialMenu = null;
         _selectedTrilobites.Clear();
@@ -882,6 +973,12 @@ public sealed partial class GameApp
 
     private void HandleDebugMenuInput()
     {
+        if (_debugEnemySpawnControl.HandleKeyboard(_input) ||
+            _debugTrilobiteSpawnControl.HandleKeyboard(_input))
+        {
+            return;
+        }
+
         if (_input.KeyPressed(Keys.Escape))
         {
             _debugMenuOpen = false;
@@ -890,6 +987,27 @@ public sealed partial class GameApp
 
         if (!_input.LeftReleased)
         {
+            return;
+        }
+
+        var debugLayout = DebugMenuLayout.Build(Window.ClientBounds.Size);
+        var spawnActionSlots = DebugMenuLayout.SplitRow(debugLayout.SpawnActionsRowBounds, 2, debugLayout.ButtonGap);
+        var enemySpawnInteraction = _debugEnemySpawnControl.HandlePointerReleased(spawnActionSlots[0], _input.MousePoint);
+        var trilobiteSpawnInteraction = _debugTrilobiteSpawnControl.HandlePointerReleased(spawnActionSlots[1], _input.MousePoint);
+        if (enemySpawnInteraction != DebugSpawnControlInteraction.None ||
+            trilobiteSpawnInteraction != DebugSpawnControlInteraction.None)
+        {
+            if (enemySpawnInteraction == DebugSpawnControlInteraction.SpawnRequested)
+            {
+                PlayUiSelectSound();
+                InvokeDebugMenuAction(DebugMenuAction.SpawnEnemy, _debugEnemySpawnControl.Amount);
+            }
+            else if (trilobiteSpawnInteraction == DebugSpawnControlInteraction.SpawnRequested)
+            {
+                PlayUiSelectSound();
+                InvokeDebugMenuAction(DebugMenuAction.SpawnTrilobite, _debugTrilobiteSpawnControl.Amount);
+            }
+
             return;
         }
 
@@ -917,9 +1035,9 @@ public sealed partial class GameApp
 
     private DebugMenuState BuildDebugMenuState()
     {
-        return new DebugMenuState(_gamePaused, _tickSpeedMs, _activeBfsDebugField, _debugAntHolePlacementMode);
+        return new DebugMenuState(_gamePaused, _tickSpeedMs, _activeBfsDebugField, _debugMapOverlayVisible, _debugAntHolePlacementMode);
     }
-    private void InvokeDebugMenuAction(DebugMenuAction action)
+    private void InvokeDebugMenuAction(DebugMenuAction action, int amount = 1)
     {
         switch (action)
         {
@@ -944,6 +1062,9 @@ public sealed partial class GameApp
             case DebugMenuAction.SpeedFastest:
                 _tickSpeedMs = GameConstants.TickSpeedFastest;
                 return;
+            case DebugMenuAction.ToggleMapOverlay:
+                _debugMapOverlayVisible = !_debugMapOverlayVisible;
+                return;
             case DebugMenuAction.ShowQueenField:
                 ShowBfsFieldDebug("queen");
                 return;
@@ -955,6 +1076,7 @@ public sealed partial class GameApp
                 return;
             case DebugMenuAction.ClearField:
                 _activeBfsDebugField = null;
+                _debugMapOverlayVisible = false;
                 return;
             case DebugMenuAction.ToggleRoleLabels:
                 _showRoleLabels = !_showRoleLabels;
@@ -963,16 +1085,16 @@ public sealed partial class GameApp
                 RestartGame();
                 return;
             case DebugMenuAction.SpawnEnemy:
-                SpawnDebugEnemy();
+                SpawnDebugEnemies(amount);
                 RefreshBfsFieldDebug();
                 return;
             case DebugMenuAction.SpawnTrilobite:
-                SpawnDebugTrilobite();
+                SpawnDebugTrilobites(amount);
                 RefreshBfsFieldDebug();
                 return;
             case DebugMenuAction.PlaceAntHole:
                 _debugAntHolePlacementMode = true;
-                _floatingBuilding = null;
+                _buildingPlacementCursor = null;
                 _debugMenuOpen = false;
                 CloseSettingsMenu();
                 return;
@@ -1059,6 +1181,12 @@ public sealed partial class GameApp
         if (_input.KeyPressed(Keys.Escape))
         {
             PlayUiSelectSound();
+            if (BuildMode)
+            {
+                CancelBuildingPlacement();
+                return;
+            }
+
             if (_settingsMenu.HandleEscape() == SettingsMenuInteractionOutcome.RequestedClose)
             {
                 CloseSettingsMenu();
@@ -1071,17 +1199,19 @@ public sealed partial class GameApp
             return;
         }
 
-        if (_input.KeyPressed(Keys.R) && _floatingBuilding is not null)
+        if (_input.KeyPressed(Keys.R) && _buildingPlacementCursor is not null)
         {
-            _floatingBuilding.RotateMap();
-            var nextRotation = (_floatingBuilding.GetDisplayRotationTurns() + 1) % 4;
-            _floatingBuilding.SetDisplayRotationTurns(nextRotation);
-            _floatingBuilding.TargetBuilding.SetDisplayRotationTurns(nextRotation);
+            _buildingPlacementCursor.RotateClockwise();
         }
 
         if (_input.KeyPressed(Keys.Tab))
         {
             PlayUiSelectSound();
+            if (BuildMode)
+            {
+                CancelBuildingPlacement();
+            }
+
             _menu.TogglePanel();
         }
 
@@ -1118,21 +1248,14 @@ public sealed partial class GameApp
             return;
         }
 
-        if (BuildMode && TryEvaluateFloatingBuildingPlacement(point, out var buildingToPlace, out var placement))
+        if (BuildMode && TryGetBuildingPlacementLocation(point, out var buildLocation))
         {
             ClearPendingManualMove();
             ClearMiningTileSelection();
-            if (placement.CanBuild)
+            if (TryPlaceBuildingAt(buildLocation))
             {
-                var built = _session.Runtime.NoCostBuildPlacement
-                    ? BuildWithoutCost(placement.Location, _floatingBuilding!)
-                    : _session.Cave!.Build(buildingToPlace, placement.Location);
-                if (built)
-                {
-                    _audio.Play(GameAudioCue.BuildingPlace);
-                    _floatingBuilding = null;
-                    CleanActive();
-                }
+                _audio.Play(GameAudioCue.BuildingPlace);
+                _buildingPlacementCursor!.RefreshAfterSuccessfulPlacement();
             }
 
             return;
@@ -1249,9 +1372,9 @@ public sealed partial class GameApp
             PlayUiSelectSound();
         }
 
-        if (result.BuildingPlacement is { } scaffolding)
+        if (result.BuildingPlacement is { } placementRequest)
         {
-            BeginBuildingPlacement(scaffolding);
+            BeginBuildingPlacement(placementRequest.Factory);
         }
 
         return result.Consumed;
@@ -1291,8 +1414,7 @@ public sealed partial class GameApp
 
         if (BuildMode)
         {
-            _roleRadialMenu = null;
-            _miningOrderMenu.Close();
+            CancelBuildingPlacement();
             return;
         }
 
@@ -1513,6 +1635,7 @@ public sealed partial class GameApp
     {
         _session.Cave?.RefreshBfsField(fieldName);
         _activeBfsDebugField = fieldName;
+        _debugMapOverlayVisible = true;
     }
 
     public void RunSingleTick()
@@ -1745,6 +1868,17 @@ public sealed partial class GameApp
             _audio.VolumePercent);
     }
 
+    private void DrawResourceHud()
+    {
+        if (!HasGumUiRenderer || _session.Cave is null)
+        {
+            return;
+        }
+
+        var stockpile = _resourceStockpileSystem.Refresh(_session);
+        _resourceHud.Draw(_gumUiRenderer, _rendering.Sprites, Window.ClientBounds.Size, _input.MousePoint, stockpile);
+    }
+
     private void DrawFloatingPreview()
     {
         if (_debugAntHolePlacementMode)
@@ -1763,49 +1897,107 @@ public sealed partial class GameApp
             return;
         }
 
-        if (_floatingBuilding is null)
+        if (_buildingPlacementCursor is null)
         {
             return;
         }
 
-        if (!TryEvaluateFloatingBuildingPlacement(_input.MousePoint, out _, out var placement))
+        if (!TryGetBuildingPlacementLocation(_input.MousePoint, out var endLocation))
         {
             return;
         }
 
-        var previewBuilding = _floatingBuilding.TargetBuilding;
-        var previewCenter = _camera.WorldToScreen(BuildingPlacementGrid.GetWorldCenter(placement.Location, previewBuilding));
-        DrawScreenTextureNative(
-            previewBuilding.TextureKey,
-            previewCenter,
-            _floatingBuilding.GetDisplayRotationTurns() * MathF.PI / 2f,
-            BuildingPlacementGrid.GetTextureCenterOrigin(previewBuilding),
-            (placement.CanBuild ? Color.White : new Color(255, 96, 96)) * 0.7f);
+        IReadOnlyList<GridPoint> previewLocations = _buildingPlacementDragActive
+            ? BuildPlacementPreviewResolver.ResolveLocations(
+                _buildingPlacementCursor.TargetBuilding,
+                endLocation,
+                _buildingPlacementDragStart)
+            : [endLocation];
+
+        foreach (var location in previewLocations)
+        {
+            if (!TryEvaluateBuildingPlacement(location, out var placement))
+            {
+                continue;
+            }
+
+            var previewBuilding = _buildingPlacementCursor.TargetBuilding;
+            if (previewBuilding is SoilPatch soilPatch)
+            {
+                var previewColor = (placement.CanBuild ? Color.White : new Color(255, 96, 96)) * 0.7f;
+                for (var tileIndex = 0; tileIndex < soilPatch.SoilTiles.Count; tileIndex++)
+                {
+                    var localOffset = soilPatch.SoilTiles[tileIndex].LocalOffset;
+                    DrawWorldTextureNative(
+                        soilPatch.SoilTiles[tileIndex].TextureKey,
+                        new Vector2(
+                            (location.X + localOffset.X) * TileConstants.TileSize,
+                            (location.Y + localOffset.Y) * TileConstants.TileSize),
+                        color: previewColor);
+                }
+
+                continue;
+            }
+
+            var previewCenter = _camera.WorldToScreen(BuildingPlacementGrid.GetWorldCenter(placement.Location, previewBuilding));
+            if (!_rendering.Sprites.TryGet(previewBuilding.TextureKey, out var previewTexture))
+            {
+                continue;
+            }
+
+            DrawScreenTextureNative(
+                previewBuilding.TextureKey,
+                previewCenter,
+                _buildingPlacementCursor.GetDisplayRotationTurns() * MathF.PI / 2f,
+                color: (placement.CanBuild ? Color.White : new Color(255, 96, 96)) * 0.7f,
+                scale: BuildingPlacementGrid.GetTextureFootprintScale(
+                    previewBuilding,
+                    previewTexture.Width,
+                    previewTexture.Height,
+                    _camera.CurrentScale));
+        }
     }
 
-    private bool TryEvaluateFloatingBuildingPlacement(
-        Point point,
-        out Building buildingToPlace,
-        out BuildPlacementResult placement)
+    private bool TryGetBuildingPlacementLocation(Point point, out GridPoint location)
     {
-        buildingToPlace = null!;
-        placement = null!;
-        if (_floatingBuilding is null || _session.Cave is null)
+        location = default;
+        if (_buildingPlacementCursor is null)
         {
             return false;
         }
 
-        buildingToPlace = _session.Runtime.NoCostBuildPlacement
-            ? _floatingBuilding.TargetBuilding
-            : _floatingBuilding;
-        var location = BuildingPlacementGrid.GetSnappedTopLeft(_camera, point, buildingToPlace);
+        location = BuildingPlacementGrid.GetSnappedTopLeft(_camera, point, _buildingPlacementCursor.TargetBuilding);
+        return true;
+    }
+
+    private bool TryEvaluateBuildingPlacement(GridPoint location, out BuildPlacementResult placement)
+    {
+        placement = null!;
+        if (_buildingPlacementCursor is null || _session.Cave is null)
+        {
+            return false;
+        }
+
+        var buildingToPlace = _buildingPlacementCursor.GetPlacementCandidate(_session.Runtime.NoCostBuildPlacement);
         placement = _session.Cave.EvaluateBuildPlacement(buildingToPlace, location, preserveReachability: true);
         return true;
     }
 
+    private bool TryPlaceBuildingAt(GridPoint location)
+    {
+        if (_buildingPlacementCursor is null || _session.Cave is null)
+        {
+            return false;
+        }
+
+        var buildingToPlace = _buildingPlacementCursor.CreatePlacementCandidate(_session.Runtime.NoCostBuildPlacement);
+        var placement = _session.Cave.EvaluateBuildPlacement(buildingToPlace, location, preserveReachability: true);
+        return placement.CanBuild && _session.Cave.Build(buildingToPlace, placement.Location, preserveReachability: true);
+    }
+
     private void DrawDebugOverlay(Cave cave)
     {
-        if (_activeBfsDebugField is null || !_gamePaused)
+        if (!_debugMapOverlayVisible || _activeBfsDebugField is null || !_gamePaused)
         {
             return;
         }
@@ -1946,6 +2138,10 @@ public sealed partial class GameApp
         {
             DrawDebugMenuButton(button, button.Bounds.Contains(pointer));
         }
+
+        var spawnActionSlots = DebugMenuLayout.SplitRow(layout.SpawnActionsRowBounds, 2, layout.ButtonGap);
+        _debugEnemySpawnControl.Draw(_gumUiRenderer, spawnActionSlots[0], pointer);
+        _debugTrilobiteSpawnControl.Draw(_gumUiRenderer, spawnActionSlots[1], pointer);
     }
 
     private void DrawDebugMenuButton(DebugMenuButton button, bool hovered)
@@ -2226,14 +2422,12 @@ public sealed partial class GameApp
         return DebugMenuLayout.Build(viewport).PanelBounds;
     }
 
-    private bool BuildWithoutCost(GridPoint location, Scaffolding scaffolding)
+    private void SpawnDebugTrilobite()
     {
-        var targetBuilding = scaffolding.TargetBuilding;
-        targetBuilding.SetDisplayRotationTurns(scaffolding.GetDisplayRotationTurns());
-        return _session.Cave!.Build(targetBuilding, location);
+        SpawnDebugTrilobites(1);
     }
 
-    private void SpawnDebugTrilobite()
+    private void SpawnDebugTrilobites(int amount)
     {
         var cave = _session.Cave;
         var queen = cave?.GetQueenBuilding();
@@ -2252,16 +2446,20 @@ public sealed partial class GameApp
             return;
         }
 
-        var debugId = _session.Runtime.AllocateDebugTrilobiteId();
-        var trilobite = new Trilobite($"Debug Trilobite {debugId}", spawnTile.Coordinates, _session)
+        var spawnCount = Math.Clamp(amount, DebugSpawnAmountControl.MinimumAmount, DebugSpawnAmountControl.MaximumAmount);
+        for (var index = 0; index < spawnCount; index++)
         {
-            Assignment = "unassigned"
-        };
+            var debugId = _session.Runtime.AllocateDebugTrilobiteId();
+            var trilobite = new Trilobite($"Debug Trilobite {debugId}", spawnTile.Coordinates, _session)
+            {
+                Assignment = "unassigned"
+            };
 
-        if (cave.Spawn(trilobite, spawnTile))
-        {
-            trilobite.RestartBehavior();
-            _session.RequestAudioCue(GameAudioCue.TrilobiteBirth);
+            if (cave.Spawn(trilobite, spawnTile))
+            {
+                trilobite.RestartBehavior();
+                _session.RequestAudioCue(GameAudioCue.TrilobiteBirth);
+            }
         }
     }
 
@@ -2440,12 +2638,13 @@ public sealed partial class GameApp
 
     private string DescribeFloatingBuilding()
     {
-        if (_floatingBuilding is null)
+        if (_buildingPlacementCursor is null)
         {
             return "none";
         }
 
-        return $"{_floatingBuilding.Name} -> {_floatingBuilding.TargetBuilding.Name} rot {_floatingBuilding.GetDisplayRotationTurns()}";
+        var scaffolding = _buildingPlacementCursor.Scaffolding;
+        return $"{scaffolding.Name} -> {_buildingPlacementCursor.TargetBuilding.Name} rot {_buildingPlacementCursor.GetDisplayRotationTurns()}";
     }
 
     private string DescribeRoleRadialMenu()
@@ -2468,7 +2667,10 @@ public sealed partial class GameApp
 
     private string FormatResources()
     {
-        return string.Join(", ", _session.Resources.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key}={pair.Value}"));
+        var stockpile = _resourceStockpileSystem.Refresh(_session);
+        return stockpile.Entries.Count == 0
+            ? "none"
+            : string.Join(", ", stockpile.Entries.Select(entry => $"{entry.ResourceType}={entry.Amount}"));
     }
 
     private static string FormatBuildingSummary(Cave cave)
@@ -2629,17 +2831,6 @@ public sealed partial class GameApp
         sprites.Register(key, Content.Load<Texture2D>(assetName));
     }
 
-    private void TryRegisterTexture(SpriteFactory sprites, string key, string assetName)
-    {
-        try
-        {
-            RegisterTexture(sprites, key, assetName);
-        }
-        catch (ContentLoadException)
-        {
-        }
-    }
-
     private void HandleViewportResize()
     {
         if (Window.ClientBounds.Width <= 0 || Window.ClientBounds.Height <= 0)
@@ -2654,6 +2845,11 @@ public sealed partial class GameApp
 
     private void SpawnDebugEnemy()
     {
+        SpawnDebugEnemies(1);
+    }
+
+    private void SpawnDebugEnemies(int amount)
+    {
         var cave = _session.Cave;
         if (cave is null)
         {
@@ -2664,14 +2860,28 @@ public sealed partial class GameApp
             .Where(creature => creature.IsTrackedInTileSystem)
             .Select(creature => creature.Location.ToString())
             .ToHashSet(StringComparer.Ordinal);
-        var reachable = cave.GetReachableTiles().Where(tile => tile.CreatureFits() && !occupiedKeys.Contains(tile.Key)).ToArray();
-        if (reachable.Length == 0)
+        var reachable = cave.GetReachableTiles().Where(tile => tile.CreatureFits() && !occupiedKeys.Contains(tile.Key)).ToList();
+        if (reachable.Count == 0)
         {
             return;
         }
 
-        var spawnTile = reachable[RandomUtil.NextInt(reachable.Length)];
-        cave.Spawn(new Enemy($"Debug Enemy {_session.Runtime.AllocateDebugEnemyId()}", GridPoint.Parse(spawnTile.Key), _session), spawnTile);
+        var spawnCount = Math.Min(
+            Math.Clamp(amount, DebugSpawnAmountControl.MinimumAmount, DebugSpawnAmountControl.MaximumAmount),
+            reachable.Count);
+        for (var index = 0; index < spawnCount; index++)
+        {
+            var tileIndex = RandomUtil.NextInt(reachable.Count);
+            var spawnTile = reachable[tileIndex];
+            reachable[tileIndex] = reachable[^1];
+            reachable.RemoveAt(reachable.Count - 1);
+            cave.Spawn(
+                new Enemy(
+                    $"Debug Enemy {_session.Runtime.AllocateDebugEnemyId()}",
+                    GridPoint.Parse(spawnTile.Key),
+                    _session),
+                spawnTile);
+        }
     }
 
     bool IGamePlayHost.IsPaused

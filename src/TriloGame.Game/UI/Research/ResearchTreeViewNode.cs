@@ -12,12 +12,16 @@ internal sealed class ResearchTreeViewNode
         string description,
         string? sourceFeatureTreeName,
         bool isUnlocked,
+        bool canUnlock,
+        bool showsProgressState,
         IEnumerable<ResearchEffectDescriptor>? effectDescriptors)
     {
         Name = name;
         Description = description;
         SourceFeatureTreeName = sourceFeatureTreeName;
         IsUnlocked = isUnlocked;
+        CanUnlock = canUnlock;
+        ShowsProgressState = showsProgressState;
         EffectDescriptors = (effectDescriptors ?? []).ToArray();
     }
 
@@ -28,6 +32,10 @@ internal sealed class ResearchTreeViewNode
     public string? SourceFeatureTreeName { get; }
 
     public bool IsUnlocked { get; }
+
+    public bool CanUnlock { get; }
+
+    public bool ShowsProgressState { get; }
 
     public IReadOnlyList<ResearchEffectDescriptor> EffectDescriptors { get; }
 
@@ -52,7 +60,7 @@ internal sealed class ResearchTreeViewNode
             throw new ArgumentException("Research branch preview requires a root node.", nameof(branch));
         }
 
-        return FromTreeInstanceNode(branch.Root);
+        return FromTreeInstanceNode(branch.Root, showsProgressState: false);
     }
 
     public static ResearchTreeViewNode FromSkillTree(SkillTree skillTree)
@@ -63,7 +71,7 @@ internal sealed class ResearchTreeViewNode
             throw new ArgumentException("Skill tree preview requires a root node.", nameof(skillTree));
         }
 
-        return FromTreeInstanceNode(skillTree.Root);
+        return FromTreeInstanceNode(skillTree.Root, showsProgressState: true);
     }
 
     private static ResearchTreeViewNode FromSkillNode(SkillNode source, string featureTreeName)
@@ -73,7 +81,9 @@ internal sealed class ResearchTreeViewNode
             source.Description,
             featureTreeName,
             source.IsAcquired,
-            source.EffectDescriptors);
+            canUnlock: false,
+            showsProgressState: false,
+            effectDescriptors: source.EffectDescriptors);
         foreach (var child in source.Children)
         {
             node._children.Add(FromSkillNode(child, featureTreeName));
@@ -82,17 +92,19 @@ internal sealed class ResearchTreeViewNode
         return node;
     }
 
-    private static ResearchTreeViewNode FromTreeInstanceNode(TreeInstanceNode source)
+    private static ResearchTreeViewNode FromTreeInstanceNode(TreeInstanceNode source, bool showsProgressState)
     {
         var node = new ResearchTreeViewNode(
             source.Name,
             source.Description,
             source.SourceFeatureTreeName,
             source.IsUnlocked,
+            showsProgressState && source.CanUnlock(),
+            showsProgressState,
             source.EffectDescriptors);
         foreach (var child in source.Children)
         {
-            node._children.Add(FromTreeInstanceNode(child));
+            node._children.Add(FromTreeInstanceNode(child, showsProgressState));
         }
 
         return node;

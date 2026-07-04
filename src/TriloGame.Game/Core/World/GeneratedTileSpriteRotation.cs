@@ -6,11 +6,18 @@ internal static class GeneratedTileSpriteRotation
 {
     private const int QuarterTurnCount = 4;
     private const int OreSalt = 0x2F6E2B1;
+    private const int CaveCrystalSalt = 0x29C4A11;
 
     public static void AssignOreRotation(Tile tile)
     {
         ArgumentNullException.ThrowIfNull(tile);
         tile.SetOreRotationQuarterTurns(ChooseQuarterTurns(tile.Coordinates, tile.Base, OreSalt));
+    }
+
+    public static void AssignCaveCrystalRotation(Tile tile)
+    {
+        ArgumentNullException.ThrowIfNull(tile);
+        tile.SetOreRotationQuarterTurns(ChooseQuarterTurns(tile.Coordinates, tile.Base, CaveCrystalSalt));
     }
 
     public static byte NormalizeQuarterTurns(int quarterTurns)

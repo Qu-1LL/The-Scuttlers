@@ -8,8 +8,8 @@ internal sealed class ResearchTreeViewportState
     private const float TreeDragThresholdPixels = 10f;
     private const float MinimumTreeEdgeLength = 80f;
     private const float MaximumTreeEdgeLength = 108f;
-    private const float MinimumZoom = 0.55f;
     private const float MaximumZoom = 2.25f;
+    private const float WheelZoomSensitivity = 0.0015f;
 
     private Point _panStartPointer;
     private Vector2 _panStartOffset;
@@ -70,16 +70,46 @@ internal sealed class ResearchTreeViewportState
         return wasPanning;
     }
 
+    public bool EndPan(Rectangle treeBounds, ResearchTreeViewNode root, ResearchTreeRenderConfig config)
+    {
+        var wasPanning = _panning;
+        _panCandidate = false;
+        _panning = false;
+        if (wasPanning)
+        {
+            PanOffset = ResearchTreeUiRenderer.ResolvePanAfterRelease(treeBounds, root, PanOffset, Zoom, config);
+        }
+
+        return wasPanning;
+    }
+
     public void ZoomAt(Point point, int wheelDelta, Rectangle treeBounds, SkillTree skillTree)
     {
         var previousZoom = Zoom;
-        Zoom = ClampZoom(Zoom + (-wheelDelta * 0.0015f));
+        Zoom = CalculateZoomAfterWheel(Zoom, wheelDelta);
         if (MathF.Abs(Zoom - previousZoom) <= float.Epsilon)
         {
             return;
         }
 
         var metricsBefore = BuildMetrics(treeBounds, skillTree, previousZoom);
+        var pointToOrigin = point.ToVector2() - metricsBefore.Origin - PanOffset;
+        if (previousZoom > float.Epsilon)
+        {
+            PanOffset += pointToOrigin - (pointToOrigin * (Zoom / previousZoom));
+        }
+    }
+
+    public void ZoomAt(Point point, int wheelDelta, Rectangle treeBounds, ResearchTreeViewNode root, ResearchTreeRenderConfig config)
+    {
+        var previousZoom = Zoom;
+        Zoom = CalculateZoomAfterWheel(Zoom, wheelDelta);
+        if (MathF.Abs(Zoom - previousZoom) <= float.Epsilon)
+        {
+            return;
+        }
+
+        var metricsBefore = ResearchTreeUiRenderer.CalculateDetailMetrics(treeBounds, root, previousZoom, config);
         var pointToOrigin = point.ToVector2() - metricsBefore.Origin - PanOffset;
         if (previousZoom > float.Epsilon)
         {
@@ -103,11 +133,13 @@ internal sealed class ResearchTreeViewportState
             bounds.Y + topPadding,
             Math.Max(120, bounds.Width - (sidePadding * 2)),
             Math.Max(120, bounds.Height - topPadding - bottomPadding));
-        var edgeLength = Math.Clamp(
+        var baseEdgeLength = Math.Clamp(
             MathF.Min(contentBounds.Width, contentBounds.Height) * 0.18f,
             MinimumTreeEdgeLength,
-            MaximumTreeEdgeLength) * ClampZoom(zoom);
-        var nodeRadius = Math.Clamp((int)MathF.Round(edgeLength * 0.18f), 9, 18);
+            MaximumTreeEdgeLength);
+        var safeZoom = ClampZoom(zoom);
+        var edgeLength = baseEdgeLength * safeZoom;
+        var nodeRadius = ResearchTreeUiRenderer.CalculateDetailNodeRadius(safeZoom);
         var origin = new Vector2(contentBounds.Center.X, contentBounds.Bottom - nodeRadius - 8f);
         var baseBounds = skillTree.Root is null
             ? new ResearchTreeViewportBounds(0f, 0f, 0f, 0f)
@@ -150,7 +182,14 @@ internal sealed class ResearchTreeViewportState
 
     public static float ClampZoom(float zoom)
     {
-        return Math.Clamp(zoom, MinimumZoom, MaximumZoom);
+        return MathF.Min(zoom, MaximumZoom);
+    }
+
+    internal static float CalculateZoomAfterWheel(float zoom, int wheelDelta)
+    {
+        var zoomFactor = MathF.Exp(-wheelDelta * WheelZoomSensitivity);
+        var nextZoom = ClampZoom(zoom * zoomFactor);
+        return nextZoom > 0f ? nextZoom : float.Epsilon;
     }
 
     private static ResearchTreeViewportBounds BuildTreeBounds(Vector2 origin, float edgeLength, TreeInstanceNode root)

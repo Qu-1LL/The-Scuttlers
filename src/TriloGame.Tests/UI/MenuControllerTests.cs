@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using System.Linq;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -153,6 +154,34 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
+    public void SelectedTrilobiteLayout_ShowsInventoryBelowRenameAndKillTextAboveButton()
+    {
+        var session = new GameSession();
+        var trilobite = new Trilobite("Jeffery", GridPoint.Zero, session);
+        Assert.Equal(3, trilobite.AddToInventory(OreType.LUMENITE.Name, 3));
+        var menu = new MenuController();
+        menu.SetSelectedObject(trilobite);
+        menu.OpenPanel("selected");
+
+        var viewport = new Point(960, 720);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var layout = getLayout!.Invoke(menu, [viewport, session]);
+        var renameBounds = (Rectangle)layout!.GetType().GetProperty("SelectedRenameFieldBounds")!.GetValue(layout)!;
+        var inventoryFrameBounds = (Rectangle?)layout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(layout);
+        var inventoryEntries = layout.GetType().GetProperty("SelectedInventoryEntries")!.GetValue(layout)!;
+        var inventoryEntryCount = (int)inventoryEntries.GetType().GetProperty("Count")!.GetValue(inventoryEntries)!;
+        var textLayout = layout.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
+        var killTextBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        var deleteBounds = (Rectangle)layout.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
+
+        Assert.True(inventoryFrameBounds.HasValue);
+        Assert.True(inventoryFrameBounds.Value.Y > renameBounds.Bottom);
+        Assert.Equal(1, inventoryEntryCount);
+        Assert.True(killTextBounds.Y > inventoryFrameBounds.Value.Bottom);
+        Assert.True(killTextBounds.Bottom <= deleteBounds.Y);
+    }
+
+    [Fact]
     public void HandleWheel_ScrollsBuildPreviewDescriptionWhenPreviewTextOverflows()
     {
         var session = new GameSession();
@@ -261,7 +290,7 @@ public sealed class MenuControllerTests
         Assert.True(result.Consumed);
         Assert.True(result.PlaySelectSound);
         Assert.NotNull(result.BuildingPlacement);
-        Assert.IsType<AlgaeFarm>(result.BuildingPlacement!.TargetBuilding);
+        Assert.IsType<AlgaeFarm>(result.BuildingPlacement!.Preview.TargetBuilding);
     }
 
     [Fact]

@@ -71,6 +71,7 @@ public sealed class Enemy : Creature
         if (building is null ||
             building.Cave != Cave ||
             building.Health <= 0 ||
+            building.IgnoredByAnts ||
             (!includeWalls && building is Wall))
         {
             return null;

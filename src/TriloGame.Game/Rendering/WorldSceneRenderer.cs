@@ -106,19 +106,15 @@ public sealed class WorldSceneRenderer
             {
                 DrawTileTexture(context, "wall", tile.Coordinates);
             }
-            else if (tile.IsOreTile())
+            else if (tile.IsOreTile() || tile.IsCaveCrystal())
             {
+                var textureKey = tile.IsCaveCrystal() ? Tile.CaveCrystalBase : tile.Base;
                 DrawTileTexture(
                     context,
-                    tile.Base,
+                    textureKey,
                     tile.Coordinates,
                     GetTileOverlayRotationRadians(tile),
-                    GetTileDrawColor(spriteEffects, tile, tile.Base, tile.Coordinates));
-            }
-
-            if (tile.Decoration == TileDecoration.CaveCrystal)
-            {
-                DrawTileTexture(context, "CaveCrystal", tile.Coordinates);
+                    GetTileDrawColor(spriteEffects, tile, textureKey, tile.Coordinates));
             }
         }
     }
@@ -182,17 +178,54 @@ public sealed class WorldSceneRenderer
                 continue;
             }
 
+            if (building is SoilPatch soilPatch)
+            {
+                DrawSoilPatch(context, soilPatch);
+                continue;
+            }
+
             if (building.Location is null)
+            {
+                continue;
+            }
+
+            DrawBuildingTexture(context, building);
+        }
+    }
+
+    private static void DrawBuildingTexture(RenderingContext context, Building building)
+    {
+        if (!context.Sprites.TryGet(building.TextureKey, out var texture))
+        {
+            return;
+        }
+
+        DrawWorldTextureNative(
+            context,
+            texture,
+            BuildingPlacementGrid.GetWorldCenter(building),
+            building.GetDisplayRotationTurns() * MathF.PI / 2f,
+            scale: BuildingPlacementGrid.GetTextureFootprintScale(
+                building,
+                texture.Width,
+                texture.Height,
+                context.Camera.CurrentScale));
+    }
+
+    private static void DrawSoilPatch(RenderingContext context, SoilPatch soilPatch)
+    {
+        for (var index = 0; index < soilPatch.SoilTiles.Count; index++)
+        {
+            var soilTile = soilPatch.SoilTiles[index];
+            if (soilTile.WorldLocation is not { } worldLocation)
             {
                 continue;
             }
 
             DrawWorldTextureNative(
                 context,
-                building.TextureKey,
-                BuildingPlacementGrid.GetWorldCenter(building),
-                building.GetDisplayRotationTurns() * MathF.PI / 2f,
-                BuildingPlacementGrid.GetTextureCenterOrigin(building));
+                soilTile.TextureKey,
+                new FrameworkVector2(worldLocation.X * TileConstants.TileSize, worldLocation.Y * TileConstants.TileSize));
         }
     }
 
@@ -236,7 +269,7 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    private static Color GetTileDrawColor(WorldSpriteEffectSystem spriteEffects, Tile tile, string textureKey, GridPoint coordinates)
+    internal static Color GetTileDrawColor(WorldSpriteEffectSystem spriteEffects, Tile tile, string textureKey, GridPoint coordinates)
     {
         if (!tile.IsOreTile())
         {
@@ -268,7 +301,7 @@ public sealed class WorldSceneRenderer
 
     internal static float GetTileOverlayRotationRadians(Tile tile)
     {
-        if (!tile.IsOreTile())
+        if (!tile.IsOreTile() && !tile.IsCaveCrystal())
         {
             return 0f;
         }
@@ -395,6 +428,18 @@ public sealed class WorldSceneRenderer
             return;
         }
 
+        DrawWorldTextureNative(context, texture, worldPixels, rotation, origin, color, scale);
+    }
+
+    private static void DrawWorldTextureNative(
+        RenderingContext context,
+        Texture2D texture,
+        FrameworkVector2 worldPixels,
+        float rotation = 0f,
+        FrameworkVector2? origin = null,
+        Color? color = null,
+        FrameworkVector2? scale = null)
+    {
         context.SpriteBatch.Draw(
             texture,
             context.Camera.WorldToScreen(worldPixels),

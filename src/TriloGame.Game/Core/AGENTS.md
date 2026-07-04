@@ -90,8 +90,11 @@ These are current live rules. If a task changes them, update tests and docs in t
   - `Sigma` = fighter
 - Default runtime starts unpaused at `100 ms` tick speed.
 - Trilobites carry one item at a time.
-- Ore has finite yield, darkens as it depletes, and takes `1-5` hits per yielded unit.
-- Walls take `3` hits, drop sandstone, and miners haul dropped stone.
+- Ore has finite yield, darkens as it depletes, and takes `5` hits (`0.5` seconds of
+  simulation game-time) per yielded unit.
+- Walls take `3` hits and do not yield resources to trilobites.
+- Cave crystals render with the ore overlay layer, block placement/creature occupancy, take `3`
+  hits, and do not yield resources.
 - Queen death triggers a screen overlay rather than closing the app.
 - Ant-hole systems are active world features.
 - Natural ant-hole spawning follows the current ambient spawn rules.

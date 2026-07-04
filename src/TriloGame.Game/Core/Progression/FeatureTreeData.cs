@@ -196,7 +196,67 @@ internal static class FeatureTreeData
         IReadOnlyList<string>? prerequisiteTrees,
         FeatureTreeColor? displayColor)
     {
-        return new FeatureTree(name, description, featuresAffected, tier, prerequisiteTrees ?? [], displayColor: displayColor);
+        return new FeatureTree(
+            name,
+            description,
+            featuresAffected,
+            tier,
+            prerequisiteTrees ?? [],
+            displayColor: displayColor,
+            displayName: GetDisplayName(name),
+            branchName: GetBranchName(name));
+    }
+
+    private static string GetDisplayName(string name)
+    {
+        return name switch
+        {
+            "B1" => "Shellwright Basics",
+            "B2" => "Load-Bearing Arches",
+            "B3" => "Colony Foundations",
+            "C1" => "Guard Instincts",
+            "C2" => "Mandible Drill",
+            "C3" => "Carapace Tactics",
+            "F1" => "Algae Blooming",
+            "F2" => "Spore Gardens",
+            "F3" => "Queen's Pantry",
+            "M1" => "Stone Sense",
+            "M2" => "Deep Veins",
+            "M3" => "Tunnel Discipline",
+            "BC1" => "Fortified Works",
+            "BF1" => "Living Architecture",
+            "BM1" => "Excavation Frames",
+            "CF1" => "Battle Harvest",
+            "CM1" => "Ore Guard Patrols",
+            "BCF1" => "Citadel Ecology",
+            _ => name
+        };
+    }
+
+    private static string GetBranchName(string name)
+    {
+        return name switch
+        {
+            "B1" => "Founder's Shell",
+            "B2" => "Archmaker's Path",
+            "B3" => "Hearthstone Line",
+            "C1" => "Sentinel Spur",
+            "C2" => "Red Mandible",
+            "C3" => "Carapace Guard",
+            "F1" => "Greenwake Sprout",
+            "F2" => "Sporekeeper's Trail",
+            "F3" => "Pantry Bloom",
+            "M1" => "Stonewhisper Run",
+            "M2" => "Deepvein Fork",
+            "M3" => "Tunnelborn Ladder",
+            "BC1" => "Bulwark Crown",
+            "BF1" => "Living Rampart",
+            "BM1" => "Quarryframe Spur",
+            "CF1" => "Harvest Blade",
+            "CM1" => "Orewatch Talon",
+            "BCF1" => "Citadel Bloom",
+            _ => name
+        };
     }
 
     private static FeatureTreeColor NextColor(ref int treeIndex)

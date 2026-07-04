@@ -11,6 +11,7 @@ public enum DebugMenuAction
     SpeedNormal,
     SpeedFast,
     SpeedFastest,
+    ToggleMapOverlay,
     ShowQueenField,
     ShowEnemyField,
     ShowColonyField,
@@ -34,6 +35,7 @@ public readonly record struct DebugMenuState(
     bool IsPaused,
     double TickSpeedMs,
     string? ActiveBfsDebugField,
+    bool DebugMapVisible,
     bool DebugAntHolePlacementMode);
 
 public sealed class DebugMenuController
@@ -44,8 +46,8 @@ public sealed class DebugMenuController
         var quickButtons = DebugMenuLayout.SplitRow(layout.QuickControlsRowBounds, 3, layout.ButtonGap);
         var speedButtons = DebugMenuLayout.SplitRow(layout.SpeedRowBounds, 4, layout.ButtonGap);
         var bfsTopButtons = DebugMenuLayout.SplitRow(layout.BfsTopRowBounds, 2, layout.ButtonGap);
-        var bfsBottomButtons = DebugMenuLayout.SplitRow(layout.BfsBottomRowBounds, 2, layout.ButtonGap);
-        var actionButtons = DebugMenuLayout.SplitRow(layout.ActionsRowBounds, 4, layout.ButtonGap);
+        var bfsBottomButtons = DebugMenuLayout.SplitRow(layout.BfsBottomRowBounds, 3, layout.ButtonGap);
+        var actionButtons = DebugMenuLayout.SplitRow(layout.ActionsRowBounds, 2, layout.ButtonGap);
 
         return
         [
@@ -59,11 +61,10 @@ public sealed class DebugMenuController
             new DebugMenuButton(DebugMenuAction.ShowQueenField, "Queen", bfsTopButtons[0], true, string.Equals(state.ActiveBfsDebugField, "queen", StringComparison.Ordinal)),
             new DebugMenuButton(DebugMenuAction.ShowEnemyField, "Enemy", bfsTopButtons[1], true, string.Equals(state.ActiveBfsDebugField, "enemy", StringComparison.Ordinal)),
             new DebugMenuButton(DebugMenuAction.ShowColonyField, "Colony", bfsBottomButtons[0], true, string.Equals(state.ActiveBfsDebugField, "colony", StringComparison.Ordinal)),
-            new DebugMenuButton(DebugMenuAction.ClearField, "Clear", bfsBottomButtons[1], true, state.ActiveBfsDebugField is null),
+            new DebugMenuButton(DebugMenuAction.ToggleMapOverlay, "Show Map", bfsBottomButtons[1], true, state.DebugMapVisible),
+            new DebugMenuButton(DebugMenuAction.ClearField, "Clear", bfsBottomButtons[2], true, state.ActiveBfsDebugField is null),
             new DebugMenuButton(DebugMenuAction.RestartGame, "Restart Game", actionButtons[0], true, false),
-            new DebugMenuButton(DebugMenuAction.SpawnEnemy, "Spawn Debug Enemy", actionButtons[1], true, false),
-            new DebugMenuButton(DebugMenuAction.SpawnTrilobite, "Spawn Trilobite", actionButtons[2], true, false),
-            new DebugMenuButton(DebugMenuAction.PlaceAntHole, "Place Ant Hole", actionButtons[3], true, state.DebugAntHolePlacementMode)
+            new DebugMenuButton(DebugMenuAction.PlaceAntHole, "Place Ant Hole", actionButtons[1], true, state.DebugAntHolePlacementMode)
         ];
     }
 

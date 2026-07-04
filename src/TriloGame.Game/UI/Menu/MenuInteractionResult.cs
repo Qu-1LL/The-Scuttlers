@@ -1,11 +1,9 @@
-using TriloGame.Game.Core.Buildings;
-
 namespace TriloGame.Game.UI.Menu;
 
 public readonly record struct MenuInteractionResult(
     bool Consumed,
     bool PlaySelectSound,
-    Scaffolding? BuildingPlacement)
+    BuildingPlacementRequest? BuildingPlacement)
 {
     public static MenuInteractionResult NotHandled { get; } = new(false, false, null);
 
@@ -15,5 +13,5 @@ public readonly record struct MenuInteractionResult(
 
     public static MenuInteractionResult WithSelectSound(bool consumed) => new(consumed, true, null);
 
-    public static MenuInteractionResult RequestBuildingPlacement(Scaffolding scaffolding) => new(true, true, scaffolding);
+    public static MenuInteractionResult RequestBuildingPlacement(BuildingPlacementRequest request) => new(true, true, request);
 }

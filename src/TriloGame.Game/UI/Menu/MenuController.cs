@@ -333,7 +333,8 @@ public sealed partial class MenuController
 
                 SelectedBuildOption = card.Factory;
                 HoveredBuildOption = card.Factory;
-                return MenuInteractionResult.RequestBuildingPlacement(CreateBuildingPlacement(card.Factory, session));
+                return MenuInteractionResult.RequestBuildingPlacement(
+                    new BuildingPlacementRequest(card.Factory, CreateBuildingPlacement(card.Factory, session)));
             }
         }
         else if (ActiveTab == TabAssignments)

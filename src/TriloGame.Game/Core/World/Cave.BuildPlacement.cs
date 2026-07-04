@@ -68,7 +68,7 @@ public sealed partial class Cave
                 var required = building.OpenMap[y][x] <= 1;
                 var cellFailures = required
                     ? EvaluateRequiredPlacementCell(cellLocation, requireReachableTiles)
-                    : BuildPlacementFailureReason.None;
+                    : EvaluateOptionalPlacementCell(cellLocation);
 
                 failureReasons |= cellFailures;
                 cells.Add(new BuildPlacementCell(cellLocation, required, cellFailures));
@@ -95,7 +95,49 @@ public sealed partial class Cave
         return new BuildPlacementResult(location, cells, failureReasons);
     }
 
-    private BuildPlacementFailureReason EvaluateRequiredPlacementCell(GridPoint location, bool requireReachableTiles)
+    public BuildPlacementResult EvaluateBuildReplacement(Building existingBuilding, Building replacementBuilding, GridPoint location)
+    {
+        ArgumentNullException.ThrowIfNull(existingBuilding);
+        ArgumentNullException.ThrowIfNull(replacementBuilding);
+
+        var cells = new List<BuildPlacementCell>(replacementBuilding.Size.X * replacementBuilding.Size.Y);
+        var failureReasons = BuildPlacementFailureReason.None;
+
+        if (!Buildings.Contains(existingBuilding) || existingBuilding.Location is null)
+        {
+            failureReasons |= BuildPlacementFailureReason.ExistingBuilding;
+        }
+
+        for (var y = 0; y < replacementBuilding.Size.Y; y++)
+        {
+            for (var x = 0; x < replacementBuilding.Size.X; x++)
+            {
+                var cellLocation = new GridPoint(location.X + x, location.Y + y);
+                var required = replacementBuilding.OpenMap[y][x] <= 1;
+                var allowTrilobiteOccupants = replacementBuilding.OpenMap[y][x] >= 1;
+                var cellFailures = required
+                    ? EvaluateRequiredPlacementCell(
+                        cellLocation,
+                        requireReachableTiles: false,
+                        ignoredBuilding: existingBuilding,
+                        allowTrilobiteOccupants: allowTrilobiteOccupants,
+                        allowImpassableIgnoredBuildingTile: true)
+                    : EvaluateOptionalPlacementCell(cellLocation);
+
+                failureReasons |= cellFailures;
+                cells.Add(new BuildPlacementCell(cellLocation, required, cellFailures));
+            }
+        }
+
+        return new BuildPlacementResult(location, cells, failureReasons);
+    }
+
+    private BuildPlacementFailureReason EvaluateRequiredPlacementCell(
+        GridPoint location,
+        bool requireReachableTiles,
+        Building? ignoredBuilding = null,
+        bool allowTrilobiteOccupants = false,
+        bool allowImpassableIgnoredBuildingTile = false)
     {
         var tile = GetTile(location);
         if (tile is null)
@@ -104,7 +146,7 @@ public sealed partial class Cave
         }
 
         var failures = BuildPlacementFailureReason.None;
-        if (tile.Built is not null)
+        if (tile.Built is not null && !ReferenceEquals(tile.Built, ignoredBuilding))
         {
             failures |= BuildPlacementFailureReason.ExistingBuilding;
         }
@@ -119,7 +161,8 @@ public sealed partial class Cave
             failures |= BuildPlacementFailureReason.NonEmptyBase;
         }
 
-        if (!tile.CreatureFits())
+        if (!tile.CreatureFits() &&
+            !(allowImpassableIgnoredBuildingTile && ReferenceEquals(tile.Built, ignoredBuilding)))
         {
             failures |= BuildPlacementFailureReason.ImpassableTile;
         }
@@ -129,7 +172,7 @@ public sealed partial class Cave
             failures |= BuildPlacementFailureReason.EnemyOccupant;
         }
 
-        if (tile.Trilobites.Count > 0)
+        if (tile.Trilobites.Count > 0 && !allowTrilobiteOccupants)
         {
             failures |= BuildPlacementFailureReason.TrilobiteOccupant;
         }
@@ -140,5 +183,12 @@ public sealed partial class Cave
         }
 
         return failures;
+    }
+
+    private BuildPlacementFailureReason EvaluateOptionalPlacementCell(GridPoint location)
+    {
+        return GetTile(location) is null
+            ? BuildPlacementFailureReason.MissingTile
+            : BuildPlacementFailureReason.None;
     }
 }

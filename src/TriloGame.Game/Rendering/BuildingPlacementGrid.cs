@@ -42,6 +42,16 @@ public static class BuildingPlacementGrid
         return new Vector2(baseSize.X * TileConstants.TileHalfSize, baseSize.Y * TileConstants.TileHalfSize);
     }
 
+    public static Vector2 GetTextureFootprintScale(Building building, int textureWidth, int textureHeight, float cameraScale)
+    {
+        ArgumentNullException.ThrowIfNull(building);
+
+        var baseSize = building.GetDisplayPivotBaseSize();
+        return new Vector2(
+            (baseSize.X * TileConstants.TileSize * cameraScale) / Math.Max(1, textureWidth),
+            (baseSize.Y * TileConstants.TileSize * cameraScale) / Math.Max(1, textureHeight));
+    }
+
     private static Vector2 GetFootprintCenterOffset(Building building)
     {
         return new Vector2(

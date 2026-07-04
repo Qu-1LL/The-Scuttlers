@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -288,7 +289,7 @@ public sealed class AlgaeFarm : Building
         _traversalHead = orderedNodes[0];
     }
 
-    public bool TryHarvest(Trilobite creature)
+    public bool TryHarvest(IInventoryCarrier creature)
     {
         Growth++;
         if (RandomUtil.NextDouble() >= ((double)Growth / Period))
@@ -296,7 +297,7 @@ public sealed class AlgaeFarm : Building
             return false;
         }
 
-        var harvested = creature.AddToInventory("Algae", HarvestYield);
+        var harvested = creature.AddToInventory(OreType.ALGAE.Name, HarvestYield);
         if (harvested != HarvestYield)
         {
             return false;

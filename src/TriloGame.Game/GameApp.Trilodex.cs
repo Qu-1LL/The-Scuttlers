@@ -55,6 +55,21 @@ public sealed partial class GameApp
             _trilodex.HandlePointerDrag(_input.MousePoint, Window.ClientBounds.Size);
         }
 
+        if (_input.MiddlePressed)
+        {
+            _trilodex.HandlePanPointerDown(_input.MousePoint, Window.ClientBounds.Size);
+        }
+
+        if (_input.MiddleHeld)
+        {
+            _trilodex.HandlePanPointerDrag(_input.MousePoint);
+        }
+
+        if (_input.MiddleReleased)
+        {
+            _trilodex.HandlePanPointerUp(_input.MousePoint, Window.ClientBounds.Size);
+        }
+
         if (!_input.LeftReleased)
         {
             return;

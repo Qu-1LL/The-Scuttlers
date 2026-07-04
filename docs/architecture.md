@@ -7,6 +7,8 @@ The project is currently a single MonoGame game assembly with layered modules in
 - `Core`
   - deterministic simulation rules
   - entities, buildings, world state, pathfinding, economy, events
+  - shared item/storage contracts live under `Core/Economy` so trilobites, stockpiles, and
+    storage buildings can exchange resources through one typed catalog and common interfaces
   - mining-order execution lives in `Core/Simulation` so UI can request orders without owning
     the manual-order state transformation
   - cave generation is isolated in `Core/World/CaveGenerator.cs`; `Cave` owns world state and
@@ -20,6 +22,7 @@ The project is currently a single MonoGame game assembly with layered modules in
   - simulation clock orchestration
   - game-over state
   - round pacing and round-driven ant spawning orchestration
+  - resource stockpile aggregation across storage buildings for HUD and tooling surfaces
   - research draft generation and placement orchestration, including round rewards and infinite-draft follow-ups
   - play/test automation API
 - `UI`
@@ -36,6 +39,8 @@ The project is currently a single MonoGame game assembly with layered modules in
     delegates menu behavior instead of owning widget-level details directly
   - main-menu, game-over, and round-debug overlay layout/rendering live under `UI` so the host
     performs screen flow orchestration instead of owning overlay chrome and button geometry
+  - the resource HUD lives under `UI/Hud` and renders stockpile snapshots through Gum, keeping
+    resource aggregation in runtime rather than in screen drawing code
   - shared Gum text/chrome helpers live under `UI/Gum` so new overlays and menus can compose
     reusable rounded panels, action buttons, fitted text, and scrollable text viewports instead of
     cloning local draw helpers
@@ -52,6 +57,8 @@ The project is currently a single MonoGame game assembly with layered modules in
 - `Rendering`
   - camera and render helpers
   - world-scene rendering, including parallax background and cave tile/entity layers
+  - soil-patch rendering draws per-tile crop sprites in the world layer instead of collapsing the
+    patch to one building sprite
 - `Audio`
   - cue registration, playback, and audio-specific runtime systems
 - `Shared`

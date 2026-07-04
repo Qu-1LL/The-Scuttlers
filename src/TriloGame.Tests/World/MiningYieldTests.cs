@@ -2,6 +2,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Events;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -10,17 +11,18 @@ namespace TriloGame.Tests.World;
 public sealed class MiningYieldTests
 {
     [Fact]
-    public void GeneratedOres_HaveConfiguredYieldAndHitRanges()
+    public void GeneratedOres_TakeHalfASecondOfSimulationTimePerYield()
     {
         var (_, cave, _) = TestWorldFactory.CreateSessionWithQueen();
         var oreTiles = cave.GetTiles().Where(tile => tile.IsOreTile()).ToArray();
 
         Assert.NotEmpty(oreTiles);
+        Assert.Equal(500d, GameConstants.OreHitsPerYield * GameConstants.GameTimePerSimulationTickMs);
         Assert.All(oreTiles, tile =>
         {
             Assert.InRange(tile.ResourceYield, GameConstants.MinOreYield, GameConstants.MaxOreYield);
-            Assert.InRange(tile.HitsPerYield, GameConstants.MinOreHitsPerYield, GameConstants.MaxOreHitsPerYield);
-            Assert.InRange(tile.HitsRemaining, 1, tile.HitsPerYield);
+            Assert.Equal(GameConstants.OreHitsPerYield, tile.HitsPerYield);
+            Assert.Equal(GameConstants.OreHitsPerYield, tile.HitsRemaining);
         });
     }
 
@@ -94,13 +96,15 @@ public sealed class MiningYieldTests
     }
 
     [Fact]
-    public void WallMining_YieldsSandstoneDirectlyOnDepletion()
+    public void WallMining_DepletesWallWithoutYieldingResources()
     {
         var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
         var wallTile = cave.GetReachableTiles()
             .SelectMany(tile => tile.Neighbors)
             .First(tile => tile.Base == "wall");
         var collectorTile = wallTile.Neighbors.First(tile => tile.CreatureFits());
+        string? minedResourceType = "not-cleared";
+        session.On(GameEvents.WallMined, payload => minedResourceType = payload.ResourceType);
 
         var hit1 = session.MineTile(cave, wallTile.Key, collectorTile.Key, "manual");
         var hit2 = session.MineTile(cave, wallTile.Key, collectorTile.Key, "manual");
@@ -113,12 +117,38 @@ public sealed class MiningYieldTests
         Assert.False(hit2.YieldedResource);
         Assert.False(hit2.TileDepleted);
         Assert.True(hit3.HitApplied);
-        Assert.True(hit3.YieldedResource);
+        Assert.False(hit3.YieldedResource);
         Assert.True(hit3.TileDepleted);
-        Assert.Equal(OreType.SANDSTONE.Name, hit3.ResourceType);
-        Assert.Equal(GameConstants.WallDropAmount, hit3.ResourceAmount);
+        Assert.Null(hit3.ResourceType);
+        Assert.Equal(0, hit3.ResourceAmount);
         Assert.Null(hit3.DroppedAtTileKey);
         Assert.Equal(0, hit3.DroppedAmount);
+        Assert.Null(minedResourceType);
         Assert.Equal(0, collectorTile.GetDroppedResourceCount(OreType.SANDSTONE.Name));
+    }
+
+    [Fact]
+    public void TrilobiteWallMining_DoesNotRequireOrModifyInventory()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
+        var wallTile = cave.GetReachableTiles()
+            .SelectMany(tile => tile.Neighbors)
+            .First(tile => tile.Base == "wall");
+        var minerTile = wallTile.Neighbors.First(tile => tile.CreatureFits());
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, minerTile.Coordinates, "Wall Miner", "miner");
+        Assert.Equal(
+            GameConstants.TrilobiteCarryCapacity,
+            miner.AddToInventory(OreType.LUMENITE.Name, GameConstants.TrilobiteCarryCapacity));
+
+        MineTileResult result = default;
+        for (var hit = 0; hit < GameConstants.WallHitsRequired; hit++)
+        {
+            result = miner.MineTile(wallTile.Key);
+        }
+
+        Assert.True(result.TileDepleted);
+        Assert.False(result.YieldedResource);
+        Assert.Equal(OreType.LUMENITE.Name, miner.Inventory.Type);
+        Assert.Equal(GameConstants.TrilobiteCarryCapacity, miner.Inventory.Amount);
     }
 }

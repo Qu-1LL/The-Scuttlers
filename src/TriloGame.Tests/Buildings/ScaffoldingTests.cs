@@ -35,6 +35,29 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
+    public void CompletedPassableScaffolding_ReplacesItselfWhenTrilobiteOccupiesFootprint()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var targetBuilding = new AlgaeFarm(session);
+        var scaffolding = new Scaffolding(session, targetBuilding);
+        var buildLocation = new GridPoint(8, 5);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+        var occupantLocation = buildLocation;
+        var occupant = TestWorldFactory.SpawnTrilobite(cave, session, occupantLocation, "Builder", "builder");
+
+        var requiredSandstone = scaffolding.GetRemainingRequirement("Sandstone");
+        Assert.Equal(requiredSandstone, scaffolding.Deposit("Sandstone", requiredSandstone, occupant));
+        Assert.Equal(scaffolding.ConstructionRequired, scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired, occupant));
+
+        Assert.DoesNotContain(scaffolding, cave.Buildings);
+        Assert.Contains(targetBuilding, cave.Buildings);
+        Assert.Equal(buildLocation, targetBuilding.Location);
+        Assert.Equal(occupantLocation, occupant.Location);
+        Assert.Contains(occupant, cave.GetTile(occupantLocation)!.Trilobites);
+    }
+
+    [Fact]
     public void RegularScaffoldingPlacement_IsRejectedWhenItCutsOffExistingBuildingAccess()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));

@@ -36,14 +36,35 @@ internal static class GumUiText
             return;
         }
 
-        var metrics = GumTextLayout.GetMetrics(style);
+        var textStyle = GumTextStyleCatalog.Get(style);
         if (parent is null)
         {
-            gumUi.AddText(bounds, text, color, horizontalAlignment, verticalAlignment, metrics.FontSize, maxLines);
+            gumUi.AddText(
+                bounds,
+                text,
+                color,
+                horizontalAlignment,
+                verticalAlignment,
+                textStyle.FontSize,
+                maxLines,
+                textStyle.FontFamily,
+                textStyle.CustomFontFile,
+                textStyle.FontScale);
             return;
         }
 
-        gumUi.AddText(parent, bounds, text, color, horizontalAlignment, verticalAlignment, metrics.FontSize, maxLines);
+        gumUi.AddText(
+            parent,
+            bounds,
+            text,
+            color,
+            horizontalAlignment,
+            verticalAlignment,
+            textStyle.FontSize,
+            maxLines,
+            textStyle.FontFamily,
+            textStyle.CustomFontFile,
+            textStyle.FontScale);
     }
 
     public static void AddCentered(
@@ -119,15 +140,18 @@ internal static class GumUiText
             return;
         }
 
+        var textStyle = GumTextStyleCatalog.Get(style);
+        var fittedWidth = Math.Max(1, (int)MathF.Floor(bounds.Width / MathF.Max(0.01f, textStyle.FontScale)));
         Add(
             gumUi,
             parent,
             bounds,
-            GumTextLayout.FitToWidth(text, bounds.Width, style),
+            GumTextLayout.FitToWidth(text, fittedWidth, style),
             color,
             style,
             horizontalAlignment,
             verticalAlignment,
             maxLines);
     }
+
 }

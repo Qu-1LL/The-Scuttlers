@@ -16,23 +16,20 @@ public enum TrilodexInteractionOutcome
 
 public sealed class TrilodexController
 {
-    private const float TreeDragThresholdPixels = 10f;
-
     private Point _pointerPoint;
     private float _gridScroll;
     private float _infoPanelScroll;
     private FeatureTree? _selectedTree;
     private ResearchTreeViewNode? _selectedTreeRoot;
-    private Vector2 _treePanOffset;
-    private Vector2 _treePanStartOffset;
-    private Point _treePanStartPointer;
-    private float _treeZoom = 1f;
-    private bool _treePanCandidate;
-    private bool _treePanning;
+    private readonly ResearchTreeViewerController _treeViewer = new();
 
     public bool IsOpen { get; private set; }
 
     internal bool IsDetailOpen => _selectedTree is not null;
+
+    internal Vector2 TreePanOffset => _treeViewer.PanOffset;
+
+    internal float TreeZoom => _treeViewer.Zoom;
 
     public void Reset()
     {
@@ -117,24 +114,12 @@ public sealed class TrilodexController
                 return true;
             }
 
-            var previousZoom = _treeZoom;
-            _treeZoom = ResearchTreeUiRenderer.ClampZoom(_treeZoom + (-delta * 0.0015f));
-            if (MathF.Abs(_treeZoom - previousZoom) <= float.Epsilon)
-            {
-                return true;
-            }
-
-            var metricsBefore = ResearchTreeUiRenderer.CalculateDetailMetrics(
+            _treeViewer.HandleWheel(
+                point,
+                delta,
                 layout.DetailTreeViewportBounds,
                 _selectedTreeRoot,
-                previousZoom,
                 ResearchTreeUiRenderer.ReadOnlyDetailConfig);
-            var pointToOrigin = point.ToVector2() - metricsBefore.Origin - _treePanOffset;
-            if (previousZoom > float.Epsilon)
-            {
-                _treePanOffset += pointToOrigin - (pointToOrigin * (_treeZoom / previousZoom));
-            }
-
             return true;
         }
 
@@ -160,35 +145,59 @@ public sealed class TrilodexController
             return false;
         }
 
-        if (_selectedTreeRoot is not null && layout.DetailTreeViewportBounds.Contains(point))
-        {
-            _treePanCandidate = true;
-            _treePanning = false;
-            _treePanStartPointer = point;
-            _treePanStartOffset = _treePanOffset;
-        }
-
         return true;
     }
 
     public void HandlePointerDrag(Point point, Point viewport)
     {
         _pointerPoint = point;
-        if (!IsOpen || !_treePanCandidate || _selectedTreeRoot is null)
+        if (!IsOpen)
+        {
+            return;
+        }
+    }
+
+    public bool HandlePanPointerDown(Point point, Point viewport)
+    {
+        _pointerPoint = point;
+        if (!IsOpen)
+        {
+            return false;
+        }
+
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
+        if (_selectedTreeRoot is null || !layout.DetailTreeViewportBounds.Contains(point))
+        {
+            return false;
+        }
+
+        return _treeViewer.HandlePanPointerDown(point, layout.DetailTreeViewportBounds, _selectedTreeRoot);
+    }
+
+    public void HandlePanPointerDrag(Point point)
+    {
+        _pointerPoint = point;
+        if (!IsOpen || _selectedTreeRoot is null)
         {
             return;
         }
 
-        var dragDelta = point - _treePanStartPointer;
-        if (!_treePanning && dragDelta.ToVector2().Length() >= TreeDragThresholdPixels)
+        _treeViewer.HandlePanPointerDrag(point);
+    }
+
+    public bool HandlePanPointerUp(Point point, Point viewport)
+    {
+        _pointerPoint = point;
+        if (!IsOpen || _selectedTreeRoot is null)
         {
-            _treePanning = true;
+            return false;
         }
 
-        if (_treePanning)
-        {
-            _treePanOffset = _treePanStartOffset + dragDelta.ToVector2();
-        }
+        var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
+        return _treeViewer.HandlePanPointerUp(
+            layout.DetailTreeViewportBounds,
+            _selectedTreeRoot,
+            ResearchTreeUiRenderer.ReadOnlyDetailConfig);
     }
 
     public TrilodexInteractionOutcome HandlePointerUp(Point point, Point viewport)
@@ -199,22 +208,7 @@ public sealed class TrilodexController
             return TrilodexInteractionOutcome.None;
         }
 
-        var wasPanning = _treePanning;
-        _treePanCandidate = false;
-        _treePanning = false;
-
         var layout = ResearchDraftLayout.BuildTreeCatalog(viewport, TriloDex.Global.Count, _gridScroll);
-        if (wasPanning && _selectedTreeRoot is not null)
-        {
-            _treePanOffset = ResearchTreeUiRenderer.ResolvePanAfterRelease(
-                layout.DetailTreeViewportBounds,
-                _selectedTreeRoot,
-                _treePanOffset,
-                _treeZoom,
-                ResearchTreeUiRenderer.ReadOnlyDetailConfig);
-            return TrilodexInteractionOutcome.Consumed;
-        }
-
         if (!layout.PanelBounds.Contains(point))
         {
             return TrilodexInteractionOutcome.RequestedClose;
@@ -276,7 +270,7 @@ public sealed class TrilodexController
             : BuildCatalogMenuModel(layout);
     }
 
-    private ResearchTreeMenuModel BuildCatalogMenuModel(ResearchDraftTreeCatalogLayoutInfo layout)
+    internal ResearchTreeMenuModel BuildCatalogMenuModel(ResearchDraftTreeCatalogLayoutInfo layout)
     {
         return new ResearchTreeMenuModel(
             ResearchTreeMenuMode.TrilodexCatalog,
@@ -297,7 +291,7 @@ public sealed class TrilodexController
                 CanPlaceBranches: false),
             ResearchTreeMenuRenderer.FromCatalogLayout(layout, detailOpen: false),
             "Trilodex",
-            "Curated research trees discovered by the colony.",
+            string.Empty,
             CardHeaderText: string.Empty,
             TreeHeaderText: string.Empty,
             BuildCatalogCardModels(layout),
@@ -328,19 +322,19 @@ public sealed class TrilodexController
                 ShowRootNode: true,
                 CanPlaceBranches: false),
             ResearchTreeMenuRenderer.FromCatalogLayout(layout, detailOpen: true),
-            _selectedTree?.Name ?? "Trilodex",
+            _selectedTree?.DisplayName ?? "Trilodex",
             _selectedTree is null
                 ? "Curated research trees discovered by the colony."
-                : $"Tier {_selectedTree.Tier} curated tree. Read-only preview.",
+                : $"{_selectedTree.Name} - Tier {_selectedTree.Tier} curated tree. Read-only preview.",
             CardHeaderText: string.Empty,
             TreeHeaderText: string.Empty,
             Cards: [],
-            new ResearchTreeViewportModel(_selectedTreeRoot, _treePanOffset, _treeZoom, treeBackgroundTexture),
+            new ResearchTreeViewportModel(_selectedTreeRoot, _treeViewer.PanOffset, _treeViewer.Zoom, treeBackgroundTexture),
             new ResearchTreeInfoPanelModel(NodeInfo: null, "Info", "Hover a tree node for details.", _infoPanelScroll),
             FooterText: string.Empty);
     }
 
-    private IReadOnlyList<ResearchTreeCardModel> BuildCatalogCardModels(ResearchDraftTreeCatalogLayoutInfo layout)
+    internal IReadOnlyList<ResearchTreeCardModel> BuildCatalogCardModels(ResearchDraftTreeCatalogLayoutInfo layout)
     {
         var trees = TriloDex.Global.FeatureTrees;
         var cards = new List<ResearchTreeCardModel>(trees.Count);
@@ -349,8 +343,8 @@ public sealed class TrilodexController
             var tree = trees[index];
             var hovered = index < layout.CardBounds.Count && layout.CardBounds[index].Contains(_pointerPoint);
             cards.Add(new ResearchTreeCardModel(
-                tree.Name,
-                $"Tier {tree.Tier}",
+                tree.DisplayName,
+                string.Empty,
                 tree.Root is null ? null : ResearchTreeViewNode.FromFeatureTree(tree),
                 hovered,
                 IsSelected: false));
@@ -363,25 +357,16 @@ public sealed class TrilodexController
     {
         _selectedTree = featureTree;
         _selectedTreeRoot = ResearchTreeViewNode.FromFeatureTree(featureTree);
-        _treePanOffset = Vector2.Zero;
-        _treePanStartOffset = Vector2.Zero;
-        _treeZoom = 1f;
+        _treeViewer.Reset();
         _infoPanelScroll = 0f;
-        _treePanCandidate = false;
-        _treePanning = false;
     }
 
     private void ClearDetail()
     {
         _selectedTree = null;
         _selectedTreeRoot = null;
-        _treePanOffset = Vector2.Zero;
-        _treePanStartOffset = Vector2.Zero;
-        _treePanStartPointer = Point.Zero;
-        _treeZoom = 1f;
+        _treeViewer.Reset();
         _infoPanelScroll = 0f;
-        _treePanCandidate = false;
-        _treePanning = false;
     }
 
     private static bool TryGetCardIndex(Point point, ResearchDraftTreeCatalogLayoutInfo layout, out int index)
