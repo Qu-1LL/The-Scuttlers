@@ -9,7 +9,7 @@ public sealed class MainMenuDebugLayoutTests
     [Fact]
     public void Build_StacksCardsDropdownAndFooterWithoutOverlap()
     {
-        var layout = MainMenuDebugLayout.Build(new Point(1440, 900), optionCount: WorldGenerationMethods.All.Length, dropdownExpanded: true);
+        var layout = MainMenuDebugLayout.Build(new Point(1440, 900), optionCount: WorldGenerationMethods.SelectablePatterns.Count, dropdownExpanded: true);
 
         Assert.True(layout.HeaderBounds.Bottom <= layout.SummaryBounds.Top);
         Assert.True(layout.SummaryBounds.Bottom <= layout.WorldGenerationLabelBounds.Top);

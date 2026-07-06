@@ -5,17 +5,34 @@ using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.World;
 
-public sealed class MapGenerator
+public sealed partial class MapGenerator
 {
     private const double DiagonalPerlinGradient = 0.70710678d;
-    private const int PerlinWorldSize = 800;
-    private const double PerlinWorldFrequency = 100d;
+    public const int WorldSize = 800;
+    private const double PerlinWorldFrequency = 80d;
     private const double PerlinWorldThreshold = 0.55d;
     private const int PerlinWorldMinimumRegionSize = 5;
     private const int PerlinStarterClearingRadius = 8;
     private const double FractalBrownianMotionWorldLacunarity = 2d;
     private const double FractalBrownianMotionWorldPersistence = 0.5d;
     private const int FractalBrownianMotionWorldIterations = 4;
+    private const double PerlinRandomFrequency = 30d;
+    private const double PerlinRandomDensity = 0.55d;
+    private const int PerlinRandomAutomataIterations = 3;
+    private const int PerlinRandomGrowthIterations = 3;
+    private const int PerlinRandomGrowthThreshold = 3;
+    private const int PerlinRandomMinimumRegionSize = 21;
+    private const double PatternlessRandomDensity = 0.55d;
+    private const int PatternlessRandomAutomataIterations = 5;
+    private const int PatternlessRandomGrowthIterations = 3;
+    private const int PatternlessRandomGrowthThreshold = 3;
+    private const int PatternlessRandomMinimumRegionSize = 21;
+    private const int PatternlessRandomPostFloodFillGrowthIterations = 3;
+    private const int VoronoiBordersRegionCount = 1600;
+    private const int VoronoiBordersRandomAutomataIterations = 5;
+    private const int VoronoiBordersFinalGrowthIterations = 3;
+    private const int VoronoiBordersFinalGrowthThreshold = 3;
+    private const int VoronoiBordersMinimumRegionSize = 11;
     private const double NormalizedConcentrationUpperBound = 0.9999999d;
     private const int SizeMult = 30;
     private const int HoleLimit = 10;
@@ -36,20 +53,10 @@ public sealed class MapGenerator
 
     public void Generate(Cave cave, WorldGenerationMethod method)
     {
-        switch (method)
-        {
-            case WorldGenerationMethod.Version0:
-                VersionZeroGeneration(cave);
-                return;
-            case WorldGenerationMethod.PerlinNoise:
-                PerlinNoiseGeneration(cave);
-                return;
-            case WorldGenerationMethod.FractalBrownianMotion:
-                FractalBrownianMotionGeneration(cave);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(method), method, "Unknown world generation method.");
-        }
+        ArgumentNullException.ThrowIfNull(cave);
+
+        var pattern = GetGenerationPattern(method);
+        pattern.Generate(this, cave);
     }
 
     // Convert the reusable Perlin noise map into a live cave while preserving the cleaned map topology.
@@ -57,18 +64,17 @@ public sealed class MapGenerator
     {
         ArgumentNullException.ThrowIfNull(cave);
 
-        var perlinSeed = (int)(NextInt(int.MaxValue - 1) + 1);
+        var perlinSeed = NextSeed32();
         var map = PerlinNoiseMap(
-            size: PerlinWorldSize,
-            seed: perlinSeed,
+            size: WorldSize,
+            seed: unchecked((int)perlinSeed),
             frequency: PerlinWorldFrequency,
             threshold: PerlinWorldThreshold,
             minimumRegionSize: PerlinWorldMinimumRegionSize);
-        PopulateCaveFromNoiseMap(cave, map);
-        FillOres(cave, PerlinStarterClearingRadius);
+        PopulateGeneratedNoiseMap(cave, map);
     }
 
-    public NoiseMap PerlinNoiseMap(int size = 800, int seed = 0, double frequency = 100d, double threshold = 0.55d, int minimumRegionSize = 5)
+    public NoiseMap PerlinNoiseMap(int size = WorldSize, int seed = 0, double frequency = PerlinWorldFrequency, double threshold = PerlinWorldThreshold, int minimumRegionSize = PerlinWorldMinimumRegionSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(size);
         ArgumentOutOfRangeException.ThrowIfNegative(minimumRegionSize);
@@ -82,7 +88,7 @@ public sealed class MapGenerator
             throw new ArgumentOutOfRangeException(nameof(threshold), "Threshold must be a finite number.");
         }
 
-        var concentrationField = PerlinConcentrationField(size, seed, frequency);
+        var concentrationField = PerlinConcentrationField(size, unchecked((uint)seed), frequency);
         return BuildNoiseMapFromConcentrationField(concentrationField, threshold, minimumRegionSize);
     }
 
@@ -91,30 +97,118 @@ public sealed class MapGenerator
     {
         ArgumentNullException.ThrowIfNull(cave);
 
-        var noiseSeed = (int)(NextInt(int.MaxValue - 1) + 1);
+        var noiseSeed = NextSeed32();
         var map = FractalBrownianMotionMap(
-            size: PerlinWorldSize,
-            seed: noiseSeed,
+            size: WorldSize,
+            seed: unchecked((int)noiseSeed),
             frequency: PerlinWorldFrequency,
             lacunarity: FractalBrownianMotionWorldLacunarity,
             persistence: FractalBrownianMotionWorldPersistence,
             iterations: FractalBrownianMotionWorldIterations,
             threshold: PerlinWorldThreshold,
             minimumRegionSize: PerlinWorldMinimumRegionSize);
-        PopulateCaveFromNoiseMap(cave, map);
-        FillOres(cave, PerlinStarterClearingRadius);
+        PopulateGeneratedNoiseMap(cave, map);
+    }
+
+    // Compose the sandbox-style random fill and cleanup steps into a starter-safe world layout.
+    public void PatternlessRandomGeneration(
+        Cave cave,
+        double density = PatternlessRandomDensity,
+        int randomAutomataIterations = PatternlessRandomAutomataIterations,
+        int cellularGrowthIterations = PatternlessRandomGrowthIterations,
+        int cellularGrowthThreshold = PatternlessRandomGrowthThreshold,
+        int minimumRegionSize = PatternlessRandomMinimumRegionSize,
+        int postFloodFillGrowthIterations = PatternlessRandomPostFloodFillGrowthIterations)
+    {
+        ArgumentNullException.ThrowIfNull(cave);
+        if (!double.IsFinite(density) || density < 0d || density > 1d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(density), "Density must be a finite value between 0 and 1.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(randomAutomataIterations);
+        ArgumentOutOfRangeException.ThrowIfNegative(cellularGrowthIterations);
+        ArgumentOutOfRangeException.ThrowIfNegative(cellularGrowthThreshold);
+        ArgumentOutOfRangeException.ThrowIfNegative(minimumRegionSize);
+        ArgumentOutOfRangeException.ThrowIfNegative(postFloodFillGrowthIterations);
+
+        var patternSeed = NextSeed32();
+        var graph = new RandomMapGenerator().GenerateMap(WorldSize, patternSeed, density);
+        graph = new RandomAutomata().InterpolateMap(graph, patternSeed, randomAutomataIterations);
+        graph = new CellularGrowth().InterpolateMap(graph, patternSeed, cellularGrowthIterations, cellularGrowthThreshold);
+        graph = new FloodFillTool().InterpolateMap(graph, patternSeed, minimumRegionSize);
+        graph = new RandomGrowth().InterpolateMap(graph, patternSeed, postFloodFillGrowthIterations);
+        PopulateGeneratedNoiseMap(cave, FinalizeGeneratedMap(graph, minimumRegionSize: 0));
+    }
+
+    // Blend Perlin weighting with random fill and smoothing passes to produce a noisier hybrid cave layout.
+    public void PerlinRandomGeneration(
+        Cave cave,
+        double frequency = PerlinRandomFrequency,
+        double density = PerlinRandomDensity,
+        int randomAutomataIterations = PerlinRandomAutomataIterations,
+        int cellularGrowthIterations = PerlinRandomGrowthIterations,
+        int cellularGrowthThreshold = PerlinRandomGrowthThreshold,
+        int minimumRegionSize = PerlinRandomMinimumRegionSize)
+    {
+        ArgumentNullException.ThrowIfNull(cave);
+        if (!double.IsFinite(frequency) || frequency < 0d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frequency), "Frequency must be a finite non-negative number.");
+        }
+
+        if (!double.IsFinite(density) || density < 0d || density > 1d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(density), "Density must be a finite value between 0 and 1.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(randomAutomataIterations);
+        ArgumentOutOfRangeException.ThrowIfNegative(cellularGrowthIterations);
+        ArgumentOutOfRangeException.ThrowIfNegative(cellularGrowthThreshold);
+        ArgumentOutOfRangeException.ThrowIfNegative(minimumRegionSize);
+
+        var patternSeed = NextSeed32();
+        var graph = new PerlinNoise().GenerateConcentrationField(WorldSize, patternSeed, frequency);
+        graph = new RandomMapGenerator().InterpolateConcentrationField(graph, patternSeed, density);
+        graph = new RandomAutomata().InterpolateMap(graph, patternSeed, randomAutomataIterations);
+        graph = new CellularGrowth().InterpolateMap(graph, patternSeed, cellularGrowthIterations, cellularGrowthThreshold);
+        PopulateGeneratedGraph(cave, graph, minimumRegionSize);
+    }
+
+    // Expand inverted Voronoi borders into cave tunnels, then smooth and clean the result into a starter-safe layout.
+    public void VoronoiBordersGeneration(
+        Cave cave,
+        int regionCount = VoronoiBordersRegionCount,
+        int randomAutomataIterations = VoronoiBordersRandomAutomataIterations,
+        int finalCellularGrowthIterations = VoronoiBordersFinalGrowthIterations,
+        int finalCellularGrowthThreshold = VoronoiBordersFinalGrowthThreshold,
+        int minimumRegionSize = VoronoiBordersMinimumRegionSize)
+    {
+        ArgumentNullException.ThrowIfNull(cave);
+        ArgumentOutOfRangeException.ThrowIfNegative(regionCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(randomAutomataIterations);
+        ArgumentOutOfRangeException.ThrowIfNegative(finalCellularGrowthIterations);
+        ArgumentOutOfRangeException.ThrowIfNegative(finalCellularGrowthThreshold);
+        ArgumentOutOfRangeException.ThrowIfNegative(minimumRegionSize);
+
+        var patternSeed = NextSeed32();
+        var graph = new VoronoiRegions().GenerateMap(WorldSize, patternSeed, regionCount);
+        graph = InvertBinaryGraph(graph);
+        graph = new RandomAutomata().InterpolateMap(graph, patternSeed, randomAutomataIterations);
+        graph = new CellularGrowth().InterpolateMap(graph, patternSeed, finalCellularGrowthIterations, finalCellularGrowthThreshold);
+        PopulateGeneratedGraph(cave, graph, minimumRegionSize);
     }
 
     // Threshold the normalized FBM field into cave tiles, then apply the same starter clearing and cleanup passes as Perlin generation.
     public NoiseMap FractalBrownianMotionMap(
-        int size = 800,
+        int size = WorldSize,
         int seed = 0,
-        double frequency = 100d,
-        double lacunarity = 2d,
-        double persistence = 0.5d,
-        int iterations = 4,
-        double threshold = 0.55d,
-        int minimumRegionSize = 5)
+        double frequency = PerlinWorldFrequency,
+        double lacunarity = FractalBrownianMotionWorldLacunarity,
+        double persistence = FractalBrownianMotionWorldPersistence,
+        int iterations = FractalBrownianMotionWorldIterations,
+        double threshold = PerlinWorldThreshold,
+        int minimumRegionSize = PerlinWorldMinimumRegionSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(size);
         ArgumentOutOfRangeException.ThrowIfNegative(minimumRegionSize);
@@ -141,7 +235,7 @@ public sealed class MapGenerator
 
         var concentrationField = FractalBrownianMotionConcentrationField(
             size,
-            seed,
+            unchecked((uint)seed),
             frequency,
             lacunarity,
             persistence,
@@ -204,21 +298,9 @@ public sealed class MapGenerator
     // Share the threshold, starter-clearing, flood-fill, and wall passes across noise-based generators.
     private NoiseMap BuildNoiseMapFromConcentrationField(ConcentrationField concentrationField, double threshold, int minimumRegionSize)
     {
-        var map = new NoiseMap(concentrationField.Width, concentrationField.Height);
-        for (var y = 0; y < concentrationField.Height; y++)
-        {
-            for (var x = 0; x < concentrationField.Width; x++)
-            {
-                map[x, y] = concentrationField[x, y] >= threshold
-                    ? NoiseMapTileType.Floor
-                    : NoiseMapTileType.Empty;
-            }
-        }
-
-        CarveStarterClearing(map, concentrationField.Width / 2, concentrationField.Height / 2, PerlinStarterClearingRadius);
-        FloodFill(minimumRegionSize, map);
-        FillWalls(map);
-        return map;
+        var graph = GenerationGraph.FromConcentrationField(concentrationField);
+        new RawThreshold().InterpolateConcentrationField(graph, seed: 0u, threshold);
+        return FinalizeGeneratedMap(graph, minimumRegionSize);
     }
 
     public void FloodFill(NoiseMap map)
@@ -318,71 +400,31 @@ public sealed class MapGenerator
     }
 
     // Sample a seeded square concentration field at tile centers so integer frequencies avoid lattice collapse.
-    private ConcentrationField PerlinConcentrationField(int size = 800, int seed = 0, double frequency = 100d)
+    private ConcentrationField PerlinConcentrationField(int size = WorldSize, uint seed = 0, double frequency = PerlinWorldFrequency)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(size);
 
-        var field = new ConcentrationField(size, size);
-        var sampleScale = frequency / System.Math.Max(size, 1);
-
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                var sampleX = (x + 0.5d) * sampleScale;
-                var sampleY = (y + 0.5d) * sampleScale;
-                field[x, y] = NormalizePerlinToConcentration(Perlin2D(sampleX, sampleY, seed));
-            }
-        }
-
-        return field;
+        var graph = new PerlinNoise().GenerateConcentrationField(size, seed, frequency);
+        return graph.ToConcentrationField();
     }
 
     // Mirror the JavaScript FBM concentration generator by summing weighted Perlin octaves, then normalizing the result once.
     private ConcentrationField FractalBrownianMotionConcentrationField(
         int size,
-        int seed,
+        uint seed,
         double frequency,
         double lacunarity,
         double persistence,
         int iterations)
     {
-        var fields = new List<ConcentrationField>(iterations);
-        var octaveFrequency = frequency;
-        var amplitude = 1d;
-
-        for (var iteration = 0; iteration < iterations; iteration++)
-        {
-            var field = PerlinConcentrationField(size, seed, octaveFrequency);
-            for (var y = 0; y < size; y++)
-            {
-                for (var x = 0; x < size; x++)
-                {
-                    field[x, y] *= amplitude;
-                }
-            }
-
-            fields.Add(field);
-            octaveFrequency *= lacunarity;
-            amplitude *= persistence;
-        }
-
-        var combinedField = new ConcentrationField(size, size);
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                var combinedValue = 0d;
-                for (var index = 0; index < fields.Count; index++)
-                {
-                    combinedValue += fields[index][x, y];
-                }
-
-                combinedField[x, y] = combinedValue;
-            }
-        }
-
-        return NormalizeConcentrationField(combinedField);
+        var graph = new FractalBrownianMotion().GenerateConcentrationField(
+            size,
+            seed,
+            frequency,
+            lacunarity,
+            persistence,
+            iterations);
+        return graph.ToConcentrationField();
     }
 
     // Build the legacy cave layout so the default world stays behavior-compatible.
@@ -725,6 +767,12 @@ public sealed class MapGenerator
                 }
             }
         }
+    }
+
+    private void PopulateGeneratedNoiseMap(Cave cave, NoiseMap map)
+    {
+        PopulateCaveFromNoiseMap(cave, map);
+        FillOres(cave, PerlinStarterClearingRadius);
     }
 
     // Reserve a seam for future Sand-specific biome generation rules.

@@ -47,10 +47,38 @@ public sealed class CaveGenerationTests
     }
 
     [Fact]
+    public void NewCave_WithPerlinRandomWorldGeneration_GeneratesPlayableCaveTiles()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, WorldGenerationMethod.PerlinRandom);
+
+        Assert.Same(cave, session.Cave);
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "empty");
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == OreType.SANDSTONE.Name);
+        Assert.Empty(cave.GetBiomeRegions());
+    }
+
+    [Fact]
     public void NewCave_WithFractalBrownianMotionWorldGeneration_GeneratesPlayableCaveTiles()
     {
         var session = new GameSession();
         var cave = new Cave(session, WorldGenerationMethod.FractalBrownianMotion);
+
+        Assert.Same(cave, session.Cave);
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "empty");
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == OreType.SANDSTONE.Name);
+        Assert.Empty(cave.GetBiomeRegions());
+    }
+
+    [Fact]
+    public void NewCave_WithPatternlessRandomWorldGeneration_GeneratesPlayableCaveTiles()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, WorldGenerationMethod.PatternlessRandom);
 
         Assert.Same(cave, session.Cave);
         Assert.NotEmpty(cave.GetTiles());

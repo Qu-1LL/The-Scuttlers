@@ -918,7 +918,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         var layout = MainMenuDebugLayout.Build(
             Window.ClientBounds.Size,
-            WorldGenerationMethods.All.Length,
+            WorldGenerationMethods.SelectablePatterns.Count,
             _mainMenuWorldGenerationDropdownOpen);
         if (layout.DropdownBounds.Contains(_input.MousePoint))
         {
@@ -2692,7 +2692,7 @@ public sealed partial class GameApp
         var viewport = Window.ClientBounds.Size;
         var layout = MainMenuDebugLayout.Build(
             viewport,
-            WorldGenerationMethods.All.Length,
+            WorldGenerationMethods.SelectablePatterns.Count,
             _mainMenuWorldGenerationDropdownOpen);
         var pointer = _input.MousePoint;
 
@@ -3349,16 +3349,17 @@ public sealed partial class GameApp
 
     private IReadOnlyList<MainMenuWorldGenerationOptionButton> BuildMainMenuWorldGenerationOptions(Rectangle optionBounds, int gap)
     {
-        var bounds = MainMenuDebugLayout.StackRows(optionBounds, WorldGenerationMethods.All.Length, gap);
+        var patterns = WorldGenerationMethods.SelectablePatterns;
+        var bounds = MainMenuDebugLayout.StackRows(optionBounds, patterns.Count, gap);
         var options = new MainMenuWorldGenerationOptionButton[bounds.Count];
         for (var index = 0; index < bounds.Count; index++)
         {
-            var method = WorldGenerationMethods.All[index];
+            var pattern = patterns[index];
             options[index] = new MainMenuWorldGenerationOptionButton(
-                method,
-                WorldGenerationMethods.GetDisplayName(method),
+                pattern.Method,
+                pattern.DisplayName,
                 bounds[index],
-                method == _worldGenerationMethod);
+                pattern.Method == _worldGenerationMethod);
         }
 
         return options;
