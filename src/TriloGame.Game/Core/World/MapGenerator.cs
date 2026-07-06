@@ -12,7 +12,7 @@ public sealed partial class MapGenerator
     private const double PerlinWorldFrequency = 80d;
     private const double PerlinWorldThreshold = 0.55d;
     private const int PerlinWorldMinimumRegionSize = 5;
-    private const int PerlinStarterClearingRadius = 8;
+    private const int PerlinStarterClearingRadius = 4;
     private const double FractalBrownianMotionWorldLacunarity = 2d;
     private const double FractalBrownianMotionWorldPersistence = 0.5d;
     private const int FractalBrownianMotionWorldIterations = 4;
@@ -26,8 +26,8 @@ public sealed partial class MapGenerator
     private const int PatternlessRandomAutomataIterations = 5;
     private const int PatternlessRandomGrowthIterations = 3;
     private const int PatternlessRandomGrowthThreshold = 3;
-    private const int PatternlessRandomMinimumRegionSize = 21;
-    private const int PatternlessRandomPostFloodFillGrowthIterations = 3;
+    private const int PatternlessRandomMinimumRegionSize = 6;
+    private const int PatternlessRandomPostFloodFillGrowthIterations = 2;
     private const int VoronoiBordersRegionCount = 1600;
     private const int VoronoiBordersRandomAutomataIterations = 5;
     private const int VoronoiBordersFinalGrowthIterations = 3;
@@ -135,7 +135,6 @@ public sealed partial class MapGenerator
         var patternSeed = NextSeed32();
         var graph = new RandomMapGenerator().GenerateMap(WorldSize, patternSeed, density);
         graph = new RandomAutomata().InterpolateMap(graph, patternSeed, randomAutomataIterations);
-        graph = new CellularGrowth().InterpolateMap(graph, patternSeed, cellularGrowthIterations, cellularGrowthThreshold);
         graph = new FloodFillTool().InterpolateMap(graph, patternSeed, minimumRegionSize);
         graph = new RandomGrowth().InterpolateMap(graph, patternSeed, postFloodFillGrowthIterations);
         PopulateGeneratedNoiseMap(cave, FinalizeGeneratedMap(graph, minimumRegionSize: 0));
@@ -357,46 +356,29 @@ public sealed partial class MapGenerator
         }
     }
 
-    // Build a one-tile wall boundary around floor space and strip orphaned walls back to empty.
+    // Build a one-tile wall boundary around floor space.
     public void FillWalls(NoiseMap map)
     {
         ArgumentNullException.ThrowIfNull(map);
 
-        var floorsToWalls = new List<int>();
+        var emptyToWalls = new List<int>();
         for (var y = 0; y < map.Height; y++)
         {
             for (var x = 0; x < map.Width; x++)
             {
-                if (map[x, y] == NoiseMapTileType.Floor && BordersEmpty(map, x, y))
+                if (IsEmptyOrOutOfBounds(map, x, y) && BordersFloor(map, x, y))
                 {
-                    floorsToWalls.Add(GetMapIndex(map, x, y));
+                    emptyToWalls.Add(GetMapIndex(map, x, y));
                 }
             }
         }
 
-        for (var index = 0; index < floorsToWalls.Count; index++)
+        for (var index = 0; index < emptyToWalls.Count; index++)
         {
-            var tileIndex = floorsToWalls[index];
+            var tileIndex = emptyToWalls[index];
             map[tileIndex % map.Width, tileIndex / map.Width] = NoiseMapTileType.Wall;
         }
 
-        var wallsToEmpty = new List<int>();
-        for (var y = 0; y < map.Height; y++)
-        {
-            for (var x = 0; x < map.Width; x++)
-            {
-                if (map[x, y] == NoiseMapTileType.Wall && !BordersFloor(map, x, y))
-                {
-                    wallsToEmpty.Add(GetMapIndex(map, x, y));
-                }
-            }
-        }
-
-        for (var index = 0; index < wallsToEmpty.Count; index++)
-        {
-            var tileIndex = wallsToEmpty[index];
-            map[tileIndex % map.Width, tileIndex / map.Width] = NoiseMapTileType.Empty;
-        }
     }
 
     // Sample a seeded square concentration field at tile centers so integer frequencies avoid lattice collapse.
@@ -831,27 +813,15 @@ public sealed partial class MapGenerator
         frontier.Enqueue(index);
     }
 
-    private static bool BordersEmpty(NoiseMap map, int x, int y)
-    {
-        return IsEmptyOrOutOfBounds(map, x - 1, y) ||
-               IsEmptyOrOutOfBounds(map, x + 1, y) ||
-               IsEmptyOrOutOfBounds(map, x, y - 1) ||
-               IsEmptyOrOutOfBounds(map, x, y + 1);
-    }
-
     private static bool BordersFloor(NoiseMap map, int x, int y)
     {
         return IsFloor(map, x - 1, y) ||
                IsFloor(map, x + 1, y) ||
                IsFloor(map, x, y - 1) ||
-               IsFloor(map, x, y + 1) ||
-               IsFloor(map, x - 1, y - 1) ||
-               IsFloor(map, x + 1, y - 1) ||
-               IsFloor(map, x - 1, y + 1) ||
-               IsFloor(map, x + 1, y + 1);
+               IsFloor(map, x, y + 1);
     }
 
-    private static bool IsEmptyOrOutOfBounds(NoiseMap map, int x, int y)
+      private static bool IsEmptyOrOutOfBounds(NoiseMap map, int x, int y)
     {
         return !map.IsInBounds(x, y) || map[x, y] == NoiseMapTileType.Empty;
     }
