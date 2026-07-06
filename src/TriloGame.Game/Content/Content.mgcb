@@ -263,6 +263,11 @@
 /processor:SoundEffectProcessor
 /build:Audio/Invalid.mp3
 
+#begin Audio/UnlockNode.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/UnlockNode.mp3
+
 #begin Audio/VolumeSound.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor

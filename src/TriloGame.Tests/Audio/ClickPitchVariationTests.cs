@@ -11,6 +11,7 @@ public sealed class ClickPitchVariationTests
         var birthPitches = ClickPitchVariation.GetPitches(GameAudioCue.TrilobiteBirth);
         var uiPitches = ClickPitchVariation.GetPitches(GameAudioCue.UiSelect);
         var invalidPitches = ClickPitchVariation.GetPitches(GameAudioCue.InvalidBranchPlacement);
+        var unlockPitches = ClickPitchVariation.GetPitches(GameAudioCue.UnlockNode);
         var selectPitches = ClickPitchVariation.GetPitches(GameAudioCue.TrilobiteSelected);
         var volumePitches = ClickPitchVariation.GetPitches(GameAudioCue.VolumeSound);
 
@@ -19,6 +20,7 @@ public sealed class ClickPitchVariationTests
         Assert.Equal(3, uiPitches.Count);
         Assert.Equal(buildingPitches, uiPitches);
         Assert.Equal(uiPitches, invalidPitches);
+        Assert.Equal(uiPitches, unlockPitches);
         Assert.Equal(uiPitches, selectPitches);
         Assert.Equal(uiPitches, volumePitches);
     }

@@ -300,6 +300,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/TrilobiteSelected"));
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/UiSelect"));
         _audio.Register(GameAudioCue.InvalidBranchPlacement, Content.Load<SoundEffect>("Audio/Invalid"));
+        _audio.Register(GameAudioCue.UnlockNode, Content.Load<SoundEffect>("Audio/UnlockNode"));
         _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/VolumeSound"));
     }
 

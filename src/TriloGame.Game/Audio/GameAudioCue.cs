@@ -10,5 +10,6 @@ public enum GameAudioCue
     TrilobiteSelected,
     UiSelect,
     InvalidBranchPlacement,
+    UnlockNode,
     VolumeSound
 }

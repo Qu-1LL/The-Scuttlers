@@ -111,6 +111,8 @@ public sealed partial class GameApp
                 _audio.Play(GameAudioCue.InvalidBranchPlacement);
                 break;
             case ResearchDraftInteractionOutcome.NodeUnlocked:
+                _audio.Play(GameAudioCue.UnlockNode);
+                break;
             case ResearchDraftInteractionOutcome.NodeSelected:
                 PlayUiSelectSound();
                 break;
