@@ -15,6 +15,7 @@ internal static class ResearchTreeCardRenderer
     private static readonly Color CardBorder = new(66, 101, 118);
     private static readonly Color CardHoverBorder = new(132, 181, 198);
     private static readonly Color CardSelectedBorder = new(214, 236, 244);
+    private static readonly Color CyanSelectionColor = new(105, 226, 239);
     private static readonly Color CardTitleColor = Color.White;
     private static readonly Color EmptyPreviewTextColor = new(191, 204, 211);
     private const int HorizontalPadding = 12;
@@ -54,9 +55,10 @@ internal static class ResearchTreeCardRenderer
         GameSession session,
         ResearchTreeCardData card,
         ResearchTreeRenderConfig config,
-        Point pointerPoint)
+        Point pointerPoint,
+        double visualTimeMs = 0d)
     {
-        return Draw(gumUi, parent: null, session, card, config, pointerPoint);
+        return Draw(gumUi, parent: null, session, card, config, pointerPoint, visualTimeMs);
     }
 
     public static ResearchTreeViewNode? Draw(
@@ -65,10 +67,16 @@ internal static class ResearchTreeCardRenderer
         GameSession session,
         ResearchTreeCardData card,
         ResearchTreeRenderConfig config,
-        Point pointerPoint)
+        Point pointerPoint,
+        double visualTimeMs = 0d)
     {
         var layout = BuildLayout(card.Bounds);
         GumUiChrome.DrawFrame(gumUi, parent, card.Bounds, GetFrameStyle(card));
+        if (card.IsSelected)
+        {
+            DrawSelectedCardHalo(gumUi, parent, card.Bounds, visualTimeMs);
+        }
+
         DrawTitle(gumUi, parent, layout.TitleBounds, card.Title);
 
         if (card.Root is null)
@@ -102,6 +110,58 @@ internal static class ResearchTreeCardRenderer
         }
 
         return hoveredNode;
+    }
+
+    private static void DrawSelectedCardHalo(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        double visualTimeMs)
+    {
+        var phase = (float)((visualTimeMs % 1200d) / 1200d * MathHelper.TwoPi);
+        var pulse = (MathF.Sin(phase) + 1f) * 0.5f;
+        var innerInset = 3 + (int)MathF.Round(pulse);
+        var outerInset = innerInset + 4 + (int)MathF.Round(pulse);
+        AddSelectionOutline(
+            gumUi,
+            parent,
+            Inset(bounds, innerInset),
+            new Color(CyanSelectionColor.R, CyanSelectionColor.G, CyanSelectionColor.B, (byte)MathF.Round(195f + (pulse * 60f))),
+            thickness: 2,
+            radius: Math.Max(4, 14 - innerInset));
+        AddSelectionOutline(
+            gumUi,
+            parent,
+            Inset(bounds, outerInset),
+            new Color(CyanSelectionColor.R, CyanSelectionColor.G, CyanSelectionColor.B, (byte)MathF.Round(85f + (pulse * 70f))),
+            thickness: 1,
+            radius: Math.Max(4, 14 - outerInset));
+    }
+
+    private static void AddSelectionOutline(
+        GumUiRenderer gumUi,
+        ContainerRuntime? parent,
+        Rectangle bounds,
+        Color color,
+        int thickness,
+        int radius)
+    {
+        if (parent is null)
+        {
+            gumUi.AddRoundedOutline(bounds, color, thickness, radius);
+            return;
+        }
+
+        gumUi.AddRoundedOutline(parent, bounds, color, thickness, radius);
+    }
+
+    private static Rectangle Inset(Rectangle bounds, int inset)
+    {
+        return new Rectangle(
+            bounds.X + inset,
+            bounds.Y + inset,
+            Math.Max(0, bounds.Width - (inset * 2)),
+            Math.Max(0, bounds.Height - (inset * 2)));
     }
 
     private static GumUiFrameStyle GetFrameStyle(ResearchTreeCardData card)

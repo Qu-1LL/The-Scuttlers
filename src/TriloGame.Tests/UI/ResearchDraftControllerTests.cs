@@ -176,6 +176,50 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
+    public void InterpolateProjectedPlacementLayout_MovesMatchingNodesAndKeepsTargetParentage()
+    {
+        const float edgeLength = 80f;
+        var skillTree = CreateRootOnlySkillTree();
+        var root = skillTree.Root!;
+        var child = skillTree.AddChild(
+            root,
+            skillTree.IntakeSkillNode(new SkillNode("Placed Child", "Placed child."), "B1"));
+        var branch = new ResearchBranch();
+        var branchRoot = branch.SetRoot(
+            new TreeInstanceNode(new SkillNode("Preview Root", "Preview root."), "F1"));
+
+        var start = ResearchDraftController.BuildProjectedPlacementLayout(
+            Vector2.Zero,
+            edgeLength,
+            Vector2.Zero,
+            root,
+            branch,
+            root);
+        var target = ResearchDraftController.BuildProjectedPlacementLayout(
+            Vector2.Zero,
+            edgeLength,
+            Vector2.Zero,
+            root,
+            branch,
+            child);
+
+        var interpolated = ResearchDraftController.InterpolateProjectedPlacementLayout(start, target, 0.5f);
+        var startBranchNode = start.Nodes.Single(node => node.IsBranchNode && ReferenceEquals(node.SkillNode, branchRoot));
+        var targetBranchNode = target.Nodes.Single(node => node.IsBranchNode && ReferenceEquals(node.SkillNode, branchRoot));
+        var interpolatedBranchNode = interpolated.Nodes.Single(node => node.IsBranchNode && ReferenceEquals(node.SkillNode, branchRoot));
+
+        Assert.InRange(
+            Vector2.Distance(
+                interpolatedBranchNode.Position,
+                Vector2.Lerp(startBranchNode.Position, targetBranchNode.Position, 0.5f)),
+            0f,
+            0.001f);
+        Assert.NotNull(interpolatedBranchNode.Parent);
+        Assert.Same(child, interpolatedBranchNode.Parent!.SkillNode);
+        Assert.False(interpolatedBranchNode.Parent.IsBranchNode);
+    }
+
+    [Fact]
     public void BuildVisibleTreeContentBounds_UsesThePlacedTreeExtentsInsteadOfOnlyTheCoreNode()
     {
         var viewport = new Rectangle(100, 80, 620, 420);
@@ -384,6 +428,92 @@ public sealed class ResearchDraftControllerTests
         Assert.Equal(ResearchDraftInteractionOutcome.BranchPlaced, placeOutcome);
         Assert.False(draftSystem.HasPendingDraft);
         Assert.Equal(1 + draft.Branches[0].Count, session.SkillTree.Count);
+    }
+
+    [Fact]
+    public void HandlePointerUp_ClickingBranchNameRequestsFullTreePreview()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var round = new RoundInfo(0, 180000d, 180000d, 120000d, 30000d, 4, false);
+        var draft = Assert.IsType<ResearchDraftOffer>(draftSystem.CreateDraft(session, round));
+        var controller = new ResearchDraftController();
+        controller.Open(draftSystem);
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        var cardLayout = ResearchTreeCardRenderer.BuildLayout(layout.BranchCardBounds[0]);
+
+        var outcome = controller.HandlePointerUp(cardLayout.TitleBounds.Center, viewport, session, draftSystem);
+        var hasRequest = controller.TryTakeBranchPreviewRequest(out var branch, out var title);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.RequestedBranchPreview, outcome);
+        Assert.True(hasRequest);
+        Assert.Same(draft.Branches[0], branch);
+        Assert.Equal(draft.Branches[0].Name, title);
+        Assert.True(draftSystem.HasPendingDraft);
+    }
+
+    [Fact]
+    public void HandlePointerUp_ClickingInsideCardTreeKeepsDraftSelectionBehavior()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var round = new RoundInfo(0, 180000d, 180000d, 120000d, 30000d, 4, false);
+        draftSystem.CreateDraft(session, round);
+        var controller = new ResearchDraftController();
+        controller.Open(draftSystem);
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        var cardLayout = ResearchTreeCardRenderer.BuildLayout(layout.BranchCardBounds[0]);
+
+        var outcome = controller.HandlePointerUp(cardLayout.PreviewBounds.Center, viewport, session, draftSystem);
+        var hasRequest = controller.TryTakeBranchPreviewRequest(out _, out _);
+
+        Assert.Equal(ResearchDraftInteractionOutcome.Consumed, outcome);
+        Assert.False(hasRequest);
+        Assert.True(controller.BuildDraftMenuModel(layout, session, draftSystem, null).Cards[0].IsSelected);
+    }
+
+    [Fact]
+    public void HandleSecondaryClick_DeselectsSelectedBranch()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var draftSystem = new ResearchDraftSystem();
+        var round = new RoundInfo(0, 180000d, 180000d, 120000d, 30000d, 4, false);
+        draftSystem.CreateDraft(session, round);
+        var controller = new ResearchDraftController();
+        controller.Open(draftSystem);
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport);
+        var previewBounds = ResearchTreeCardRenderer.BuildLayout(layout.BranchCardBounds[0]).PreviewBounds;
+        controller.HandlePointerUp(previewBounds.Center, viewport, session, draftSystem);
+
+        var handled = controller.HandleSecondaryClick(draftSystem);
+        var model = controller.BuildDraftMenuModel(layout, session, draftSystem, null);
+
+        Assert.True(handled);
+        Assert.All(model.Cards, card => Assert.False(card.IsSelected));
+    }
+
+    [Fact]
+    public void HandleSecondaryClick_WithoutSelectedBranchDoesNothing()
+    {
+        var controller = new ResearchDraftController();
+        var draftSystem = new ResearchDraftSystem();
+        controller.Open(draftSystem);
+
+        Assert.False(controller.HandleSecondaryClick(draftSystem));
+    }
+
+    [Fact]
+    public void ObstructedBranchPlacement_UsesDedicatedInteractionOutcome()
+    {
+        Assert.Equal(
+            ResearchDraftInteractionOutcome.BranchPlacementObstructed,
+            ResearchDraftController.GetRejectedPlacementOutcome(hasCollision: true));
+        Assert.Equal(
+            ResearchDraftInteractionOutcome.Consumed,
+            ResearchDraftController.GetRejectedPlacementOutcome(hasCollision: false));
     }
 
     [Fact]

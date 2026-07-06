@@ -258,6 +258,11 @@
 /processor:SoundEffectProcessor
 /build:Audio/UiSelect.wav
 
+#begin Audio/Invalid.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Invalid.mp3
+
 #begin Audio/VolumeSound.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor

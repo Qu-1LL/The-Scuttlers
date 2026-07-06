@@ -299,6 +299,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _audio.Register(GameAudioCue.TrilobiteBirth, Content.Load<SoundEffect>("Audio/TrilobiteBirth"));
         _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/TrilobiteSelected"));
         _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/UiSelect"));
+        _audio.Register(GameAudioCue.InvalidBranchPlacement, Content.Load<SoundEffect>("Audio/Invalid"));
         _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/VolumeSound"));
     }
 
@@ -597,11 +598,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             _mainMenuOverlayRenderer.Draw(_gumUiRenderer, Window.ClientBounds.Size, _input.MousePoint);
             DrawSettingsMenu();
-            _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, _trilodexCatalogViewport, GetTreeBackgroundTexture());
             if (_researchDraft.IsOpen)
             {
                 _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture(), _uiClockMs);
             }
+            _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, _trilodexCatalogViewport, GetTreeBackgroundTexture(), _uiClockMs);
         }
         else if (_isGameOver)
         {
@@ -617,8 +618,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawMiningTileHoverLabel();
             DrawFocusHint();
             DrawRoundDebugWidget();
-            _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, _trilodexCatalogViewport, GetTreeBackgroundTexture());
             _researchDraft.Draw(Window.ClientBounds.Size, _session, _researchDraftSystem, _gumUiRenderer, GetTreeBackgroundTexture(), _uiClockMs);
+            _trilodex.Draw(Window.ClientBounds.Size, _session, _gumUiRenderer, _trilodexCatalogViewport, GetTreeBackgroundTexture(), _uiClockMs);
 
             if (_debugMenuOpen)
             {

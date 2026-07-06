@@ -243,7 +243,8 @@ internal static class ResearchTreeMenuRenderer
                     source.IsHovered,
                     source.IsSelected),
                 ResearchTreeUiRenderer.TreeEntryCardConfig,
-                pointerPoint);
+                pointerPoint,
+                model.TreeViewport.VisualTimeMs);
         }
     }
 
@@ -302,7 +303,8 @@ internal static class ResearchTreeMenuRenderer
                     source.IsHovered,
                     source.IsSelected),
                 ResearchTreeUiRenderer.TreeEntryCardConfig,
-                pointerPoint);
+                pointerPoint,
+                model.TreeViewport.VisualTimeMs);
         }
     }
 
@@ -334,7 +336,8 @@ internal static class ResearchTreeMenuRenderer
                     source.IsHovered,
                     source.IsSelected),
                 ResearchTreeUiRenderer.TreeEntryCardConfig,
-                localPointer);
+                localPointer,
+                model.TreeViewport.VisualTimeMs);
         }
     }
 

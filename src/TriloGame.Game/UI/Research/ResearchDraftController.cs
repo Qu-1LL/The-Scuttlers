@@ -16,7 +16,9 @@ public enum ResearchDraftInteractionOutcome
     Consumed,
     RequestedOpen,
     RequestedClose,
+    RequestedBranchPreview,
     BranchPlaced,
+    BranchPlacementObstructed,
     NodeSelected,
     NodeUnlocked
 }
@@ -40,6 +42,7 @@ public sealed class ResearchDraftController
     private static readonly Color BoundaryCollisionColor = new(242, 72, 68, 235);
     private const byte BranchPreviewFillAlpha = 150;
     private const byte BranchPreviewBorderAlpha = 190;
+    private const double ProjectedPlacementTransitionDurationMs = 180d;
     private static readonly Color BranchOriginFillColor = new(238, 207, 106);
     private static readonly Color BranchOriginBorderColor = new(255, 247, 222);
     private static readonly ResearchTreeRenderConfig DraftTreeRenderConfig = new(
@@ -52,8 +55,13 @@ public sealed class ResearchDraftController
     private Point _pointerPoint;
     private int? _selectedBranchIndex;
     private TreeInstanceNode? _selectedSkillTreeNode;
+    private ResearchBranch? _requestedBranchPreview;
+    private string _requestedBranchPreviewTitle = string.Empty;
     private string _statusMessage = EmptyStatus;
     private float _infoPanelScroll;
+    private ProjectedTreeRenderLayout? _projectedTransitionStart;
+    private ProjectedTreeRenderLayout? _projectedTransitionTarget;
+    private double _projectedTransitionStartTimeMs;
 
     public bool IsOpen { get; private set; }
 
@@ -65,8 +73,10 @@ public sealed class ResearchDraftController
         _treeViewer.Reset();
         _selectedBranchIndex = null;
         _selectedSkillTreeNode = null;
+        ClearBranchPreviewRequest();
         _statusMessage = EmptyStatus;
         _infoPanelScroll = 0f;
+        ResetProjectedPlacementTransition();
         IsOpen = false;
     }
 
@@ -75,8 +85,10 @@ public sealed class ResearchDraftController
         IsOpen = true;
         _treeViewer.Reset();
         _selectedSkillTreeNode = null;
+        ClearBranchPreviewRequest();
         _statusMessage = BuildDefaultStatus(draftSystem);
         _infoPanelScroll = 0f;
+        ResetProjectedPlacementTransition();
     }
 
     public void Close(ResearchDraftSystem draftSystem)
@@ -84,14 +96,29 @@ public sealed class ResearchDraftController
         _treeViewer.Reset();
         _selectedBranchIndex = null;
         _selectedSkillTreeNode = null;
+        ClearBranchPreviewRequest();
         _statusMessage = BuildDefaultStatus(draftSystem);
         _infoPanelScroll = 0f;
+        ResetProjectedPlacementTransition();
         IsOpen = false;
     }
 
     public void UpdatePointer(Point point)
     {
         _pointerPoint = point;
+    }
+
+    public bool HandleSecondaryClick(ResearchDraftSystem draftSystem)
+    {
+        if (!IsOpen || _selectedBranchIndex is null)
+        {
+            return false;
+        }
+
+        _selectedBranchIndex = null;
+        _statusMessage = BuildDefaultStatus(draftSystem);
+        ResetProjectedPlacementTransition();
+        return true;
     }
 
     public bool HandleWheel(Point point, int delta, Point viewport, GameSession session, ResearchDraftSystem draftSystem)
@@ -243,6 +270,18 @@ public sealed class ResearchDraftController
         }
 
         if (draftSystem.PendingDraft is not null &&
+            TryGetBranchCardPreviewRequest(
+                point,
+                layout,
+                draftSystem.PendingDraft,
+                out var previewBranchIndex))
+        {
+            _requestedBranchPreview = draftSystem.PendingDraft.Branches[previewBranchIndex];
+            _requestedBranchPreviewTitle = BuildBranchCardTitle(_requestedBranchPreview, previewBranchIndex);
+            return ResearchDraftInteractionOutcome.RequestedBranchPreview;
+        }
+
+        if (draftSystem.PendingDraft is not null &&
             TryGetBranchCardSelection(point, layout, draftSystem.PendingDraft, out var selectedBranchIndex))
         {
             _selectedBranchIndex = selectedBranchIndex;
@@ -262,6 +301,14 @@ public sealed class ResearchDraftController
         }
 
         return ResearchDraftInteractionOutcome.Consumed;
+    }
+
+    public bool TryTakeBranchPreviewRequest(out ResearchBranch? branch, out string title)
+    {
+        branch = _requestedBranchPreview;
+        title = _requestedBranchPreviewTitle;
+        ClearBranchPreviewRequest();
+        return branch is not null;
     }
 
     public ResearchDraftInteractionOutcome HandleEscape(ResearchDraftSystem draftSystem)
@@ -307,7 +354,7 @@ public sealed class ResearchDraftController
         if (!preview.CanPlace || preview.AnchorNode is not TreeInstanceNode anchorNode)
         {
             _statusMessage = preview.StatusMessage;
-            return ResearchDraftInteractionOutcome.Consumed;
+            return GetRejectedPlacementOutcome(preview.Collision.HasCollision);
         }
 
         if (!draftSystem.TryPlaceBranch(session, branchIndex, anchorNode, out var failureReason))
@@ -318,7 +365,15 @@ public sealed class ResearchDraftController
 
         _selectedBranchIndex = null;
         _statusMessage = "Research branch added to the colony skill tree.";
+        ResetProjectedPlacementTransition();
         return ResearchDraftInteractionOutcome.BranchPlaced;
+    }
+
+    internal static ResearchDraftInteractionOutcome GetRejectedPlacementOutcome(bool hasCollision)
+    {
+        return hasCollision
+            ? ResearchDraftInteractionOutcome.BranchPlacementObstructed
+            : ResearchDraftInteractionOutcome.Consumed;
     }
 
     private ResearchDraftInteractionOutcome TryHandleUnlockClick(
@@ -549,6 +604,7 @@ public sealed class ResearchDraftController
             draftSystem.PendingDraft is null ||
             activeBranchIndex >= draftSystem.PendingDraft.Branches.Count)
         {
+            ResetProjectedPlacementTransition();
             DrawBoundary(gumUi, metrics, _treeViewer.PanOffset, preview.Collision);
             DrawSelectedSkillTreeNodeHighlight(gumUi, metrics, session, visualTimeMs);
             return null;
@@ -562,9 +618,13 @@ public sealed class ResearchDraftController
         }
 
         DrawBoundary(gumUi, metrics, _treeViewer.PanOffset, preview.Collision);
-        return preview.AnchorNode is not null
-            ? DrawProjectedPlacementPreview(metrics, session, branch, preview, gumUi, visualTimeMs)
-            : DrawCursorBoundBranchPreview(metrics, session, branch, gumUi, visualTimeMs);
+        if (preview.AnchorNode is not null)
+        {
+            return DrawProjectedPlacementPreview(metrics, session, branch, preview, gumUi, visualTimeMs);
+        }
+
+        ResetProjectedPlacementTransition();
+        return DrawCursorBoundBranchPreview(metrics, session, branch, gumUi, visualTimeMs);
     }
 
     private static void DrawBoundary(
@@ -642,13 +702,18 @@ public sealed class ResearchDraftController
             return null;
         }
 
-        var layout = BuildProjectedPlacementLayout(
+        var targetLayout = BuildProjectedPlacementLayout(
             metrics.Origin,
             metrics.EdgeLength,
             _treeViewer.PanOffset,
             session.SkillTree.Root,
             branch,
             preview.AnchorNode);
+        var layout = ResolveProjectedPlacementTransition(
+            targetLayout,
+            BuildPlacedTreeLayout(metrics, session.SkillTree.Root),
+            preview.AnchorNode,
+            visualTimeMs);
         var hoveredNode = TryGetHoveredProjectedNode(metrics, layout, out _);
 
         for (var nodeIndex = 0; nodeIndex < layout.Nodes.Count; nodeIndex++)
@@ -1081,7 +1146,8 @@ public sealed class ResearchDraftController
     {
         for (var index = 0; index < Math.Min(layout.BranchCardBounds.Count, pendingDraft.Branches.Count); index++)
         {
-            if (!layout.BranchCardBounds[index].Contains(point) || pendingDraft.Branches[index].Count == 0)
+            var previewBounds = ResearchTreeCardRenderer.BuildLayout(layout.BranchCardBounds[index]).PreviewBounds;
+            if (!previewBounds.Contains(point) || pendingDraft.Branches[index].Count == 0)
             {
                 continue;
             }
@@ -1092,6 +1158,37 @@ public sealed class ResearchDraftController
 
         branchIndex = -1;
         return false;
+    }
+
+    private static bool TryGetBranchCardPreviewRequest(
+        Point point,
+        ResearchDraftLayoutInfo layout,
+        ResearchDraftOffer pendingDraft,
+        out int branchIndex)
+    {
+        for (var index = 0; index < Math.Min(layout.BranchCardBounds.Count, pendingDraft.Branches.Count); index++)
+        {
+            var cardBounds = layout.BranchCardBounds[index];
+            var previewBounds = ResearchTreeCardRenderer.BuildLayout(cardBounds).PreviewBounds;
+            if (!cardBounds.Contains(point) ||
+                previewBounds.Contains(point) ||
+                pendingDraft.Branches[index].Count == 0)
+            {
+                continue;
+            }
+
+            branchIndex = index;
+            return true;
+        }
+
+        branchIndex = -1;
+        return false;
+    }
+
+    private void ClearBranchPreviewRequest()
+    {
+        _requestedBranchPreview = null;
+        _requestedBranchPreviewTitle = string.Empty;
     }
 
     private static void DrawClippedConnector(
@@ -1337,6 +1434,198 @@ public sealed class ResearchDraftController
         }
 
         return new ProjectedTreeRenderLayout(nodes);
+    }
+
+    private ProjectedTreeRenderLayout ResolveProjectedPlacementTransition(
+        ProjectedTreeRenderLayout target,
+        PlacedTreeRenderLayout placedTree,
+        TreeInstanceNode anchorNode,
+        double visualTimeMs)
+    {
+        if (_projectedTransitionStart is null ||
+            _projectedTransitionTarget is null ||
+            visualTimeMs < _projectedTransitionStartTimeMs)
+        {
+            _projectedTransitionStart = BuildInitialProjectedPlacementLayout(target, placedTree, anchorNode);
+            _projectedTransitionTarget = target;
+            _projectedTransitionStartTimeMs = visualTimeMs;
+        }
+        else if (!ProjectedLayoutsMatch(_projectedTransitionTarget, target))
+        {
+            var current = InterpolateProjectedPlacementLayout(
+                _projectedTransitionStart,
+                _projectedTransitionTarget,
+                GetProjectedPlacementTransitionProgress(visualTimeMs));
+            _projectedTransitionStart = BuildProjectedTransitionStartLayout(target, current);
+            _projectedTransitionTarget = target;
+            _projectedTransitionStartTimeMs = visualTimeMs;
+        }
+
+        return InterpolateProjectedPlacementLayout(
+            _projectedTransitionStart,
+            _projectedTransitionTarget,
+            GetProjectedPlacementTransitionProgress(visualTimeMs));
+    }
+
+    private float GetProjectedPlacementTransitionProgress(double visualTimeMs)
+    {
+        var elapsedMs = Math.Max(0d, visualTimeMs - _projectedTransitionStartTimeMs);
+        var linearProgress = MathHelper.Clamp(
+            (float)(elapsedMs / ProjectedPlacementTransitionDurationMs),
+            0f,
+            1f);
+        var remaining = 1f - linearProgress;
+        return 1f - (remaining * remaining * remaining);
+    }
+
+    private void ResetProjectedPlacementTransition()
+    {
+        _projectedTransitionStart = null;
+        _projectedTransitionTarget = null;
+        _projectedTransitionStartTimeMs = 0d;
+    }
+
+    private static ProjectedTreeRenderLayout BuildInitialProjectedPlacementLayout(
+        ProjectedTreeRenderLayout target,
+        PlacedTreeRenderLayout placedTree,
+        TreeInstanceNode anchorNode)
+    {
+        var positions = new Vector2[target.Nodes.Count];
+        var anchorPosition = FindLayoutNode(placedTree, anchorNode)?.Position ??
+            FindProjectedNode(target, anchorNode, isBranchNode: false)?.Position ??
+            Vector2.Zero;
+
+        for (var index = 0; index < target.Nodes.Count; index++)
+        {
+            var targetNode = target.Nodes[index];
+            positions[index] = targetNode.IsBranchNode
+                ? anchorPosition
+                : FindLayoutNode(placedTree, targetNode.SkillNode)?.Position ?? targetNode.Position;
+        }
+
+        return RebuildProjectedLayout(target, positions);
+    }
+
+    private static ProjectedTreeRenderLayout BuildProjectedTransitionStartLayout(
+        ProjectedTreeRenderLayout target,
+        ProjectedTreeRenderLayout current)
+    {
+        var positions = new Vector2[target.Nodes.Count];
+        for (var index = 0; index < target.Nodes.Count; index++)
+        {
+            var targetNode = target.Nodes[index];
+            var currentNode = FindProjectedNode(current, targetNode.SkillNode, targetNode.IsBranchNode);
+            if (currentNode is not null)
+            {
+                positions[index] = currentNode.Position;
+                continue;
+            }
+
+            var ancestor = targetNode.Parent;
+            while (ancestor is not null && ancestor.IsBranchNode)
+            {
+                ancestor = ancestor.Parent;
+            }
+
+            positions[index] = ancestor is null
+                ? targetNode.Position
+                : FindProjectedNode(current, ancestor.SkillNode, isBranchNode: false)?.Position ?? ancestor.Position;
+        }
+
+        return RebuildProjectedLayout(target, positions);
+    }
+
+    internal static ProjectedTreeRenderLayout InterpolateProjectedPlacementLayout(
+        ProjectedTreeRenderLayout start,
+        ProjectedTreeRenderLayout target,
+        float amount)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        ArgumentNullException.ThrowIfNull(target);
+
+        amount = MathHelper.Clamp(amount, 0f, 1f);
+        var positions = new Vector2[target.Nodes.Count];
+        for (var index = 0; index < target.Nodes.Count; index++)
+        {
+            var targetNode = target.Nodes[index];
+            var startNode = FindProjectedNode(start, targetNode.SkillNode, targetNode.IsBranchNode);
+            positions[index] = startNode is null
+                ? targetNode.Position
+                : Vector2.Lerp(startNode.Position, targetNode.Position, amount);
+        }
+
+        return RebuildProjectedLayout(target, positions);
+    }
+
+    private static ProjectedTreeRenderLayout RebuildProjectedLayout(
+        ProjectedTreeRenderLayout template,
+        IReadOnlyList<Vector2> positions)
+    {
+        var nodes = new List<ProjectedTreeRenderNode>(template.Nodes.Count);
+        for (var index = 0; index < template.Nodes.Count; index++)
+        {
+            var templateNode = template.Nodes[index];
+            var parent = templateNode.Parent is null
+                ? null
+                : FindProjectedNode(nodes, templateNode.Parent.SkillNode, templateNode.Parent.IsBranchNode);
+            nodes.Add(new ProjectedTreeRenderNode(
+                templateNode.SkillNode,
+                parent,
+                positions[index],
+                templateNode.MedialDegrees,
+                templateNode.IsBranchNode,
+                templateNode.FixedNodeId,
+                templateNode.BranchNodeId));
+        }
+
+        return new ProjectedTreeRenderLayout(nodes);
+    }
+
+    private static bool ProjectedLayoutsMatch(
+        ProjectedTreeRenderLayout left,
+        ProjectedTreeRenderLayout right)
+    {
+        if (left.Nodes.Count != right.Nodes.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < right.Nodes.Count; index++)
+        {
+            var rightNode = right.Nodes[index];
+            var leftNode = FindProjectedNode(left, rightNode.SkillNode, rightNode.IsBranchNode);
+            if (leftNode is null || Vector2.DistanceSquared(leftNode.Position, rightNode.Position) > 0.01f)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ProjectedTreeRenderNode? FindProjectedNode(
+        ProjectedTreeRenderLayout layout,
+        TreeInstanceNode skillNode,
+        bool isBranchNode)
+    {
+        return FindProjectedNode(layout.Nodes, skillNode, isBranchNode);
+    }
+
+    private static ProjectedTreeRenderNode? FindProjectedNode(
+        IReadOnlyList<ProjectedTreeRenderNode> nodes,
+        TreeInstanceNode skillNode,
+        bool isBranchNode)
+    {
+        for (var index = 0; index < nodes.Count; index++)
+        {
+            var node = nodes[index];
+            if (node.IsBranchNode == isBranchNode && ReferenceEquals(node.SkillNode, skillNode))
+            {
+                return node;
+            }
+        }
+
+        return null;
     }
 
     private static BranchRenderLayout BuildBranchLayout(ResearchBranch branch, float edgeLength)

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using TriloGame.Game.Audio;
 using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.UI.Research;
 
@@ -44,6 +45,13 @@ public sealed partial class GameApp
                 _researchDraftSystem);
         }
 
+        if (_input.RightPressed &&
+            _researchDraft.HandleSecondaryClick(_researchDraftSystem))
+        {
+            PlayUiSelectSound();
+            return;
+        }
+
         if (_input.LeftPressed)
         {
             _researchDraft.HandlePointerDown(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
@@ -77,6 +85,15 @@ public sealed partial class GameApp
         var outcome = _researchDraft.HandlePointerUp(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
         switch (outcome)
         {
+            case ResearchDraftInteractionOutcome.RequestedBranchPreview:
+                if (_researchDraft.TryTakeBranchPreviewRequest(out var branch, out var title) &&
+                    branch is not null)
+                {
+                    _trilodex.OpenBranchPreview(branch, title);
+                    PlayUiSelectSound();
+                }
+
+                break;
             case ResearchDraftInteractionOutcome.RequestedClose:
                 PlayUiSelectSound();
                 CloseResearchDraftMenu();
@@ -89,6 +106,9 @@ public sealed partial class GameApp
                 }
 
                 PlayUiSelectSound();
+                break;
+            case ResearchDraftInteractionOutcome.BranchPlacementObstructed:
+                _audio.Play(GameAudioCue.InvalidBranchPlacement);
                 break;
             case ResearchDraftInteractionOutcome.NodeUnlocked:
             case ResearchDraftInteractionOutcome.NodeSelected:

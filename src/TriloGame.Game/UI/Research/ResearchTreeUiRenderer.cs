@@ -128,6 +128,32 @@ internal static class ResearchTreeUiRenderer
         return TryGetHoveredDetailNode(metrics, nodes, pointerPoint, out center);
     }
 
+    public static bool TryGetDetailNodeCenter(
+        Rectangle bounds,
+        ResearchTreeViewNode root,
+        Vector2 panOffset,
+        float zoom,
+        ResearchTreeViewNode target,
+        ResearchTreeRenderConfig config,
+        out Vector2 center)
+    {
+        var metrics = CalculateDetailMetrics(bounds, root, zoom, config);
+        var layout = BuildLayout(root, metrics.EdgeLength, config);
+        foreach (var node in layout.Nodes)
+        {
+            if (!ReferenceEquals(node.Node, target))
+            {
+                continue;
+            }
+
+            center = metrics.Origin + panOffset + node.LocalPosition;
+            return IsNodeVisible(metrics.ContentBounds, center, metrics.NodeRadius + 12);
+        }
+
+        center = Vector2.Zero;
+        return false;
+    }
+
     public static ResearchTreeDetailMetrics CalculateDetailMetrics(
         Rectangle bounds,
         ResearchTreeViewNode root,

@@ -122,6 +122,45 @@ public sealed class ResearchTreeCardRendererTests
                      (int)MathF.Round(child.Height) == titleBounds.Height);
     }
 
+    [Fact]
+    public void Draw_SelectedCardUsesDoublePulsatingCyanOutline()
+    {
+        var bounds = new Rectangle(20, 24, 260, 190);
+        var card = new ResearchTreeCardData(
+            "Shellwright Basics",
+            string.Empty,
+            bounds,
+            ResearchTreeViewNode.FromFeatureTree(TriloDex.Global.FindFeatureTree("B1")!),
+            IsHovered: false,
+            IsSelected: true);
+        var firstUi = new GumUiRenderer(addToManagers: false);
+        firstUi.BeginFrame(new Point(640, 480));
+        var secondUi = new GumUiRenderer(addToManagers: false);
+        secondUi.BeginFrame(new Point(640, 480));
+
+        ResearchTreeCardRenderer.Draw(
+            firstUi,
+            new GameSession(),
+            card,
+            ResearchTreeUiRenderer.TreeEntryCardConfig,
+            Point.Zero,
+            visualTimeMs: 0d);
+        ResearchTreeCardRenderer.Draw(
+            secondUi,
+            new GameSession(),
+            card,
+            ResearchTreeUiRenderer.TreeEntryCardConfig,
+            Point.Zero,
+            visualTimeMs: 300d);
+
+        var firstCyan = GetCyanOutlines(firstUi);
+        var secondCyan = GetCyanOutlines(secondUi);
+        Assert.Equal(2, firstCyan.Length);
+        Assert.Equal(2, secondCyan.Length);
+        Assert.NotEqual(firstCyan[0].Color.A, secondCyan[0].Color.A);
+        Assert.NotEqual(firstCyan[0].Width, secondCyan[0].Width);
+    }
+
     private static void AssertTreeFits(ResearchTreeViewLayout layout, Rectangle bounds)
     {
         Assert.NotEmpty(layout.Nodes);
@@ -158,5 +197,17 @@ public sealed class ResearchTreeCardRendererTests
         }
 
         return bottom - top;
+    }
+
+    private static RoundedRectangleRuntime[] GetCyanOutlines(GumUiRenderer gumUi)
+    {
+        return gumUi.Root.Children
+            .OfType<RoundedRectangleRuntime>()
+            .Where(shape =>
+                !shape.IsFilled &&
+                shape.Color.R == 105 &&
+                shape.Color.G == 226 &&
+                shape.Color.B == 239)
+            .ToArray();
     }
 }
