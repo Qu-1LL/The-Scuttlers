@@ -293,16 +293,16 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         };
         InitializeWorldParticles();
 
-        _audio.Register(GameAudioCue.BuildingPlace, Content.Load<SoundEffect>("Audio/BuildingPlace"));
-        _audio.Register(GameAudioCue.BuildingFinished, Content.Load<SoundEffect>("Audio/BuildingFinished"));
-        _audio.Register(GameAudioCue.AntHoleSpawn, Content.Load<SoundEffect>("Audio/AntHoleSpawn"));
-        _audio.Register(GameAudioCue.TrilobiteExplosion, Content.Load<SoundEffect>("Audio/TrilobiteExplosion"));
-        _audio.Register(GameAudioCue.TrilobiteBirth, Content.Load<SoundEffect>("Audio/TrilobiteBirth"));
-        _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/TrilobiteSelected"));
-        _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/UiSelect"));
+        _audio.Register(GameAudioCue.BuildingPlace, Content.Load<SoundEffect>("Audio/Effects/BuildingPlace"));
+        _audio.Register(GameAudioCue.BuildingFinished, Content.Load<SoundEffect>("Audio/Effects/BuildingFinished"));
+        _audio.Register(GameAudioCue.AntHoleSpawn, Content.Load<SoundEffect>("Audio/Effects/AntHoleSpawn"));
+        _audio.Register(GameAudioCue.TrilobiteExplosion, Content.Load<SoundEffect>("Audio/Effects/TrilobiteExplosion"));
+        _audio.Register(GameAudioCue.TrilobiteBirth, Content.Load<SoundEffect>("Audio/Effects/TrilobiteBirth"));
+        _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/Effects/TrilobiteSelected"));
+        _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/Effects/UiSelect"));
         _audio.Register(GameAudioCue.InvalidBranchPlacement, Content.Load<SoundEffect>("Audio/Invalid"));
         _audio.Register(GameAudioCue.UnlockNode, Content.Load<SoundEffect>("Audio/UnlockNode"));
-        _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/VolumeSound"));
+        _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/Effects/VolumeSound"));
     }
 
     protected override void Update(GameTime gameTime)
