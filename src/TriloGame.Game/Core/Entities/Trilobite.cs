@@ -236,7 +236,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
         if (IsFarmer())
         {
-            if (GetAssignedBuilding() is not null && GetAssignedAlgaeFarm() is null)
+            if (GetAssignedBuilding() is not null &&
+                GetAssignedAlgaeFarm() is null &&
+                GetAssignedRanch() is null)
             {
                 ReleaseAssignedBuilding();
             }
@@ -244,7 +246,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return true;
         }
 
-        if (GetAssignedAlgaeFarm() is not null)
+        if (GetAssignedAlgaeFarm() is not null || GetAssignedRanch() is not null)
         {
             ReleaseAssignedBuilding();
         }
@@ -385,6 +387,8 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     public Building? GetAssignedBuilding() => AssignedBuilding;
 
     public AlgaeFarm? GetAssignedAlgaeFarm() => AssignedBuilding as AlgaeFarm;
+
+    public Ranch? GetAssignedRanch() => AssignedBuilding as Ranch;
 
     public MiningPost? GetAssignedMiningPost() => AssignedBuilding as MiningPost;
 

@@ -6,7 +6,7 @@ using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class MiningPost : Building, IResourceStorage
+public sealed class MiningPost : Building, IResourceStorage, IStorage
 {
     private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
     private readonly Dictionary<Creature, string?> _assignments = [];

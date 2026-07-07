@@ -77,7 +77,12 @@ public sealed partial class GameApp
         }
 
         _roundManager.Advance(session, GameConstants.GameTimePerSimulationTickMs);
-        _antHandler.Advance(session, _roundManager.CurrentRound);
+        var currentRound = _roundManager.CurrentRound;
+        _antHandler.Advance(session, currentRound);
+        if (_antHandler.CanCompleteCurrentRound(session, currentRound))
+        {
+            _roundManager.CompleteCurrentRound(session);
+        }
     }
 
     private bool HandleRoundDebugWidgetClick(Point point)
@@ -94,7 +99,7 @@ public sealed partial class GameApp
         }
 
         var currentRound = _roundManager.CurrentRound;
-        if (!_antHandler.CanSkipCurrentRound(_session, currentRound))
+        if (!_antHandler.CanCompleteCurrentRound(_session, currentRound))
         {
             var remainingKills = _antHandler.GetRemainingKillsForRound(_session, currentRound);
             Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skip ignored for round {currentRound.RoundNumber}; remaining ants to defeat this round: {remainingKills}.");

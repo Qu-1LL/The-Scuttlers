@@ -16,6 +16,11 @@ public static class ResearchDraftLayout
         return SettingsMenuLayout.GetTopHudButtonBounds(viewport, 3);
     }
 
+    public static Rectangle GetSkillTreeButtonBounds(Point viewport)
+    {
+        return GetButtonBounds(viewport);
+    }
+
     public static ResearchDraftLayoutInfo Build(Point viewport, int branchCardCount = 3)
     {
         var safeBranchCardCount = Math.Max(0, branchCardCount);

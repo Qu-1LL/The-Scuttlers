@@ -11,6 +11,8 @@ public sealed record GrowableResourceType(ItemType HarvestedItem)
 
     public string Name => HarvestedItem.Name;
 
+    public ItemType HarvestedOre => HarvestedItem;
+
     public static IReadOnlyList<GrowableResourceType> GetAll() => All;
 
     public string GetSoilTileTextureKey(int growthLevel) => $"SoilTile_{Name}_{growthLevel}";

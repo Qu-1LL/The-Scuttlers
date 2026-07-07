@@ -87,6 +87,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _resumeSimulationAfterClosingTrilodex;
     private bool _mainMenuOpen;
     private bool _showRoleLabels;
+    private bool _showFullMapVisibility = false;
     private bool _debugAntHolePlacementMode;
     private bool _cameraPanDragActive;
     private bool _selectionDragActive;

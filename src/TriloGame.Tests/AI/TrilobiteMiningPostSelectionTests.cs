@@ -165,6 +165,25 @@ public sealed class TrilobiteMiningPostSelectionTests
     }
 
     [Fact]
+    public void MinerStep1_SkipsMiningPostSearch_WhenMiningPostInventoryIsFull()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
+        SetTileBase(cave, new GridPoint(3, 10), "Sandstone");
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+        var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(8, 9), "Miner", "miner");
+
+        Assert.True(post.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+        Assert.Equal(post.Capacity, post.Deposit("Sandstone", post.Capacity));
+        Assert.True(post.AssignmentsAvailable);
+        Assert.False(cave.HasAvailableMiningPostAssignments);
+
+        Assert.False(miner.MinerStep1());
+        Assert.Null(miner.GetAssignedMiningPost());
+        Assert.Null(miner.LastMiningPostSelectionMetrics);
+    }
+
+    [Fact]
     public void MinerStep1_WaitsOnAssignedExhaustedPost_WhenGlobalAssignmentsAreUnavailable()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(26, 14, new GridPoint(10, 0));

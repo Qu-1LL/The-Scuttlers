@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -452,6 +453,20 @@ public sealed class BfsField
         }
     }
 
+    private void AddVehicleTargets(Vehicle? vehicle)
+    {
+        if (vehicle is null || vehicle.TileArray.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var tile in vehicle.TileArray)
+        {
+            _blocked[tile.Id] = true;
+            AddAdjacentPassableSeeds(tile);
+        }
+    }
+
     private void AddBuildingSeedIds(Building? building)
     {
         if (building is null || building.TileArray.Count == 0)
@@ -575,6 +590,11 @@ public sealed class BfsField
                                   string.Equals(building.GetType().Name, "AlgaeFarm", StringComparison.Ordinal);
                 AddBuildingTargets(building, isAlgaeFarm);
             }
+
+            foreach (var vehicle in Cave.GetVehicles())
+            {
+                AddVehicleTargets(vehicle);
+            }
         }
 
         SetTrackedTargets(trackedBuildings, trackedCreatures);
@@ -666,6 +686,19 @@ public sealed class BfsField
 
         _queued[tile.Id] = true;
         _queue.Enqueue(tile.Id);
+    }
+
+    // Distance increases need a temporary invalidation step so disconnected pockets
+    // collapse to infinity instead of ratcheting upward forever through cycles.
+    private void InvalidateTileValue(Tile tile)
+    {
+        _values[tile.Id] = int.MaxValue;
+        foreach (var neighbor in tile.Neighbors)
+        {
+            EnqueueTile(neighbor);
+        }
+
+        EnqueueTile(tile);
     }
 
     private Dictionary<string, int> CommitCurrentField()
@@ -851,6 +884,12 @@ public sealed class BfsField
             var nextValue = ComputeValue(currentTile);
             if (_values[currentId] == nextValue)
             {
+                continue;
+            }
+
+            if (_values[currentId] != int.MaxValue && nextValue > _values[currentId])
+            {
+                InvalidateTileValue(currentTile);
                 continue;
             }
 

@@ -82,16 +82,22 @@ public sealed class AntHandler
 
     public bool CanSkipCurrentRound(GameSession session, RoundInfo round)
     {
+        return CanCompleteCurrentRound(session, round);
+    }
+
+    public bool CanCompleteCurrentRound(GameSession session, RoundInfo round)
+    {
         ArgumentNullException.ThrowIfNull(session);
 
-        if (_activeRoundNumber != round.RoundNumber)
+        if (_activeRoundNumber != round.RoundNumber || round.GracePeriodActive)
         {
             return false;
         }
 
         EnsureRoundKillTargetState(round);
         PruneDefeatedRoundAnts(session, round.RoundNumber);
-        return GetRemainingKills(round.RoundNumber) == 0;
+        return AllScheduledSpawnsHaveBeenAttempted(round.RoundNumber) &&
+               GetRemainingKills(round.RoundNumber) == 0;
     }
 
     public void Advance(GameSession session, RoundInfo round)
@@ -265,6 +271,20 @@ public sealed class AntHandler
         }
 
         return ((spawnIndex * 2d) + 1d) * spawnWindowDurationMs / (spawnEventCount * 2d);
+    }
+
+    private bool AllScheduledSpawnsHaveBeenAttempted(int roundNumber)
+    {
+        for (var index = 0; index < _scheduledSpawns.Count; index++)
+        {
+            var scheduledSpawn = _scheduledSpawns[index];
+            if (scheduledSpawn.RoundNumber == roundNumber && !scheduledSpawn.HasBeenAttempted)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private readonly record struct ScheduledAntSpawn(

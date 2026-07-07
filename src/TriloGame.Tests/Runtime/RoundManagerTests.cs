@@ -21,7 +21,7 @@ public sealed class RoundManagerTests
         var round = Assert.IsType<RoundInfo>(started);
         Assert.Equal(0, round.RoundNumber);
         Assert.Equal(GameConstants.RoundBaseAntCount, round.AntsToSpawn);
-        Assert.Equal(GameConstants.RoundZeroGraceDurationMs, round.SpawnWindowStartMs);
+        Assert.Equal(GameConstants.RoundGraceDurationMs, round.SpawnWindowStartMs);
         Assert.True(round.GracePeriodActive);
 
         var graceRound = Assert.IsType<RoundInfo>(graceStarted);
@@ -30,7 +30,7 @@ public sealed class RoundManagerTests
     }
 
     [Fact]
-    public void Advance_EndsGracePeriodAfterTwoMinutesOfGameTime()
+    public void Advance_EndsGracePeriodAfterFiveMinutesOfGameTime()
     {
         var session = new GameSession();
         var manager = new RoundManager();
@@ -38,12 +38,49 @@ public sealed class RoundManagerTests
         manager.GracePeriodEnded += round => graceEnded = round;
         manager.Reset(session);
 
-        manager.Advance(session, GameConstants.RoundZeroGraceDurationMs);
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
 
         var round = Assert.IsType<RoundInfo>(graceEnded);
         Assert.Equal(0, round.RoundNumber);
         Assert.False(round.GracePeriodActive);
-        Assert.Equal(GameConstants.RoundZeroGraceDurationMs, round.ElapsedGameTimeMs);
+        Assert.Equal(0d, round.ElapsedGameTimeMs);
+    }
+
+    [Fact]
+    public void TrySkipCurrentGracePeriod_EndsGraceImmediately_AndStartsDefensePhase()
+    {
+        var session = new GameSession();
+        var manager = new RoundManager();
+        RoundInfo? graceEnded = null;
+        manager.GracePeriodEnded += round => graceEnded = round;
+        manager.Reset(session);
+        manager.Advance(session, 90000d);
+
+        var skipped = manager.TrySkipCurrentGracePeriod(session);
+
+        Assert.True(skipped);
+        var round = Assert.IsType<RoundInfo>(graceEnded);
+        Assert.Equal(0, round.RoundNumber);
+        Assert.False(round.GracePeriodActive);
+        Assert.Equal(0d, round.ElapsedGameTimeMs);
+        Assert.False(manager.CurrentRound.GracePeriodActive);
+    }
+
+    [Fact]
+    public void TrySkipCurrentGracePeriod_ReturnsFalseWhenNextRoundStartIsDeferred()
+    {
+        var session = new GameSession();
+        var manager = new RoundManager();
+        manager.DraftRequested += _ => manager.DeferNextRoundStart();
+        manager.Reset(session);
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
+        manager.CompleteCurrentRound(session);
+
+        var skipped = manager.TrySkipCurrentGracePeriod(session);
+
+        Assert.False(skipped);
+        Assert.True(manager.HasDeferredNextRoundStart);
+        Assert.True(manager.CurrentRound.GracePeriodActive);
     }
 
     [Fact]
@@ -62,7 +99,27 @@ public sealed class RoundManagerTests
     }
 
     [Fact]
-    public void Advance_AfterRoundDuration_EndsCurrentRound_RaisesDraftHook_AndStartsNextRound()
+    public void Advance_AfterGraceDuration_TransitionsIntoTheDefensePhaseWithoutEndingTheRound()
+    {
+        var session = new GameSession();
+        var manager = new RoundManager();
+        RoundInfo? ended = null;
+        RoundInfo? drafted = null;
+        manager.RoundEnded += round => ended = round;
+        manager.DraftRequested += round => drafted = round;
+        manager.Reset(session);
+
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
+
+        Assert.Null(ended);
+        Assert.Null(drafted);
+        Assert.Equal(0, manager.CurrentRoundNumber);
+        Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
+        Assert.False(manager.CurrentRound.GracePeriodActive);
+    }
+
+    [Fact]
+    public void CompleteCurrentRound_EndsCurrentRound_RaisesDraftHook_AndStartsNextRound()
     {
         var session = new GameSession();
         var manager = new RoundManager();
@@ -73,12 +130,15 @@ public sealed class RoundManagerTests
         manager.RoundEnded += round => ended = round;
         manager.DraftRequested += round => drafted = round;
         manager.Reset(session);
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
+        manager.Advance(session, 60000d);
 
-        manager.Advance(session, GameConstants.RoundDurationMs);
+        manager.CompleteCurrentRound(session);
 
         var endedRound = Assert.IsType<RoundInfo>(ended);
         Assert.Equal(0, endedRound.RoundNumber);
-        Assert.Equal(GameConstants.RoundDurationMs, endedRound.ElapsedGameTimeMs);
+        Assert.False(endedRound.GracePeriodActive);
+        Assert.Equal(60000d, endedRound.ElapsedGameTimeMs);
 
         var draftedRound = Assert.IsType<RoundInfo>(drafted);
         Assert.Equal(0, draftedRound.RoundNumber);
@@ -88,6 +148,7 @@ public sealed class RoundManagerTests
         Assert.Equal(1, startedRounds[1].RoundNumber);
         Assert.Equal(1, manager.CurrentRoundNumber);
         Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
+        Assert.True(manager.CurrentRound.GracePeriodActive);
         Assert.Equal(GameConstants.RoundBaseAntCount + GameConstants.RoundAntGrowthPerRound, manager.CurrentRound.AntsToSpawn);
     }
 
@@ -103,6 +164,7 @@ public sealed class RoundManagerTests
         manager.RoundEnded += round => ended = round;
         manager.DraftRequested += round => drafted = round;
         manager.Reset(session);
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
         manager.Advance(session, 60000d);
 
         manager.SkipCurrentRound(session);
@@ -110,6 +172,7 @@ public sealed class RoundManagerTests
         var endedRound = Assert.IsType<RoundInfo>(ended);
         Assert.Equal(0, endedRound.RoundNumber);
         Assert.Equal(60000d, endedRound.ElapsedGameTimeMs);
+        Assert.False(endedRound.GracePeriodActive);
 
         var draftedRound = Assert.IsType<RoundInfo>(drafted);
         Assert.Equal(0, draftedRound.RoundNumber);
@@ -117,6 +180,7 @@ public sealed class RoundManagerTests
         Assert.Equal(2, startedRounds.Count);
         Assert.Equal(1, manager.CurrentRoundNumber);
         Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
+        Assert.True(manager.CurrentRound.GracePeriodActive);
     }
 
     [Fact]
@@ -133,8 +197,9 @@ public sealed class RoundManagerTests
             manager.DeferNextRoundStart();
         };
         manager.Reset(session);
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
 
-        manager.Advance(session, GameConstants.RoundDurationMs);
+        manager.CompleteCurrentRound(session);
 
         Assert.Equal(0, Assert.IsType<RoundInfo>(drafted).RoundNumber);
         Assert.True(manager.HasDeferredNextRoundStart);
@@ -153,5 +218,6 @@ public sealed class RoundManagerTests
         Assert.False(manager.HasDeferredNextRoundStart);
         Assert.Equal(2, startedRounds.Count);
         Assert.Equal(1, startedRounds[1].RoundNumber);
+        Assert.True(startedRounds[1].GracePeriodActive);
     }
 }

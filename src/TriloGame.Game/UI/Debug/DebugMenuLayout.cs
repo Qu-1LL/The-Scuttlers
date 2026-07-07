@@ -169,4 +169,13 @@ public readonly record struct DebugMenuLayoutInfo(
     Rectangle FooterBounds,
     int ButtonGap,
     int ContentPadding,
-    int RowGap);
+    int RowGap)
+{
+    public Rectangle VisualTopRowBounds => VisualRowBounds;
+
+    public Rectangle VisualBottomRowBounds => new(
+        VisualRowBounds.X,
+        VisualRowBounds.Bottom,
+        VisualRowBounds.Width,
+        0);
+}

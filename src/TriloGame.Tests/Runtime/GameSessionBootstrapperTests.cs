@@ -32,6 +32,7 @@ public sealed class GameSessionBootstrapperTests
         var result = new GameSessionBootstrapper().CreateNewGame();
 
         Assert.True(result.Session.Runtime.DisableEnemySpawns);
+        Assert.False(result.Session.Runtime.AllowManualMining);
     }
 
     [Fact]

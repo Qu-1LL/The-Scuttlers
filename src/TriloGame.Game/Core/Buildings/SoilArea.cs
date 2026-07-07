@@ -23,6 +23,8 @@ public sealed class SoilArea : Building
 
     public IReadOnlyCollection<SoilTile> SoilTiles => _soilTiles;
 
+    public Ranch? Ranch { get; internal set; }
+
     public bool IsStillValid => _soilPatches.Count > 0 && TileArray.Count > 0 && Cave is not null;
 
     public bool AreAllPatchesBuilt(Cave cave)
@@ -178,7 +180,7 @@ public sealed class SoilArea : Building
         return minX != int.MaxValue;
     }
 
-    internal void RefreshSelectionFootprint()
+    internal void RefreshSelectionFootprint(Ranch? ranchFilter = null)
     {
         var tiles = new List<Tile>();
         var seen = new HashSet<Tile>();
@@ -187,6 +189,11 @@ public sealed class SoilArea : Building
         {
             cave ??= soilPatch.Cave;
             if (soilPatch.Cave is null)
+            {
+                continue;
+            }
+
+            if (ranchFilter is not null && !ReferenceEquals(soilPatch.Ranch, ranchFilter))
             {
                 continue;
             }

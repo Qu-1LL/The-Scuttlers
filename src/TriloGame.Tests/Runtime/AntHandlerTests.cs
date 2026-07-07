@@ -14,25 +14,36 @@ public sealed class AntHandlerTests
         session.Runtime.DisableEnemySpawns = false;
         var spawner = new FakeAntHoleSpawner();
         var handler = new AntHandler(spawner);
-        var round = new RoundInfo(
+        var waitingRound = new RoundInfo(
             0,
             0d,
-            GameConstants.RoundDurationMs,
-            GameConstants.RoundZeroGraceDurationMs,
+            GameConstants.RoundGraceDurationMs,
+            GameConstants.RoundGraceDurationMs,
             GameConstants.RoundSpawnWindowDurationMs,
             GameConstants.RoundBaseAntCount,
             true);
 
-        handler.HandleRoundStarted(round);
+        handler.HandleRoundStarted(waitingRound);
 
         var firstSpawnOffsetMs = GameConstants.RoundSpawnWindowDurationMs / 4d;
-        handler.Advance(session, round with { ElapsedGameTimeMs = GameConstants.RoundZeroGraceDurationMs + firstSpawnOffsetMs - 1d });
+        handler.Advance(session, waitingRound with { ElapsedGameTimeMs = GameConstants.RoundGraceDurationMs });
         Assert.Equal(0, spawner.AttemptCount);
 
-        handler.Advance(session, round with { ElapsedGameTimeMs = GameConstants.RoundZeroGraceDurationMs + firstSpawnOffsetMs });
+        var defendRound = waitingRound with
+        {
+            ElapsedGameTimeMs = 0d,
+            DurationMs = 0d,
+            SpawnWindowStartMs = 0d,
+            GracePeriodActive = false
+        };
+
+        handler.Advance(session, defendRound with { ElapsedGameTimeMs = firstSpawnOffsetMs - 1d });
+        Assert.Equal(0, spawner.AttemptCount);
+
+        handler.Advance(session, defendRound with { ElapsedGameTimeMs = firstSpawnOffsetMs });
         Assert.Equal(3, spawner.AttemptCount);
 
-        handler.Advance(session, round with { ElapsedGameTimeMs = GameConstants.RoundZeroGraceDurationMs + GameConstants.RoundSpawnWindowDurationMs });
+        handler.Advance(session, defendRound with { ElapsedGameTimeMs = GameConstants.RoundSpawnWindowDurationMs });
         Assert.Equal(GameConstants.RoundBaseAntCount, spawner.AttemptCount);
     }
 
@@ -44,8 +55,8 @@ public sealed class AntHandlerTests
         var round = new RoundInfo(
             0,
             0d,
-            GameConstants.RoundDurationMs,
-            GameConstants.RoundZeroGraceDurationMs,
+            GameConstants.RoundGraceDurationMs,
+            GameConstants.RoundGraceDurationMs,
             GameConstants.RoundSpawnWindowDurationMs,
             GameConstants.RoundBaseAntCount,
             true);
@@ -53,7 +64,7 @@ public sealed class AntHandlerTests
         handler.HandleRoundStarted(round);
 
         Assert.Equal(0, handler.GetRemainingKillsForRound(session, round));
-        Assert.True(handler.CanSkipCurrentRound(session, round));
+        Assert.False(handler.CanCompleteCurrentRound(session, round));
     }
 
     [Fact]
@@ -66,7 +77,7 @@ public sealed class AntHandlerTests
         var round = new RoundInfo(
             1,
             0d,
-            GameConstants.RoundDurationMs,
+            0d,
             0d,
             GameConstants.RoundSpawnWindowDurationMs,
             GameConstants.RoundBaseAntCount + GameConstants.RoundAntGrowthPerRound,
@@ -89,7 +100,7 @@ public sealed class AntHandlerTests
         var round = new RoundInfo(
             2,
             0d,
-            GameConstants.RoundDurationMs,
+            0d,
             0d,
             GameConstants.RoundSpawnWindowDurationMs,
             GameConstants.RoundBaseAntCount + (GameConstants.RoundAntGrowthPerRound * 2),
@@ -97,16 +108,9 @@ public sealed class AntHandlerTests
 
         handler.HandleRoundStarted(round);
 
-        var expectedSpawnOffsets = new[]
+        for (var eventIndex = 0; eventIndex < round.AntsToSpawn; eventIndex++)
         {
-            GameConstants.RoundSpawnWindowDurationMs / 16d,
-            (GameConstants.RoundSpawnWindowDurationMs * 3d) / 16d,
-            (GameConstants.RoundSpawnWindowDurationMs * 5d) / 16d,
-            (GameConstants.RoundSpawnWindowDurationMs * 7d) / 16d
-        };
-
-        foreach (var spawnOffsetMs in expectedSpawnOffsets)
-        {
+            var spawnOffsetMs = (((eventIndex * 2d) + 1d) * GameConstants.RoundSpawnWindowDurationMs) / (round.AntsToSpawn * 2d);
             var priorAttemptCount = spawner.AttemptCount;
             handler.Advance(session, round with { ElapsedGameTimeMs = spawnOffsetMs });
             var attemptsThisMoment = spawner.AttemptCount - priorAttemptCount;
@@ -127,7 +131,7 @@ public sealed class AntHandlerTests
         var round = new RoundInfo(
             6,
             0d,
-            GameConstants.RoundDurationMs,
+            0d,
             0d,
             GameConstants.RoundSpawnWindowDurationMs,
             GameConstants.RoundBaseAntCount + (GameConstants.RoundAntGrowthPerRound * 6),
@@ -156,7 +160,7 @@ public sealed class AntHandlerTests
     }
 
     [Fact]
-    public void CanSkipCurrentRound_RequiresAllScheduledSpawnsToFinishAndTrackedAntHolesToClear()
+    public void CanCompleteCurrentRound_RequiresAllScheduledSpawnsToFinishAndTrackedAntHolesToClear()
     {
         var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(90, 90, new GridPoint(20, 20));
         session.Runtime.DisableEnemySpawns = false;
@@ -165,7 +169,7 @@ public sealed class AntHandlerTests
         var round = new RoundInfo(
             1,
             0d,
-            GameConstants.RoundDurationMs,
+            0d,
             0d,
             0d,
             1,
@@ -174,7 +178,7 @@ public sealed class AntHandlerTests
         handler.HandleRoundStarted(round);
         handler.Advance(session, round);
 
-        Assert.False(handler.CanSkipCurrentRound(session, round));
+        Assert.False(handler.CanCompleteCurrentRound(session, round));
         Assert.Equal(1, handler.GetRemainingKillsForRound(session, round));
 
         var ant = cave.GetEnemyList().Single();
@@ -183,7 +187,7 @@ public sealed class AntHandlerTests
         Assert.Empty(cave.GetAntHoles());
 
         Assert.Equal(0, handler.GetRemainingKillsForRound(session, round));
-        Assert.True(handler.CanSkipCurrentRound(session, round));
+        Assert.True(handler.CanCompleteCurrentRound(session, round));
     }
 
     private sealed class FakeAntHoleSpawner : IAntHoleSpawner

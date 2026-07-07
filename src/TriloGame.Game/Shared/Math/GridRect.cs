@@ -6,6 +6,7 @@ public readonly record struct GridRect(float X, float Y, float Width, float Heig
 
     public float Bottom => Y + Height;
 
+    // Check whether a point lies inside or on the edges of this rectangle.
     public bool Contains(float x, float y)
     {
         return x >= X && x <= Right && y >= Y && y <= Bottom;

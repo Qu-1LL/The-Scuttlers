@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -22,6 +23,7 @@ public class Creature
         Name = name;
         Location = location;
         Session = session;
+        Description = string.Empty;
         Health = 20;
         MaxHealth = 20;
         Damage = 5;
@@ -29,10 +31,13 @@ public class Creature
         MovementOffset = Vector2.Zero;
         RotationRadians = 0f;
         IsTrackedInTileSystem = true;
+        IsVisible = true;
         PathPreview = [];
     }
 
     public string Name { get; private set; }
+
+    public string Description { get; protected set; }
 
     public List<GridPoint> PathPreview { get; }
 
@@ -50,7 +55,13 @@ public class Creature
 
     public bool IsTrackedInTileSystem { get; private set; }
 
+    public bool IsVisible { get; set; }
+
+    public bool DrawBelowBuildings { get; private set; }
+
     public Building? HostedBuilding { get; private set; }
+
+    public IVehicle? HostedVehicle { get; private set; }
 
     public Vector2? HostedWorldPosition { get; private set; }
 
@@ -72,13 +83,33 @@ public class Creature
                (building is null || ReferenceEquals(HostedBuilding, building));
     }
 
-    public void HostOnBuilding(Building building, Vector2 worldPosition)
+    public bool IsHostedOnVehicle(IVehicle? vehicle = null)
+    {
+        return HostedVehicle is not null &&
+               (vehicle is null || ReferenceEquals(HostedVehicle, vehicle));
+    }
+
+    public void HostOnBuilding(Building building, Vector2 worldPosition, bool drawBelowBuildings = false)
     {
         // Hosted creatures keep their last tile `Location` as a restoration hint while
         // world-space consumers render and fire from `HostedWorldPosition`/`GetWorldPosition`.
         HostedBuilding = building;
+        HostedVehicle = null;
         HostedWorldPosition = worldPosition;
         IsTrackedInTileSystem = false;
+        DrawBelowBuildings = drawBelowBuildings;
+        MovementOffset = Vector2.Zero;
+        ClearBfsTraversal();
+    }
+
+    public void HostOnVehicle(IVehicle vehicle, Vector2 worldPosition)
+    {
+        HostedBuilding = null;
+        HostedVehicle = vehicle;
+        HostedWorldPosition = worldPosition;
+        IsTrackedInTileSystem = false;
+        IsVisible = true;
+        DrawBelowBuildings = false;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -86,8 +117,11 @@ public class Creature
     public void LeaveTileSystem()
     {
         HostedBuilding = null;
+        HostedVehicle = null;
         HostedWorldPosition = null;
         IsTrackedInTileSystem = false;
+        IsVisible = true;
+        DrawBelowBuildings = false;
         MovementOffset = Vector2.Zero;
         ClearBfsTraversal();
     }
@@ -95,9 +129,17 @@ public class Creature
     public void ReturnToTileSystem()
     {
         HostedBuilding = null;
+        HostedVehicle = null;
         HostedWorldPosition = null;
         IsTrackedInTileSystem = true;
+        IsVisible = true;
+        DrawBelowBuildings = false;
         ClearBfsTraversal();
+    }
+
+    public bool CanBeDirectlySelected()
+    {
+        return IsVisible && !DrawBelowBuildings;
     }
 
     protected virtual bool EnsureReadyForTileNavigation()
@@ -155,6 +197,7 @@ public class Creature
         {
             Creature creature when !ReferenceEquals(creature, this) => creature.TakeDamage(Damage, this),
             Building building => building.TakeDamage(Damage, this),
+            IVehicle vehicle => vehicle.TakeDamage(Damage, this),
             _ => 0
         };
     }
@@ -677,6 +720,17 @@ public class Creature
 
     public object? Move()
     {
+        // Driveable vehicles advance on the driver's turn instead of through the creature's own action queue.
+        if (HostedVehicle is IDriveable driveable && driveable.IsCreatureDriving(this))
+        {
+            return HostedVehicle.Move();
+        }
+
+        if (HostedVehicle is IDriveable)
+        {
+            return null;
+        }
+
         if (_queue.Count == 0)
         {
             GetBehavior()?.Invoke();

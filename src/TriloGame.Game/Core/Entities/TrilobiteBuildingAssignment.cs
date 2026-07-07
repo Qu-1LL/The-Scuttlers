@@ -31,6 +31,9 @@ internal sealed class TrilobiteBuildingAssignment
             case AlgaeFarm farm:
                 farm.RemoveAssignment(trilobite);
                 break;
+            case Ranch ranch:
+                ranch.RemoveAssignment(trilobite);
+                break;
             case StationBuilding station:
                 if (ReferenceEquals(trilobite.HostedBuilding, station))
                 {

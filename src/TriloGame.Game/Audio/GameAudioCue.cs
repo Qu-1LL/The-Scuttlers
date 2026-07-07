@@ -6,10 +6,15 @@ public enum GameAudioCue
     BuildingFinished,
     AntHoleSpawn,
     TrilobiteExplosion,
+    OpalChangeStart,
+    OpalAlarm,
+    OpalRestore,
     TrilobiteBirth,
     TrilobiteSelected,
     UiSelect,
     InvalidBranchPlacement,
     UnlockNode,
-    VolumeSound
+    VolumeSound,
+    MiningPostFocus,
+    AlgaeFarmFocus
 }

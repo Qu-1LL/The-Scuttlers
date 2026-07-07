@@ -277,6 +277,21 @@ public sealed class GumUiRenderer
         AddText(Root, bounds, text, color, horizontalAlignment, verticalAlignment, fontSize, maxLines, fontFamily, customFontFile, fontScale);
     }
 
+    internal static int ResolveMaxNumberOfLines(string text, int requestedMaxLines)
+    {
+        if (requestedMaxLines > 0)
+        {
+            return requestedMaxLines;
+        }
+
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        return text.Count(static character => character == '\n') + 1;
+    }
+
     public void AddText(
         ContainerRuntime parent,
         Rectangle bounds,
@@ -309,7 +324,7 @@ public sealed class GumUiRenderer
         textRuntime.Font = fontFamily ?? GumTextStyleCatalog.DefaultFontFamily;
         textRuntime.FontSize = fontSize;
         textRuntime.FontScale = MathF.Max(0.01f, fontScale);
-        textRuntime.MaxNumberOfLines = maxLines;
+        textRuntime.MaxNumberOfLines = ResolveMaxNumberOfLines(text, maxLines);
         textRuntime.Text = text;
         parent.Children.Add(textRuntime);
     }

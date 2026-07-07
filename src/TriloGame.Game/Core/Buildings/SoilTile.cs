@@ -1,11 +1,15 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Shared.Math;
+using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
 public sealed class SoilTile
 {
     private const double DefaultGrowthConstant = 0d;
+    private const double RanchGrowthMedian = 0.35d;
+    private const double RanchGrowthStandardDeviation = 0.2d;
+    private const double MaxRanchGrowthConstant = 0.99d;
     private const int DormantGrowthLevel = 0;
     private const int MinActiveGrowthLevel = 1;
     private const int MaxGrowthLevel = 3;
@@ -27,6 +31,8 @@ public sealed class SoilTile
     public SoilPatch ParentPatch { get; }
 
     public GridPoint LocalOffset { get; }
+
+    public Ranch? Ranch { get; internal set; }
 
     public double GrowthConstant { get; private set; }
 
@@ -112,6 +118,19 @@ public sealed class SoilTile
 
         RefreshTextureKey();
         return changed;
+    }
+
+    internal void TileAddedToRanch()
+    {
+        GrowthConstant = Math.Clamp(
+            RandomUtil.NextNormal(RanchGrowthMedian, RanchGrowthStandardDeviation),
+            0d,
+            MaxRanchGrowthConstant);
+    }
+
+    internal void TileRemovedFromRanch()
+    {
+        GrowthConstant = DefaultGrowthConstant;
     }
 
     internal void SetGrowthConstant(double value)

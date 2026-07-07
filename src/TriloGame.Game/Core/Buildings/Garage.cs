@@ -1,10 +1,11 @@
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class Garage : Building, IResourceStorage
+public sealed class Garage : Building, IResourceStorage, IStorage
 {
     private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
     private readonly HashSet<Silo> _adjacentSilos = [];
@@ -20,12 +21,14 @@ public sealed class Garage : Building, IResourceStorage
         };
         Capacity = 1000;
         ChosenResource = GrowableResourceType.ALGAE;
-        Description = $"A high-capacity algae garage that stores up to {Capacity} harvested resources.";
+        Description = $"A high-capacity algae garage that stores up to {Capacity} harvested resources and can anchor one ranch.";
     }
 
     public int Capacity { get; }
 
     public GrowableResourceType ChosenResource { get; }
+
+    public Ranch? Ranch { get; internal set; }
 
     internal IReadOnlyCollection<Silo> AdjacentSilos => _adjacentSilos;
 
@@ -53,6 +56,7 @@ public sealed class Garage : Building, IResourceStorage
 
         _inventory[resourceType] += accepted;
         _inventoryTotal += accepted;
+        EmitStorageInventoryChanged(resourceType, accepted);
         if (string.Equals(resourceType, OreType.ALGAE.Name, StringComparison.Ordinal))
         {
             TryOffloadAlgaeToAdjacentSilos();
@@ -77,12 +81,26 @@ public sealed class Garage : Building, IResourceStorage
 
         _inventory[resourceType] -= taken;
         _inventoryTotal -= taken;
+        EmitStorageInventoryChanged(resourceType, -taken);
         return taken;
     }
 
     public override void CleanupBeforeRemoval(object? source = null)
     {
         _adjacentSilos.Clear();
+        if (_inventoryTotal > 0)
+        {
+            foreach (var pair in _inventory)
+            {
+                if (pair.Value <= 0)
+                {
+                    continue;
+                }
+
+                EmitStorageInventoryChanged(pair.Key, -pair.Value);
+            }
+        }
+
         _inventory.Clear();
         _inventoryTotal = 0;
         base.CleanupBeforeRemoval(source);
@@ -119,6 +137,7 @@ public sealed class Garage : Building, IResourceStorage
             var remainder = withdrawn - accepted;
             _inventory[OreType.ALGAE.Name] += remainder;
             _inventoryTotal += remainder;
+            EmitStorageInventoryChanged(OreType.ALGAE.Name, remainder);
             break;
         }
 
@@ -176,5 +195,24 @@ public sealed class Garage : Building, IResourceStorage
         var gapToNextLowest = secondLowest.GetInventoryTotal() - lowest.GetInventoryTotal();
         transferAmount = Math.Min(transferAmount, Math.Max(1, gapToNextLowest));
         return transferAmount > 0;
+    }
+
+    private void EmitStorageInventoryChanged(string resourceType, int resourceDelta)
+    {
+        if (string.IsNullOrWhiteSpace(resourceType) || resourceDelta == 0)
+        {
+            return;
+        }
+
+        Session.Emit(
+            GameEvents.StorageInventoryChanged,
+            new GameEventPayload(
+                Cave,
+                null,
+                Location,
+                null,
+                resourceType,
+                this,
+                resourceDelta));
     }
 }

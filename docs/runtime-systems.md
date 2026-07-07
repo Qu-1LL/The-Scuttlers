@@ -21,11 +21,13 @@ management inside `GameApp`.
 - `Runtime/Systems/GameOverStateSystem.cs`
   - owns queen-loss detection and continue/restart state
 - `Runtime/Systems/RoundManager.cs`
-  - owns round number, round elapsed game time, round start/end, and round-zero grace timing
+  - owns round number plus the wait/defend phase lifecycle for each round
+  - advances each round through a 5-minute in-game wait phase, then an open-ended defense phase
   - raises the round-end draft hook used by the research draft flow
 - `Runtime/Systems/AntHandler.cs`
   - receives round spawn requests
-  - schedules ant spawns across the round spawn window
+  - schedules ant spawns across the round spawn window once a defense phase begins
+  - reports when the current defense phase is fully cleared so the next round can begin
   - routes actual spawning through the ant-hole abstraction instead of `GameApp`
 - `Runtime/Systems/ResearchDraftSystem.cs`
   - generates three candidate research branches after a completed round when the queen survives

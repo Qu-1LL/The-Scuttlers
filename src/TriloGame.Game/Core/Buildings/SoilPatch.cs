@@ -31,6 +31,22 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
         TextureKey = "SoilTile_0";
     }
 
+    public Ranch? Ranch
+    {
+        get
+        {
+            for (var index = 0; index < _soilTiles.Length; index++)
+            {
+                if (_soilTiles[index].Ranch is not null)
+                {
+                    return _soilTiles[index].Ranch;
+                }
+            }
+
+            return null;
+        }
+    }
+
     public IReadOnlyList<SoilTile> SoilTiles => _soilTiles;
 
     public SoilArea? SoilArea { get; internal set; }

@@ -11,6 +11,7 @@ public static class CrashReporter
 
     public static string ReportDirectoryPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "CrashReports");
 
+    // Install one set of process-wide crash handlers for unhandled exceptions.
     public static void InstallProcessHandlers()
     {
         lock (Sync)
@@ -26,6 +27,7 @@ public static class CrashReporter
         }
     }
 
+    // Register a callback that can provide a live game-state snapshot during crash reporting.
     public static void RegisterSnapshotProvider(Func<string> snapshotProvider)
     {
         lock (Sync)
@@ -34,6 +36,7 @@ public static class CrashReporter
         }
     }
 
+    // Write one crash report and reuse the same file path if reporting is triggered repeatedly.
     public static string Report(Exception exception, string source, bool isTerminating = false)
     {
         try
@@ -65,6 +68,7 @@ public static class CrashReporter
         }
     }
 
+    // Reset static crash-reporter state so tests can run in isolation.
     public static void ResetForTests(string? reportDirectoryPath = null)
     {
         lock (Sync)
@@ -78,6 +82,7 @@ public static class CrashReporter
         }
     }
 
+    // Capture and report AppDomain-level unhandled exceptions.
     private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
     {
         var exception = args.ExceptionObject as Exception
@@ -85,12 +90,14 @@ public static class CrashReporter
         Report(exception, "AppDomain.CurrentDomain.UnhandledException", args.IsTerminating);
     }
 
+    // Capture task exceptions that would otherwise be dropped on finalization.
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs args)
     {
         Report(args.Exception, "TaskScheduler.UnobservedTaskException");
         args.SetObserved();
     }
 
+    // Build the full crash report text, including environment details and a game snapshot.
     private static string BuildReportText(Exception exception, string source, bool isTerminating)
     {
         var builder = new StringBuilder();
@@ -116,6 +123,7 @@ public static class CrashReporter
         return builder.ToString();
     }
 
+    // Ask the registered provider for a snapshot without letting snapshot failures hide the crash.
     private static string TryBuildSnapshot()
     {
         try
@@ -131,6 +139,7 @@ public static class CrashReporter
         }
     }
 
+    // Best-effort logging avoids secondary failures while the process is already unstable.
     private static void TryWriteConsoleLine(string message)
     {
         try

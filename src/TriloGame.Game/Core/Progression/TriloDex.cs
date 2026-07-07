@@ -7,6 +7,7 @@ public sealed class TriloDex
     private static readonly Lazy<TriloDex> GlobalInstance = new(CreateGlobal);
     private readonly Dictionary<string, FeatureTree> _featureTreesByName;
 
+    // Freeze the authored feature-tree set into an ordinal name lookup.
     public TriloDex(IEnumerable<FeatureTree> featureTrees)
     {
         var orderedTrees = (featureTrees ?? throw new ArgumentNullException(nameof(featureTrees))).ToArray();
@@ -24,11 +25,13 @@ public sealed class TriloDex
 
     public bool IsEmpty => Count == 0;
 
+    // Check whether the authored catalog contains a feature tree with this exact name.
     public bool ContainsFeatureTree(string name)
     {
         return !string.IsNullOrWhiteSpace(name) && _featureTreesByName.ContainsKey(name);
     }
 
+    // Resolve an authored feature tree by name without throwing on blanks or misses.
     public FeatureTree? FindFeatureTree(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -39,11 +42,13 @@ public sealed class TriloDex
         return _featureTreesByName.GetValueOrDefault(name);
     }
 
+    // Lazily build the shared authored progression catalog on first use.
     private static TriloDex CreateGlobal()
     {
         return new TriloDex(FeatureTreeData.BuildGlobalFeatureTrees());
     }
 
+    // Enforce unique feature-tree names before the authored catalog becomes globally visible.
     private static Dictionary<string, FeatureTree> BuildFeatureTreeLookup(IEnumerable<FeatureTree> featureTrees)
     {
         var lookup = new Dictionary<string, FeatureTree>(StringComparer.Ordinal);

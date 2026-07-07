@@ -404,6 +404,11 @@ public sealed partial class MenuController
             : MenuInteractionResult.NotHandled;
     }
 
+    public bool HandleClick(Point point, Point viewport, object? _, GameSession session)
+    {
+        return HandleClick(point, viewport, session).Consumed;
+    }
+
     public void Draw(RenderingContext context, Point viewport, GameSession session, GumUiRenderer gumUi)
     {
         _gumUi = gumUi;

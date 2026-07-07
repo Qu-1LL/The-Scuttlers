@@ -18,33 +18,41 @@ public sealed class GameSessionRuntimeState
 
     public bool NoCostBuildPlacement { get; set; }
 
+    public bool AllowManualMining { get; set; }
+
     public List<ProjectileFlight> ActiveProjectileFlights { get; } = [];
 
+    // Preview the next generated debug enemy id without consuming it.
     public int PeekNextDebugEnemyId()
     {
         return _nextDebugEnemyId;
     }
 
+    // Allocate and consume the next debug enemy id.
     public int AllocateDebugEnemyId()
     {
         return _nextDebugEnemyId++;
     }
 
+    // Reset the debug enemy id counter while keeping it at a valid positive value.
     public void ResetDebugEnemyIds(int startAt = 1)
     {
         _nextDebugEnemyId = System.Math.Max(1, startAt);
     }
 
+    // Preview the next generated debug trilobite id without consuming it.
     public int PeekNextDebugTrilobiteId()
     {
         return _nextDebugTrilobiteId;
     }
 
+    // Allocate and consume the next debug trilobite id.
     public int AllocateDebugTrilobiteId()
     {
         return _nextDebugTrilobiteId++;
     }
 
+    // Reset the debug trilobite id counter while keeping it at a valid positive value.
     public void ResetDebugTrilobiteIds(int startAt = 1)
     {
         _nextDebugTrilobiteId = System.Math.Max(1, startAt);

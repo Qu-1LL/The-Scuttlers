@@ -9,6 +9,7 @@ public sealed class SkillNode
 {
     private readonly List<SkillNode> _children = [];
 
+    // Capture the authored display text and research effects for a template skill node.
     public SkillNode(string name, string description, IEnumerable<ResearchEffectDescriptor>? effectDescriptors = null)
     {
         Name = RequireText(name, nameof(name));
@@ -36,6 +37,7 @@ public sealed class SkillNode
 
     public int Depth => Parent is null ? 0 : Parent.Depth + 1;
 
+    // Attach a child while preserving the single-parent tree invariant.
     public void AddChild(SkillNode child)
     {
         ArgumentNullException.ThrowIfNull(child);
@@ -60,6 +62,7 @@ public sealed class SkillNode
         _children.Add(child);
     }
 
+    // Detach a child from this node if it is currently attached here.
     public bool RemoveChild(SkillNode child)
     {
         if (child is null)
@@ -76,11 +79,13 @@ public sealed class SkillNode
         return removed;
     }
 
+    // Allow acquisition only when this node is still locked and its prerequisite is met.
     public bool CanAcquire()
     {
         return !IsAcquired && (Prerequisite is null || Prerequisite.IsAcquired);
     }
 
+    // Apply this node's authored effects exactly once when it becomes acquired.
     public bool TryAcquire(GameSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -95,15 +100,18 @@ public sealed class SkillNode
         return true;
     }
 
+    // Clone the authored node data without carrying over tree links or acquisition state.
     public SkillNode CreateDetachedCopy()
     {
         return new SkillNode(Name, Description, EffectDescriptors);
     }
 
+    // Traverse this authored feature tree in parent-before-children order.
     public IEnumerable<SkillNode> TraverseDepthFirst()
     {
         yield return this;
 
+        // Recurse through the authored child list in insertion order for stable traversal.
         foreach (var child in _children)
         {
             foreach (var descendant in child.TraverseDepthFirst())
@@ -113,6 +121,7 @@ public sealed class SkillNode
         }
     }
 
+    // Detect ancestor relationships so child attachment cannot create cycles.
     private bool IsAncestorOf(SkillNode node)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
@@ -126,6 +135,7 @@ public sealed class SkillNode
         return false;
     }
 
+    // Reject blank authored text fields before they enter feature-tree content.
     private static string RequireText(string value, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))

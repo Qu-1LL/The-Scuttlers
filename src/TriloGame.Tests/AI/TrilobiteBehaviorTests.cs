@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.AI;
@@ -16,5 +17,35 @@ public sealed class TrilobiteBehaviorTests
         Assert.True(restarted);
         Assert.Null(moveResult);
         Assert.Equal(startingLocation, trilobite.Location);
+    }
+
+    [Fact]
+    public void FighterStep1_KeepsTargetingEnemyThatMovesToDifferentAdjacentTile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 14, new GridPoint(1, 1));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 6), "Fighter", "fighter");
+        var firstEnemyTile = cave.GetTile(new GridPoint(6, 7))
+            ?? throw new InvalidOperationException("Expected the first adjacent enemy tile to exist.");
+        var secondEnemyTile = cave.GetTile(new GridPoint(7, 6))
+            ?? throw new InvalidOperationException("Expected the second adjacent enemy tile to exist.");
+        var enemy = new Enemy("Target", firstEnemyTile.Coordinates, session);
+
+        Assert.True(cave.Spawn(enemy, firstEnemyTile));
+        Assert.True(session.Danger);
+
+        var firstAttack = fighter.FighterStep1();
+        var healthAfterFirstAttack = enemy.Health;
+
+        Assert.True(firstAttack);
+        Assert.True(healthAfterFirstAttack < enemy.MaxHealth);
+        Assert.Equal(firstEnemyTile.Key, fighter.FighterTargetTileKey);
+
+        Assert.True(cave.PlaceCreatureOnTile(enemy, secondEnemyTile.Coordinates));
+
+        var secondAttack = fighter.FighterStep1();
+
+        Assert.True(secondAttack);
+        Assert.True(enemy.Health < healthAfterFirstAttack);
+        Assert.Equal(secondEnemyTile.Key, fighter.FighterTargetTileKey);
     }
 }

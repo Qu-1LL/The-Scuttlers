@@ -63,6 +63,21 @@
 /processor:TextureProcessor
 /build:Textures/Barracks.png
 
+#begin Textures/Garage.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Garage.png
+
+#begin Textures/Silo.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Silo.png
+
+#begin Textures/Plow.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Plow.png
+
 #begin Textures/CaveWall.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -208,6 +223,26 @@
 /processor:TextureProcessor
 /build:Textures/Smith.png
 
+#begin Textures/SoilTile_0.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_0.png
+
+#begin Textures/SoilTile_Algae_1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_1.png
+
+#begin Textures/SoilTile_Algae_2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_2.png
+
+#begin Textures/SoilTile_Algae_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_3.png
+
 #begin Textures/Storage.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -223,40 +258,55 @@
 /processor:TextureProcessor
 /build:Textures/Turret.png
 
-#begin Audio/BuildingFinished.wav
+#begin Audio/Effects/BuildingFinished.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/BuildingFinished.wav
+/build:Audio/Effects/BuildingFinished.wav
 
-#begin Audio/AntHoleSpawn.wav
+#begin Audio/Effects/AntHoleSpawn.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/AntHoleSpawn.wav
+/build:Audio/Effects/AntHoleSpawn.wav
 
-#begin Audio/TrilobiteExplosion.wav
+#begin Audio/Effects/TrilobiteExplosion.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/TrilobiteExplosion.wav
+/build:Audio/Effects/TrilobiteExplosion.wav
 
-#begin Audio/BuildingPlace.mp3
+#begin Audio/Effects/OpalChangeStart.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/Effects/OpalChangeStart.wav
+
+#begin Audio/Effects/OpalAlarm.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/Effects/OpalAlarm.wav
+
+#begin Audio/Effects/OpalRestore.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/Effects/OpalRestore.wav
+
+#begin Audio/Effects/BuildingPlace.mp3
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
-/build:Audio/BuildingPlace.mp3
+/build:Audio/Effects/BuildingPlace.mp3
 
-#begin Audio/TrilobiteBirth.wav
+#begin Audio/Effects/TrilobiteBirth.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/TrilobiteBirth.wav
+/build:Audio/Effects/TrilobiteBirth.wav
 
-#begin Audio/TrilobiteSelected.wav
+#begin Audio/Effects/TrilobiteSelected.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/TrilobiteSelected.wav
+/build:Audio/Effects/TrilobiteSelected.wav
 
-#begin Audio/UiSelect.wav
+#begin Audio/Effects/UiSelect.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/UiSelect.wav
+/build:Audio/Effects/UiSelect.wav
 
 #begin Audio/Invalid.mp3
 /importer:Mp3Importer
@@ -268,7 +318,52 @@
 /processor:SoundEffectProcessor
 /build:Audio/UnlockNode.mp3
 
-#begin Audio/VolumeSound.wav
+#begin Audio/Effects/VolumeSound.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
-/build:Audio/VolumeSound.wav
+/build:Audio/Effects/VolumeSound.wav
+
+#begin Audio/Effects/miningpostplaceholder.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/miningpostplaceholder.mp3
+
+#begin Audio/Effects/algaefarmplaceholder.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/algaefarmplaceholder.mp3
+
+#begin Audio/Effects/pickaxe.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/pickaxe.mp3
+
+#begin Audio/Effects/mulch.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/mulch.mp3
+
+#begin Audio/Music/cheerwine_diddy_party.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/cheerwine_diddy_party.mp3
+
+#begin Audio/Music/cts.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/cts.mp3
+
+#begin Audio/Music/cts_acapella.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/cts_acapella.mp3
+
+#begin Audio/Music/shapes and colors demo1.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/shapes and colors demo1.mp3
+
+#begin Audio/Music/shapes and colors drumsonly demo1.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Music/shapes and colors drumsonly demo1.mp3

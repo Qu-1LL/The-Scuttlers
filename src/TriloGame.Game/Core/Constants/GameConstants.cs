@@ -7,8 +7,7 @@ public static class GameConstants
     public const double TickSpeedFast = 100d;
     public const double TickSpeedFastest = 50d;
     public const double GameTimePerSimulationTickMs = TickSpeedFast;
-    public const double RoundDurationMs = 5d * 60d * 1000d;
-    public const double RoundZeroGraceDurationMs = 2d * 60d * 1000d;
+    public const double RoundGraceDurationMs = 5d * 60d * 1000d;
     public const double RoundSpawnWindowDurationMs = 30d * 1000d;
     public const int RoundBaseAntCount = 5;
     public const int RoundAntGrowthPerRound = 3;

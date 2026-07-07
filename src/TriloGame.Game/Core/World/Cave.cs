@@ -4,6 +4,7 @@ using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -18,6 +19,7 @@ public sealed partial class Cave : Graph
     private readonly CaveGenerator _generator = new();
     private readonly List<Trilobite> _trilobiteList = [];
     private readonly List<Enemy> _enemyList = [];
+    private readonly List<Vehicle> _vehicles = [];
     private readonly List<Building> _buildingList = [];
     private readonly List<MiningPost> _miningPosts = [];
     private readonly List<AlgaeFarm> _algaeFarms = [];
@@ -26,6 +28,7 @@ public sealed partial class Cave : Graph
     private readonly List<Wall> _walls = [];
     private readonly List<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Vehicle> _vehicleOccupancy = new(StringComparer.Ordinal);
     private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
     private readonly Dictionary<MiningPost, int> _miningPostAssignmentCounts = [];
     private readonly Dictionary<StationBuilding, int> _fighterStationAssignmentCounts = [];
@@ -79,6 +82,8 @@ public sealed partial class Cave : Graph
     public IReadOnlyList<Trilobite> GetTrilobiteList() => _trilobiteList;
 
     public IReadOnlyList<Enemy> GetEnemyList() => _enemyList;
+
+    public IReadOnlyList<Vehicle> GetVehicles() => _vehicles;
 
     public IReadOnlyList<Building> GetBuildingList() => _buildingList;
 
@@ -224,14 +229,21 @@ public sealed partial class Cave : Graph
             case Queen queen:
                 _queenBuilding = queen;
                 break;
+            case Garage garage:
+                _garages.Add(garage);
+                break;
+            case Silo silo:
+                _silos.Add(silo);
+                break;
+            case SoilPatch soilPatch:
+                _soilPatches.Add(soilPatch);
+                RegisterSoilPatchTiles(soilPatch);
+                break;
             case MiningPost post:
                 _miningPosts.Add(post);
                 _miningPostAssignmentCounts[post] = post.GetVolume();
                 MiningPostBuildingsAdded = true;
-                if (post.Location is not null && post.TileArray.Count > 0 && post.AssignmentsAvailable)
-                {
-                    HasAvailableMiningPostAssignments = true;
-                }
+                SyncMiningPostAssignmentAvailability();
                 SyncMiningPostBuildingsAddedState();
                 break;
             case AlgaeFarm farm:
@@ -256,15 +268,6 @@ public sealed partial class Cave : Graph
             case Scaffolding scaffolding:
                 _scaffolds.Add(scaffolding);
                 break;
-            case SoilPatch soilPatch:
-                _soilPatches.Add(soilPatch);
-                break;
-            case Garage garage:
-                _garages.Add(garage);
-                break;
-            case Silo silo:
-                _silos.Add(silo);
-                break;
         }
     }
 
@@ -275,14 +278,21 @@ public sealed partial class Cave : Graph
             case Queen queen when ReferenceEquals(_queenBuilding, queen):
                 _queenBuilding = null;
                 break;
+            case Garage garage:
+                _garages.Remove(garage);
+                break;
+            case Silo silo:
+                _silos.Remove(silo);
+                break;
+            case SoilPatch soilPatch:
+                UnregisterSoilPatchTiles(soilPatch);
+                _soilPatches.Remove(soilPatch);
+                break;
             case MiningPost post:
                 _miningPosts.Remove(post);
                 _miningPostAssignmentCounts.Remove(post);
                 ForgetMiningPostMovementCache(post);
-                if (HasAvailableMiningPostAssignments && post.AssignmentsAvailable)
-                {
-                    HasAvailableMiningPostAssignments = _miningPosts.Any(other => other.Location is not null && other.TileArray.Count > 0 && other.AssignmentsAvailable);
-                }
+                SyncMiningPostAssignmentAvailability();
                 SyncMiningPostBuildingsAddedState();
                 break;
             case AlgaeFarm farm:
@@ -304,15 +314,6 @@ public sealed partial class Cave : Graph
                 break;
             case Scaffolding scaffolding:
                 _scaffolds.Remove(scaffolding);
-                break;
-            case SoilPatch soilPatch:
-                _soilPatches.Remove(soilPatch);
-                break;
-            case Garage garage:
-                _garages.Remove(garage);
-                break;
-            case Silo silo:
-                _silos.Remove(silo);
                 break;
         }
     }
@@ -453,14 +454,7 @@ public sealed partial class Cave : Graph
 
     internal void OnMiningPostAssignmentsAvailableChanged(MiningPost post, bool previousValue, bool currentValue)
     {
-        if (currentValue)
-        {
-            HasAvailableMiningPostAssignments = true;
-        }
-        else if (previousValue && HasAvailableMiningPostAssignments)
-        {
-            HasAvailableMiningPostAssignments = _miningPosts.Any(other => other.Location is not null && other.TileArray.Count > 0 && other.AssignmentsAvailable);
-        }
+        SyncMiningPostAssignmentAvailability();
 
         if (!previousValue && currentValue && _miningPostAssignmentCounts.ContainsKey(post))
         {
@@ -519,20 +513,22 @@ public sealed partial class Cave : Graph
         return leastCount.HasValue && currentCount > leastCount.Value + 1;
     }
 
+    // This cache is only true while at least one active mining post still has
+    // mineable work and room to store the haul.
     internal bool SyncMiningPostAssignmentAvailability()
     {
-        if (!HasAvailableMiningPostAssignments)
-        {
-            return false;
-        }
-
-        HasAvailableMiningPostAssignments = _miningPosts.Any(post => post.Location is not null && post.TileArray.Count > 0 && post.AssignmentsAvailable);
+        HasAvailableMiningPostAssignments = _miningPosts.Any(post =>
+            post.Location is not null &&
+            post.TileArray.Count > 0 &&
+            post.AssignmentsAvailable &&
+            post.GetInventorySpace() > 0);
         return HasAvailableMiningPostAssignments;
     }
 
     public bool CanBuild(Building building, GridPoint location, bool preserveReachability = false)
     {
-        return EvaluateBuildPlacement(building, location, preserveReachability).CanBuild;
+        return EvaluateBuildPlacement(building, location, preserveReachability).CanBuild &&
+               CanPlaceRanchBuilding(building, location);
     }
 
     public HashSet<string> BuildSimulatedReachableKeySet(Building? building = null, GridPoint? location = null)
@@ -543,11 +539,12 @@ public sealed partial class Cave : Graph
             return reachableKeys;
         }
 
+        var simulatedOpenMap = GetReachabilitySimulationOpenMap(building);
         for (var x = 0; x < building.Size.X; x++)
         {
             for (var y = 0; y < building.Size.Y; y++)
             {
-                if (building.OpenMap[y][x] < 1)
+                if (simulatedOpenMap[y][x] < 1)
                 {
                     reachableKeys.Remove(new GridPoint(location.Value.X + x, location.Value.Y + y).ToString());
                 }
@@ -555,6 +552,14 @@ public sealed partial class Cave : Graph
         }
 
         return reachableKeys;
+    }
+
+    // Simulations use the finished building footprint so walkable scaffolds do not hide future blockers.
+    private static int[][] GetReachabilitySimulationOpenMap(Building building)
+    {
+        return building is Scaffolding scaffolding
+            ? scaffolding.TargetBuilding.OpenMap
+            : building.OpenMap;
     }
 
     private static bool ShouldSkipSimulatedBuildingAccessCheck(Building building)
@@ -658,7 +663,9 @@ public sealed partial class Cave : Graph
             return false;
         }
 
-        AddBuildingUnchecked(building, location);
+        PlaceBuildingUnchecked(building, location);
+        OnRanchBuildingBuilt(building);
+        FinalizeBuiltBuildings([building]);
         return true;
     }
 
@@ -674,11 +681,13 @@ public sealed partial class Cave : Graph
             return false;
         }
 
-        AddBuildingUnchecked(replacementBuilding, location);
+        PlaceBuildingUnchecked(replacementBuilding, location);
+        OnRanchBuildingBuilt(replacementBuilding);
+        FinalizeBuiltBuildings([replacementBuilding]);
         return true;
     }
 
-    private void AddBuildingUnchecked(Building building, GridPoint location)
+    private void PlaceBuildingUnchecked(Building building, GridPoint location)
     {
         Buildings.Add(building);
         _buildingList.Add(building);
@@ -711,20 +720,31 @@ public sealed partial class Cave : Graph
 
         building.OnBuilt(this);
         RegisterBuilding(building);
-        OnSoilAndStorageBuildingBuilt(building);
+    }
+
+    private void FinalizeBuiltBuildings(IReadOnlyList<Building> builtBuildings)
+    {
         AdvanceTopologyVersion();
 
-        var dirtyKeys = building.TileArray.Select(tile => tile.Key).ToArray();
+        var dirtyKeys = builtBuildings
+            .SelectMany(building => building.TileArray)
+            .Select(tile => tile.Key)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var reachability = RefreshReachableTiles();
         var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
-        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, [building]);
-        RebalanceAllBfsFields(dirtyKeys, [building], []);
-        RebalanceAllBuildingOwnershipFields(dirtyKeys, [building]);
-        var buildingField = GetBuildingBfsFieldObject(building);
-        buildingField.Rebuild();
-        buildingField.MarkDirty(ownershipDirtyKeys, [building], []);
-        if (building is Wall)
+        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, builtBuildings, []);
+        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, builtBuildings);
+        RebalanceAllBfsFields(dirtyKeys, builtBuildings, []);
+        RebalanceAllBuildingOwnershipFields(dirtyKeys, builtBuildings);
+        for (var index = 0; index < builtBuildings.Count; index++)
+        {
+            var buildingField = GetBuildingBfsFieldObject(builtBuildings[index]);
+            buildingField.Rebuild();
+            buildingField.MarkDirty(ownershipDirtyKeys, builtBuildings, []);
+        }
+
+        if (builtBuildings.Any(static building => building is Wall))
         {
             RebuildWallBfsField();
         }
@@ -772,6 +792,9 @@ public sealed partial class Cave : Graph
                 case AlgaeFarm farm:
                     farm.RemoveAssignment(creature);
                     break;
+                case Ranch ranch:
+                    ranch.RemoveAssignment(creature);
+                    break;
                 case StationBuilding station:
                     station.RemoveAssignment(creature);
                     break;
@@ -797,7 +820,6 @@ public sealed partial class Cave : Graph
         }
 
         _buildingList.Remove(building);
-        OnSoilAndStorageBuildingRemoved(building);
         UnregisterBuilding(building);
 
         var dirtyKeys = new List<string>();
@@ -811,6 +833,7 @@ public sealed partial class Cave : Graph
             }
         }
 
+        OnRanchBuildingRemoved(building);
         building.CleanupBeforeRemoval(source);
         AdvanceTopologyVersion();
         var reachability = RefreshReachableTiles();
@@ -2086,10 +2109,21 @@ public sealed partial class Cave
         return tile is not null && tile.CreatureFits(creature);
     }
 
+    // Resource-complete scaffolds are temporary no-entry tiles for normal trilobite movement.
+    public bool IsResourceCompleteScaffoldingTile(Tile? tile)
+    {
+        return tile?.Built is Scaffolding { ResourceComplete: true };
+    }
+
+    public bool IsResourceCompleteScaffoldingLocation(GridPoint location)
+    {
+        return IsResourceCompleteScaffoldingTile(GetTile(location));
+    }
+
     public bool PlaceCreatureOnTile(Creature creature, GridPoint location, bool randomizeMovementOffset = false)
     {
-        var tile = GetTile(location.ToString());
-        if (!CanCreatureTraverseTile(creature, tile))
+        var tile = GetTile(location);
+        if (tile is null || !CanCreatureTraverseTile(creature, tile))
         {
             return false;
         }
@@ -2148,6 +2182,9 @@ public sealed partial class Cave
                     break;
                 case AlgaeFarm farm:
                     farm.RemoveAssignment(creature);
+                    break;
+                case Ranch ranch:
+                    ranch.RemoveAssignment(creature);
                     break;
                 case StationBuilding station:
                     station.RemoveAssignment(creature);
@@ -2218,7 +2255,7 @@ public sealed partial class Cave
         return true;
     }
 
-    public bool MoveCreature(Creature creature, GridPoint nextLocation)
+    public bool MoveCreature(Creature creature, GridPoint nextLocation, bool allowResourceCompleteScaffolding = false)
     {
         if (!creature.IsTrackedInTileSystem)
         {
@@ -2227,7 +2264,14 @@ public sealed partial class Cave
 
         var current = creature.Location;
         var nextTile = GetTile(nextLocation);
-        if (!CanCreatureTraverseTile(creature, nextTile))
+        if (nextTile is null || !CanCreatureTraverseTile(creature, nextTile))
+        {
+            return false;
+        }
+
+        if (!allowResourceCompleteScaffolding &&
+            creature is Trilobite &&
+            IsResourceCompleteScaffoldingTile(nextTile))
         {
             return false;
         }

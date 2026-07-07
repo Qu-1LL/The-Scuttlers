@@ -10,6 +10,7 @@ namespace TriloGame.Game.Runtime.Bootstrap;
 
 public sealed class GameSessionBootstrapper
 {
+    // Build a fresh session with starter progression, buildings, colony members, and world state.
     public GameBootstrapResult CreateNewGame()
     {
         var session = new GameSession();
@@ -47,6 +48,7 @@ public sealed class GameSessionBootstrapper
         return new GameBootstrapResult(session, initialColony.QueenLocation, initialColony.MiningPostLocation);
     }
 
+    // Seed the live skill tree with the always-unlocked colony anchor node.
     private static void InitializeSkillTreeRoot(GameSession session)
     {
         var rootTemplate = new SkillNode(
@@ -56,6 +58,7 @@ public sealed class GameSessionBootstrapper
         rootNode.TryUnlock(session);
     }
 
+    // Register the current starter building catalog for this run.
     private static void PopulateUnlockedBuildings(GameSession session)
     {
         session.UnlockedBuildings.Add(new Factory(game => new SoilPatch(game), session));
@@ -69,8 +72,10 @@ public sealed class GameSessionBootstrapper
         session.UnlockedBuildings.Add(new Factory(game => new Radar(game), session));
     }
 
+    // Place the queen and the starter mining post while preserving reachability constraints.
     private static (GridPoint QueenLocation, GridPoint MiningPostLocation) BuildInitialColony(Cave cave, GameSession session)
     {
+        // Try randomized placements first so the opener feels varied across runs.
         for (var attempt = 0; attempt < 200; attempt++)
         {
             var queenLocation = new GridPoint(RandomUtil.NextInt(-10, 10), RandomUtil.NextInt(-10, 10));
@@ -90,6 +95,7 @@ public sealed class GameSessionBootstrapper
             cave.RemoveBuilding(queen, "initialPlacementRetry");
         }
 
+        // Fall back to a deterministic scan so bootstrap still succeeds on difficult maps.
         foreach (var queenLocation in cave.GetTiles().Select(tile => GridPoint.Parse(tile.Key)).OrderBy(point => GridPoint.ManhattanDistance(point, GridPoint.Zero)))
         {
             var queen = new Queen(session);
@@ -111,12 +117,14 @@ public sealed class GameSessionBootstrapper
         throw new InvalidOperationException("Failed to place the initial queen and starter mining post.");
     }
 
+    // Pick the nearest legal starter mining-post location near the placed queen.
     private static GridPoint? FindStarterMiningPostLocation(Cave cave, Building building)
     {
         var queenCenter = cave.GetQueenBuilding()?.GetCenter() ?? GridPoint.Zero;
         GridPoint? bestLocation = null;
         var bestDistance = int.MaxValue;
 
+        // Search every buildable tile and keep the nearest option inside the starter radius.
         foreach (var tile in cave.GetTiles())
         {
             var location = GridPoint.Parse(tile.Key);
@@ -142,8 +150,10 @@ public sealed class GameSessionBootstrapper
         return bestLocation;
     }
 
+    // Reject placements whose walkable footprint sits too close to surrounding walls.
     private static bool HasWallClearance(Cave cave, Building building, GridPoint location, int minDistance)
     {
+        // Only open footprint tiles need local wall clearance for starter-colony placement.
         for (var x = 0; x < building.Size.X; x++)
         {
             for (var y = 0; y < building.Size.Y; y++)
@@ -154,6 +164,7 @@ public sealed class GameSessionBootstrapper
                 }
 
                 var tileLocation = new GridPoint(location.X + x, location.Y + y);
+                // Scan the surrounding diamond and fail fast when any nearby wall breaks clearance.
                 for (var dx = -(minDistance - 1); dx <= minDistance - 1; dx++)
                 {
                     for (var dy = -(minDistance - 1); dy <= minDistance - 1; dy++)
