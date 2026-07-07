@@ -128,6 +128,26 @@
 /processor:TextureProcessor
 /build:Textures/EmptyTile.png
 
+#begin Textures/EmptyTile_Sand.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Sand.png
+
+#begin Textures/EmptyTile_Lush.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Lush.png
+
+#begin Textures/EmptyTile_Green.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Green.png
+
+#begin Textures/EmptyTile_Lava.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Lava.png
+
 #begin Textures/Enemy.png
 /importer:TextureImporter
 /processor:TextureProcessor

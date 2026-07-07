@@ -23,7 +23,8 @@ pathfinding, economy, or progression.
 - Do not use `DateTime.Now`, `Stopwatch`, or wall-clock timing inside simulation decisions.
 - Keep event timing explicit. Never add "fire whenever" logic to the sim.
 - Randomness for gameplay should continue to use the project's established deterministic/random
-  utility patterns rather than ad-hoc sources.
+  utility patterns rather than ad-hoc sources; prefer `Shared/Utilities/XorShift64.cs` for
+  deterministic generation and other replay-sensitive PRNG state.
 
 Projectile firing decisions belong in `Core`, while projectile travel/impact timing belongs in
 runtime state/systems so hits can resolve between ticks without moving timing math into

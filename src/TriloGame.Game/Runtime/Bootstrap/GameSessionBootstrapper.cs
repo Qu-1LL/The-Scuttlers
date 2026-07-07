@@ -11,13 +11,13 @@ namespace TriloGame.Game.Runtime.Bootstrap;
 public sealed class GameSessionBootstrapper
 {
     // Build a fresh session with starter progression, buildings, colony members, and world state.
-    public GameBootstrapResult CreateNewGame()
+    public GameBootstrapResult CreateNewGame(WorldGenerationMethod worldGenerationMethod = WorldGenerationMethod.Version0)
     {
         var session = new GameSession();
         InitializeSkillTreeRoot(session);
         PopulateUnlockedBuildings(session);
 
-        var cave = new Cave(session);
+        var cave = new Cave(session, worldGenerationMethod);
         var initialColony = BuildInitialColony(cave, session);
         var spawnX = initialColony.QueenLocation.X;
         var spawnY = initialColony.QueenLocation.Y;
@@ -121,6 +121,21 @@ public sealed class GameSessionBootstrapper
     private static GridPoint? FindStarterMiningPostLocation(Cave cave, Building building)
     {
         var queenCenter = cave.GetQueenBuilding()?.GetCenter() ?? GridPoint.Zero;
+        for (var minimumWallClearance = 5; minimumWallClearance >= 1; minimumWallClearance--)
+        {
+            var bestLocation = FindStarterMiningPostLocation(cave, building, queenCenter, minimumWallClearance);
+            if (bestLocation.HasValue)
+            {
+                return bestLocation;
+            }
+        }
+
+        return null;
+    }
+
+    // Prefer roomy starter placements, but relax the wall buffer slightly when tighter generators still need to bootstrap.
+    private static GridPoint? FindStarterMiningPostLocation(Cave cave, Building building, GridPoint queenCenter, int minimumWallClearance)
+    {
         GridPoint? bestLocation = null;
         var bestDistance = int.MaxValue;
 
@@ -128,7 +143,7 @@ public sealed class GameSessionBootstrapper
         foreach (var tile in cave.GetTiles())
         {
             var location = GridPoint.Parse(tile.Key);
-            if (!cave.CanBuild(building, location) || !HasWallClearance(cave, building, location, 5))
+            if (!cave.CanBuild(building, location) || !HasWallClearance(cave, building, location, minimumWallClearance))
             {
                 continue;
             }

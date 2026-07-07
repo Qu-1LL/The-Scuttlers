@@ -105,4 +105,11 @@ public sealed class CameraController
     {
         return CameraOrigin + ((screen.ToVector2() - ViewCenter - _shakeOffset) * (1f / CurrentScale));
     }
+
+    // Expose the current world-space view corners so renderers can cull by the actual camera footprint.
+    public void GetVisibleWorldBounds(Point viewportSize, out Vector2 topLeft, out Vector2 bottomRight)
+    {
+        topLeft = ScreenToWorld(Point.Zero);
+        bottomRight = ScreenToWorld(viewportSize);
+    }
 }

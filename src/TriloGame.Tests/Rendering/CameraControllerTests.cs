@@ -45,6 +45,20 @@ public sealed class CameraControllerTests
     }
 
     [Fact]
+    public void GetVisibleWorldBounds_ReturnsTheCurrentCameraFootprint()
+    {
+        var camera = new CameraController();
+        camera.SetViewport(1440, 900);
+        camera.SetOrigin(new Vector2(120f, 75f));
+        camera.CurrentScale = 1.5f;
+
+        camera.GetVisibleWorldBounds(new Point(1440, 900), out var topLeft, out var bottomRight);
+
+        Assert.Equal(new Vector2(-360f, -225f), topLeft);
+        Assert.Equal(new Vector2(600f, 375f), bottomRight);
+    }
+
+    [Fact]
     public void ParallaxScreenOffset_DoesNotChangeWhenOnlyScaleChanges()
     {
         var camera = new CameraController();

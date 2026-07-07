@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Runtime.Bootstrap;
 
 namespace TriloGame.Tests.Runtime;
@@ -33,6 +34,64 @@ public sealed class GameSessionBootstrapperTests
 
         Assert.True(result.Session.Runtime.DisableEnemySpawns);
         Assert.False(result.Session.Runtime.AllowManualMining);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsAnExplicitWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.Version0);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsPerlinNoiseWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.PerlinNoise);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsPerlinRandomWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.PerlinRandom);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsFractalBrownianMotionWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.FractalBrownianMotion);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsPatternlessRandomWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.PatternlessRandom);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
     }
 
     [Fact]

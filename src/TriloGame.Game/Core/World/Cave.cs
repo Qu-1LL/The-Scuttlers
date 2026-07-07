@@ -15,8 +15,6 @@ namespace TriloGame.Game.Core.World;
 public sealed partial class Cave : Graph
 {
     public readonly record struct MineablePathResult(string TileKey, GridPoint NavigationTarget, List<GridPoint> Path);
-
-    private readonly CaveGenerator _generator = new();
     private readonly List<Trilobite> _trilobiteList = [];
     private readonly List<Enemy> _enemyList = [];
     private readonly List<Vehicle> _vehicles = [];
@@ -39,9 +37,27 @@ public sealed partial class Cave : Graph
     private Queen? _queenBuilding;
 
     public Cave(GameSession session)
+        : this(session, WorldGenerationMethod.Version0)
+    {
+    }
+
+    public Cave(GameSession session, WorldGenerationMethod worldGenerationMethod)
+        : this(session, generationMethod: worldGenerationMethod)
+    {
+    }
+
+    internal Cave(GameSession session, bool generateDefaultMap)
+        : this(session, generateDefaultMap ? WorldGenerationMethod.Version0 : null)
+    {
+    }
+
+    private Cave(GameSession session, WorldGenerationMethod? generationMethod)
     {
         Session = session;
-        _generator.Generate(this);
+        if (generationMethod.HasValue)
+        {
+            new MapGenerator().Generate(this, generationMethod.Value);
+        }
         Trilobites = [];
         Enemies = [];
         Buildings = [];
