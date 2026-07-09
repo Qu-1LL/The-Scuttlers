@@ -240,19 +240,19 @@ public sealed class RanchTests
         Assert.IsAssignableFrom<IStorage>(garage);
         Assert.Equal(1000, garage.Capacity);
         Assert.Equal(GrowableResourceType.ALGAE, garage.ChosenResource);
-        Assert.Equal(600, garage.Deposit(OreType.ALGAE.Name, 600));
-        Assert.Equal(300, garage.Deposit(OreType.SANDSTONE.Name, 300));
-        Assert.Equal(100, garage.Deposit(OreType.MALACHITE.Name, 200));
+        Assert.Equal(600, garage.Deposit(ResourceName.Algae, 600));
+        Assert.Equal(300, garage.Deposit(ResourceName.Sandstone, 300));
+        Assert.Equal(100, garage.Deposit(ResourceName.Malachite, 200));
         Assert.Equal(1000, garage.GetInventoryTotal());
-        Assert.Equal(600, session.GetStoredResourceTotal(OreType.ALGAE.Name));
-        Assert.Equal(300, session.GetStoredResourceTotal(OreType.SANDSTONE.Name));
-        Assert.Equal(100, session.GetStoredResourceTotal(OreType.MALACHITE.Name));
+        Assert.Equal(600, session.GetStoredResourceTotal(ResourceName.Algae));
+        Assert.Equal(300, session.GetStoredResourceTotal(ResourceName.Sandstone));
+        Assert.Equal(100, session.GetStoredResourceTotal(ResourceName.Malachite));
 
-        Assert.Equal(80, garage.Withdraw(OreType.SANDSTONE.Name, 80));
+        Assert.Equal(80, garage.Withdraw(ResourceName.Sandstone, 80));
         Assert.Equal(920, garage.GetInventoryTotal());
-        Assert.Equal(600, session.GetStoredResourceTotal(OreType.ALGAE.Name));
-        Assert.Equal(220, session.GetStoredResourceTotal(OreType.SANDSTONE.Name));
-        Assert.Equal(100, session.GetStoredResourceTotal(OreType.MALACHITE.Name));
+        Assert.Equal(600, session.GetStoredResourceTotal(ResourceName.Algae));
+        Assert.Equal(220, session.GetStoredResourceTotal(ResourceName.Sandstone));
+        Assert.Equal(100, session.GetStoredResourceTotal(ResourceName.Malachite));
     }
 
     private static SoilArea BuildSoilArea(

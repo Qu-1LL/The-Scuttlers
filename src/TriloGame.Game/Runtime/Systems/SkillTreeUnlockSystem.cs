@@ -6,7 +6,7 @@ namespace TriloGame.Game.Runtime.Systems;
 
 internal static class SkillTreeUnlockSystem
 {
-    public static string UnlockResourceType => OreType.CHITINSTONE.Name;
+    public static ResourceName UnlockResourceType => ResourceName.Chitinstone;
 
     public static int CalculateUnlockCost(TreeInstanceNode node)
     {
@@ -23,7 +23,7 @@ internal static class SkillTreeUnlockSystem
         var available = ResourceStockpileSystem.GetStoredAmount(session, UnlockResourceType);
         var reason = GetBlockReason(session, node, available, cost);
         return new SkillTreeUnlockQuote(
-            UnlockResourceType,
+            ItemCatalog.GetName(UnlockResourceType),
             available,
             cost,
             reason == SkillTreeUnlockBlockReason.None,

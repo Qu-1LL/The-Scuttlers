@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -25,6 +26,6 @@ public sealed record GameEventPayload(
     string? TileKey,
     GridPoint? Location,
     string? MinedType,
-    string? ResourceType,
+    ResourceName? ResourceType,
     object? Source,
     int ResourceDelta = 0);

@@ -1,19 +1,19 @@
 namespace TriloGame.Game.Core.Economy;
 
-public readonly record struct ResourceShortfall(string ResourceType, int MissingAmount);
+public readonly record struct ResourceShortfall(ResourceName ResourceType, int MissingAmount);
 
 public static class ResourceCostComparer
 {
     public static bool HasRequiredResources(
-        IReadOnlyDictionary<string, int> availableResources,
-        IReadOnlyDictionary<string, int> requiredCosts)
+        IReadOnlyDictionary<ResourceName, int> availableResources,
+        IReadOnlyDictionary<ResourceName, int> requiredCosts)
     {
         return !TryFindFirstShortfall(availableResources, requiredCosts, out _);
     }
 
     public static bool TryFindFirstShortfall(
-        IReadOnlyDictionary<string, int> availableResources,
-        IReadOnlyDictionary<string, int> requiredCosts,
+        IReadOnlyDictionary<ResourceName, int> availableResources,
+        IReadOnlyDictionary<ResourceName, int> requiredCosts,
         out ResourceShortfall shortfall)
     {
         ArgumentNullException.ThrowIfNull(availableResources);
@@ -21,7 +21,7 @@ public static class ResourceCostComparer
 
         foreach (var pair in requiredCosts)
         {
-            if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value <= 0)
+            if (pair.Value <= 0)
             {
                 continue;
             }

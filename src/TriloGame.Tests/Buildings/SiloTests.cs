@@ -14,11 +14,11 @@ public sealed class SiloTests
         var silo = new Silo(session);
 
         Assert.Equal(5000, silo.Capacity);
-        Assert.Equal(2500, silo.Deposit(OreType.ALGAE.Name, 2500));
-        Assert.Equal(0, silo.Deposit(OreType.SANDSTONE.Name, 25));
+        Assert.Equal(2500, silo.Deposit(ResourceName.Algae, 2500));
+        Assert.Equal(0, silo.Deposit(ResourceName.Sandstone, 25));
         Assert.Equal(2500, silo.GetInventoryTotal());
 
-        Assert.Equal(400, silo.Withdraw(OreType.ALGAE.Name, 400));
+        Assert.Equal(400, silo.Withdraw(ResourceName.Algae, 400));
         Assert.Equal(2100, silo.GetInventoryTotal());
     }
 
@@ -28,7 +28,7 @@ public sealed class SiloTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(0, 0));
         var leftSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(4, 6));
 
-        Assert.Equal(60, leftSilo.Deposit(OreType.ALGAE.Name, 60));
+        Assert.Equal(60, leftSilo.Deposit(ResourceName.Algae, 60));
 
         var rightSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(6, 6));
 
@@ -44,11 +44,11 @@ public sealed class SiloTests
         var garage = TestWorldFactory.BuildGarage(cave, session, new GridPoint(6, 6));
         var rightSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(8, 6));
 
-        Assert.Equal(40, garage.Deposit(OreType.ALGAE.Name, 40));
-        Assert.Equal(5, garage.Deposit(OreType.SANDSTONE.Name, 5));
+        Assert.Equal(40, garage.Deposit(ResourceName.Algae, 40));
+        Assert.Equal(5, garage.Deposit(ResourceName.Sandstone, 5));
 
-        Assert.Equal(0, garage.GetInventory().GetValueOrDefault(OreType.ALGAE.Name, 0));
-        Assert.Equal(5, garage.GetInventory().GetValueOrDefault(OreType.SANDSTONE.Name, 0));
+        Assert.Equal(0, garage.GetInventory().GetValueOrDefault(ResourceName.Algae, 0));
+        Assert.Equal(5, garage.GetInventory().GetValueOrDefault(ResourceName.Sandstone, 0));
         Assert.Equal(20, leftSilo.GetInventoryTotal());
         Assert.Equal(20, rightSilo.GetInventoryTotal());
     }

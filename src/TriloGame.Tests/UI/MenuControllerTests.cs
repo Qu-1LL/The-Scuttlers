@@ -131,9 +131,10 @@ public sealed class MenuControllerTests
     {
         var session = new GameSession();
         var miningPost = new MiningPost(session);
-        for (var index = 0; index < 18; index++)
+        var resources = ItemCatalog.GetStockpileOrder().Select(item => item.Resource).ToArray();
+        for (var index = 0; index < resources.Length; index++)
         {
-            miningPost.Deposit($"Resource {index}", index + 1);
+            miningPost.Deposit(resources[index], index + 1);
         }
 
         var menu = new MenuController();
@@ -158,7 +159,7 @@ public sealed class MenuControllerTests
     {
         var session = new GameSession();
         var trilobite = new Trilobite("Jeffery", GridPoint.Zero, session);
-        Assert.Equal(3, trilobite.AddToInventory(OreType.LUMENITE.Name, 3));
+        Assert.Equal(3, trilobite.AddToInventory(ResourceName.Lumenite, 3));
         var menu = new MenuController();
         menu.SetSelectedObject(trilobite);
         menu.OpenPanel("selected");

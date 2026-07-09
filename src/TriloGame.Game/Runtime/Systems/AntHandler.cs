@@ -13,6 +13,7 @@ public sealed class AntHandler
     private readonly Dictionary<int, int> _remainingKillsByRound = [];
     private readonly HashSet<int> _killTargetsArmedRounds = [];
     private int _activeRoundNumber = -1;
+    private bool _spawnPlanPreparedForActiveRound;
     private double _lastObservedRoundElapsedGameTimeMs;
 
     public AntHandler(IAntHoleSpawner antHoleSpawner)
@@ -27,6 +28,7 @@ public sealed class AntHandler
         _remainingKillsByRound.Clear();
         _killTargetsArmedRounds.Clear();
         _activeRoundNumber = -1;
+        _spawnPlanPreparedForActiveRound = false;
         _lastObservedRoundElapsedGameTimeMs = 0d;
     }
 
@@ -45,24 +47,8 @@ public sealed class AntHandler
         }
 
         _activeRoundNumber = round.RoundNumber;
+        _spawnPlanPreparedForActiveRound = false;
         _lastObservedRoundElapsedGameTimeMs = 0d;
-
-        if (round.AntsToSpawn <= 0)
-        {
-            return;
-        }
-
-        var spawnWindowStartMs = round.SpawnWindowStartMs;
-        var spawnWindowDurationMs = round.SpawnWindowDurationMs;
-        var batchedSpawnCounts = BuildSpawnBatchSizes(round.RoundNumber, round.AntsToSpawn);
-        var firstAntOrdinal = 0;
-        for (var spawnIndex = 0; spawnIndex < batchedSpawnCounts.Count; spawnIndex++)
-        {
-            var spawnOffsetMs = spawnWindowStartMs + GetSpawnOffsetMs(round.RoundNumber, spawnIndex, batchedSpawnCounts.Count, spawnWindowDurationMs);
-            var antHoleCount = batchedSpawnCounts[spawnIndex];
-            _scheduledSpawns.Add(new ScheduledAntSpawn(round.RoundNumber, firstAntOrdinal, antHoleCount, spawnOffsetMs));
-            firstAntOrdinal += antHoleCount;
-        }
     }
 
     public void HandleRoundEnded(RoundInfo round)
@@ -77,6 +63,7 @@ public sealed class AntHandler
         _remainingKillsByRound.Remove(round.RoundNumber);
         _killTargetsArmedRounds.Remove(round.RoundNumber);
         _activeRoundNumber = -1;
+        _spawnPlanPreparedForActiveRound = false;
         _lastObservedRoundElapsedGameTimeMs = 0d;
     }
 
@@ -94,26 +81,27 @@ public sealed class AntHandler
             return false;
         }
 
+        EnsureRoundSpawnPlan(round);
         EnsureRoundKillTargetState(round);
         PruneDefeatedRoundAnts(session, round.RoundNumber);
-        return AllScheduledSpawnsHaveBeenAttempted(round.RoundNumber) &&
-               GetRemainingKills(round.RoundNumber) == 0;
+        return round.ElapsedGameTimeMs >= round.SpawnWindowDurationMs &&
+               AllScheduledSpawnsHaveBeenAttempted(round.RoundNumber);
     }
 
     public void Advance(GameSession session, RoundInfo round)
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        EnsureRoundKillTargetState(round);
-        PruneDefeatedRoundAnts(session, round.RoundNumber);
-
-        if (session.Runtime.DisableEnemySpawns)
+        if (_activeRoundNumber != round.RoundNumber)
         {
             _lastObservedRoundElapsedGameTimeMs = round.ElapsedGameTimeMs;
             return;
         }
 
-        if (_activeRoundNumber != round.RoundNumber || _scheduledSpawns.Count == 0)
+        EnsureRoundSpawnPlan(round);
+        EnsureRoundKillTargetState(round);
+        PruneDefeatedRoundAnts(session, round.RoundNumber);
+        if (_scheduledSpawns.Count == 0)
         {
             _lastObservedRoundElapsedGameTimeMs = round.ElapsedGameTimeMs;
             return;
@@ -126,6 +114,13 @@ public sealed class AntHandler
             fromTimeMs = 0d;
         }
 
+        if (session.Runtime.DisableEnemySpawns)
+        {
+            MarkDueSpawnEventsAttempted(round.RoundNumber, fromTimeMs, toTimeMs);
+            _lastObservedRoundElapsedGameTimeMs = toTimeMs;
+            return;
+        }
+
         var constraints = new AntSpawnConstraints(
             GameConstants.RoundAntHoleMinDistanceFromQueen,
             GameConstants.RoundAntHoleMaxDistanceFromQueen);
@@ -133,10 +128,7 @@ public sealed class AntHandler
         for (var index = 0; index < _scheduledSpawns.Count; index++)
         {
             var scheduledSpawn = _scheduledSpawns[index];
-            if (scheduledSpawn.RoundNumber != round.RoundNumber ||
-                scheduledSpawn.HasBeenAttempted ||
-                scheduledSpawn.SpawnAtRoundElapsedGameTimeMs > toTimeMs ||
-                scheduledSpawn.SpawnAtRoundElapsedGameTimeMs < fromTimeMs)
+            if (!ShouldAttemptScheduledSpawn(scheduledSpawn, round.RoundNumber, fromTimeMs, toTimeMs))
             {
                 continue;
             }
@@ -201,6 +193,57 @@ public sealed class AntHandler
         _killTargetsArmedRounds.Add(round.RoundNumber);
     }
 
+    // Build the defense-phase spawn schedule only after grace has actually ended.
+    private void EnsureRoundSpawnPlan(RoundInfo round)
+    {
+        if (_spawnPlanPreparedForActiveRound ||
+            _activeRoundNumber != round.RoundNumber ||
+            round.GracePeriodActive ||
+            round.AntsToSpawn <= 0)
+        {
+            return;
+        }
+
+        var batchedSpawnCounts = BuildSpawnBatchSizes(round.RoundNumber, round.AntsToSpawn);
+        var firstAntOrdinal = 0;
+        for (var spawnIndex = 0; spawnIndex < batchedSpawnCounts.Count; spawnIndex++)
+        {
+            var spawnOffsetMs = round.SpawnWindowStartMs +
+                GetSpawnOffsetMs(round.RoundNumber, spawnIndex, batchedSpawnCounts.Count, round.SpawnWindowDurationMs);
+            var antHoleCount = batchedSpawnCounts[spawnIndex];
+            _scheduledSpawns.Add(new ScheduledAntSpawn(round.RoundNumber, firstAntOrdinal, antHoleCount, spawnOffsetMs));
+            firstAntOrdinal += antHoleCount;
+        }
+
+        _spawnPlanPreparedForActiveRound = true;
+    }
+
+    private void MarkDueSpawnEventsAttempted(int roundNumber, double fromTimeMs, double toTimeMs)
+    {
+        for (var index = 0; index < _scheduledSpawns.Count; index++)
+        {
+            var scheduledSpawn = _scheduledSpawns[index];
+            if (!ShouldAttemptScheduledSpawn(scheduledSpawn, roundNumber, fromTimeMs, toTimeMs))
+            {
+                continue;
+            }
+
+            _scheduledSpawns[index] = scheduledSpawn with { HasBeenAttempted = true };
+        }
+    }
+
+    private static bool ShouldAttemptScheduledSpawn(
+        ScheduledAntSpawn scheduledSpawn,
+        int roundNumber,
+        double fromTimeMs,
+        double toTimeMs)
+    {
+        return scheduledSpawn.RoundNumber == roundNumber &&
+               !scheduledSpawn.HasBeenAttempted &&
+               scheduledSpawn.SpawnAtRoundElapsedGameTimeMs <= toTimeMs &&
+               scheduledSpawn.SpawnAtRoundElapsedGameTimeMs >= fromTimeMs;
+    }
+
     private void PruneDefeatedRoundAnts(GameSession session, int roundNumber)
     {
         if (!_spawnedAntsByRound.TryGetValue(roundNumber, out var trackedAnts) || trackedAnts.Count == 0)
@@ -262,14 +305,6 @@ public sealed class AntHandler
 
     private static double GetSpawnOffsetMs(int roundNumber, int spawnIndex, int spawnEventCount, double spawnWindowDurationMs)
     {
-        if (roundNumber is >= 1 and <= GameConstants.RoundSingleAntSpawnMaxRound)
-        {
-            const int singleAntCadenceSlots = 8;
-            return spawnIndex < singleAntCadenceSlots
-                ? ((spawnIndex * 2d) + 1d) * spawnWindowDurationMs / (singleAntCadenceSlots * 2d)
-                : spawnWindowDurationMs;
-        }
-
         return ((spawnIndex * 2d) + 1d) * spawnWindowDurationMs / (spawnEventCount * 2d);
     }
 
@@ -284,7 +319,7 @@ public sealed class AntHandler
             }
         }
 
-        return true;
+        return _spawnPlanPreparedForActiveRound || _scheduledSpawns.Count == 0;
     }
 
     private readonly record struct ScheduledAntSpawn(

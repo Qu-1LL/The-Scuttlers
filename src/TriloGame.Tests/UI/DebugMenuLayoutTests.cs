@@ -24,6 +24,7 @@ public sealed class DebugMenuLayoutTests
         Assert.True(layout.ActionsLabelBounds.Bottom <= layout.ActionsRowBounds.Top);
         Assert.True(layout.ActionsRowBounds.Bottom <= layout.SpawnActionsRowBounds.Top);
         Assert.True(layout.SpawnActionsRowBounds.Bottom <= layout.FooterBounds.Top);
+        Assert.True(layout.VisualBottomRowBounds.Height > 0);
     }
 
     [Fact]

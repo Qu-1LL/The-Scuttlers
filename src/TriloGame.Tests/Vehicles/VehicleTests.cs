@@ -110,7 +110,7 @@ public sealed class VehicleTests
         Assert.True((bool)plow.Move()!);
 
         Assert.Equal(10, plow.GetInventoryTotal());
-        Assert.Equal(10, plow.GetInventory()[OreType.ALGAE.Name]);
+        Assert.Equal(10, plow.GetInventory()[ResourceName.Algae]);
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(0, 0))!.GrowthLevel);
         Assert.Equal(GrowableResourceType.ALGAE, soilPatch.GetSoilTile(new GridPoint(0, 0))!.PlantedResource);
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(0, 1))!.GrowthLevel);
@@ -134,7 +134,7 @@ public sealed class VehicleTests
         Assert.True((bool)plow.Move()!);
 
         Assert.Equal(10, plow.GetInventoryTotal());
-        Assert.Equal(10, plow.GetInventory()[OreType.ALGAE.Name]);
+        Assert.Equal(10, plow.GetInventory()[ResourceName.Algae]);
         Assert.Equal(new GridPoint(5, 6), plow.Location);
         Assert.Equal(2, plow.GetDisplayRotationTurns());
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(0, 0))!.GrowthLevel);
@@ -186,7 +186,7 @@ public sealed class VehicleTests
 
         Assert.Equal(250, plow.GetInventoryTotal());
         Assert.Equal(150, plow.GetInventorySpace());
-        Assert.Equal(250, plow.GetInventory()[OreType.ALGAE.Name]);
+        Assert.Equal(250, plow.GetInventory()[ResourceName.Algae]);
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(0, 0))!.GrowthLevel);
         Assert.Equal(3, soilPatch.GetSoilTile(new GridPoint(0, 1))!.GrowthLevel);
     }

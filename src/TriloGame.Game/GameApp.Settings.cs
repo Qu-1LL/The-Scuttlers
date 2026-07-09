@@ -1,5 +1,4 @@
 using Microsoft.Xna.Framework;
-using TriloGame.Game.Audio;
 using TriloGame.Game.UI.Settings;
 
 namespace TriloGame.Game;
@@ -74,11 +73,7 @@ public sealed partial class GameApp
 
     private void SetVolumeSetting(int volumePercent)
     {
-        PlayUiSelectSound();
-        if (_audio.SetVolumePercent(volumePercent))
-        {
-            _audio.Play(GameAudioCue.VolumeSound);
-        }
+        SetMasterVolume(volumePercent);
     }
 
     private void OpenSettingsMenu(bool pauseSimulationIfNeeded = true)
@@ -88,6 +83,7 @@ public sealed partial class GameApp
             return;
         }
 
+        TransitionAudioForSettingsOpen();
         _settingsMenu.Open(pauseSimulationIfNeeded, _mainMenuOpen, _gamePaused);
         _roleRadialMenu = null;
         ResetPointerInteractionState();
@@ -105,6 +101,7 @@ public sealed partial class GameApp
             return;
         }
 
+        TransitionAudioForSettingsClose();
         var shouldResumeSimulation = _settingsMenu.Close();
         if (shouldResumeSimulation)
         {

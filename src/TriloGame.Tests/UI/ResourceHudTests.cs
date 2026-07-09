@@ -13,15 +13,15 @@ public sealed class ResourceHudTests
     {
         var stockpile = new ResourceStockpileSnapshot(
         [
-            new ResourceStockpileEntry(OreType.ALGAE.Name, 5),
-            new ResourceStockpileEntry(OreType.SANDSTONE.Name, 8),
-            new ResourceStockpileEntry(OreType.LUMENITE.Name, 3)
+            new ResourceStockpileEntry(ResourceName.Algae, 5),
+            new ResourceStockpileEntry(ResourceName.Sandstone, 8),
+            new ResourceStockpileEntry(ResourceName.Lumenite, 3)
         ]);
 
         var entries = ResourceHudModelBuilder.BuildEntries(stockpile);
 
         Assert.Equal("SoilTile_Algae_3", entries[0].TextureKey);
-        Assert.Equal("wall", entries[1].TextureKey);
+        Assert.Equal(OreType.SANDSTONE.Name, entries[1].TextureKey);
         Assert.Equal(OreType.LUMENITE.Name, entries[2].TextureKey);
     }
 
@@ -30,7 +30,7 @@ public sealed class ResourceHudTests
     {
         ResourceHudEntryModel[] entries =
         [
-            new(OreType.SANDSTONE.Name, 8, "wall"),
+            new(OreType.SANDSTONE.Name, 8, OreType.SANDSTONE.Name),
             new(OreType.LUMENITE.Name, 3, OreType.LUMENITE.Name)
         ];
         var viewport = new Point(1280, 800);

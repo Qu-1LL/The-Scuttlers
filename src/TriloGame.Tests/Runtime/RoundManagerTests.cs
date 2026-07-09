@@ -30,7 +30,7 @@ public sealed class RoundManagerTests
     }
 
     [Fact]
-    public void Advance_EndsGracePeriodAfterFiveMinutesOfGameTime()
+    public void Advance_EndsGracePeriodAfterConfiguredWaitDuration()
     {
         var session = new GameSession();
         var manager = new RoundManager();
@@ -47,7 +47,7 @@ public sealed class RoundManagerTests
     }
 
     [Fact]
-    public void TrySkipCurrentGracePeriod_EndsGraceImmediately_AndStartsDefensePhase()
+    public void TrySkipCurrentGracePeriod_EndsGraceImmediately_AndStartsSpawnPhase()
     {
         var session = new GameSession();
         var manager = new RoundManager();
@@ -99,7 +99,7 @@ public sealed class RoundManagerTests
     }
 
     [Fact]
-    public void Advance_AfterGraceDuration_TransitionsIntoTheDefensePhaseWithoutEndingTheRound()
+    public void Advance_AfterGraceDuration_TransitionsIntoTheSpawnPhaseWithoutEndingTheRound()
     {
         var session = new GameSession();
         var manager = new RoundManager();
@@ -116,6 +116,38 @@ public sealed class RoundManagerTests
         Assert.Equal(0, manager.CurrentRoundNumber);
         Assert.Equal(0d, manager.CurrentRoundElapsedGameTimeMs);
         Assert.False(manager.CurrentRound.GracePeriodActive);
+        Assert.Equal(GameConstants.RoundSpawnWindowDurationMs, manager.CurrentRound.DurationMs);
+        Assert.Equal(GameConstants.RoundSpawnWindowDurationMs, manager.CurrentRound.RemainingDurationMs);
+    }
+
+    [Fact]
+    public void Advance_DuringSpawnPhase_CountsDownTheSpawnWindow()
+    {
+        var session = new GameSession();
+        var manager = new RoundManager();
+        manager.Reset(session);
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
+
+        manager.Advance(session, 12000d);
+
+        Assert.False(manager.CurrentRound.GracePeriodActive);
+        Assert.Equal(12000d, manager.CurrentRoundElapsedGameTimeMs);
+        Assert.Equal(GameConstants.RoundSpawnWindowDurationMs - 12000d, manager.CurrentRound.RemainingDurationMs);
+    }
+
+    [Fact]
+    public void CurrentRound_UsesEditableSpawnWindowDurationDuringSpawnPhase()
+    {
+        var session = new GameSession();
+        session.Runtime.RoundSpawnWindowDurationMs = 12000d;
+        var manager = new RoundManager();
+        manager.Reset(session);
+
+        manager.Advance(session, GameConstants.RoundGraceDurationMs);
+
+        Assert.Equal(12000d, manager.CurrentRound.DurationMs);
+        Assert.Equal(12000d, manager.CurrentRound.SpawnWindowDurationMs);
+        Assert.Equal(12000d, manager.CurrentRound.RemainingDurationMs);
     }
 
     [Fact]

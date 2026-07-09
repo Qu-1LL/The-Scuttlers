@@ -35,7 +35,7 @@ public sealed partial class GameApp
         var fontSize = GumTextLayout.GetMetrics(fontStyle).FontSize;
         foreach (var row in layout.Rows)
         {
-            if (_rendering.Sprites.TryGet(row.ResourceType, out var texture))
+            if (_rendering.Sprites.TryGet(row.TextureKey, out var texture))
             {
                 _gumUiRenderer.AddSprite(row.IconBounds, texture);
             }

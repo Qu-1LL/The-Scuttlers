@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -56,9 +57,9 @@ public class Building
 
     public BfsField BfsField { get; set; }
 
-    public Dictionary<string, int>? Recipe { get; protected set; }
+    public Dictionary<ResourceName, int>? Recipe { get; protected set; }
 
-    public Dictionary<string, int>? ConstructionCost { get; protected set; }
+    public Dictionary<ResourceName, int>? ConstructionCost { get; protected set; }
 
     public bool Selectable { get; protected set; }
 
@@ -102,14 +103,14 @@ public class Building
         DisplayRotationTurns = ((turns % 4) + 4) % 4;
     }
 
-    public virtual Dictionary<string, int>? GetRecipe()
+    public virtual Dictionary<ResourceName, int>? GetRecipe()
     {
-        return Recipe is null ? null : new Dictionary<string, int>(Recipe, StringComparer.Ordinal);
+        return Recipe is null ? null : new Dictionary<ResourceName, int>(Recipe);
     }
 
-    public virtual Dictionary<string, int>? GetConstructionCost()
+    public virtual Dictionary<ResourceName, int>? GetConstructionCost()
     {
-        return ConstructionCost is null ? null : new Dictionary<string, int>(ConstructionCost, StringComparer.Ordinal);
+        return ConstructionCost is null ? null : new Dictionary<ResourceName, int>(ConstructionCost);
     }
 
     public virtual bool CanBeSelected() => Selectable;

@@ -1,3 +1,5 @@
+using TriloGame.Game.Core.Economy;
+
 namespace TriloGame.Game.Core.Constants;
 
 public static class GameConstants
@@ -7,7 +9,7 @@ public static class GameConstants
     public const double TickSpeedFast = 100d;
     public const double TickSpeedFastest = 50d;
     public const double GameTimePerSimulationTickMs = TickSpeedFast;
-    public const double RoundGraceDurationMs = 5d * 60d * 1000d;
+    public const double RoundGraceDurationMs = 3d * 60d * 1000d;
     public const double RoundSpawnWindowDurationMs = 30d * 1000d;
     public const int RoundBaseAntCount = 5;
     public const int RoundAntGrowthPerRound = 3;
@@ -53,9 +55,11 @@ public static class GameConstants
     public const int ExplosiveTraitBlastRadius = 3;
     public const float ExplosiveTraitScreenShakeIntensity = 1f;
     public const int AlgaeHarvestYield = 5;
-    public const int WallHitsRequired = 3;
+    public const int WallHitsRequired = 10;
     public const int WallDropAmount = 5;
     public const int WallDropCarryAmount = 1;
+    public static readonly ResourceName WallMineResourceType = ResourceName.Sandstone;
+    public const int WallMineResourceAmount = 1;
     public const float WallDropSpriteScale = 0.125f;
     public const int WorkerEnemyFleeRadius = 3;
     public const int AntHoleBaseSpawnChanceDenominator = 500;

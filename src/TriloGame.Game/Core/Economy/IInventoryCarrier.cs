@@ -10,7 +10,7 @@ public interface IInventoryCarrier
 
     int GetInventorySpace();
 
-    int AddToInventory(string resourceType, int amount);
+    int AddToInventory(ResourceName resourceType, int amount);
 
     int RemoveFromInventory(int amount);
 

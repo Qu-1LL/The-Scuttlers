@@ -1,4 +1,6 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -16,8 +18,8 @@ public sealed class ScaffoldingTests
 
         Assert.True(cave.Build(scaffolding, buildLocation));
 
-        var requiredSandstone = scaffolding.GetRemainingRequirement("Sandstone");
-        Assert.Equal(requiredSandstone, scaffolding.Deposit("Sandstone", requiredSandstone));
+        var requiredSandstone = scaffolding.GetRemainingRequirement(ResourceName.Sandstone);
+        Assert.Equal(requiredSandstone, scaffolding.Deposit(ResourceName.Sandstone, requiredSandstone));
         Assert.Equal(scaffolding.ConstructionRequired, scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
 
         Assert.DoesNotContain(scaffolding, cave.Buildings);
@@ -35,26 +37,61 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
-    public void CompletedPassableScaffolding_ReplacesItselfWhenTrilobiteOccupiesFootprint()
+    public void Scaffolding_OpenMap_PreservesExcludedCellsAndMakesOtherTilesTraversable()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var scaffolding = new Scaffolding(session, new Turret(session));
+
+        Assert.Equal(2, scaffolding.OpenMap[0][2]);
+        Assert.Equal(2, scaffolding.OpenMap[2][0]);
+        Assert.Equal(1, scaffolding.OpenMap[0][0]);
+        Assert.Equal(1, scaffolding.OpenMap[1][1]);
+    }
+
+    [Fact]
+    public void ScaffoldingPlacement_AllowsTrilobiteAlreadyOnFootprint()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
-        var targetBuilding = new AlgaeFarm(session);
-        var scaffolding = new Scaffolding(session, targetBuilding);
-        var buildLocation = new GridPoint(8, 5);
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        var buildLocation = new GridPoint(6, 4);
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, buildLocation);
 
         Assert.True(cave.Build(scaffolding, buildLocation));
-        var occupantLocation = buildLocation;
-        var occupant = TestWorldFactory.SpawnTrilobite(cave, session, occupantLocation, "Builder", "builder");
+        Assert.Equal(buildLocation, trilobite.Location);
+        Assert.Same(scaffolding, cave.GetTile(buildLocation)!.Built);
+        Assert.Contains(trilobite, cave.GetTile(buildLocation)!.Trilobites);
+    }
 
-        var requiredSandstone = scaffolding.GetRemainingRequirement("Sandstone");
-        Assert.Equal(requiredSandstone, scaffolding.Deposit("Sandstone", requiredSandstone, occupant));
-        Assert.Equal(scaffolding.ConstructionRequired, scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired, occupant));
+    [Fact]
+    public void CompletedScaffolding_WaitsForTrilobitesToLeaveBeforeReplacingItself()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var targetBuilding = new Storage(session);
+        var scaffolding = new Scaffolding(session, targetBuilding);
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, buildLocation);
+
+        CompleteScaffolding(scaffolding);
+
+        Assert.True(scaffolding.ResourceComplete);
+        Assert.True(scaffolding.CompletionPending);
+        Assert.Contains(scaffolding, cave.Buildings);
+        Assert.DoesNotContain(targetBuilding, cave.Buildings);
+
+        TickRunner.RunTick(session);
+
+        Assert.Contains(scaffolding, cave.Buildings);
+        Assert.DoesNotContain(targetBuilding, cave.Buildings);
+
+        Assert.True(cave.MoveCreature(trilobite, new GridPoint(5, 4)));
+
+        TickRunner.RunTick(session);
 
         Assert.DoesNotContain(scaffolding, cave.Buildings);
         Assert.Contains(targetBuilding, cave.Buildings);
         Assert.Equal(buildLocation, targetBuilding.Location);
-        Assert.Equal(occupantLocation, occupant.Location);
-        Assert.Contains(occupant, cave.GetTile(occupantLocation)!.Trilobites);
     }
 
     [Fact]
@@ -96,5 +133,18 @@ public sealed class ScaffoldingTests
         tile.SetBase("wall");
         tile.CreatureCanFit = false;
         tile.ConfigureWall(1);
+    }
+
+    private static void CompleteScaffolding(Scaffolding scaffolding)
+    {
+        foreach (var pair in scaffolding.RecipeRequired.ToArray())
+        {
+            var required = scaffolding.GetRemainingRequirement(pair.Key);
+            Assert.Equal(required, scaffolding.Deposit(pair.Key, required));
+        }
+
+        Assert.Equal(
+            scaffolding.ConstructionRequired,
+            scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
     }
 }

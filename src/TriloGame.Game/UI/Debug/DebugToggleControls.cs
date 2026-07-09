@@ -10,6 +10,7 @@ public sealed class DebugToggleControls
     private readonly Action<bool> _setDisableEnemySpawns;
     private readonly Action<bool> _setNoCostBuildPlacement;
     private readonly Action<bool> _setInfiniteDraft;
+    private readonly Action<bool> _setRevealMap;
     private readonly Action _playUiSelectSound;
 
     public DebugToggleControls(
@@ -17,12 +18,14 @@ public sealed class DebugToggleControls
         Action<bool> setDisableEnemySpawns,
         Action<bool> setNoCostBuildPlacement,
         Action<bool> setInfiniteDraft,
+        Action<bool> setRevealMap,
         Action playUiSelectSound)
     {
         _setRoleLabels = setRoleLabels;
         _setDisableEnemySpawns = setDisableEnemySpawns;
         _setNoCostBuildPlacement = setNoCostBuildPlacement;
         _setInfiniteDraft = setInfiniteDraft;
+        _setRevealMap = setRevealMap;
         _playUiSelectSound = playUiSelectSound;
     }
 
@@ -33,38 +36,46 @@ public sealed class DebugToggleControls
         bool showRoleLabels,
         bool disableEnemySpawns,
         bool noCostBuildPlacement,
-        bool infiniteDraft)
+        bool infiniteDraft,
+        bool revealMap)
     {
         if (!debugMenuOpen)
         {
             return false;
         }
 
-        var rows = GetToggleRows(viewport);
-        if (rows[0].Contains(point))
+        var bounds = BuildToggleBounds(viewport);
+        if (bounds.ShowRoleLabels.Contains(point))
         {
             _setRoleLabels(!showRoleLabels);
             _playUiSelectSound();
             return true;
         }
 
-        if (rows[1].Contains(point))
+        if (bounds.NoCostBuild.Contains(point))
         {
             _setNoCostBuildPlacement(!noCostBuildPlacement);
             _playUiSelectSound();
             return true;
         }
 
-        if (rows[2].Contains(point))
+        if (bounds.DisableEnemySpawns.Contains(point))
         {
             _setDisableEnemySpawns(!disableEnemySpawns);
             _playUiSelectSound();
             return true;
         }
 
-        if (rows[3].Contains(point))
+        if (bounds.InfiniteDraft.Contains(point))
         {
             _setInfiniteDraft(!infiniteDraft);
+            _playUiSelectSound();
+            return true;
+        }
+
+        if (bounds.RevealMap.Contains(point))
+        {
+            _setRevealMap(!revealMap);
             _playUiSelectSound();
             return true;
         }
@@ -80,6 +91,7 @@ public sealed class DebugToggleControls
         bool disableEnemySpawns,
         bool noCostBuildPlacement,
         bool infiniteDraft,
+        bool revealMap,
         Point pointer)
     {
         if (!debugMenuOpen)
@@ -87,17 +99,25 @@ public sealed class DebugToggleControls
             return;
         }
 
-        var rows = GetToggleRows(viewport);
-        DrawToggle(gumUi, rows[0], "Show Role Labels", showRoleLabels, rows[0].Contains(pointer));
-        DrawToggle(gumUi, rows[1], "No Cost Build", noCostBuildPlacement, rows[1].Contains(pointer));
-        DrawToggle(gumUi, rows[2], "Disable Enemy Spawns", disableEnemySpawns, rows[2].Contains(pointer));
-        DrawToggle(gumUi, rows[3], "Infinite Draft", infiniteDraft, rows[3].Contains(pointer));
+        var bounds = BuildToggleBounds(viewport);
+        DrawToggle(gumUi, bounds.ShowRoleLabels, "Show Role Labels", showRoleLabels, bounds.ShowRoleLabels.Contains(pointer));
+        DrawToggle(gumUi, bounds.NoCostBuild, "No Cost Build", noCostBuildPlacement, bounds.NoCostBuild.Contains(pointer));
+        DrawToggle(gumUi, bounds.DisableEnemySpawns, "Disable Enemy Spawns", disableEnemySpawns, bounds.DisableEnemySpawns.Contains(pointer));
+        DrawToggle(gumUi, bounds.InfiniteDraft, "Infinite Draft", infiniteDraft, bounds.InfiniteDraft.Contains(pointer));
+        DrawToggle(gumUi, bounds.RevealMap, "Reveal Map", revealMap, bounds.RevealMap.Contains(pointer));
     }
 
-    private static IReadOnlyList<Rectangle> GetToggleRows(Point viewport)
+    private static DebugToggleBounds BuildToggleBounds(Point viewport)
     {
         var layout = DebugMenuLayout.Build(viewport);
-        return DebugMenuLayout.SplitRow(layout.VisualRowBounds, 4, layout.ButtonGap);
+        var topRow = DebugMenuLayout.SplitRow(layout.VisualTopRowBounds, 4, layout.ButtonGap);
+        var bottomRow = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 1, layout.ButtonGap);
+        return new DebugToggleBounds(
+            ShowRoleLabels: topRow[0],
+            NoCostBuild: topRow[1],
+            DisableEnemySpawns: topRow[2],
+            InfiniteDraft: topRow[3],
+            RevealMap: bottomRow[0]);
     }
 
     private static void DrawToggle(GumUiRenderer gumUi, Rectangle bounds, string text, bool isChecked, bool hovered)
@@ -130,4 +150,11 @@ public sealed class DebugToggleControls
             metrics.FontSize,
             maxLines: wrappedText.Count);
     }
+
+    private readonly record struct DebugToggleBounds(
+        Rectangle ShowRoleLabels,
+        Rectangle NoCostBuild,
+        Rectangle DisableEnemySpawns,
+        Rectangle InfiniteDraft,
+        Rectangle RevealMap);
 }

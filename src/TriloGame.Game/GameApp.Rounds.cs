@@ -99,10 +99,32 @@ public sealed partial class GameApp
         }
 
         var currentRound = _roundManager.CurrentRound;
-        if (!_antHandler.CanCompleteCurrentRound(_session, currentRound))
+        var canSkipRound = _antHandler.CanSkipCurrentRound(_session, currentRound);
+        var roundButtonAction = RoundDebugWidgetPresenter.GetRoundButtonAction(
+            currentRound.GracePeriodActive,
+            _roundManager.HasDeferredNextRoundStart,
+            canSkipRound);
+        if (roundButtonAction == RoundDebugWidgetAction.SkipWait)
         {
-            var remainingKills = _antHandler.GetRemainingKillsForRound(_session, currentRound);
-            Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skip ignored for round {currentRound.RoundNumber}; remaining ants to defeat this round: {remainingKills}.");
+            if (!_roundManager.TrySkipCurrentGracePeriod(_session))
+            {
+                return false;
+            }
+
+            PlayUiSelectSound();
+            return true;
+        }
+
+        if (roundButtonAction != RoundDebugWidgetAction.SkipRound)
+        {
+            if (currentRound.GracePeriodActive)
+            {
+                Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skip wait ignored for round {currentRound.RoundNumber}; next round start is currently deferred.");
+                return false;
+            }
+
+            var remainingSpawnTimeMs = Math.Max(0d, currentRound.SpawnWindowDurationMs - currentRound.ElapsedGameTimeMs);
+            Trace.WriteLine($"[RoundManager][Tick {_session.TickCount}] Skip ignored for round {currentRound.RoundNumber}; spawn timer still has {remainingSpawnTimeMs / 1000d:0.#}s remaining.");
             return false;
         }
 
@@ -126,6 +148,10 @@ public sealed partial class GameApp
 
         var currentRound = _roundManager.CurrentRound;
         var canSkipRound = _antHandler.CanSkipCurrentRound(_session, currentRound);
-        _roundDebugWidgetRenderer.Draw(_gumUiRenderer, layout, _input.MousePoint, currentRound, canSkipRound);
+        var roundButtonAction = RoundDebugWidgetPresenter.GetRoundButtonAction(
+            currentRound.GracePeriodActive,
+            _roundManager.HasDeferredNextRoundStart,
+            canSkipRound);
+        _roundDebugWidgetRenderer.Draw(_gumUiRenderer, layout, _input.MousePoint, currentRound, roundButtonAction);
     }
 }

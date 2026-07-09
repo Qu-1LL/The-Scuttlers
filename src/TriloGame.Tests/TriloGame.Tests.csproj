@@ -23,6 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="tmp\**\*.cs" />
+    <EmbeddedResource Remove="tmp\**\*" />
+    <None Remove="tmp\**\*" />
+    <Content Remove="tmp\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\TriloGame.Game\Content\Fonts\Display\TrebuchetDisplay48.fnt" Link="Content\Fonts\Display\TrebuchetDisplay48.fnt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

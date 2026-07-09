@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -6,9 +7,9 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Silo : Building, IResourceStorage
 {
-    private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal)
+    private readonly Dictionary<ResourceName, int> _inventory = new()
     {
-        [OreType.ALGAE.Name] = 0
+        [ResourceName.Algae] = 0
     };
     private readonly HashSet<Silo> _adjacentSilos = [];
     private int _rebalanceScopeDepth;
@@ -17,9 +18,9 @@ public sealed class Silo : Building, IResourceStorage
         : base("Silo", new GridPoint(2, 2), [[0, 0], [0, 0]], session, false)
     {
         TextureKey = "Silo";
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
+        Recipe = new Dictionary<ResourceName, int>
         {
-            [OreType.SANDSTONE.Name] = 20
+            [ResourceName.Sandstone] = 20
         };
         Capacity = 5000;
         Description = $"A high-capacity algae silo that stores up to {Capacity} algae and balances with adjacent silos.";
@@ -29,15 +30,15 @@ public sealed class Silo : Building, IResourceStorage
 
     public IReadOnlyCollection<Silo> AdjacentSilos => _adjacentSilos;
 
-    public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
 
-    public IReadOnlyDictionary<string, int> GetStoredResources() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
 
-    public int GetInventoryTotal() => _inventory[OreType.ALGAE.Name];
+    public int GetInventoryTotal() => _inventory[ResourceName.Algae];
 
     public int GetInventorySpace() => Math.Max(0, Capacity - GetInventoryTotal());
 
-    public int Deposit(string resourceType, int amount)
+    public int Deposit(ResourceName resourceType, int amount)
     {
         if (!IsAcceptedResource(resourceType) || amount <= 0)
         {
@@ -53,7 +54,7 @@ public sealed class Silo : Building, IResourceStorage
         return accepted;
     }
 
-    public int Withdraw(string resourceType, int amount)
+    public int Withdraw(ResourceName resourceType, int amount)
     {
         if (!IsAcceptedResource(resourceType) || amount <= 0)
         {
@@ -72,7 +73,13 @@ public sealed class Silo : Building, IResourceStorage
     public override void CleanupBeforeRemoval(object? source = null)
     {
         _adjacentSilos.Clear();
-        _inventory[OreType.ALGAE.Name] = 0;
+        var storedAlgae = _inventory[ResourceName.Algae];
+        if (storedAlgae > 0)
+        {
+            EmitStorageInventoryChanged(ResourceName.Algae, -storedAlgae);
+        }
+
+        _inventory[ResourceName.Algae] = 0;
         base.CleanupBeforeRemoval(source);
     }
 
@@ -109,9 +116,9 @@ public sealed class Silo : Building, IResourceStorage
 
     private bool IsRebalanceSuppressed => _rebalanceScopeDepth > 0;
 
-    private static bool IsAcceptedResource(string resourceType)
+    private static bool IsAcceptedResource(ResourceName resourceType)
     {
-        return string.Equals(resourceType, OreType.ALGAE.Name, StringComparison.OrdinalIgnoreCase);
+        return resourceType == ResourceName.Algae;
     }
 
     private void BeginRebalanceScope()
@@ -132,7 +139,8 @@ public sealed class Silo : Building, IResourceStorage
         var accepted = Math.Min(GetInventorySpace(), amount);
         if (accepted > 0)
         {
-            _inventory[OreType.ALGAE.Name] += accepted;
+            _inventory[ResourceName.Algae] += accepted;
+            EmitStorageInventoryChanged(ResourceName.Algae, accepted);
         }
 
         return accepted;
@@ -143,7 +151,8 @@ public sealed class Silo : Building, IResourceStorage
         var taken = Math.Min(GetInventoryTotal(), amount);
         if (taken > 0)
         {
-            _inventory[OreType.ALGAE.Name] -= taken;
+            _inventory[ResourceName.Algae] -= taken;
+            EmitStorageInventoryChanged(ResourceName.Algae, -taken);
         }
 
         return taken;
@@ -351,5 +360,24 @@ public sealed class Silo : Building, IResourceStorage
             recipient.EndRebalanceScope();
             EndRebalanceScope();
         }
+    }
+
+    private void EmitStorageInventoryChanged(ResourceName resourceType, int resourceDelta)
+    {
+        if (resourceDelta == 0)
+        {
+            return;
+        }
+
+        Session.Emit(
+            GameEvents.StorageInventoryChanged,
+            new GameEventPayload(
+                Cave,
+                null,
+                Location,
+                null,
+                resourceType,
+                this,
+                resourceDelta));
     }
 }

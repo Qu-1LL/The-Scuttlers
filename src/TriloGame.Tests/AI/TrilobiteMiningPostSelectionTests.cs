@@ -13,8 +13,8 @@ public sealed class TrilobiteMiningPostSelectionTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(25, 12, new GridPoint(11, 0));
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
         var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
-        leftPost.Deposit("Sandstone", 25);
-        rightPost.Deposit("Sandstone", 25);
+        leftPost.Deposit(ResourceName.Sandstone, 25);
+        rightPost.Deposit(ResourceName.Sandstone, 25);
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Builder", "builder");
         var scaffold = new Scaffolding(session, new Barracks(session));
@@ -23,7 +23,7 @@ public sealed class TrilobiteMiningPostSelectionTests
 
         Assert.NotNull(supplyOption);
         Assert.Same(leftPost, supplyOption.Value.SourceBuilding);
-        Assert.Equal("Sandstone", supplyOption.Value.ResourceType);
+        Assert.Equal(ResourceName.Sandstone, supplyOption.Value.ResourceType);
         Assert.Equal(builder.InventoryCapacity, supplyOption.Value.Amount);
 
         var metrics = builder.LastMiningPostSelectionMetrics;
@@ -40,7 +40,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(27, 12, new GridPoint(12, 0));
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
         var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(20, 6));
-        leftPost.Deposit("Sandstone", leftPost.Capacity);
+        leftPost.Deposit(ResourceName.Sandstone, leftPost.Capacity);
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Builder", "builder");
 
@@ -130,7 +130,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(11, 6));
         var validPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(21, 6));
         TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(31, 6));
-        validPost.Deposit("Sandstone", 25);
+        validPost.Deposit(ResourceName.Sandstone, 25);
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 9), "Builder", "builder");
         var scaffold = new Scaffolding(session, new Barracks(session));
@@ -174,7 +174,7 @@ public sealed class TrilobiteMiningPostSelectionTests
 
         Assert.True(post.AssignmentsAvailable);
         Assert.True(cave.HasAvailableMiningPostAssignments);
-        Assert.Equal(post.Capacity, post.Deposit("Sandstone", post.Capacity));
+        Assert.Equal(post.Capacity, post.Deposit(ResourceName.Sandstone, post.Capacity));
         Assert.True(post.AssignmentsAvailable);
         Assert.False(cave.HasAvailableMiningPostAssignments);
 

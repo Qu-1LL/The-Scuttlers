@@ -4,13 +4,13 @@ public interface IResourceStorage
 {
     int Capacity { get; }
 
-    IReadOnlyDictionary<string, int> GetStoredResources();
+    IReadOnlyDictionary<ResourceName, int> GetStoredResources();
 
     int GetInventoryTotal();
 
     int GetInventorySpace();
 
-    int Deposit(string resourceType, int amount);
+    int Deposit(ResourceName resourceType, int amount);
 
-    int Withdraw(string resourceType, int amount);
+    int Withdraw(ResourceName resourceType, int amount);
 }

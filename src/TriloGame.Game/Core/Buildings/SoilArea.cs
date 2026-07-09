@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
@@ -288,7 +289,7 @@ public sealed class SoilArea : Building
 
     private void RefreshRecipe()
     {
-        var recipe = new Dictionary<string, int>(StringComparer.Ordinal);
+        var recipe = new Dictionary<ResourceName, int>();
         foreach (var soilPatch in _soilPatches)
         {
             var patchRecipe = soilPatch.GetRecipe();

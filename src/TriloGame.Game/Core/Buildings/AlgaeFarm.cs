@@ -37,7 +37,7 @@ public sealed class AlgaeFarm : Building
         HarvestYield = GameConstants.AlgaeHarvestYield;
         MaxTrilobites = 2;
         TraversalPath = CloneOpenMap(DefaultTraversalPath);
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
+        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
         Description = $"A passable algae farm. Up to {MaxTrilobites} worker trilobites harvest {HarvestYield} algae when random < growth/period.";
     }
 
@@ -299,7 +299,7 @@ public sealed class AlgaeFarm : Building
             return false;
         }
 
-        var harvested = creature.AddToInventory(OreType.ALGAE.Name, HarvestYield);
+        var harvested = creature.AddToInventory(ResourceName.Algae, HarvestYield);
         if (harvested != HarvestYield)
         {
             return false;

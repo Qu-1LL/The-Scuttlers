@@ -63,7 +63,7 @@ public sealed class CaveCrystalGenerationTests
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 4), "Crystal Miner", "miner");
         Assert.Equal(
             GameConstants.TrilobiteCarryCapacity,
-            miner.AddToInventory(OreType.LUMENITE.Name, GameConstants.TrilobiteCarryCapacity));
+            miner.AddToInventory(ResourceName.Lumenite, GameConstants.TrilobiteCarryCapacity));
 
         MineTileResult result = default;
         for (var hit = 0; hit < GameConstants.CaveCrystalHitsRequired; hit++)
@@ -80,7 +80,7 @@ public sealed class CaveCrystalGenerationTests
         Assert.Equal("empty", crystalTile.Base);
         Assert.True(crystalTile.CreatureFits());
         Assert.Equal(0, crystalTile.OreRotationQuarterTurns);
-        Assert.Equal(OreType.LUMENITE.Name, miner.Inventory.Type);
+        Assert.Equal(ResourceName.Lumenite, miner.Inventory.Type);
         Assert.Equal(GameConstants.TrilobiteCarryCapacity, miner.Inventory.Amount);
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.UI.Resources;
 using TriloGame.Game.UI.Research;
 
@@ -10,12 +11,12 @@ public sealed class StoredResourceTotalsLayoutTests
     public void Build_PlacesPanelBelowSkillTreeButton_AndShowsOnlyPositiveResourcesInRarityOrder()
     {
         var viewport = new Point(1440, 900);
-        var resources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        var resources = new Dictionary<ResourceName, int>
         {
-            ["Sandstone"] = 12,
-            ["Algae"] = 4,
-            ["Magnetite"] = 0,
-            ["Cochinium"] = 1
+            [ResourceName.Sandstone] = 12,
+            [ResourceName.Algae] = 4,
+            [ResourceName.Magnetite] = 0,
+            [ResourceName.Cochinium] = 1
         };
 
         var layout = StoredResourceTotalsLayout.Build(viewport, resources);
@@ -24,9 +25,9 @@ public sealed class StoredResourceTotalsLayoutTests
         Assert.Equal(skillTreeButtonBounds.X, layout.PanelBounds.X);
         Assert.True(layout.PanelBounds.Top > skillTreeButtonBounds.Bottom);
         Assert.Equal(3, layout.Rows.Count);
-        Assert.Equal("Algae", layout.Rows[0].ResourceType);
-        Assert.Equal("Sandstone", layout.Rows[1].ResourceType);
-        Assert.Equal("Cochinium", layout.Rows[2].ResourceType);
+        Assert.Equal(ResourceName.Algae, layout.Rows[0].ResourceType);
+        Assert.Equal(ResourceName.Sandstone, layout.Rows[1].ResourceType);
+        Assert.Equal(ResourceName.Cochinium, layout.Rows[2].ResourceType);
         Assert.All(layout.Rows, row => Assert.True(row.IconBounds.Left >= layout.PanelBounds.Left));
         Assert.All(layout.Rows, row => Assert.True(row.TextBounds.Left > row.IconBounds.Right));
     }
@@ -35,15 +36,15 @@ public sealed class StoredResourceTotalsLayoutTests
     public void Build_ScalesWidthByLongestResourceName_AndHeightByUniqueResourceCount()
     {
         var viewport = new Point(1280, 800);
-        var singleResource = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        var singleResource = new Dictionary<ResourceName, int>
         {
-            ["Algae"] = 3
+            [ResourceName.Algae] = 3
         };
-        var mixedResources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        var mixedResources = new Dictionary<ResourceName, int>
         {
-            ["Algae"] = 3,
-            ["Sandstone"] = 1,
-            ["Magnetite"] = 9
+            [ResourceName.Algae] = 3,
+            [ResourceName.Sandstone] = 1,
+            [ResourceName.Magnetite] = 9
         };
 
         var singleLayout = StoredResourceTotalsLayout.Build(viewport, singleResource);

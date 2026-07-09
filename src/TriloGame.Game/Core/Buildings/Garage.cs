@@ -7,7 +7,7 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Garage : Building, IResourceStorage, IStorage
 {
-    private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
+    private readonly Dictionary<ResourceName, int> _inventory = [];
     private readonly HashSet<Silo> _adjacentSilos = [];
     private int _inventoryTotal;
 
@@ -15,9 +15,9 @@ public sealed class Garage : Building, IResourceStorage, IStorage
         : base("Garage", new GridPoint(2, 2), [[0, 0], [0, 0]], session, false)
     {
         TextureKey = "Garage";
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
+        Recipe = new Dictionary<ResourceName, int>
         {
-            [OreType.SANDSTONE.Name] = 20
+            [ResourceName.Sandstone] = 20
         };
         Capacity = 1000;
         ChosenResource = GrowableResourceType.ALGAE;
@@ -32,17 +32,17 @@ public sealed class Garage : Building, IResourceStorage, IStorage
 
     internal IReadOnlyCollection<Silo> AdjacentSilos => _adjacentSilos;
 
-    public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
 
-    public IReadOnlyDictionary<string, int> GetStoredResources() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
 
     public int GetInventoryTotal() => _inventoryTotal;
 
     public int GetInventorySpace() => Math.Max(0, Capacity - _inventoryTotal);
 
-    public int Deposit(string resourceType, int amount)
+    public int Deposit(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -57,7 +57,7 @@ public sealed class Garage : Building, IResourceStorage, IStorage
         _inventory[resourceType] += accepted;
         _inventoryTotal += accepted;
         EmitStorageInventoryChanged(resourceType, accepted);
-        if (string.Equals(resourceType, OreType.ALGAE.Name, StringComparison.Ordinal))
+        if (resourceType == ResourceName.Algae)
         {
             TryOffloadAlgaeToAdjacentSilos();
         }
@@ -65,9 +65,9 @@ public sealed class Garage : Building, IResourceStorage, IStorage
         return accepted;
     }
 
-    public int Withdraw(string resourceType, int amount)
+    public int Withdraw(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -121,13 +121,13 @@ public sealed class Garage : Building, IResourceStorage, IStorage
         var transferred = 0;
         while (TrySelectSiloForAlgaeOffload(out var silo, out var requestedTransfer))
         {
-            var withdrawn = Withdraw(OreType.ALGAE.Name, requestedTransfer);
+            var withdrawn = Withdraw(ResourceName.Algae, requestedTransfer);
             if (withdrawn <= 0)
             {
                 break;
             }
 
-            var accepted = silo!.Deposit(OreType.ALGAE.Name, withdrawn);
+            var accepted = silo!.Deposit(ResourceName.Algae, withdrawn);
             transferred += accepted;
             if (accepted >= withdrawn)
             {
@@ -135,9 +135,9 @@ public sealed class Garage : Building, IResourceStorage, IStorage
             }
 
             var remainder = withdrawn - accepted;
-            _inventory[OreType.ALGAE.Name] += remainder;
+            _inventory[ResourceName.Algae] += remainder;
             _inventoryTotal += remainder;
-            EmitStorageInventoryChanged(OreType.ALGAE.Name, remainder);
+            EmitStorageInventoryChanged(ResourceName.Algae, remainder);
             break;
         }
 
@@ -148,7 +148,7 @@ public sealed class Garage : Building, IResourceStorage, IStorage
     {
         silo = null;
         transferAmount = 0;
-        var availableAlgae = _inventory.GetValueOrDefault(OreType.ALGAE.Name, 0);
+        var availableAlgae = _inventory.GetValueOrDefault(ResourceName.Algae, 0);
         if (availableAlgae <= 0)
         {
             return false;
@@ -197,9 +197,9 @@ public sealed class Garage : Building, IResourceStorage, IStorage
         return transferAmount > 0;
     }
 
-    private void EmitStorageInventoryChanged(string resourceType, int resourceDelta)
+    private void EmitStorageInventoryChanged(ResourceName resourceType, int resourceDelta)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || resourceDelta == 0)
+        if (resourceDelta == 0)
         {
             return;
         }

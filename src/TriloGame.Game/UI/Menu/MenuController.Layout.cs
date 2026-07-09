@@ -499,7 +499,7 @@ public sealed partial class MenuController
                 continue;
             }
 
-            result.Add(new InventoryEntryData(pair.Key, pair.Value, ItemCatalog.GetTextureKey(pair.Key)));
+            result.Add(new InventoryEntryData(ItemCatalog.GetName(pair.Key), pair.Value, ItemCatalog.GetTextureKey(pair.Key)));
         }
 
         return result;
@@ -508,16 +508,16 @@ public sealed partial class MenuController
     private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IInventoryCarrier carrier)
     {
         if (!carrier.HasInventory() ||
-            string.IsNullOrWhiteSpace(carrier.Inventory.Type) ||
+            !carrier.Inventory.Type.HasValue ||
             carrier.Inventory.Amount <= 0)
         {
             return [];
         }
 
         return [new InventoryEntryData(
-            carrier.Inventory.Type,
+            ItemCatalog.GetName(carrier.Inventory.Type.Value),
             carrier.Inventory.Amount,
-            ItemCatalog.GetTextureKey(carrier.Inventory.Type))];
+            ItemCatalog.GetTextureKey(carrier.Inventory.Type.Value))];
     }
 
     private IReadOnlyList<InventoryEntryRect> BuildInventoryLayout(

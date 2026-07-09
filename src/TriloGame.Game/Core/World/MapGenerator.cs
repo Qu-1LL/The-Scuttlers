@@ -602,7 +602,6 @@ public sealed partial class MapGenerator
         var ores = OreType.GetOres();
 
         TryPlaceGuaranteedOre(-8, 9, OreType.SANDSTONE.Name);
-        TryPlaceGuaranteedOre(-6, 7, OreType.ALGAE.Name);
         TryPlaceGuaranteedOre(-6, 7, OreType.MAGNETITE.Name);
 
         var oreCount = 0;

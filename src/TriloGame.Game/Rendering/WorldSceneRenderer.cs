@@ -58,7 +58,12 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    public void DrawWorldLayer(RenderingContext context, GameSession session, WorldSpriteEffectSystem spriteEffects)
+    public void DrawWorldLayer(
+        RenderingContext context,
+        GameSession session,
+        WorldSpriteEffectSystem spriteEffects,
+        Point viewportSize,
+        bool showFullMapVisibility)
     {
         var cave = session.Cave;
         if (cave is null)
@@ -66,49 +71,36 @@ public sealed class WorldSceneRenderer
             return;
         }
 
-        DrawFloorTiles(context, cave);
-        DrawTileOverlays(context, cave, spriteEffects);
-        DrawSurfaceFeatures(context, cave);
-        DrawDroppedResources(context, cave);
-        DrawBuildings(context, cave);
+        DrawFloorTiles(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility));
+        DrawTileOverlays(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility), spriteEffects);
+        DrawSurfaceFeatures(context, cave, showFullMapVisibility);
+        DrawDroppedResources(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility));
+        DrawBuildings(context, cave, showFullMapVisibility);
         DrawCreatures(context, cave);
         DrawProjectiles(context, session);
     }
 
-    private static void DrawFloorTiles(RenderingContext context, Cave cave)
+    private static void DrawFloorTiles(RenderingContext context, IEnumerable<Tile> visibleTiles)
     {
-        var (minX, maxX, minY, maxY) = GetCaveTileBounds(cave);
-        for (var x = minX; x <= maxX; x++)
+        foreach (var tile in visibleTiles)
         {
-            for (var y = minY; y <= maxY; y++)
+            if (ShouldDrawFloorTile(tile))
             {
-                var coordinates = new GridPoint(x, y);
-                var tile = cave.GetTile(coordinates);
-                if (tile is null || !cave.IsTileRevealed(tile))
-                {
-                    DrawTileTexture(context, "empty", coordinates, Color.Black);
-                    continue;
-                }
-
-                if (ShouldDrawFloorTile(tile))
-                {
-                    DrawTileTexture(context, "empty", tile.Coordinates);
-                }
+                DrawTileTexture(context, "empty", tile.Coordinates);
             }
         }
     }
 
-    private static void DrawTileOverlays(RenderingContext context, Cave cave, WorldSpriteEffectSystem spriteEffects)
+    private static void DrawTileOverlays(RenderingContext context, IEnumerable<Tile> visibleTiles, WorldSpriteEffectSystem spriteEffects)
     {
-        foreach (var tile in cave.GetTiles().Where(cave.IsTileRevealed))
+        foreach (var tile in visibleTiles)
         {
             if (tile.Base == "wall")
             {
                 DrawTileTexture(context, "wall", tile.Coordinates);
             }
-            else if (tile.IsOreTile() || tile.IsCaveCrystal())
+            else if (GetTileOverlayTextureKey(tile) is { } textureKey)
             {
-                var textureKey = tile.IsCaveCrystal() ? Tile.CaveCrystalBase : tile.Base;
                 DrawTileTexture(
                     context,
                     textureKey,
@@ -119,26 +111,28 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    private static void DrawSurfaceFeatures(RenderingContext context, Cave cave)
+    private static void DrawSurfaceFeatures(RenderingContext context, Cave cave, bool showFullMapVisibility)
     {
         foreach (var antHole in cave.GetAntHoles())
         {
             var tile = cave.GetTile(antHole.TileKey);
-            if (tile is null || !cave.IsTileRevealed(tile))
+            if (!ShouldRenderTile(cave, tile, showFullMapVisibility))
             {
                 continue;
             }
 
+            var visibleTile = tile!;
+
             DrawWorldTextureNative(
                 context,
                 "AntHole",
-                new FrameworkVector2(tile.Coordinates.X * TileConstants.TileSize, tile.Coordinates.Y * TileConstants.TileSize));
+                new FrameworkVector2(visibleTile.Coordinates.X * TileConstants.TileSize, visibleTile.Coordinates.Y * TileConstants.TileSize));
         }
     }
 
-    private static void DrawDroppedResources(RenderingContext context, Cave cave)
+    private static void DrawDroppedResources(RenderingContext context, IEnumerable<Tile> visibleTiles)
     {
-        foreach (var tile in cave.GetTiles().Where(cave.IsTileRevealed))
+        foreach (var tile in visibleTiles)
         {
             var droppedSandstone = tile.GetDroppedResourceCount(OreType.SANDSTONE.Name);
             if (droppedSandstone <= 0)
@@ -160,15 +154,20 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    private static void DrawBuildings(RenderingContext context, Cave cave)
+    private static void DrawBuildings(RenderingContext context, Cave cave, bool showFullMapVisibility)
     {
         foreach (var building in cave.Buildings)
         {
             if (building is Scaffolding scaffold)
             {
-                foreach (var tile in scaffold.TileArray.Where(cave.IsTileRevealed))
+                foreach (var tilePoint in BuildingHighlightFootprint.EnumerateTiles(scaffold))
                 {
-                    var tilePoint = GridPoint.Parse(tile.Key);
+                    var tile = cave.GetTile(tilePoint);
+                    if (!ShouldRenderTile(cave, tile, showFullMapVisibility))
+                    {
+                        continue;
+                    }
+
                     DrawWorldTextureNative(
                         context,
                         "Scaffold",
@@ -287,6 +286,17 @@ public sealed class WorldSceneRenderer
             GetWorldSpritePhaseOffsetSeconds(textureKey, coordinates));
     }
 
+    // Ore deposits render by their tile base so every legacy ore texture can resolve directly by name.
+    internal static string? GetTileOverlayTextureKey(Tile tile)
+    {
+        if (tile.IsCaveCrystal())
+        {
+            return Tile.CaveCrystalBase;
+        }
+
+        return tile.IsOreTile() ? tile.Base : null;
+    }
+
     internal static float GetWorldSpritePhaseOffsetSeconds(string textureKey, GridPoint coordinates)
     {
         if (!string.Equals(textureKey, OreType.LUMENITE.Name, StringComparison.Ordinal))
@@ -314,32 +324,43 @@ public sealed class WorldSceneRenderer
         return tile.HasFloorCover || tile.Built is not null;
     }
 
-    internal static (int MinX, int MaxX, int MinY, int MaxY) GetCaveTileBounds(Cave cave)
+    // Mirror the world-gen-tests culling pass by scanning only tiles inside the camera footprint.
+    internal static IEnumerable<Tile> EnumerateVisibleTiles(
+        Cave cave,
+        CameraController camera,
+        Point viewportSize,
+        bool showFullMapVisibility)
     {
-        var first = true;
-        var minX = 0;
-        var maxX = 0;
-        var minY = 0;
-        var maxY = 0;
+        camera.GetVisibleWorldBounds(viewportSize, out var topLeft, out var bottomRight);
 
-        foreach (var tile in cave.GetTiles())
+        var minWorldX = MathF.Min(topLeft.X, bottomRight.X);
+        var minWorldY = MathF.Min(topLeft.Y, bottomRight.Y);
+        var maxWorldX = MathF.Max(topLeft.X, bottomRight.X);
+        var maxWorldY = MathF.Max(topLeft.Y, bottomRight.Y);
+
+        var minTileX = (int)MathF.Floor((minWorldX - TileConstants.TileHalfSize) / TileConstants.TileSize) - 2;
+        var minTileY = (int)MathF.Floor((minWorldY - TileConstants.TileHalfSize) / TileConstants.TileSize) - 2;
+        var maxTileX = (int)MathF.Ceiling((maxWorldX + TileConstants.TileHalfSize) / TileConstants.TileSize) + 2;
+        var maxTileY = (int)MathF.Ceiling((maxWorldY + TileConstants.TileHalfSize) / TileConstants.TileSize) + 2;
+
+        for (var y = minTileY; y <= maxTileY; y++)
         {
-            var coordinates = tile.Coordinates;
-            if (first)
+            for (var x = minTileX; x <= maxTileX; x++)
             {
-                minX = maxX = coordinates.X;
-                minY = maxY = coordinates.Y;
-                first = false;
-                continue;
+                var tile = cave.GetTile(new GridPoint(x, y));
+                if (!ShouldRenderTile(cave, tile, showFullMapVisibility))
+                {
+                    continue;
+                }
+
+                yield return tile!;
             }
-
-            minX = Math.Min(minX, coordinates.X);
-            maxX = Math.Max(maxX, coordinates.X);
-            minY = Math.Min(minY, coordinates.Y);
-            maxY = Math.Max(maxY, coordinates.Y);
         }
+    }
 
-        return (minX, maxX, minY, maxY);
+    internal static bool ShouldRenderTile(Cave cave, Tile? tile, bool showFullMapVisibility)
+    {
+        return tile is not null && (showFullMapVisibility || cave.IsTileRevealed(tile));
     }
 
     internal static float NormalizeParallaxOffset(float value, float period)

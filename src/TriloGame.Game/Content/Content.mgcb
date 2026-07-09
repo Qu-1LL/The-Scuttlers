@@ -33,6 +33,11 @@
 /processor:TextureProcessor
 /build:Textures/AlgaeFarm.png
 
+#begin Textures/Algae.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Algae.png
+
 #begin Textures/Garage.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -118,6 +123,11 @@
 /processor:TextureProcessor
 /build:Textures/Chitinstone.png
 
+#begin Textures/Cochinium.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Cochinium.png
+
 #begin Textures/CaveCrystalClean.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -173,6 +183,21 @@
 /processor:TextureProcessor
 /build:Textures/Lumenite.png
 
+#begin Textures/Ilmenite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Ilmenite.png
+
+#begin Textures/Magnetite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Magnetite.png
+
+#begin Textures/Malachite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Malachite.png
+
 #begin Textures/Mycocore.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -192,6 +217,16 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Queen.png
+
+#begin Textures/Perotene.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Perotene.png
+
+#begin Textures/Sandstone.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Sandstone.png
 
 #begin Textures/Silo.png
 /importer:TextureImporter

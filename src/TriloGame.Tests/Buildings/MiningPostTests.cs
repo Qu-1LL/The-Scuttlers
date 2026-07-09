@@ -22,7 +22,7 @@ public sealed class MiningPostTests
             GameEvents.StorageInventoryChanged,
             payload =>
             {
-                if (!string.Equals(payload.ResourceType, "Sandstone", StringComparison.Ordinal))
+                if (payload.ResourceType != ResourceName.Sandstone)
                 {
                     return;
                 }
@@ -35,13 +35,13 @@ public sealed class MiningPostTests
         {
             Assert.IsAssignableFrom<IStorage>(post);
 
-            Assert.Equal(15, post.Deposit("Sandstone", 15));
+            Assert.Equal(15, post.Deposit(ResourceName.Sandstone, 15));
             Assert.Equal(15, session.GetStoredResourceTotal("Sandstone"));
 
-            Assert.Equal(5, post.Withdraw("Sandstone", 5));
+            Assert.Equal(5, post.Withdraw(ResourceName.Sandstone, 5));
             Assert.Equal(10, session.GetStoredResourceTotal("sandstone"));
 
-            Assert.Equal(10, post.ReserveMaterial(creature, "Sandstone", 10));
+            Assert.Equal(10, post.ReserveMaterial(creature, ResourceName.Sandstone, 10));
             var withdrawn = post.WithdrawReservedMaterial(creature);
 
             Assert.NotNull(withdrawn);
@@ -62,15 +62,15 @@ public sealed class MiningPostTests
         var post = new MiningPost(session);
         var creature = new Trilobite("Miner", GridPoint.Zero, session);
 
-        Assert.Equal(15, post.Deposit("Sandstone", 15));
-        Assert.Equal(10, post.ReserveMaterial(creature, "Sandstone", 10));
+        Assert.Equal(15, post.Deposit(ResourceName.Sandstone, 15));
+        Assert.Equal(10, post.ReserveMaterial(creature, ResourceName.Sandstone, 10));
 
         var withdrawn = post.WithdrawReservedMaterial(creature);
 
         Assert.NotNull(withdrawn);
-        Assert.Equal("Sandstone", withdrawn.ResourceType);
+        Assert.Equal(ResourceName.Sandstone, withdrawn.ResourceType);
         Assert.Equal(10, withdrawn.Amount);
-        Assert.Equal(5, post.GetInventory()["Sandstone"]);
+        Assert.Equal(5, post.GetInventory()[ResourceName.Sandstone]);
     }
 
     [Fact]
@@ -83,11 +83,11 @@ public sealed class MiningPostTests
         Assert.True(post.AssignmentsAvailable);
         Assert.True(cave.HasAvailableMiningPostAssignments);
 
-        Assert.Equal(post.Capacity, post.Deposit("Sandstone", post.Capacity));
+        Assert.Equal(post.Capacity, post.Deposit(ResourceName.Sandstone, post.Capacity));
         Assert.True(post.AssignmentsAvailable);
         Assert.False(cave.HasAvailableMiningPostAssignments);
 
-        Assert.Equal(1, post.Withdraw("Sandstone", 1));
+        Assert.Equal(1, post.Withdraw(ResourceName.Sandstone, 1));
         Assert.True(cave.HasAvailableMiningPostAssignments);
     }
 
@@ -97,7 +97,7 @@ public sealed class MiningPostTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
 
-        Assert.Equal(25, post.Deposit("Sandstone", 25));
+        Assert.Equal(25, post.Deposit(ResourceName.Sandstone, 25));
         Assert.Equal(25, session.GetStoredResourceTotal("Sandstone"));
 
         Assert.True(cave.RemoveBuilding(post, "test"));

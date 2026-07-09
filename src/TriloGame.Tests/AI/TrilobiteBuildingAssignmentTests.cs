@@ -60,7 +60,7 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         farmer.SetAssignedBuilding(farm);
         Assert.True(farm.Assign(farmer));
-        Assert.Equal(1, farmer.AddToInventory("Sandstone", 1));
+        Assert.Equal(1, farmer.AddToInventory(ResourceName.Sandstone, 1));
 
         var nextLocation = farm.GetNextTraversalLocation(farmer.Location);
         Assert.NotNull(nextLocation);
@@ -325,8 +325,8 @@ public sealed class TrilobiteBuildingAssignmentTests
         var secondScaffold = new Scaffolding(session, new Storage(session));
         Assert.True(cave.Build(firstScaffold, new GridPoint(6, 6)));
         Assert.True(cave.Build(secondScaffold, new GridPoint(14, 6)));
-        Assert.Equal(20, firstScaffold.Deposit("Sandstone", 20));
-        Assert.Equal(20, secondScaffold.Deposit("Sandstone", 20));
+        Assert.Equal(20, firstScaffold.Deposit(ResourceName.Sandstone, 20));
+        Assert.Equal(20, secondScaffold.Deposit(ResourceName.Sandstone, 20));
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
 
@@ -362,7 +362,7 @@ public sealed class TrilobiteBuildingAssignmentTests
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
-        Assert.Equal(5, post.Deposit(OreType.SANDSTONE.Name, 5));
+        Assert.Equal(5, post.Deposit(ResourceName.Sandstone, 5));
         var scaffold = new Scaffolding(session, new SoilPatch(session));
         var scaffoldLocation = new GridPoint(12, 6);
         Assert.True(cave.Build(scaffold, scaffoldLocation));
@@ -376,7 +376,7 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
         Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
-        Assert.Equal(0, post.GetInventory().GetValueOrDefault(OreType.SANDSTONE.Name, 0));
+        Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Sandstone, 0));
         Assert.False(builder.HasInventory());
     }
 

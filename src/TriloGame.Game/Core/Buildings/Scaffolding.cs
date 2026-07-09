@@ -11,7 +11,7 @@ public sealed class Scaffolding : Building
     private readonly Dictionary<Creature, ResourceReservation> _materialReservations = [];
     private readonly HashSet<Creature> _assignments = [];
 
-    public Scaffolding(GameSession session, Building targetBuilding, Dictionary<string, int>? recipeOverride = null)
+    public Scaffolding(GameSession session, Building targetBuilding, Dictionary<ResourceName, int>? recipeOverride = null)
         : base(
             $"{targetBuilding.Name} Scaffolding",
             targetBuilding.Size,
@@ -23,8 +23,8 @@ public sealed class Scaffolding : Building
         TextureKey = "Scaffold";
         RecipeRequired = recipeOverride is null
             ? targetBuilding.GetRecipe() ?? throw new InvalidOperationException($"Scaffolding requires a valid recipe for {targetBuilding.Name}.")
-            : new Dictionary<string, int>(recipeOverride, StringComparer.Ordinal);
-        RecipeDeposited = RecipeRequired.Keys.ToDictionary(key => key, _ => 0, StringComparer.Ordinal);
+            : new Dictionary<ResourceName, int>(recipeOverride);
+        RecipeDeposited = RecipeRequired.Keys.ToDictionary(key => key, _ => 0);
         ConstructionRequired = BuildConstructionRequirement(RecipeRequired);
         Description = $"A construction site for {targetBuilding.Name}.";
         SetDisplayRotationTurns(targetBuilding.GetDisplayRotationTurns());
@@ -32,9 +32,9 @@ public sealed class Scaffolding : Building
 
     public Building TargetBuilding { get; }
 
-    public Dictionary<string, int> RecipeRequired { get; }
+    public Dictionary<ResourceName, int> RecipeRequired { get; }
 
-    public Dictionary<string, int> RecipeDeposited { get; }
+    public Dictionary<ResourceName, int> RecipeDeposited { get; }
 
     public bool RecipeComplete { get; private set; }
 
@@ -70,26 +70,26 @@ public sealed class Scaffolding : Building
         return _materialReservations.GetValueOrDefault(creature);
     }
 
-    public int GetReservedAmount(string resourceType, Creature? excludeCreature = null)
+    public int GetReservedAmount(ResourceName resourceType, Creature? excludeCreature = null)
     {
         return _materialReservations
-            .Where(pair => pair.Key != excludeCreature && string.Equals(pair.Value.ResourceType, resourceType, StringComparison.Ordinal))
+            .Where(pair => pair.Key != excludeCreature && pair.Value.ResourceType == resourceType)
             .Sum(pair => pair.Value.Amount);
     }
 
-    public int GetRemainingRequirement(string resourceType)
+    public int GetRemainingRequirement(ResourceName resourceType)
     {
         return !RecipeRequired.ContainsKey(resourceType)
             ? 0
             : System.Math.Max(0, RecipeRequired[resourceType] - RecipeDeposited.GetValueOrDefault(resourceType, 0));
     }
 
-    public int GetUnreservedRemainingRequirement(string resourceType, Creature? excludeCreature = null)
+    public int GetUnreservedRemainingRequirement(ResourceName resourceType, Creature? excludeCreature = null)
     {
         return System.Math.Max(0, GetRemainingRequirement(resourceType) - GetReservedAmount(resourceType, excludeCreature));
     }
 
-    public IReadOnlyList<string> GetNeededResourceTypes(bool includeReservations = false, Creature? excludeCreature = null)
+    public IReadOnlyList<ResourceName> GetNeededResourceTypes(bool includeReservations = false, Creature? excludeCreature = null)
     {
         return RecipeRequired.Keys
             .Where(resourceType => includeReservations
@@ -103,7 +103,7 @@ public sealed class Scaffolding : Building
         return GetNeededResourceTypes(includeReservations, excludeCreature).Count > 0;
     }
 
-    public int ReserveMaterial(Creature creature, string resourceType, int amount)
+    public int ReserveMaterial(Creature creature, ResourceName resourceType, int amount)
     {
         if (amount <= 0)
         {
@@ -132,14 +132,14 @@ public sealed class Scaffolding : Building
         return reservation;
     }
 
-    public bool NeedsResource(string resourceType, bool includeReservations = false, Creature? excludeCreature = null)
+    public bool NeedsResource(ResourceName resourceType, bool includeReservations = false, Creature? excludeCreature = null)
     {
         return includeReservations
             ? GetUnreservedRemainingRequirement(resourceType, excludeCreature) > 0
             : GetRemainingRequirement(resourceType) > 0;
     }
 
-    public int Deposit(string resourceType, int amount, Creature? creature = null)
+    public int Deposit(ResourceName resourceType, int amount, Creature? creature = null)
     {
         if (creature is not null)
         {
@@ -228,6 +228,12 @@ public sealed class Scaffolding : Building
             return false;
         }
 
+        if (HasTrilobitesInConstructionArea())
+        {
+            CompletionPending = true;
+            return false;
+        }
+
         var cave = Cave;
         var location = Location.Value;
         var displayRotationTurns = GetDisplayRotationTurns();
@@ -242,6 +248,11 @@ public sealed class Scaffolding : Building
 
         CompletionPending = true;
         return false;
+    }
+
+    public override int Tick(World.Cave cave)
+    {
+        return TryCompleteConstruction("scaffoldingTick") ? 1 : 0;
     }
 
     private bool UpdateRecipeCompleteState()
@@ -264,17 +275,33 @@ public sealed class Scaffolding : Building
 
     private static int[][] BuildScaffoldOpenMap(int[][] targetOpenMap)
     {
-        return CloneOpenMap(targetOpenMap);
+        return targetOpenMap
+            .Select(row => row.Select(cell => cell > 1 ? cell : 1).ToArray())
+            .ToArray();
     }
 
-    private static int BuildConstructionRequirement(Dictionary<string, int> recipeRequired)
+    // Only live scaffold-owned tiles block completion; excluded cells stay out of the occupancy check.
+    private bool HasTrilobitesInConstructionArea()
+    {
+        foreach (var tile in TileArray)
+        {
+            if (ReferenceEquals(tile.Built, this) && tile.Trilobites.Count > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int BuildConstructionRequirement(Dictionary<ResourceName, int> recipeRequired)
     {
         var requiredWork = 0;
         foreach (var (resourceType, amount) in recipeRequired)
         {
             var oreIndex = Economy.OreType.GetOres()
-                .Select((ore, index) => new { ore.Name, Index = index + 1 })
-                .FirstOrDefault(entry => string.Equals(entry.Name, resourceType, StringComparison.Ordinal))?.Index ?? 1;
+                .Select((ore, index) => new { ore.Resource, Index = index + 1 })
+                .FirstOrDefault(entry => entry.Resource == resourceType)?.Index ?? 1;
             requiredWork += amount * oreIndex;
         }
 

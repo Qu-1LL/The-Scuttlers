@@ -2,16 +2,16 @@ namespace TriloGame.Game.Core.Economy;
 
 public static class ItemCatalog
 {
-    public static readonly ItemType Algae = new(OreType.ALGAE.Name, "SoilTile_Algae_3");
-    public static readonly ItemType Sandstone = new(OreType.SANDSTONE.Name, "wall");
-    public static readonly ItemType Magnetite = new(OreType.MAGNETITE.Name, OreType.MAGNETITE.Name);
-    public static readonly ItemType Malachite = new(OreType.MALACHITE.Name, OreType.MALACHITE.Name);
-    public static readonly ItemType Perotene = new(OreType.PEROTENE.Name, OreType.PEROTENE.Name);
-    public static readonly ItemType Ilmenite = new(OreType.ILMENITE.Name, OreType.ILMENITE.Name);
-    public static readonly ItemType Cochinium = new(OreType.COCHINIUM.Name, OreType.COCHINIUM.Name);
-    public static readonly ItemType Lumenite = new(OreType.LUMENITE.Name, OreType.LUMENITE.Name);
-    public static readonly ItemType Chitinstone = new(OreType.CHITINSTONE.Name, OreType.CHITINSTONE.Name);
-    public static readonly ItemType Mycocore = new(OreType.MYCOCORE.Name, OreType.MYCOCORE.Name);
+    public static readonly ItemType Algae = new(ResourceName.Algae, "Algae", "SoilTile_Algae_3", ResourceCategory.Organic);
+    public static readonly ItemType Sandstone = new(ResourceName.Sandstone, "Sandstone", OreType.SANDSTONE.Name, ResourceCategory.Rock);
+    public static readonly ItemType Magnetite = new(ResourceName.Magnetite, "Magnetite", OreType.MAGNETITE.Name, ResourceCategory.Gravel);
+    public static readonly ItemType Malachite = new(ResourceName.Malachite, "Malachite", OreType.MALACHITE.Name, ResourceCategory.Rock);
+    public static readonly ItemType Perotene = new(ResourceName.Perotene, "Perotene", OreType.PEROTENE.Name, ResourceCategory.Chemical);
+    public static readonly ItemType Ilmenite = new(ResourceName.Ilmenite, "Ilmenite", OreType.ILMENITE.Name, ResourceCategory.Rock);
+    public static readonly ItemType Cochinium = new(ResourceName.Cochinium, "Cochinium", OreType.COCHINIUM.Name, ResourceCategory.Chemical);
+    public static readonly ItemType Lumenite = new(ResourceName.Lumenite, "Lumenite", OreType.LUMENITE.Name, ResourceCategory.Gravel);
+    public static readonly ItemType Chitinstone = new(ResourceName.Chitinstone, "Chitinstone", OreType.CHITINSTONE.Name, ResourceCategory.Organic);
+    public static readonly ItemType Mycocore = new(ResourceName.Mycocore, "Mycocore", OreType.MYCOCORE.Name, ResourceCategory.Chemical);
 
     private static readonly ItemType[] StockpileOrder =
     [
@@ -27,7 +27,21 @@ public static class ItemCatalog
         Mycocore
     ];
 
-    private static readonly Dictionary<string, ItemType> ByName = new(StringComparer.Ordinal)
+    private static readonly Dictionary<ResourceName, ItemType> ByResource = new()
+    {
+        [Algae.Resource] = Algae,
+        [Sandstone.Resource] = Sandstone,
+        [Magnetite.Resource] = Magnetite,
+        [Malachite.Resource] = Malachite,
+        [Perotene.Resource] = Perotene,
+        [Ilmenite.Resource] = Ilmenite,
+        [Cochinium.Resource] = Cochinium,
+        [Lumenite.Resource] = Lumenite,
+        [Chitinstone.Resource] = Chitinstone,
+        [Mycocore.Resource] = Mycocore
+    };
+
+    private static readonly Dictionary<string, ItemType> ByName = new(StringComparer.OrdinalIgnoreCase)
     {
         [Algae.Name] = Algae,
         [Sandstone.Name] = Sandstone,
@@ -43,9 +57,48 @@ public static class ItemCatalog
 
     public static IReadOnlyList<ItemType> GetStockpileOrder() => StockpileOrder;
 
+    public static bool TryGet(ResourceName resource, out ItemType itemType)
+    {
+        return ByResource.TryGetValue(resource, out itemType!);
+    }
+
+    public static ItemType Get(ResourceName resource)
+    {
+        return TryGet(resource, out var itemType)
+            ? itemType
+            : throw new KeyNotFoundException($"No item metadata is registered for resource {resource}.");
+    }
+
     public static bool TryGet(string resourceType, out ItemType itemType)
     {
         return ByName.TryGetValue(resourceType, out itemType!);
+    }
+
+    public static bool TryGetResource(string resourceType, out ResourceName resource)
+    {
+        if (TryGet(resourceType, out var itemType))
+        {
+            resource = itemType.Resource;
+            return true;
+        }
+
+        resource = default;
+        return false;
+    }
+
+    public static string GetName(ResourceName resource)
+    {
+        return Get(resource).Name;
+    }
+
+    public static ResourceCategory GetCategory(ResourceName resource)
+    {
+        return Get(resource).Category;
+    }
+
+    public static string GetTextureKey(ResourceName resource)
+    {
+        return Get(resource).TextureKey;
     }
 
     public static string GetTextureKey(string resourceType)

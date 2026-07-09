@@ -1,6 +1,5 @@
 using Gum.Forms;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MonoGameGum;
@@ -42,9 +41,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private GumService GumUi => GumService.Default;
     private readonly GraphicsDeviceManager _graphics;
     private readonly AudioService _audio = new();
+    private readonly MusicService _music = new();
     private readonly SessionAudioBridge _sessionAudioBridge;
     private readonly SessionScreenShakeBridge _sessionScreenShakeBridge;
     private readonly SessionParticleBridge _sessionParticleBridge;
+    private readonly FocusAudioSystem _focusAudioSystem;
     private readonly InputController _input = new();
     private readonly DoubleClickTracker _manualMoveDoubleClick = new();
     private readonly CameraController _camera = new();
@@ -108,11 +109,13 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _sessionAudioBridge = new SessionAudioBridge(_audio);
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
         _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
+        _focusAudioSystem = new FocusAudioSystem(_audio);
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,
             value => _session.Runtime.DisableEnemySpawns = value,
             value => _session.Runtime.NoCostBuildPlacement = value,
             value => _infiniteDraft = value,
+            SetFullMapVisibility,
             PlayUiSelectSound);
         _roundManager.RoundStarted += HandleRoundStarted;
         _roundManager.RoundEnded += HandleRoundEnded;
@@ -253,10 +256,17 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "wall_2_bent", "Textures/wall_2_bent");
         RegisterTexture(sprites, "wall_3", "Textures/wall_3");
         RegisterTexture(sprites, "wall_4", "Textures/wall_4");
+        // Register every mineable tile base so the world renderer can draw legacy ore deposits by name.
+        RegisterTexture(sprites, OreType.SANDSTONE.Name, "Textures/Sandstone");
+        RegisterTexture(sprites, OreType.MAGNETITE.Name, "Textures/Magnetite");
+        RegisterTexture(sprites, OreType.MALACHITE.Name, "Textures/Malachite");
+        RegisterTexture(sprites, OreType.PEROTENE.Name, "Textures/Perotene");
+        RegisterTexture(sprites, OreType.ILMENITE.Name, "Textures/Ilmenite");
+        RegisterTexture(sprites, OreType.COCHINIUM.Name, "Textures/Cochinium");
         RegisterTexture(sprites, OreType.LUMENITE.Name, "Textures/Lumenite");
         RegisterTexture(sprites, OreType.CHITINSTONE.Name, "Textures/Chitinstone");
         RegisterTexture(sprites, OreType.MYCOCORE.Name, "Textures/Mycocore");
-        RegisterTexture(sprites, OreType.ALGAE.Name, "Textures/SoilTile_Algae_3");
+        RegisterTexture(sprites, ItemCatalog.Algae.Name, "Textures/Algae");
         _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.38f, 1f, 2.1f));
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
         RegisterTexture(sprites, "Enemy", "Textures/Enemy");
@@ -295,16 +305,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         };
         InitializeWorldParticles();
 
-        _audio.Register(GameAudioCue.BuildingPlace, Content.Load<SoundEffect>("Audio/Effects/BuildingPlace"));
-        _audio.Register(GameAudioCue.BuildingFinished, Content.Load<SoundEffect>("Audio/Effects/BuildingFinished"));
-        _audio.Register(GameAudioCue.AntHoleSpawn, Content.Load<SoundEffect>("Audio/Effects/AntHoleSpawn"));
-        _audio.Register(GameAudioCue.TrilobiteExplosion, Content.Load<SoundEffect>("Audio/Effects/TrilobiteExplosion"));
-        _audio.Register(GameAudioCue.TrilobiteBirth, Content.Load<SoundEffect>("Audio/Effects/TrilobiteBirth"));
-        _audio.Register(GameAudioCue.TrilobiteSelected, Content.Load<SoundEffect>("Audio/Effects/TrilobiteSelected"));
-        _audio.Register(GameAudioCue.UiSelect, Content.Load<SoundEffect>("Audio/Effects/UiSelect"));
-        _audio.Register(GameAudioCue.InvalidBranchPlacement, Content.Load<SoundEffect>("Audio/Invalid"));
-        _audio.Register(GameAudioCue.UnlockNode, Content.Load<SoundEffect>("Audio/UnlockNode"));
-        _audio.Register(GameAudioCue.VolumeSound, Content.Load<SoundEffect>("Audio/Effects/VolumeSound"));
+        GameAudioContentCatalog.RegisterCues(Content, _audio);
+        GameAudioContentCatalog.RegisterTracks(Content, _music);
     }
 
     protected override void Update(GameTime gameTime)
@@ -313,6 +315,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
         _camera.Update(gameTime);
         _worldSpriteEffects.Update(gameTime);
+        UpdateMusic(gameTime);
         UpdateWorldParticles(gameTime);
         ExpirePendingManualMove();
         SyncSelectionIfRemoved();
@@ -334,6 +337,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                 HandleMainMenuInput();
             }
 
+            ResetPassiveAudio();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -358,6 +362,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_isGameOver)
         {
             HandleGameOverInput();
+            ResetPassiveAudio();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -368,6 +373,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_trilodex.IsOpen)
         {
             HandleTrilodexMenuInput();
+            ResetPassiveAudio();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -376,6 +382,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_researchDraft.IsOpen)
         {
             HandleResearchDraftMenuInput();
+            ResetPassiveAudio();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -385,6 +392,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             HandleDebugMenuInput();
             AdvanceSimulation(gameTime);
+            ResetPassiveAudio();
             GumUi.Update(gameTime);
             base.Update(gameTime);
             return;
@@ -562,6 +570,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
 
         AdvanceSimulation(gameTime);
+        SyncGameplayAudio();
         GumUi.Update(gameTime);
 
         base.Update(gameTime);
@@ -582,7 +591,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_session.Cave is not null)
         {
-            _worldSceneRenderer.DrawWorldLayer(_rendering, _session, _worldSpriteEffects);
+            _worldSceneRenderer.DrawWorldLayer(_rendering, _session, _worldSpriteEffects, Window.ClientBounds.Size, _showFullMapVisibility);
             DrawWorldParticles();
             DrawSelection();
             DrawFloatingPreview();
@@ -777,6 +786,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _settingsMenu.Reset();
         _showRoleLabels = false;
         _infiniteDraft = false;
+        _showFullMapVisibility = false;
         _simulationClock.ResetToDefaults(paused: false, tickSpeedMs: GameConstants.TickSpeedFast);
         _gameOverState.Reset();
         ResetRoundSystems();
@@ -789,18 +799,20 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ClearPendingManualMove();
         _menu.ResetState();
         ClearWorldParticles();
+        StartGameplayMusic();
     }
 
     private void ReturnToMainMenu()
     {
         ClearWorldParticles();
         CleanActive(true);
+        _mainMenuOpen = true;
         CloseSettingsMenu();
+        StopGameplayMusic();
         _camera.ClearShake();
         _appScreen = AppScreen.MainMenu;
         _gamePaused = true;
         _isGameOver = false;
-        _mainMenuOpen = true;
         _debugMenuOpen = false;
         _mainMenuWorldGenerationDropdownOpen = false;
         _showFullMapVisibility = false;
@@ -825,6 +837,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         ForceCloseTrilodexMenu();
         _gamePaused = true;
         _debugMenuOpen = false;
+        ResetPassiveAudio();
         ResetPointerInteractionState();
         _roleRadialMenu = null;
         _tickAccumulatorMs = 0d;
@@ -1089,7 +1102,8 @@ public sealed partial class GameApp
                 _showRoleLabels,
                 _session.Runtime.DisableEnemySpawns,
                 _session.Runtime.NoCostBuildPlacement,
-                _infiniteDraft))
+                _infiniteDraft,
+                _showFullMapVisibility))
         {
             return;
         }
@@ -1108,6 +1122,12 @@ public sealed partial class GameApp
     {
         return new DebugMenuState(_gamePaused, _tickSpeedMs, _activeBfsDebugField, _debugMapOverlayVisible, _debugAntHolePlacementMode);
     }
+
+    private void SetFullMapVisibility(bool showFullMapVisibility)
+    {
+        _showFullMapVisibility = showFullMapVisibility;
+    }
+
     private void InvokeDebugMenuAction(DebugMenuAction action, int amount = 1)
     {
         switch (action)
@@ -1813,32 +1833,37 @@ public sealed partial class GameApp
                     MathF.Max(2f, _camera.CurrentScale * 2f));
             }
 
-            foreach (var tile in building.TileArray)
-            {
-                var tilePoint = GridPoint.Parse(tile.Key);
-                foreach (var neighbor in tile.Neighbors)
-                {
-                    if (building.TileArray.Contains(neighbor))
-                    {
-                        continue;
-                    }
+            DrawTileSelectionOutline(BuildingHighlightFootprint.EnumerateTiles(building));
+        }
+    }
 
-                    var neighborPoint = GridPoint.Parse(neighbor.Key);
-                    var dx = neighborPoint.X - tilePoint.X;
-                    var dy = neighborPoint.Y - tilePoint.Y;
-                    var midpoint = new Vector2(
-                        (tilePoint.X * TileConstants.TileSize) + (dx * TileConstants.TileHalfSize),
-                        (tilePoint.Y * TileConstants.TileSize) + (dy * TileConstants.TileHalfSize));
-                    var origin = dy < 0 || dx < 0
-                        ? new Vector2(TileConstants.TileHalfSize, 4f)
-                        : new Vector2(TileConstants.TileHalfSize, 0f);
-                    DrawWorldTextureNative(
-                        "SelectedEdge",
-                        midpoint,
-                        dy == 0 ? MathF.PI / 2f : 0f,
-                        origin);
-                }
-            }
+    private void DrawTileSelectionOutline(IEnumerable<GridPoint> tiles)
+    {
+        foreach (var edge in TileSelectionOutline.BuildEdges(tiles))
+        {
+            var midpoint = edge.Side switch
+            {
+                TileSelectionEdgeSide.Top => new Vector2(
+                    edge.Tile.X * TileConstants.TileSize,
+                    (edge.Tile.Y * TileConstants.TileSize) - TileConstants.TileHalfSize),
+                TileSelectionEdgeSide.Right => new Vector2(
+                    (edge.Tile.X * TileConstants.TileSize) + TileConstants.TileHalfSize,
+                    edge.Tile.Y * TileConstants.TileSize),
+                TileSelectionEdgeSide.Bottom => new Vector2(
+                    edge.Tile.X * TileConstants.TileSize,
+                    (edge.Tile.Y * TileConstants.TileSize) + TileConstants.TileHalfSize),
+                _ => new Vector2(
+                    (edge.Tile.X * TileConstants.TileSize) - TileConstants.TileHalfSize,
+                    edge.Tile.Y * TileConstants.TileSize)
+            };
+            var origin = edge.Side is TileSelectionEdgeSide.Top or TileSelectionEdgeSide.Left
+                ? new Vector2(TileConstants.TileHalfSize, 4f)
+                : new Vector2(TileConstants.TileHalfSize, 0f);
+            DrawWorldTextureNative(
+                "SelectedEdge",
+                midpoint,
+                edge.Side is TileSelectionEdgeSide.Left or TileSelectionEdgeSide.Right ? MathF.PI / 2f : 0f,
+                origin);
         }
     }
 
@@ -2079,7 +2104,7 @@ public sealed partial class GameApp
             return;
         }
 
-        foreach (var tile in cave.GetTiles().Where(cave.IsTileRevealed))
+        foreach (var tile in WorldSceneRenderer.EnumerateVisibleTiles(cave, _camera, Window.ClientBounds.Size, _showFullMapVisibility))
         {
             var value = field.GetValueOrDefault(tile.Key, int.MaxValue);
             if (value == int.MaxValue)
@@ -2257,6 +2282,7 @@ public sealed partial class GameApp
             _session.Runtime.DisableEnemySpawns,
             _session.Runtime.NoCostBuildPlacement,
             _infiniteDraft,
+            _showFullMapVisibility,
             pointer);
         DrawWrappedScreenText(
             ["` closes this panel. F3 toggles metrics."],

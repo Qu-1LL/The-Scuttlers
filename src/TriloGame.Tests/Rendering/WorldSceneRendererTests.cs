@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.Shared.Math;
@@ -66,6 +67,35 @@ public sealed class WorldSceneRendererTests
         Assert.True(initial.A < pulsed.A, $"Expected lumenite alpha to pulse. Initial: {initial.A}, pulsed: {pulsed.A}.");
     }
 
+    [Theory]
+    [InlineData("Sandstone")]
+    [InlineData("Magnetite")]
+    [InlineData("Malachite")]
+    [InlineData("Perotene")]
+    [InlineData("Ilmenite")]
+    [InlineData("Cochinium")]
+    [InlineData("Lumenite")]
+    [InlineData("Chitinstone")]
+    [InlineData("Mycocore")]
+    public void GetTileOverlayTextureKey_ReturnsTileBaseForOreDeposits(string oreName)
+    {
+        var tile = new Tile(0, "0,0");
+        tile.SetBase(oreName);
+        tile.ConfigureOre(2, 1);
+
+        Assert.Equal(oreName, WorldSceneRenderer.GetTileOverlayTextureKey(tile));
+    }
+
+    [Fact]
+    public void GetTileOverlayTextureKey_UsesDedicatedCrystalTextureKey()
+    {
+        var tile = new Tile(0, "0,0");
+        tile.SetBase(Tile.CaveCrystalBase);
+        tile.ConfigureCaveCrystal(2);
+
+        Assert.Equal(Tile.CaveCrystalBase, WorldSceneRenderer.GetTileOverlayTextureKey(tile));
+    }
+
     [Fact]
     public void ShouldDrawFloorTile_RequiresFloorCoverWhenTileHasNoBuilding()
     {
@@ -88,5 +118,62 @@ public sealed class WorldSceneRendererTests
 
         tile.ClearResourceState();
         Assert.Equal(0f, WorldSceneRenderer.GetTileOverlayRotationRadians(tile));
+    }
+
+    [Fact]
+    public void EnumerateVisibleTiles_UsesCameraFootprintAndRevealState()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, generateDefaultMap: false);
+        var visibleTile = cave.AddTile(GridPoint.Zero.ToString());
+        var hiddenVisibleTile = cave.AddTile(new GridPoint(1, 0).ToString());
+        var offscreenTile = cave.AddTile(new GridPoint(8, 0).ToString());
+        cave.RevealedTiles.Add(visibleTile);
+        cave.RevealedTiles.Add(offscreenTile);
+
+        var camera = new CameraController();
+        camera.SetViewport(128, 128);
+
+        var visibleKeys = WorldSceneRenderer
+            .EnumerateVisibleTiles(cave, camera, new Point(128, 128), showFullMapVisibility: false)
+            .Select(tile => tile.Key)
+            .ToArray();
+
+        Assert.Contains(visibleTile.Key, visibleKeys);
+        Assert.DoesNotContain(hiddenVisibleTile.Key, visibleKeys);
+        Assert.DoesNotContain(offscreenTile.Key, visibleKeys);
+    }
+
+    [Fact]
+    public void EnumerateVisibleTiles_IncludesHiddenTilesWhenFullMapVisibilityIsEnabled()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, generateDefaultMap: false);
+        var hiddenTile = cave.AddTile(GridPoint.Zero.ToString());
+
+        var camera = new CameraController();
+        camera.SetViewport(128, 128);
+
+        var visibleKeys = WorldSceneRenderer
+            .EnumerateVisibleTiles(cave, camera, new Point(128, 128), showFullMapVisibility: true)
+            .Select(tile => tile.Key)
+            .ToArray();
+
+        Assert.Contains(hiddenTile.Key, visibleKeys);
+    }
+
+    [Fact]
+    public void ShouldRenderTile_RespectsRevealStateUnlessFullMapVisibilityIsEnabled()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, generateDefaultMap: false);
+        var tile = cave.AddTile(GridPoint.Zero.ToString());
+
+        Assert.False(WorldSceneRenderer.ShouldRenderTile(cave, tile, showFullMapVisibility: false));
+        Assert.True(WorldSceneRenderer.ShouldRenderTile(cave, tile, showFullMapVisibility: true));
+
+        cave.RevealedTiles.Add(tile);
+
+        Assert.True(WorldSceneRenderer.ShouldRenderTile(cave, tile, showFullMapVisibility: false));
     }
 }

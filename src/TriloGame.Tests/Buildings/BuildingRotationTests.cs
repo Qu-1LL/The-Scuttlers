@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 
 namespace TriloGame.Tests.Buildings;
 
@@ -18,7 +19,7 @@ public sealed class BuildingRotationTests
         var buildLocation = TestWorldFactory.FindBuildLocation(cave, scaffolding, preserveReachability: true);
         Assert.True(cave.Build(scaffolding, buildLocation));
 
-        Assert.Equal(20, scaffolding.Deposit("Sandstone", 20));
+        Assert.Equal(20, scaffolding.Deposit(ResourceName.Sandstone, 20));
         Assert.Equal(scaffolding.ConstructionRequired, scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
 
         var finishedFarm = Assert.Single(cave.Buildings.OfType<AlgaeFarm>());

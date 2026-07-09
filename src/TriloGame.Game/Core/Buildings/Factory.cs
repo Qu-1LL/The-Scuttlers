@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 
 namespace TriloGame.Game.Core.Buildings;
@@ -31,7 +32,7 @@ public sealed class Factory
 
     public bool HasStation { get; }
 
-    public Dictionary<string, int>? ConstructionCost { get; }
+    public Dictionary<ResourceName, int>? ConstructionCost { get; }
 
     public Building Build(GameSession session)
     {

@@ -11,6 +11,8 @@ public sealed record GrowableResourceType(ItemType HarvestedItem)
 
     public string Name => HarvestedItem.Name;
 
+    public ResourceName Resource => HarvestedItem.Resource;
+
     public ItemType HarvestedOre => HarvestedItem;
 
     public static IReadOnlyList<GrowableResourceType> GetAll() => All;

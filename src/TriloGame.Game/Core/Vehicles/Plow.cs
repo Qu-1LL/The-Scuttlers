@@ -12,7 +12,7 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
 {
     private const int DefaultCapacity = 400;
     public static readonly GridPoint DefaultSize = new(2, 2);
-    private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
+    private readonly Dictionary<ResourceName, int> _inventory = [];
     private int _inventoryTotal;
 
     public Plow(GameSession session)
@@ -32,15 +32,15 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
 
     public int Capacity { get; }
 
-    public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
 
     public int GetInventoryTotal() => _inventoryTotal;
 
     public int GetInventorySpace() => System.Math.Max(0, Capacity - _inventoryTotal);
 
-    public int Deposit(string resourceType, int amount)
+    public int Deposit(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -57,9 +57,9 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
         return accepted;
     }
 
-    public int Withdraw(string resourceType, int amount)
+    public int Withdraw(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -156,7 +156,7 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
             }
 
             var harvested = soilTile.Harvest();
-            if (harvested <= 0 || !TryStoreExact(harvestedResource.HarvestedOre.Name, harvested))
+            if (harvested <= 0 || !TryStoreExact(harvestedResource.Resource, harvested))
             {
                 return false;
             }
@@ -165,10 +165,9 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
         return soilTile.Ranch?.Garage is { } garage && soilTile.Plant(garage.ChosenResource);
     }
 
-    private bool TryStoreExact(string resourceType, int amount)
+    private bool TryStoreExact(ResourceName resourceType, int amount)
     {
-        return !string.IsNullOrWhiteSpace(resourceType) &&
-               amount > 0 &&
+        return amount > 0 &&
                Deposit(resourceType, amount) == amount;
     }
 

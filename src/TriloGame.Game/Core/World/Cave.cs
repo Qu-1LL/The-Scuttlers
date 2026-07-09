@@ -2125,7 +2125,6 @@ public sealed partial class Cave
         return tile is not null && tile.CreatureFits(creature);
     }
 
-    // Resource-complete scaffolds are temporary no-entry tiles for normal trilobite movement.
     public bool IsResourceCompleteScaffoldingTile(Tile? tile)
     {
         return tile?.Built is Scaffolding { ResourceComplete: true };
@@ -2281,13 +2280,6 @@ public sealed partial class Cave
         var current = creature.Location;
         var nextTile = GetTile(nextLocation);
         if (nextTile is null || !CanCreatureTraverseTile(creature, nextTile))
-        {
-            return false;
-        }
-
-        if (!allowResourceCompleteScaffolding &&
-            creature is Trilobite &&
-            IsResourceCompleteScaffoldingTile(nextTile))
         {
             return false;
         }

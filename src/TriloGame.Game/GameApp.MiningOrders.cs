@@ -1,6 +1,5 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
-using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
@@ -45,11 +44,9 @@ public sealed partial class GameApp
         return _miningTileSelection.HasSelection;
     }
 
-    private bool CanSelectMiningTile(Tile tile)
+    private bool CanSelectMiningTile(Tile? tile)
     {
-        var cave = _session.Cave;
-        return cave is not null &&
-               (Building.IsMineableType(tile.Base) || !cave.IsTileRevealed(tile));
+        return MiningTileSelectionPolicy.CanSelect(_session.Cave, tile);
     }
 
     private void SelectMiningTile(Tile tile, bool append, bool toggleIfAlreadySelected)
@@ -185,7 +182,7 @@ public sealed partial class GameApp
         foreach (var tileKey in _miningTileSelection.TileKeys)
         {
             var tile = cave.GetTile(tileKey);
-            if (tile is null)
+            if (tile is null || !CanSelectMiningTile(tile))
             {
                 continue;
             }
@@ -203,7 +200,7 @@ public sealed partial class GameApp
         }
 
         var tile = GetTileAtScreenPoint(_input.MousePoint);
-        if (tile is null || !CanSelectMiningTile(tile) || !cave.IsTileRevealed(tile))
+        if (tile is null || !CanSelectMiningTile(tile))
         {
             return;
         }

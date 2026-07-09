@@ -60,14 +60,14 @@ public sealed class SkillTreeUnlockSystemTests
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(0, 0));
         var storage = new Storage(session);
         Assert.True(cave.Build(storage, new GridPoint(5, 0)));
-        Assert.Equal(7, post.Deposit(OreType.CHITINSTONE.Name, 7));
-        Assert.Equal(3, storage.Deposit(OreType.CHITINSTONE.Name, 3));
+        Assert.Equal(7, post.Deposit(ResourceName.Chitinstone, 7));
+        Assert.Equal(3, storage.Deposit(ResourceName.Chitinstone, 3));
         var stockpile = new ResourceStockpileSystem().Refresh(session);
 
         var quote = SkillTreeUnlockSystem.GetUnlockQuote(session, child);
 
-        Assert.Equal(10, stockpile.GetAmount(OreType.CHITINSTONE.Name));
-        Assert.Equal(stockpile.GetAmount(OreType.CHITINSTONE.Name), quote.Available);
+        Assert.Equal(10, stockpile.GetAmount(ResourceName.Chitinstone));
+        Assert.Equal(stockpile.GetAmount(ResourceName.Chitinstone), quote.Available);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public sealed class SkillTreeUnlockSystemTests
         Assert.True(result.Unlocked);
         Assert.Equal(SkillTreeUnlockBlockReason.None, result.BlockReason);
         Assert.True(child.IsUnlocked);
-        Assert.Equal(5, ResourceStockpileSystem.GetStoredAmount(session, OreType.CHITINSTONE.Name));
+        Assert.Equal(5, ResourceStockpileSystem.GetStoredAmount(session, ResourceName.Chitinstone));
         Assert.Single(session.GlobalResearch.Descriptors);
         Assert.Equal("Trilobite.MoveSpeed", session.GlobalResearch.Descriptors[0].StatKey);
     }
@@ -102,7 +102,7 @@ public sealed class SkillTreeUnlockSystemTests
         Assert.False(unlocked);
         Assert.Equal(SkillTreeUnlockBlockReason.NotEnoughResources, result.BlockReason);
         Assert.False(child.IsUnlocked);
-        Assert.Equal(39, ResourceStockpileSystem.GetStoredAmount(session, OreType.CHITINSTONE.Name));
+        Assert.Equal(39, ResourceStockpileSystem.GetStoredAmount(session, ResourceName.Chitinstone));
     }
 
     [Fact]
@@ -154,6 +154,6 @@ public sealed class SkillTreeUnlockSystemTests
         TestWorldFactory.ResetToRectangularMap(cave, 8, 8);
         var post = new MiningPost(session);
         Assert.True(cave.Build(post, new GridPoint(0, 0)));
-        Assert.Equal(amount, post.Deposit(OreType.CHITINSTONE.Name, amount));
+        Assert.Equal(amount, post.Deposit(ResourceName.Chitinstone, amount));
     }
 }

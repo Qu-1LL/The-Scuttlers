@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -10,7 +11,7 @@ public sealed class Radar : Building
         : base("Radar", new GridPoint(4, 4), [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], session, false)
     {
         TextureKey = "Radar";
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
+        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
         RadiusMax = 50;
         CurrentRadius = 0;
         GrowthChance = 0.1;

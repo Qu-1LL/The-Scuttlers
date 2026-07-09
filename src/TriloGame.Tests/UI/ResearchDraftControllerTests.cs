@@ -585,7 +585,7 @@ public sealed class ResearchDraftControllerTests
 
         Assert.Equal(ResearchDraftInteractionOutcome.NodeUnlocked, outcome);
         Assert.True(child.IsUnlocked);
-        Assert.Equal(0, ResourceStockpileSystem.GetStoredAmount(session, OreType.CHITINSTONE.Name));
+        Assert.Equal(0, ResourceStockpileSystem.GetStoredAmount(session, ResourceName.Chitinstone));
     }
 
     [Fact]
@@ -645,7 +645,7 @@ public sealed class ResearchDraftControllerTests
         TestWorldFactory.ResetToRectangularMap(cave, 8, 8);
         var post = new MiningPost(session);
         Assert.True(cave.Build(post, new GridPoint(0, 0)));
-        Assert.Equal(amount, post.Deposit(OreType.CHITINSTONE.Name, amount));
+        Assert.Equal(amount, post.Deposit(ResourceName.Chitinstone, amount));
     }
 
     private static SkillTree CreateRootOnlySkillTree()

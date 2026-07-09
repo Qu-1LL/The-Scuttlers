@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -8,7 +9,7 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class MiningPost : Building, IResourceStorage, IStorage
 {
-    private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
+    private readonly Dictionary<ResourceName, int> _inventory = [];
     private readonly Dictionary<Creature, string?> _assignments = [];
     private readonly Dictionary<Creature, ResourceReservation> _materialReservations = [];
     private readonly Dictionary<string, List<string>> _mineableQueues = new(StringComparer.Ordinal);
@@ -25,11 +26,11 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
         Capacity = 1000;
         Radius = 10;
         Description = $"Units assigned to this post will mine ore and stone in a {Radius}-block radius and store it here. Has a capacity of {Capacity}.";
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
+        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
 
         foreach (var ore in Economy.OreType.GetOres())
         {
-            _inventory[ore.Name] = 0;
+            _inventory[ore.Resource] = 0;
         }
     }
 
@@ -43,9 +44,9 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
 
     public bool AssignmentsAvailable { get; private set; } = true;
 
-    public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
 
-    public IReadOnlyDictionary<string, int> GetStoredResources() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
 
     public int GetInventoryTotal() => _inventoryTotal;
 
@@ -56,21 +57,21 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
         return _materialReservations.GetValueOrDefault(creature);
     }
 
-    public int GetReservedAmount(string resourceType, Creature? excludeCreature = null)
+    public int GetReservedAmount(ResourceName resourceType, Creature? excludeCreature = null)
     {
         return _materialReservations
-            .Where(pair => pair.Key != excludeCreature && string.Equals(pair.Value.ResourceType, resourceType, StringComparison.Ordinal))
+            .Where(pair => pair.Key != excludeCreature && pair.Value.ResourceType == resourceType)
             .Sum(pair => pair.Value.Amount);
     }
 
-    public int GetAvailableInventory(string resourceType, Creature? excludeCreature = null)
+    public int GetAvailableInventory(ResourceName resourceType, Creature? excludeCreature = null)
     {
         return System.Math.Max(0, _inventory.GetValueOrDefault(resourceType, 0) - GetReservedAmount(resourceType, excludeCreature));
     }
 
-    public int Deposit(string resourceType, int amount)
+    public int Deposit(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -79,12 +80,18 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
         var accepted = System.Math.Min(GetInventorySpace(), amount);
         _inventory[resourceType] += accepted;
         _inventoryTotal += accepted;
+        if (accepted > 0)
+        {
+            EmitStorageInventoryChanged(resourceType, accepted);
+            Cave?.SyncMiningPostAssignmentAvailability();
+        }
+
         return accepted;
     }
 
-    public int Withdraw(string resourceType, int amount)
+    public int Withdraw(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -93,12 +100,18 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
         var taken = System.Math.Min(_inventory[resourceType], amount);
         _inventory[resourceType] -= taken;
         _inventoryTotal -= taken;
+        if (taken > 0)
+        {
+            EmitStorageInventoryChanged(resourceType, -taken);
+            Cave?.SyncMiningPostAssignmentAvailability();
+        }
+
         return taken;
     }
 
-    public int ReserveMaterial(Creature creature, string resourceType, int amount)
+    public int ReserveMaterial(Creature creature, ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
@@ -148,6 +161,8 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
 
         _inventory[reservation.ResourceType] -= taken;
         _inventoryTotal -= taken;
+        EmitStorageInventoryChanged(reservation.ResourceType, -taken);
+        Cave?.SyncMiningPostAssignmentAvailability();
         var remaining = reservation.Amount - taken;
         if (remaining <= 0)
         {
@@ -247,6 +262,26 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
     {
         base.OnBuilt(cave);
         RefreshPossibleAssignmentsOnBuilt(cave);
+    }
+
+    public override void CleanupBeforeRemoval(object? source = null)
+    {
+        if (_inventoryTotal > 0)
+        {
+            foreach (var pair in _inventory)
+            {
+                if (pair.Value <= 0)
+                {
+                    continue;
+                }
+
+                EmitStorageInventoryChanged(pair.Key, -pair.Value);
+            }
+        }
+
+        _inventory.Clear();
+        _inventoryTotal = 0;
+        base.CleanupBeforeRemoval(source);
     }
 
     public override void TrackedCreatureDied(Creature creature)
@@ -876,5 +911,24 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
 
         SetAssignmentsAvailable(false);
         return null;
+    }
+
+    private void EmitStorageInventoryChanged(ResourceName resourceType, int resourceDelta)
+    {
+        if (resourceDelta == 0)
+        {
+            return;
+        }
+
+        Session.Emit(
+            GameEvents.StorageInventoryChanged,
+            new GameEventPayload(
+                Cave,
+                null,
+                Location,
+                null,
+                resourceType,
+                this,
+                resourceDelta));
     }
 }

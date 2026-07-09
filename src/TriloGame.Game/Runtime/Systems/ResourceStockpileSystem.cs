@@ -5,16 +5,16 @@ namespace TriloGame.Game.Runtime.Systems;
 
 public sealed class ResourceStockpileSystem
 {
-    private readonly Dictionary<string, int> _totals = new(StringComparer.Ordinal);
+    private readonly Dictionary<ResourceName, int> _totals = [];
     private readonly List<ResourceStockpileEntry> _entries = [];
-    private readonly List<string> _extraResourceNames = [];
+    private readonly List<ResourceName> _extraResourceNames = [];
 
     public ResourceStockpileSnapshot Current { get; private set; } = ResourceStockpileSnapshot.Empty;
 
-    public static int GetStoredAmount(GameSession session, string resourceType)
+    public static int GetStoredAmount(GameSession session, ResourceName resourceType)
     {
         ArgumentNullException.ThrowIfNull(session);
-        if (string.IsNullOrWhiteSpace(resourceType) || session.Cave is null)
+        if (session.Cave is null)
         {
             return 0;
         }
@@ -28,10 +28,10 @@ public sealed class ResourceStockpileSystem
         return total;
     }
 
-    public static bool TryWithdrawStoredResource(GameSession session, string resourceType, int amount)
+    public static bool TryWithdrawStoredResource(GameSession session, ResourceName resourceType, int amount)
     {
         ArgumentNullException.ThrowIfNull(session);
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return false;
         }
@@ -89,7 +89,7 @@ public sealed class ResourceStockpileSystem
     {
         foreach (var pair in storage.GetStoredResources())
         {
-            if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value <= 0)
+            if (pair.Value <= 0)
             {
                 continue;
             }
@@ -103,13 +103,13 @@ public sealed class ResourceStockpileSystem
         foreach (var itemType in ItemCatalog.GetStockpileOrder())
         {
             var resourceType = itemType.Name;
-            var amount = _totals.GetValueOrDefault(resourceType, 0);
+            var amount = _totals.GetValueOrDefault(itemType.Resource, 0);
             if (amount <= 0)
             {
                 continue;
             }
 
-            _entries.Add(new ResourceStockpileEntry(resourceType, amount));
+            _entries.Add(new ResourceStockpileEntry(itemType.Resource, amount));
         }
     }
 
@@ -125,19 +125,18 @@ public sealed class ResourceStockpileSystem
             _extraResourceNames.Add(pair.Key);
         }
 
-        _extraResourceNames.Sort(StringComparer.Ordinal);
+        _extraResourceNames.Sort();
         foreach (var resourceType in _extraResourceNames)
         {
             _entries.Add(new ResourceStockpileEntry(resourceType, _totals[resourceType]));
         }
     }
 
-    private static bool IsKnownResource(string resourceType)
+    private static bool IsKnownResource(ResourceName resourceType)
     {
         foreach (var itemType in ItemCatalog.GetStockpileOrder())
         {
-            var knownResource = itemType.Name;
-            if (string.Equals(knownResource, resourceType, StringComparison.Ordinal))
+            if (itemType.Resource == resourceType)
             {
                 return true;
             }
@@ -167,16 +166,11 @@ public readonly record struct ResourceStockpileSnapshot(IReadOnlyList<ResourceSt
 {
     public static ResourceStockpileSnapshot Empty { get; } = new([]);
 
-    public int GetAmount(string resourceType)
+    public int GetAmount(ResourceName resourceType)
     {
-        if (string.IsNullOrWhiteSpace(resourceType))
-        {
-            return 0;
-        }
-
         foreach (var entry in Entries)
         {
-            if (string.Equals(entry.ResourceType, resourceType, StringComparison.Ordinal))
+            if (entry.ResourceType == resourceType)
             {
                 return entry.Amount;
             }
@@ -186,4 +180,4 @@ public readonly record struct ResourceStockpileSnapshot(IReadOnlyList<ResourceSt
     }
 }
 
-public readonly record struct ResourceStockpileEntry(string ResourceType, int Amount);
+public readonly record struct ResourceStockpileEntry(ResourceName ResourceType, int Amount);

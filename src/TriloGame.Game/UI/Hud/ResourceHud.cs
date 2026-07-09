@@ -93,7 +93,7 @@ internal static class ResourceHudModelBuilder
             }
 
             entries.Add(new ResourceHudEntryModel(
-                entry.ResourceType,
+                ItemCatalog.GetName(entry.ResourceType),
                 entry.Amount,
                 ItemCatalog.GetTextureKey(entry.ResourceType)));
         }

@@ -66,8 +66,12 @@ public sealed partial class Cave
             {
                 var cellLocation = new GridPoint(location.X + x, location.Y + y);
                 var required = building.OpenMap[y][x] <= 1;
+                var allowTrilobiteOccupants = building is Scaffolding && building.OpenMap[y][x] >= 1;
                 var cellFailures = required
-                    ? EvaluateRequiredPlacementCell(cellLocation, requireReachableTiles)
+                    ? EvaluateRequiredPlacementCell(
+                        cellLocation,
+                        requireReachableTiles,
+                        allowTrilobiteOccupants: allowTrilobiteOccupants)
                     : EvaluateOptionalPlacementCell(cellLocation);
 
                 failureReasons |= cellFailures;
