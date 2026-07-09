@@ -74,6 +74,24 @@ public sealed class MiningPostTests
     }
 
     [Fact]
+    public void CategoryQueries_SelectLargestAvailableMatchingResource()
+    {
+        var session = new GameSession();
+        var post = new MiningPost(session);
+
+        Assert.Equal(3, post.Deposit(ResourceName.Sandstone, 3));
+        Assert.Equal(7, post.Deposit(ResourceName.Malachite, 7));
+
+        Assert.Equal(10, post.GetAvailableInventory(ResourceCategory.Rock));
+
+        var match = post.FindAvailableResource(ResourceRequirement.ForCategory(ResourceCategory.Rock, 5), 5);
+
+        Assert.NotNull(match);
+        Assert.Equal(ResourceName.Malachite, match.Value.ResourceType);
+        Assert.Equal(5, match.Value.Amount);
+    }
+
+    [Fact]
     public void MiningPostInventoryChanges_UpdateGlobalAvailabilityCache()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));

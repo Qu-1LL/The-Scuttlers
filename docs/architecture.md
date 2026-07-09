@@ -9,6 +9,9 @@ The project is currently a single MonoGame game assembly with layered modules in
   - entities, buildings, world state, pathfinding, economy, events
   - shared item/storage contracts live under `Core/Economy` so trilobites, stockpiles, and
     storage buildings can exchange resources through one typed catalog and common interfaces
+  - construction recipes flow through typed resource requirements that can target either exact
+    resources or whole resource categories, with scaffolding resolving category matches through
+    storage query helpers before builders haul exact items
   - mining-order execution lives in `Core/Simulation` so UI can request orders without owning
     the manual-order state transformation
   - cave generation is isolated in `Core/World/CaveGenerator.cs`; `Cave` owns world state and

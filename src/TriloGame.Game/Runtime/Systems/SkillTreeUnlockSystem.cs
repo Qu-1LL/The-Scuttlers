@@ -6,7 +6,9 @@ namespace TriloGame.Game.Runtime.Systems;
 
 internal static class SkillTreeUnlockSystem
 {
-    public static ResourceName UnlockResourceType => ResourceName.Chitinstone;
+    public static ResourceCategory UnlockResourceCategory => ResourceCategory.Rock;
+
+    public static string UnlockResourceType => UnlockResourceCategory.ToString();
 
     public static int CalculateUnlockCost(TreeInstanceNode node)
     {
@@ -20,10 +22,10 @@ internal static class SkillTreeUnlockSystem
         ArgumentNullException.ThrowIfNull(node);
 
         var cost = CalculateUnlockCost(node);
-        var available = ResourceStockpileSystem.GetStoredAmount(session, UnlockResourceType);
+        var available = ResourceStockpileSystem.GetStoredAmount(session, UnlockResourceCategory);
         var reason = GetBlockReason(session, node, available, cost);
         return new SkillTreeUnlockQuote(
-            ItemCatalog.GetName(UnlockResourceType),
+            UnlockResourceType,
             available,
             cost,
             reason == SkillTreeUnlockBlockReason.None,
@@ -42,9 +44,9 @@ internal static class SkillTreeUnlockSystem
             return false;
         }
 
-        if (!ResourceStockpileSystem.TryWithdrawStoredResource(session, UnlockResourceType, quote.Cost))
+        if (!ResourceStockpileSystem.TryWithdrawStoredResource(session, UnlockResourceCategory, quote.Cost))
         {
-            var available = ResourceStockpileSystem.GetStoredAmount(session, UnlockResourceType);
+            var available = ResourceStockpileSystem.GetStoredAmount(session, UnlockResourceCategory);
             result = new SkillTreeUnlockResult(
                 false,
                 SkillTreeUnlockBlockReason.NotEnoughResources,

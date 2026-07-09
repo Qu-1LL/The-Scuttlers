@@ -358,11 +358,42 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
-    public void BuilderBuildsSoilPatchUsingSandstoneFromReachableMiningPost()
+    public void BuilderAssignment_SkipsCompletionPendingScaffoldUntilItClears()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(22, 14, new GridPoint(1, 1));
+        var blockedScaffold = new Scaffolding(session, new Storage(session));
+        var availableScaffold = new Scaffolding(session, new Storage(session));
+        var blockedLocation = new GridPoint(6, 6);
+        var availableLocation = new GridPoint(14, 6);
+
+        Assert.True(cave.Build(blockedScaffold, blockedLocation));
+        Assert.True(cave.Build(availableScaffold, availableLocation));
+
+        var blockedRequirement = blockedScaffold.GetRemainingRequirement(ResourceName.Sandstone);
+        var availableRequirement = availableScaffold.GetRemainingRequirement(ResourceName.Sandstone);
+        Assert.Equal(blockedRequirement, blockedScaffold.Deposit(ResourceName.Sandstone, blockedRequirement));
+        Assert.Equal(availableRequirement, availableScaffold.Deposit(ResourceName.Sandstone, availableRequirement));
+
+        var blocker = TestWorldFactory.SpawnTrilobite(cave, session, blockedLocation, "Blocker", "unassigned");
+        Assert.Equal(
+            blockedScaffold.ConstructionRequired,
+            blockedScaffold.ApplyConstructionWork(blockedScaffold.ConstructionRequired));
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
+
+        Assert.True(blockedScaffold.CompletionPending);
+        Assert.Equal(blockedLocation, blocker.Location);
+        Assert.False(builder.CanActOnScaffold(blockedScaffold));
+        Assert.True(builder.CanActOnScaffold(availableScaffold));
+        Assert.Same(availableScaffold, builder.EnsureBuilderAssignment(true));
+    }
+
+    [Fact]
+    public void BuilderBuildsSoilPatchUsingOrganicResourceFromReachableMiningPost()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
-        Assert.Equal(5, post.Deposit(ResourceName.Sandstone, 5));
+        Assert.Equal(5, post.Deposit(ResourceName.Chitinstone, 5));
         var scaffold = new Scaffolding(session, new SoilPatch(session));
         var scaffoldLocation = new GridPoint(12, 6);
         Assert.True(cave.Build(scaffold, scaffoldLocation));
@@ -376,7 +407,7 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
         Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
-        Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Sandstone, 0));
+        Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Chitinstone, 0));
         Assert.False(builder.HasInventory());
     }
 

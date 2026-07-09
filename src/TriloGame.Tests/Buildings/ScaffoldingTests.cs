@@ -82,16 +82,36 @@ public sealed class ScaffoldingTests
 
         TickRunner.RunTick(session);
 
-        Assert.Contains(scaffolding, cave.Buildings);
-        Assert.DoesNotContain(targetBuilding, cave.Buildings);
-
-        Assert.True(cave.MoveCreature(trilobite, new GridPoint(5, 4)));
-
-        TickRunner.RunTick(session);
-
         Assert.DoesNotContain(scaffolding, cave.Buildings);
         Assert.Contains(targetBuilding, cave.Buildings);
         Assert.Equal(buildLocation, targetBuilding.Location);
+        Assert.NotEqual(buildLocation, trilobite.Location);
+    }
+
+    [Fact]
+    public void CategoryRecipes_AcceptMatchingResourceTypes()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var scaffolding = new Scaffolding(session, new Storage(session));
+
+        Assert.True(scaffolding.NeedsResource(ResourceName.Malachite));
+        Assert.Equal(12, scaffolding.Deposit(ResourceName.Malachite, 12));
+        Assert.Equal(8, scaffolding.Deposit(ResourceName.Sandstone, 8));
+        Assert.True(scaffolding.IsRecipeComplete());
+    }
+
+    [Fact]
+    public void CategoryRecipes_TrackDepositedResourcesByActualType()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var scaffolding = new Scaffolding(session, new Storage(session));
+
+        Assert.Equal(12, scaffolding.Deposit(ResourceName.Malachite, 12));
+        Assert.Equal(8, scaffolding.Deposit(ResourceName.Sandstone, 8));
+
+        Assert.Equal(20, scaffolding.GetTotalDepositedAmount());
+        Assert.Equal(12, scaffolding.GetDepositedResources().GetValueOrDefault(ResourceName.Malachite));
+        Assert.Equal(8, scaffolding.GetDepositedResources().GetValueOrDefault(ResourceName.Sandstone));
     }
 
     [Fact]
@@ -137,14 +157,32 @@ public sealed class ScaffoldingTests
 
     private static void CompleteScaffolding(Scaffolding scaffolding)
     {
-        foreach (var pair in scaffolding.RecipeRequired.ToArray())
+        foreach (var requirement in scaffolding.RecipeRequired)
         {
-            var required = scaffolding.GetRemainingRequirement(pair.Key);
-            Assert.Equal(required, scaffolding.Deposit(pair.Key, required));
+            var resourceType = ResolveResourceType(requirement);
+            Assert.Equal(requirement.Amount, scaffolding.Deposit(resourceType, requirement.Amount));
         }
 
         Assert.Equal(
             scaffolding.ConstructionRequired,
             scaffolding.ApplyConstructionWork(scaffolding.ConstructionRequired));
+    }
+
+    private static ResourceName ResolveResourceType(ResourceRequirement requirement)
+    {
+        if (requirement.SpecificResource is { } specificResource)
+        {
+            return specificResource;
+        }
+
+        foreach (var resourceType in Enum.GetValues<ResourceName>())
+        {
+            if (requirement.Matches(resourceType))
+            {
+                return resourceType;
+            }
+        }
+
+        throw new InvalidOperationException("Expected at least one resource that satisfies the requirement.");
     }
 }

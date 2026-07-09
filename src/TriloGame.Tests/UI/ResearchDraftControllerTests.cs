@@ -563,13 +563,45 @@ public sealed class ResearchDraftControllerTests
     }
 
     [Fact]
+    public void BuildDraftMenuModel_ShowsRockCategoryTotalAcrossMixedStorageResources()
+    {
+        var session = new GameSessionBootstrapper().CreateNewGame().Session;
+        var cave = session.Cave!;
+        session.SkillTree.AddChild(
+            session.SkillTree.Root!,
+            session.SkillTree.IntakeSkillNode(new SkillNode("Unlockable Node", "Unlockable description."), "B1"));
+
+        var post = new MiningPost(session);
+        var postLocation = TestWorldFactory.FindBuildLocation(cave, post);
+        Assert.True(cave.Build(post, postLocation));
+        var storage = new Storage(session);
+        var storageLocation = TestWorldFactory.FindBuildLocation(cave, storage);
+        Assert.True(cave.Build(storage, storageLocation));
+        Assert.Equal(7, post.Deposit(ResourceName.Sandstone, 7));
+        Assert.Equal(3, storage.Deposit(ResourceName.Malachite, 3));
+
+        var draftSystem = new ResearchDraftSystem();
+        var controller = new ResearchDraftController();
+        var viewport = new Point(1280, 800);
+        var layout = ResearchDraftLayout.Build(viewport, branchCardCount: 0);
+        controller.Open(draftSystem);
+        controller.HandlePointerUp(GetFirstChildPoint(layout), viewport, session, draftSystem);
+
+        var model = controller.BuildDraftMenuModel(layout, session, draftSystem, treeBackgroundTexture: null);
+
+        Assert.NotNull(model.InfoPanel.UnlockAction);
+        Assert.Equal(10, model.InfoPanel.UnlockAction!.Value.Available);
+        Assert.Equal("Rock", model.InfoPanel.UnlockAction.Value.ResourceType);
+    }
+
+    [Fact]
     public void HandlePointerUp_ClickingEnabledUnlockButtonUnlocksSelectedNode()
     {
         var session = new GameSessionBootstrapper().CreateNewGame().Session;
         var child = session.SkillTree.AddChild(
             session.SkillTree.Root!,
             session.SkillTree.IntakeSkillNode(new SkillNode("Unlockable Node", "Unlockable description."), "B1"));
-        DepositChitinstone(session, 40);
+        DepositRock(session, 40);
         var draftSystem = new ResearchDraftSystem();
         var controller = new ResearchDraftController();
         var viewport = new Point(1280, 800);
@@ -585,7 +617,7 @@ public sealed class ResearchDraftControllerTests
 
         Assert.Equal(ResearchDraftInteractionOutcome.NodeUnlocked, outcome);
         Assert.True(child.IsUnlocked);
-        Assert.Equal(0, ResourceStockpileSystem.GetStoredAmount(session, ResourceName.Chitinstone));
+        Assert.Equal(0, ResourceStockpileSystem.GetStoredAmount(session, ResourceCategory.Rock));
     }
 
     [Fact]
@@ -639,13 +671,13 @@ public sealed class ResearchDraftControllerTests
         return new Point(root.X, root.Y - 92);
     }
 
-    private static void DepositChitinstone(TriloGame.Game.Core.Simulation.GameSession session, int amount)
+    private static void DepositRock(TriloGame.Game.Core.Simulation.GameSession session, int amount)
     {
         var cave = session.Cave ?? new TriloGame.Game.Core.World.Cave(session);
         TestWorldFactory.ResetToRectangularMap(cave, 8, 8);
         var post = new MiningPost(session);
         Assert.True(cave.Build(post, new GridPoint(0, 0)));
-        Assert.Equal(amount, post.Deposit(ResourceName.Chitinstone, amount));
+        Assert.Equal(amount, post.Deposit(ResourceName.Sandstone, amount));
     }
 
     private static SkillTree CreateRootOnlySkillTree()

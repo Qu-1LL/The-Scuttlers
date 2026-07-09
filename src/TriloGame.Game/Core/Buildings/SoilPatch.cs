@@ -23,10 +23,7 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
         SoilArea = new SoilArea(session);
         SoilArea.AddSoilPatch(this);
         IgnoredByAnts = true;
-        Recipe = new Dictionary<ResourceName, int>
-        {
-            [ResourceName.Sandstone] = 5
-        };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Organic, 5)];
         Description = "A 2x2 patch of passable soil. Each tile grows its planted crop independently.";
         TextureKey = "SoilTile_0";
     }

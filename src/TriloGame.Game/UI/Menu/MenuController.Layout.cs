@@ -96,6 +96,8 @@ public sealed partial class MenuController
         Rectangle? selectedRenamePrimaryButtonBounds = null;
         Rectangle? selectedRenameSecondaryButtonBounds = null;
         Rectangle? selectedTraitSummaryBounds = null;
+        Rectangle? selectedRecipeBounds = null;
+        string? selectedRecipeText = null;
         Rectangle? selectedInventoryFrameBounds = null;
         Rectangle? selectedInventoryViewportBounds = null;
         IReadOnlyList<InventoryEntryRect> selectedInventoryEntries = [];
@@ -227,6 +229,61 @@ public sealed partial class MenuController
                 out selectedInventoryScrollbarThumbBounds);
             SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
         }
+        else if (SelectedObject is Scaffolding scaffolding)
+        {
+            var recipeTop = selectedDetailTop + (int)MathF.Round(10f * selectedScale);
+            var recipeHeight = (int)MathF.Round(22f * selectedScale);
+            var recipeGap = (int)MathF.Round(12f * selectedScale);
+            selectedRecipeBounds = new Rectangle(
+                selectedBounds.X + 16,
+                recipeTop,
+                selectedBounds.Width - 32,
+                recipeHeight);
+            selectedRecipeText = BuildScaffoldingRecipeText(scaffolding);
+
+            var selectedBodyTop = selectedRecipeBounds.Value.Bottom + recipeGap;
+            var bodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(10f * selectedScale);
+            var bodyHeight = Math.Max(96, bodyBottom - selectedBodyTop);
+            var inventoryDescriptionGap = (int)MathF.Round(12f * selectedScale);
+            var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(86f * selectedScale));
+            var descriptionHeight = Math.Clamp(
+                (int)MathF.Round(78f * selectedScale),
+                48,
+                Math.Max(48, bodyHeight - minimumInventoryHeight - inventoryDescriptionGap));
+            var inventoryHeight = Math.Max(48, bodyHeight - descriptionHeight - inventoryDescriptionGap);
+
+            selectedInventoryFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                inventoryHeight);
+            selectedInventoryViewportBounds = new Rectangle(
+                selectedInventoryFrameBounds.Value.X + 10,
+                selectedInventoryFrameBounds.Value.Y + 38,
+                selectedInventoryFrameBounds.Value.Width - 20,
+                Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
+            var inventoryEntries = BuildInventoryEntries(scaffolding);
+            selectedInventoryEntries = BuildInventoryLayout(
+                selectedInventoryViewportBounds.Value,
+                inventoryEntries,
+                selectedScale,
+                out selectedInventoryMaxScroll,
+                out selectedInventoryScrollbarTrackBounds,
+                out selectedInventoryScrollbarThumbBounds);
+            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+
+            var selectedDescriptionViewportBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedInventoryFrameBounds.Value.Bottom + inventoryDescriptionGap,
+                selectedBounds.Width - 32,
+                Math.Max(48, deleteSelectedBounds.Y - selectedInventoryFrameBounds.Value.Bottom - inventoryDescriptionGap));
+            selectedDescriptionLayout = GumScrollableText.Build(
+                selectedDescriptionViewportBounds,
+                BuildSelectedDescriptionText(scaffolding),
+                GumTextStyle.Small,
+                SelectedDescriptionScroll);
+            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+        }
         else if (SelectedObject is Creature or Building)
         {
             const int minimumDescriptionHeight = 48;
@@ -238,16 +295,9 @@ public sealed partial class MenuController
                 selectedBodyTop,
                 selectedBounds.Width - 32,
                 Math.Max(minimumDescriptionHeight, deleteSelectedBounds.Y - selectedBodyTop - 14));
-            var selectedDescriptionText = SelectedObject switch
-            {
-                Creature => "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
-                Building building when !string.IsNullOrWhiteSpace(building.Description)
-                    => $"{building.Description}\n\nDelete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
-                _ => "Delete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward."
-            };
             selectedDescriptionLayout = GumScrollableText.Build(
                 selectedDescriptionViewportBounds,
-                selectedDescriptionText,
+                BuildSelectedDescriptionText(SelectedObject),
                 GumTextStyle.Small,
                 SelectedDescriptionScroll);
             SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
@@ -346,6 +396,8 @@ public sealed partial class MenuController
             selectedRenamePrimaryButtonBounds,
             selectedRenameSecondaryButtonBounds,
             selectedTraitSummaryBounds,
+            selectedRecipeBounds,
+            selectedRecipeText,
             selectedInventoryFrameBounds,
             selectedInventoryViewportBounds,
             selectedInventoryEntries,
@@ -505,6 +557,23 @@ public sealed partial class MenuController
         return result;
     }
 
+    private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(Scaffolding scaffolding)
+    {
+        var result = new List<InventoryEntryData>();
+        var depositedResources = scaffolding.GetDepositedResources();
+        foreach (var item in ItemCatalog.GetStockpileOrder())
+        {
+            if (!depositedResources.TryGetValue(item.Resource, out var amount) || amount <= 0)
+            {
+                continue;
+            }
+
+            result.Add(new InventoryEntryData(item.Name, amount, item.TextureKey));
+        }
+
+        return result;
+    }
+
     private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IInventoryCarrier carrier)
     {
         if (!carrier.HasInventory() ||
@@ -518,6 +587,52 @@ public sealed partial class MenuController
             ItemCatalog.GetName(carrier.Inventory.Type.Value),
             carrier.Inventory.Amount,
             ItemCatalog.GetTextureKey(carrier.Inventory.Type.Value))];
+    }
+
+    private static string BuildSelectedDescriptionText(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Creature => "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+            Building building when !string.IsNullOrWhiteSpace(building.Description)
+                => $"{building.Description}\n\nDelete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+            _ => "Delete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward."
+        };
+    }
+
+    private static string BuildScaffoldingRecipeText(Scaffolding scaffolding)
+    {
+        var requirements = new string[scaffolding.RecipeRequired.Count];
+        for (var index = 0; index < scaffolding.RecipeRequired.Count; index++)
+        {
+            requirements[index] = FormatRequirement(scaffolding.RecipeRequired[index]);
+        }
+
+        return $"Recipe: {string.Join(", ", requirements)}";
+    }
+
+    private static int GetScaffoldingRequiredAmount(Scaffolding scaffolding)
+    {
+        var total = 0;
+        for (var index = 0; index < scaffolding.RecipeRequired.Count; index++)
+        {
+            total += scaffolding.RecipeRequired[index].Amount;
+        }
+
+        return total;
+    }
+
+    private static string FormatRequirement(ResourceRequirement requirement)
+    {
+        var label = requirement.SpecificResource is { } resourceType
+            ? ItemCatalog.GetName(resourceType)
+            : GetResourceCategoryLabel(requirement.Category!.Value);
+        return $"{requirement.Amount} {label}";
+    }
+
+    private static string GetResourceCategoryLabel(ResourceCategory category)
+    {
+        return category.ToString();
     }
 
     private IReadOnlyList<InventoryEntryRect> BuildInventoryLayout(
@@ -655,6 +770,8 @@ public sealed partial class MenuController
         Rectangle? SelectedRenamePrimaryButtonBounds,
         Rectangle? SelectedRenameSecondaryButtonBounds,
         Rectangle? SelectedTraitSummaryBounds,
+        Rectangle? SelectedRecipeBounds,
+        string? SelectedRecipeText,
         Rectangle? SelectedInventoryFrameBounds,
         Rectangle? SelectedInventoryViewportBounds,
         IReadOnlyList<InventoryEntryRect> SelectedInventoryEntries,

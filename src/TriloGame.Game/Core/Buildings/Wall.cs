@@ -26,10 +26,7 @@ public sealed class Wall : Building, IBuildPlacementDragTarget
         TextureKey = Type.NoConnectionSprite;
         MaxHealth = Type.Health;
         Health = MaxHealth;
-        Recipe = new Dictionary<ResourceName, int>
-        {
-            [ResourceName.Sandstone] = 5
-        };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Description = "A defensive wall segment that trilobites can traverse while enemies must break through it.";
     }
 

@@ -57,9 +57,9 @@ public class Building
 
     public BfsField BfsField { get; set; }
 
-    public Dictionary<ResourceName, int>? Recipe { get; protected set; }
+    public List<ResourceRequirement>? Recipe { get; protected set; }
 
-    public Dictionary<ResourceName, int>? ConstructionCost { get; protected set; }
+    public List<ResourceRequirement>? ConstructionCost { get; protected set; }
 
     public bool Selectable { get; protected set; }
 
@@ -103,14 +103,14 @@ public class Building
         DisplayRotationTurns = ((turns % 4) + 4) % 4;
     }
 
-    public virtual Dictionary<ResourceName, int>? GetRecipe()
+    public virtual IReadOnlyList<ResourceRequirement>? GetRecipe()
     {
-        return Recipe is null ? null : new Dictionary<ResourceName, int>(Recipe);
+        return Recipe is null ? null : [.. Recipe];
     }
 
-    public virtual Dictionary<ResourceName, int>? GetConstructionCost()
+    public virtual IReadOnlyList<ResourceRequirement>? GetConstructionCost()
     {
-        return ConstructionCost is null ? null : new Dictionary<ResourceName, int>(ConstructionCost);
+        return ConstructionCost is null ? null : [.. ConstructionCost];
     }
 
     public virtual bool CanBeSelected() => Selectable;

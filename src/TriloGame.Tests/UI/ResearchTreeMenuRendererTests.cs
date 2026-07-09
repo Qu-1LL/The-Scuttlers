@@ -17,7 +17,7 @@ public sealed class ResearchTreeMenuRendererTests
     {
         var selectedInfo = new ResearchNodeInfo("Selected", "B1", "Effect");
         var unlockAction = new ResearchNodeUnlockActionModel(
-            "Chitinstone",
+            "Rock",
             Available: 40,
             Cost: 40,
             CanUnlock: true,
@@ -42,7 +42,7 @@ public sealed class ResearchTreeMenuRendererTests
             "Info",
             "Hover a node.",
             UnlockAction: new ResearchNodeUnlockActionModel(
-                "Chitinstone",
+                "Rock",
                 Available: 40,
                 Cost: 40,
                 CanUnlock: true,
@@ -61,7 +61,7 @@ public sealed class ResearchTreeMenuRendererTests
     {
         var bounds = new Rectangle(100, 80, 260, 20);
         const string availableText = "10";
-        const string suffixText = "/40 Chitinstone to unlock";
+        const string suffixText = "/40 Rock to unlock";
 
         var layout = ResearchTreeMenuRenderer.BuildUnlockCostTextLayout(bounds, availableText, suffixText);
 

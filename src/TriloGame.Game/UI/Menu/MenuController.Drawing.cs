@@ -191,6 +191,17 @@ public sealed partial class MenuController
                 new Color(210, 228, 236));
         }
 
+        if (!string.IsNullOrWhiteSpace(layout.SelectedRecipeText) &&
+            layout.SelectedRecipeBounds is { } recipeBounds)
+        {
+            DrawTextFitted(
+                context,
+                layout.SelectedRecipeText,
+                recipeBounds,
+                new Color(210, 228, 236),
+                minScale: 0.56f);
+        }
+
         if (canRename)
         {
             DrawTextFitted(
@@ -319,6 +330,11 @@ public sealed partial class MenuController
     {
         switch (SelectedObject)
         {
+            case Scaffolding scaffolding:
+                title = "MATERIALS ADDED";
+                amountText = $"{scaffolding.GetTotalDepositedAmount()}/{GetScaffoldingRequiredAmount(scaffolding)}";
+                emptyText = "No materials delivered yet.";
+                return true;
             case IResourceStorage storage:
                 title = "STORAGE";
                 amountText = $"{storage.GetInventoryTotal()}/{storage.Capacity}";

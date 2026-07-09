@@ -32,7 +32,7 @@ public sealed class Factory
 
     public bool HasStation { get; }
 
-    public Dictionary<ResourceName, int>? ConstructionCost { get; }
+    public IReadOnlyList<ResourceRequirement>? ConstructionCost { get; }
 
     public Building Build(GameSession session)
     {

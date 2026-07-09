@@ -14,7 +14,7 @@ public sealed class Storage : Building, IResourceStorage
         : base("Storage", new GridPoint(2, 2), [[0, 0], [0, 0]], session, false)
     {
         TextureKey = "Storage";
-        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Capacity = 20;
         Description = $"A container that can hold up to {Capacity} items.";
     }
@@ -22,6 +22,18 @@ public sealed class Storage : Building, IResourceStorage
     public int Capacity { get; }
 
     public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
+
+    public int GetStoredAmount(ResourceName resourceType) => _inventory.GetValueOrDefault(resourceType, 0);
+
+    public int GetStoredAmount(ResourceCategory resourceCategory)
+    {
+        return ResourceInventoryHelper.GetStoredAmount(resourceCategory, GetStoredAmount);
+    }
+
+    public ResourceStorageMatch? FindStoredResource(ResourceRequirement requirement, int maxAmount)
+    {
+        return ResourceInventoryHelper.FindStoredResource(requirement, maxAmount, GetStoredAmount);
+    }
 
     public int GetInventoryTotal() => _inventoryTotal;
 

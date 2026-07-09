@@ -225,6 +225,43 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
+    public void SelectedTab_ScaffoldingShowsRecipeAndDeliveredMaterials()
+    {
+        var session = new GameSession();
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        var menu = new MenuController();
+        var viewport = new Point(960, 520);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        Assert.Equal(12, scaffolding.Deposit(ResourceName.Malachite, 12));
+        Assert.Equal(8, scaffolding.Deposit(ResourceName.Sandstone, 8));
+
+        menu.SetSelectedObject(scaffolding);
+        menu.OpenPanel("selected");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session])!;
+        var recipeText = (string?)layout.GetType().GetProperty("SelectedRecipeText")!.GetValue(layout);
+        var recipeBounds = (Rectangle?)layout.GetType().GetProperty("SelectedRecipeBounds")!.GetValue(layout);
+        var inventoryFrameBounds = (Rectangle?)layout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(layout);
+        var inventoryEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedInventoryEntries")!.GetValue(layout)!)
+            .Cast<object>()
+            .ToDictionary(
+                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
+                entry => (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!);
+        var textLayout = layout.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
+        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+
+        Assert.Equal("Recipe: 20 Rock", recipeText);
+        Assert.True(recipeBounds.HasValue);
+        Assert.True(inventoryFrameBounds.HasValue);
+        Assert.True(recipeBounds.Value.Bottom <= inventoryFrameBounds.Value.Y);
+        Assert.True(viewportBounds.Y > inventoryFrameBounds.Value.Bottom);
+        Assert.Equal(2, inventoryEntries.Count);
+        Assert.Equal(12, inventoryEntries["Malachite"]);
+        Assert.Equal(8, inventoryEntries["Sandstone"]);
+    }
+
+    [Fact]
     public void HandleWheel_ScrollsSelectedDescriptionWhenBodyTextOverflows()
     {
         var session = new GameSession();

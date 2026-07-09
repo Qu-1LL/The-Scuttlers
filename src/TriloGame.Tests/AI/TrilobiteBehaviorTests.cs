@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
@@ -17,6 +18,26 @@ public sealed class TrilobiteBehaviorTests
         Assert.True(restarted);
         Assert.Null(moveResult);
         Assert.Equal(startingLocation, trilobite.Location);
+    }
+
+    [Fact]
+    public void Move_ForWaitingTrilobiteOnScaffolding_StepsTowardNearestEmptyTile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, buildLocation, "Waiting Trilobite", "unassigned");
+
+        var moveResult = trilobite.Move();
+        var destinationTile = cave.GetTile(trilobite.Location)
+            ?? throw new InvalidOperationException("Expected the trilobite to remain on a valid tile.");
+
+        Assert.NotNull(moveResult);
+        Assert.NotEqual(buildLocation, trilobite.Location);
+        Assert.Equal("empty", destinationTile.Base);
+        Assert.Null(destinationTile.Built);
     }
 
     [Fact]

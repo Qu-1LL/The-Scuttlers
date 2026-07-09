@@ -152,6 +152,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                 ClearActionQueue();
             }
 
+            TryLeaveScaffoldingWhileIdle();
             return false;
         }
 
@@ -189,6 +190,29 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         return false;
+    }
+
+    // Idle trilobites should step off scaffolding so finished builds can complete without prolonged blocking.
+    private void TryLeaveScaffoldingWhileIdle()
+    {
+        if (QueuedActionCount > 0 || Cave is null || !IsTrackedInTileSystem)
+        {
+            return;
+        }
+
+        var currentTile = Cave.GetTile(Location);
+        if (currentTile?.Built is not Scaffolding)
+        {
+            return;
+        }
+
+        var path = Cave.BuildPathToNearestEmptyTile(Location);
+        if (path is null || path.Count < 2)
+        {
+            return;
+        }
+
+        QueueMovePath(path);
     }
 
     private bool ShouldFleeFromNearbyEnemy()
@@ -2085,9 +2109,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return Cave.GetScaffoldingList().Where(scaffold => scaffold.IsInProgress()).ToList();
     }
 
-    private (Building SourceBuilding, IResourceStorage Storage, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromMiningPosts(
+    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromMiningPosts(
         Scaffolding scaffold,
-        IReadOnlyList<ResourceName> neededResources,
+        IReadOnlyList<ScaffoldRequirementNeed> neededRequirements,
         IEnumerable<MiningPost> candidatePosts,
         bool orderedCandidates = false)
     {
@@ -2111,14 +2135,19 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                 continue;
             }
 
-            foreach (var resourceType in neededResources)
+            foreach (var neededRequirement in neededRequirements)
             {
-                var missingAmount = scaffold.GetUnreservedRemainingRequirement(resourceType, this);
-                var availableAmount = post.GetAvailableInventory(resourceType, this);
-                var reserveAmount = System.Math.Min(InventoryCapacity, System.Math.Min(missingAmount, availableAmount));
-                if (reserveAmount > 0)
+                var reserveAmount = System.Math.Min(InventoryCapacity, neededRequirement.Amount);
+                var resourceMatch = post.FindAvailableResource(neededRequirement.Requirement, reserveAmount, this);
+                if (resourceMatch is not null)
                 {
-                    return (post, post, resourceType, reserveAmount);
+                    return (
+                        post,
+                        post,
+                        neededRequirement.RequirementIndex,
+                        neededRequirement.Requirement,
+                        resourceMatch.Value.ResourceType,
+                        resourceMatch.Value.Amount);
                 }
             }
         }
@@ -2126,9 +2155,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return null;
     }
 
-    private (Building SourceBuilding, IResourceStorage Storage, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromStorageBuildings(
+    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromStorageBuildings(
         Scaffolding scaffold,
-        IReadOnlyList<ResourceName> neededResources)
+        IReadOnlyList<ScaffoldRequirementNeed> neededRequirements)
     {
         if (Cave is null)
         {
@@ -2146,14 +2175,19 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                 continue;
             }
 
-            foreach (var resourceType in neededResources)
+            foreach (var neededRequirement in neededRequirements)
             {
-                var missingAmount = scaffold.GetUnreservedRemainingRequirement(resourceType, this);
-                var availableAmount = storage.GetStoredResources().GetValueOrDefault(resourceType, 0);
-                var reserveAmount = System.Math.Min(InventoryCapacity, System.Math.Min(missingAmount, availableAmount));
-                if (reserveAmount > 0)
+                var reserveAmount = System.Math.Min(InventoryCapacity, neededRequirement.Amount);
+                var resourceMatch = storage.FindStoredResource(neededRequirement.Requirement, reserveAmount);
+                if (resourceMatch is not null)
                 {
-                    return (building, storage, resourceType, reserveAmount);
+                    return (
+                        building,
+                        storage,
+                        neededRequirement.RequirementIndex,
+                        neededRequirement.Requirement,
+                        resourceMatch.Value.ResourceType,
+                        resourceMatch.Value.Amount);
                 }
             }
         }
@@ -2161,21 +2195,21 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return null;
     }
 
-    public (Building SourceBuilding, IResourceStorage Storage, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(Scaffolding scaffold, IReadOnlyList<MiningPost>? orderedPosts = null)
+    public (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(Scaffolding scaffold, IReadOnlyList<MiningPost>? orderedPosts = null)
     {
-        var neededResources = scaffold.GetNeededResourceTypes(true, this);
-        if (neededResources.Count == 0)
+        var neededRequirements = scaffold.GetNeededRequirements(true, this);
+        if (neededRequirements.Count == 0)
         {
             return null;
         }
 
         if (orderedPosts is not null)
         {
-            return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededResources, orderedPosts, orderedCandidates: true);
+            return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededRequirements, orderedPosts, orderedCandidates: true);
         }
 
-        return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededResources, EnumerateMiningPostCandidates("builder-supply")) ??
-               GetBuilderSupplyOptionFromStorageBuildings(scaffold, neededResources);
+        return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededRequirements, EnumerateMiningPostCandidates("builder-supply")) ??
+               GetBuilderSupplyOptionFromStorageBuildings(scaffold, neededRequirements);
     }
 
     private bool CanReachResourceStorage(Building building)
@@ -2227,7 +2261,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return true;
         }
 
-        return scaffold.IsConstructionComplete();
+        return scaffold.IsConstructionComplete() && !scaffold.CompletionPending;
     }
 
     public List<Scaffolding> GetScaffoldingPriorityList(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
@@ -2451,7 +2485,11 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        var scaffoldReserved = scaffold.ReserveMaterial(this, supplyOption.Value.ResourceType, supplyOption.Value.Amount);
+        var scaffoldReserved = scaffold.ReserveMaterial(
+            this,
+            supplyOption.Value.RequirementIndex,
+            supplyOption.Value.ResourceType,
+            supplyOption.Value.Amount);
         if (scaffoldReserved <= 0)
         {
             return false;
@@ -2509,7 +2547,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             storage is null ||
             scaffoldReservation is null ||
             (BuilderSourcePost is not null &&
-             (postReservation is null || scaffoldReservation.ResourceType != postReservation.ResourceType)))
+             (postReservation is null || scaffoldReservation.Value.ResourceType != postReservation.ResourceType)))
         {
             scaffold?.ReleaseMaterialReservation(this);
             ClearBuilderSourcePost();
@@ -2540,8 +2578,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return true;
         }
 
-        var requestedAmount = System.Math.Min(GetInventorySpace(), scaffoldReservation.Amount);
-        var withdrawnResourceType = scaffoldReservation.ResourceType;
+        var activeScaffoldReservation = scaffoldReservation.Value;
+        var requestedAmount = System.Math.Min(GetInventorySpace(), activeScaffoldReservation.Amount);
+        var withdrawnResourceType = activeScaffoldReservation.ResourceType;
         var withdrawnAmount = BuilderSourcePost is not null
             ? BuilderSourcePost.WithdrawReservedMaterial(this, requestedAmount)?.Amount ?? 0
             : storage.Withdraw(withdrawnResourceType, requestedAmount);
@@ -2664,6 +2703,59 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
+        if (!scaffold.NeedsConstructionWork() && scaffold.CompletionPending)
+        {
+            return LeaveCompletedScaffold(scaffold);
+        }
+
+        return true;
+    }
+
+    private bool LeaveCompletedScaffold(Scaffolding scaffold)
+    {
+        if (Cave is null)
+        {
+            EnqueueAction(() => { BuilderStep1(); });
+            return true;
+        }
+
+        GridPoint? bestLocation = null;
+        var bestDistance = int.MaxValue;
+        string? bestKey = null;
+        foreach (var tile in scaffold.TileArray)
+        {
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (ReferenceEquals(neighbor.Built, scaffold) || !Cave.CanCreatureTraverseTile(this, neighbor))
+                {
+                    continue;
+                }
+
+                var distance = GridPoint.SquaredDistance(Location, neighbor.Coordinates);
+                if (bestLocation is null ||
+                    distance < bestDistance ||
+                    (distance == bestDistance && string.CompareOrdinal(neighbor.Key, bestKey) < 0))
+                {
+                    bestLocation = neighbor.Coordinates;
+                    bestDistance = distance;
+                    bestKey = neighbor.Key;
+                }
+            }
+        }
+
+        if (bestLocation is null)
+        {
+            EnqueueAction(() => { BuilderStep1(); });
+            return true;
+        }
+
+        var navFallback = new Action(() => { BuilderStep1(); });
+        if (!NavigateTo(bestLocation.Value, navFallback))
+        {
+            return false;
+        }
+
+        EnqueueAction(() => { BuilderStep1(); });
         return true;
     }
 }

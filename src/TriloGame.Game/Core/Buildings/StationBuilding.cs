@@ -25,7 +25,7 @@ public abstract class StationBuilding : Building, IStationBuilding
     {
         TextureKey = textureKey;
         Description = description;
-        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         FighterAssignmentPriority = fighterAssignmentPriority;
         _stations = stations.ToArray();
     }

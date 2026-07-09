@@ -50,4 +50,22 @@ public sealed class ResourceStockpileSystemTests
         Assert.Equal(0, stockpile.GetAmount(ResourceName.Mycocore));
         Assert.Single(stockpile.Entries);
     }
+
+    [Fact]
+    public void TryWithdrawStoredResource_ConsumesAnyMatchingRockResource()
+    {
+        var (session, cave) = TestWorldFactory.CreateRectangularSession(14, 8);
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(0, 0));
+        var storage = new Storage(session);
+        Assert.True(cave.Build(storage, new GridPoint(5, 0)));
+        Assert.Equal(12, post.Deposit(ResourceName.Sandstone, 12));
+        Assert.Equal(7, storage.Deposit(ResourceName.Malachite, 7));
+
+        var withdrawn = ResourceStockpileSystem.TryWithdrawStoredResource(session, ResourceCategory.Rock, 15);
+
+        Assert.True(withdrawn);
+        Assert.Equal(0, post.GetStoredResources().GetValueOrDefault(ResourceName.Sandstone, 0));
+        Assert.Equal(4, storage.GetStoredResources().GetValueOrDefault(ResourceName.Malachite, 0));
+        Assert.Equal(4, ResourceStockpileSystem.GetStoredAmount(session, ResourceCategory.Rock));
+    }
 }

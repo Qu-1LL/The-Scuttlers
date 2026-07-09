@@ -8,10 +8,24 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Scaffolding : Building
 {
-    private readonly Dictionary<Creature, ResourceReservation> _materialReservations = [];
+    private sealed class RequirementProgress
+    {
+        public RequirementProgress(ResourceRequirement requirement)
+        {
+            Requirement = requirement;
+        }
+
+        public ResourceRequirement Requirement { get; }
+
+        public int Deposited { get; set; }
+    }
+
+    private readonly List<RequirementProgress> _recipeProgress = [];
+    private readonly Dictionary<ResourceName, int> _depositedResources = [];
+    private readonly Dictionary<Creature, ScaffoldMaterialReservation> _materialReservations = [];
     private readonly HashSet<Creature> _assignments = [];
 
-    public Scaffolding(GameSession session, Building targetBuilding, Dictionary<ResourceName, int>? recipeOverride = null)
+    public Scaffolding(GameSession session, Building targetBuilding, IReadOnlyList<ResourceRequirement>? recipeOverride = null)
         : base(
             $"{targetBuilding.Name} Scaffolding",
             targetBuilding.Size,
@@ -23,8 +37,13 @@ public sealed class Scaffolding : Building
         TextureKey = "Scaffold";
         RecipeRequired = recipeOverride is null
             ? targetBuilding.GetRecipe() ?? throw new InvalidOperationException($"Scaffolding requires a valid recipe for {targetBuilding.Name}.")
-            : new Dictionary<ResourceName, int>(recipeOverride);
-        RecipeDeposited = RecipeRequired.Keys.ToDictionary(key => key, _ => 0);
+            : [.. recipeOverride];
+
+        for (var index = 0; index < RecipeRequired.Count; index++)
+        {
+            _recipeProgress.Add(new RequirementProgress(RecipeRequired[index]));
+        }
+
         ConstructionRequired = BuildConstructionRequirement(RecipeRequired);
         Description = $"A construction site for {targetBuilding.Name}.";
         SetDisplayRotationTurns(targetBuilding.GetDisplayRotationTurns());
@@ -32,9 +51,7 @@ public sealed class Scaffolding : Building
 
     public Building TargetBuilding { get; }
 
-    public Dictionary<ResourceName, int> RecipeRequired { get; }
-
-    public Dictionary<ResourceName, int> RecipeDeposited { get; }
+    public IReadOnlyList<ResourceRequirement> RecipeRequired { get; }
 
     public bool RecipeComplete { get; private set; }
 
@@ -59,69 +76,174 @@ public sealed class Scaffolding : Building
 
     public IReadOnlyCollection<Creature> GetAssignments() => _assignments;
 
+    public IReadOnlyDictionary<ResourceName, int> GetDepositedResources() => _depositedResources;
+
     public void Assign(Creature creature) => _assignments.Add(creature);
 
     public void RemoveAssignment(Creature creature) => _assignments.Remove(creature);
 
     public int GetVolume() => _assignments.Count;
 
-    public ResourceReservation? GetMaterialReservation(Creature creature)
+    public int GetTotalDepositedAmount()
+    {
+        var total = 0;
+        foreach (var pair in _depositedResources)
+        {
+            total += pair.Value;
+        }
+
+        return total;
+    }
+
+    public ScaffoldMaterialReservation? GetMaterialReservation(Creature creature)
     {
         return _materialReservations.GetValueOrDefault(creature);
     }
 
     public int GetReservedAmount(ResourceName resourceType, Creature? excludeCreature = null)
     {
-        return _materialReservations
-            .Where(pair => pair.Key != excludeCreature && pair.Value.ResourceType == resourceType)
-            .Sum(pair => pair.Value.Amount);
+        var reservedAmount = 0;
+        foreach (var pair in _materialReservations)
+        {
+            if (pair.Key == excludeCreature || pair.Value.ResourceType != resourceType)
+            {
+                continue;
+            }
+
+            reservedAmount += pair.Value.Amount;
+        }
+
+        return reservedAmount;
+    }
+
+    public int GetReservedAmount(int requirementIndex, Creature? excludeCreature = null)
+    {
+        var reservedAmount = 0;
+        foreach (var pair in _materialReservations)
+        {
+            if (pair.Key == excludeCreature || pair.Value.RequirementIndex != requirementIndex)
+            {
+                continue;
+            }
+
+            reservedAmount += pair.Value.Amount;
+        }
+
+        return reservedAmount;
+    }
+
+    public int GetRemainingRequirement(int requirementIndex)
+    {
+        if (!IsValidRequirementIndex(requirementIndex))
+        {
+            return 0;
+        }
+
+        var progress = _recipeProgress[requirementIndex];
+        return System.Math.Max(0, progress.Requirement.Amount - progress.Deposited);
     }
 
     public int GetRemainingRequirement(ResourceName resourceType)
     {
-        return !RecipeRequired.ContainsKey(resourceType)
-            ? 0
-            : System.Math.Max(0, RecipeRequired[resourceType] - RecipeDeposited.GetValueOrDefault(resourceType, 0));
+        var remaining = 0;
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            if (_recipeProgress[index].Requirement.Matches(resourceType))
+            {
+                remaining += GetRemainingRequirement(index);
+            }
+        }
+
+        return remaining;
+    }
+
+    public int GetUnreservedRemainingRequirement(int requirementIndex, Creature? excludeCreature = null)
+    {
+        return System.Math.Max(0, GetRemainingRequirement(requirementIndex) - GetReservedAmount(requirementIndex, excludeCreature));
     }
 
     public int GetUnreservedRemainingRequirement(ResourceName resourceType, Creature? excludeCreature = null)
     {
-        return System.Math.Max(0, GetRemainingRequirement(resourceType) - GetReservedAmount(resourceType, excludeCreature));
+        var remaining = 0;
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            if (_recipeProgress[index].Requirement.Matches(resourceType))
+            {
+                remaining += GetUnreservedRemainingRequirement(index, excludeCreature);
+            }
+        }
+
+        return remaining;
     }
 
-    public IReadOnlyList<ResourceName> GetNeededResourceTypes(bool includeReservations = false, Creature? excludeCreature = null)
+    public IReadOnlyList<ScaffoldRequirementNeed> GetNeededRequirements(bool includeReservations = false, Creature? excludeCreature = null)
     {
-        return RecipeRequired.Keys
-            .Where(resourceType => includeReservations
-                ? GetUnreservedRemainingRequirement(resourceType, excludeCreature) > 0
-                : GetRemainingRequirement(resourceType) > 0)
-            .ToArray();
+        var neededRequirements = new List<ScaffoldRequirementNeed>(_recipeProgress.Count);
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            var remaining = includeReservations
+                ? GetUnreservedRemainingRequirement(index, excludeCreature)
+                : GetRemainingRequirement(index);
+            if (remaining <= 0)
+            {
+                continue;
+            }
+
+            neededRequirements.Add(new ScaffoldRequirementNeed(index, _recipeProgress[index].Requirement, remaining));
+        }
+
+        return neededRequirements;
     }
 
     public bool NeedsAnyResource(bool includeReservations = false, Creature? excludeCreature = null)
     {
-        return GetNeededResourceTypes(includeReservations, excludeCreature).Count > 0;
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            var remaining = includeReservations
+                ? GetUnreservedRemainingRequirement(index, excludeCreature)
+                : GetRemainingRequirement(index);
+            if (remaining > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    public int ReserveMaterial(Creature creature, ResourceName resourceType, int amount)
+    public int ReserveMaterial(Creature creature, int requirementIndex, ResourceName resourceType, int amount)
     {
-        if (amount <= 0)
+        if (amount <= 0 || !IsValidRequirementIndex(requirementIndex))
+        {
+            return 0;
+        }
+
+        var requirement = _recipeProgress[requirementIndex].Requirement;
+        if (!requirement.Matches(resourceType))
         {
             return 0;
         }
 
         ReleaseMaterialReservation(creature);
-        var reserved = System.Math.Min(amount, GetUnreservedRemainingRequirement(resourceType, creature));
+        var reserved = System.Math.Min(amount, GetUnreservedRemainingRequirement(requirementIndex, creature));
         if (reserved <= 0)
         {
             return 0;
         }
 
-        _materialReservations[creature] = new ResourceReservation(resourceType, reserved);
+        _materialReservations[creature] = new ScaffoldMaterialReservation(requirementIndex, requirement, resourceType, reserved);
         return reserved;
     }
 
-    public ResourceReservation? ReleaseMaterialReservation(Creature creature)
+    public int ReserveMaterial(Creature creature, ResourceName resourceType, int amount)
+    {
+        var requirementIndex = FindPreferredRequirementIndex(resourceType, includeReservations: true, creature);
+        return requirementIndex < 0
+            ? 0
+            : ReserveMaterial(creature, requirementIndex, resourceType, amount);
+    }
+
+    public ScaffoldMaterialReservation? ReleaseMaterialReservation(Creature creature)
     {
         if (!_materialReservations.TryGetValue(creature, out var reservation))
         {
@@ -134,17 +256,14 @@ public sealed class Scaffolding : Building
 
     public bool NeedsResource(ResourceName resourceType, bool includeReservations = false, Creature? excludeCreature = null)
     {
-        return includeReservations
-            ? GetUnreservedRemainingRequirement(resourceType, excludeCreature) > 0
-            : GetRemainingRequirement(resourceType) > 0;
+        return FindPreferredRequirementIndex(resourceType, includeReservations, excludeCreature) >= 0;
     }
 
     public int Deposit(ResourceName resourceType, int amount, Creature? creature = null)
     {
-        if (creature is not null)
-        {
-            ReleaseMaterialReservation(creature);
-        }
+        var releasedReservation = creature is not null
+            ? ReleaseMaterialReservation(creature)
+            : null;
 
         if (amount <= 0 || !NeedsResource(resourceType))
         {
@@ -152,14 +271,13 @@ public sealed class Scaffolding : Building
             return 0;
         }
 
-        var accepted = System.Math.Min(amount, GetRemainingRequirement(resourceType));
+        var accepted = DepositIntoMatchingRequirements(resourceType, amount, releasedReservation);
         if (accepted <= 0)
         {
             TryCompleteConstruction(creature);
             return 0;
         }
 
-        RecipeDeposited[resourceType] += accepted;
         UpdateRecipeCompleteState();
         TryCompleteConstruction(creature);
         return accepted;
@@ -216,6 +334,7 @@ public sealed class Scaffolding : Building
     {
         base.CleanupBeforeRemoval(source);
         _assignments.Clear();
+        _depositedResources.Clear();
         _materialReservations.Clear();
         CompletionPending = false;
     }
@@ -257,7 +376,16 @@ public sealed class Scaffolding : Building
 
     private bool UpdateRecipeCompleteState()
     {
-        RecipeComplete = RecipeRequired.All(pair => RecipeDeposited.GetValueOrDefault(pair.Key, 0) >= pair.Value);
+        RecipeComplete = true;
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            if (_recipeProgress[index].Deposited < _recipeProgress[index].Requirement.Amount)
+            {
+                RecipeComplete = false;
+                break;
+            }
+        }
+
         return RecipeComplete;
     }
 
@@ -273,11 +401,164 @@ public sealed class Scaffolding : Building
         return ResourceComplete;
     }
 
+    private int DepositIntoMatchingRequirements(
+        ResourceName resourceType,
+        int amount,
+        ScaffoldMaterialReservation? releasedReservation)
+    {
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        var specificPreferredIndex = releasedReservation.HasValue && releasedReservation.Value.Requirement.IsSpecificResource
+            ? releasedReservation.Value.RequirementIndex
+            : -1;
+        var categoryPreferredIndex = releasedReservation.HasValue && releasedReservation.Value.Requirement.IsCategory
+            ? releasedReservation.Value.RequirementIndex
+            : -1;
+
+        var accepted = DepositIntoRequirements(resourceType, amount, specificPreferredIndex, requireExactResource: true);
+        if (accepted >= amount)
+        {
+            return accepted;
+        }
+
+        return accepted + DepositIntoRequirements(
+            resourceType,
+            amount - accepted,
+            categoryPreferredIndex,
+            requireExactResource: false);
+    }
+
+    private int DepositIntoRequirements(ResourceName resourceType, int amount, int preferredIndex, bool requireExactResource)
+    {
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        var accepted = 0;
+        if (preferredIndex >= 0 && RequirementMatchesPriority(preferredIndex, resourceType, requireExactResource))
+        {
+            accepted += DepositIntoRequirement(preferredIndex, resourceType, amount);
+        }
+
+        if (accepted >= amount)
+        {
+            return accepted;
+        }
+
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            if (index == preferredIndex || !RequirementMatchesPriority(index, resourceType, requireExactResource))
+            {
+                continue;
+            }
+
+            accepted += DepositIntoRequirement(index, resourceType, amount - accepted);
+            if (accepted >= amount)
+            {
+                break;
+            }
+        }
+
+        return accepted;
+    }
+
+    private int DepositIntoRequirement(int requirementIndex, ResourceName resourceType, int amount)
+    {
+        if (amount <= 0 || !IsValidRequirementIndex(requirementIndex))
+        {
+            return 0;
+        }
+
+        var progress = _recipeProgress[requirementIndex];
+        if (!progress.Requirement.Matches(resourceType))
+        {
+            return 0;
+        }
+
+        var accepted = System.Math.Min(amount, GetRemainingRequirement(requirementIndex));
+        if (accepted <= 0)
+        {
+            return 0;
+        }
+
+        progress.Deposited += accepted;
+        _depositedResources[resourceType] = _depositedResources.GetValueOrDefault(resourceType) + accepted;
+        return accepted;
+    }
+
+    private bool RequirementMatchesPriority(int requirementIndex, ResourceName resourceType, bool requireExactResource)
+    {
+        if (!IsValidRequirementIndex(requirementIndex))
+        {
+            return false;
+        }
+
+        var requirement = _recipeProgress[requirementIndex].Requirement;
+        if (requireExactResource)
+        {
+            return requirement.Requires(resourceType) && GetRemainingRequirement(requirementIndex) > 0;
+        }
+
+        return requirement.IsCategory &&
+               requirement.Matches(resourceType) &&
+               GetRemainingRequirement(requirementIndex) > 0;
+    }
+
+    private int FindPreferredRequirementIndex(ResourceName resourceType, bool includeReservations, Creature? excludeCreature)
+    {
+        var exactMatch = FindMatchingRequirementIndex(resourceType, includeReservations, excludeCreature, requireExactResource: true);
+        return exactMatch >= 0
+            ? exactMatch
+            : FindMatchingRequirementIndex(resourceType, includeReservations, excludeCreature, requireExactResource: false);
+    }
+
+    private int FindMatchingRequirementIndex(
+        ResourceName resourceType,
+        bool includeReservations,
+        Creature? excludeCreature,
+        bool requireExactResource)
+    {
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            if (!RequirementMatchesPriority(index, resourceType, requireExactResource))
+            {
+                continue;
+            }
+
+            var remaining = includeReservations
+                ? GetUnreservedRemainingRequirement(index, excludeCreature)
+                : GetRemainingRequirement(index);
+            if (remaining > 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private bool IsValidRequirementIndex(int requirementIndex)
+    {
+        return requirementIndex >= 0 && requirementIndex < _recipeProgress.Count;
+    }
+
     private static int[][] BuildScaffoldOpenMap(int[][] targetOpenMap)
     {
-        return targetOpenMap
-            .Select(row => row.Select(cell => cell > 1 ? cell : 1).ToArray())
-            .ToArray();
+        var openMap = new int[targetOpenMap.Length][];
+        for (var row = 0; row < targetOpenMap.Length; row++)
+        {
+            openMap[row] = new int[targetOpenMap[row].Length];
+            for (var column = 0; column < targetOpenMap[row].Length; column++)
+            {
+                openMap[row][column] = targetOpenMap[row][column] > 1 ? targetOpenMap[row][column] : 1;
+            }
+        }
+
+        return openMap;
     }
 
     // Only live scaffold-owned tiles block completion; excluded cells stay out of the occupancy check.
@@ -294,17 +575,47 @@ public sealed class Scaffolding : Building
         return false;
     }
 
-    private static int BuildConstructionRequirement(Dictionary<ResourceName, int> recipeRequired)
+    private static int BuildConstructionRequirement(IReadOnlyList<ResourceRequirement> recipeRequired)
     {
         var requiredWork = 0;
-        foreach (var (resourceType, amount) in recipeRequired)
+        for (var index = 0; index < recipeRequired.Count; index++)
         {
-            var oreIndex = Economy.OreType.GetOres()
-                .Select((ore, index) => new { ore.Resource, Index = index + 1 })
-                .FirstOrDefault(entry => entry.Resource == resourceType)?.Index ?? 1;
-            requiredWork += amount * oreIndex;
+            var requirement = recipeRequired[index];
+            requiredWork += requirement.Amount * GetConstructionWeight(requirement);
         }
 
         return System.Math.Max(1, requiredWork);
+    }
+
+    private static int GetConstructionWeight(ResourceRequirement requirement)
+    {
+        if (requirement.SpecificResource is { } specificResource)
+        {
+            return GetResourceConstructionWeight(specificResource);
+        }
+
+        foreach (var matchingResourceType in Enum.GetValues<ResourceName>())
+        {
+            if (requirement.Matches(matchingResourceType))
+            {
+                return GetResourceConstructionWeight(matchingResourceType);
+            }
+        }
+
+        return 1;
+    }
+
+    private static int GetResourceConstructionWeight(ResourceName resourceType)
+    {
+        var ores = Economy.OreType.GetOres();
+        for (var index = 0; index < ores.Count; index++)
+        {
+            if (ores[index].Resource == resourceType)
+            {
+                return index + 1;
+            }
+        }
+
+        return 1;
     }
 }

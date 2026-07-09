@@ -26,7 +26,7 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
         Capacity = 1000;
         Radius = 10;
         Description = $"Units assigned to this post will mine ore and stone in a {Radius}-block radius and store it here. Has a capacity of {Capacity}.";
-        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
 
         foreach (var ore in Economy.OreType.GetOres())
         {
@@ -48,6 +48,18 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
 
     public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
 
+    public int GetStoredAmount(ResourceName resourceType) => _inventory.GetValueOrDefault(resourceType, 0);
+
+    public int GetStoredAmount(ResourceCategory resourceCategory)
+    {
+        return ResourceInventoryHelper.GetStoredAmount(resourceCategory, GetStoredAmount);
+    }
+
+    public ResourceStorageMatch? FindStoredResource(ResourceRequirement requirement, int maxAmount)
+    {
+        return ResourceInventoryHelper.FindStoredResource(requirement, maxAmount, GetStoredAmount);
+    }
+
     public int GetInventoryTotal() => _inventoryTotal;
 
     public int GetInventorySpace() => System.Math.Max(0, Capacity - GetInventoryTotal());
@@ -67,6 +79,19 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
     public int GetAvailableInventory(ResourceName resourceType, Creature? excludeCreature = null)
     {
         return System.Math.Max(0, _inventory.GetValueOrDefault(resourceType, 0) - GetReservedAmount(resourceType, excludeCreature));
+    }
+
+    public int GetAvailableInventory(ResourceCategory resourceCategory, Creature? excludeCreature = null)
+    {
+        return ResourceInventoryHelper.GetStoredAmount(resourceCategory, resourceType => GetAvailableInventory(resourceType, excludeCreature));
+    }
+
+    public ResourceStorageMatch? FindAvailableResource(ResourceRequirement requirement, int maxAmount, Creature? excludeCreature = null)
+    {
+        return ResourceInventoryHelper.FindStoredResource(
+            requirement,
+            maxAmount,
+            resourceType => GetAvailableInventory(resourceType, excludeCreature));
     }
 
     public int Deposit(ResourceName resourceType, int amount)

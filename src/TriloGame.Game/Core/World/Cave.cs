@@ -1516,6 +1516,11 @@ public sealed partial class Cave
         return CavePathfinder.BuildDirectPathToPoint(this, startLocation, destination);
     }
 
+    public List<GridPoint>? BuildPathToNearestEmptyTile(GridPoint startLocation)
+    {
+        return CavePathfinder.BuildPathToNearestEmptyTile(this, startLocation);
+    }
+
     public MineablePathResult? BuildPathToNearestMineableType(
         GridPoint startLocation,
         MiningPost post,

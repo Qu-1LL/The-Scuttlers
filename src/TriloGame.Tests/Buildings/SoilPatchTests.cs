@@ -16,8 +16,10 @@ public sealed class SoilPatchTests
         Assert.Equal(new GridPoint(2, 2), soilPatch.Size);
         Assert.Equal("Soil Patch", soilPatch.Name);
         Assert.True(soilPatch.IgnoredByAnts);
-        Assert.Equal(5, soilPatch.GetRecipe()![ResourceName.Sandstone]);
-        Assert.False(soilPatch.GetRecipe()!.ContainsKey(ResourceName.Algae));
+        var recipe = Assert.Single(soilPatch.GetRecipe()!);
+        Assert.Equal(5, recipe.Amount);
+        Assert.Equal(ResourceCategory.Organic, recipe.Category);
+        Assert.Null(recipe.SpecificResource);
         Assert.Equal(4, soilPatch.SoilTiles.Count);
         Assert.NotNull(soilPatch.SoilArea);
         Assert.Equal(4, soilPatch.SoilArea!.SoilTiles.Count);

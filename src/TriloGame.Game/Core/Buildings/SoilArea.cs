@@ -289,7 +289,8 @@ public sealed class SoilArea : Building
 
     private void RefreshRecipe()
     {
-        var recipe = new Dictionary<ResourceName, int>();
+        var resourceAmounts = new Dictionary<ResourceName, int>();
+        var categoryAmounts = new Dictionary<ResourceCategory, int>();
         foreach (var soilPatch in _soilPatches)
         {
             var patchRecipe = soilPatch.GetRecipe();
@@ -298,9 +299,33 @@ public sealed class SoilArea : Building
                 continue;
             }
 
-            foreach (var pair in patchRecipe)
+            foreach (var requirement in patchRecipe)
             {
-                recipe[pair.Key] = recipe.GetValueOrDefault(pair.Key) + pair.Value;
+                if (requirement.SpecificResource is { } specificResource)
+                {
+                    resourceAmounts[specificResource] = resourceAmounts.GetValueOrDefault(specificResource) + requirement.Amount;
+                    continue;
+                }
+
+                var category = requirement.Category!.Value;
+                categoryAmounts[category] = categoryAmounts.GetValueOrDefault(category) + requirement.Amount;
+            }
+        }
+
+        var recipe = new List<ResourceRequirement>(resourceAmounts.Count + categoryAmounts.Count);
+        foreach (var resourceType in Enum.GetValues<ResourceName>())
+        {
+            if (resourceAmounts.TryGetValue(resourceType, out var amount) && amount > 0)
+            {
+                recipe.Add(ResourceRequirement.ForResource(resourceType, amount));
+            }
+        }
+
+        foreach (var category in Enum.GetValues<ResourceCategory>())
+        {
+            if (categoryAmounts.TryGetValue(category, out var amount) && amount > 0)
+            {
+                recipe.Add(ResourceRequirement.ForCategory(category, amount));
             }
         }
 

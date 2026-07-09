@@ -13,7 +13,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(25, 12, new GridPoint(11, 0));
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
         var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
-        leftPost.Deposit(ResourceName.Sandstone, 25);
+        leftPost.Deposit(ResourceName.Malachite, 25);
         rightPost.Deposit(ResourceName.Sandstone, 25);
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Builder", "builder");
@@ -23,7 +23,7 @@ public sealed class TrilobiteMiningPostSelectionTests
 
         Assert.NotNull(supplyOption);
         Assert.Same(leftPost, supplyOption.Value.SourceBuilding);
-        Assert.Equal(ResourceName.Sandstone, supplyOption.Value.ResourceType);
+        Assert.Equal(ResourceName.Malachite, supplyOption.Value.ResourceType);
         Assert.Equal(builder.InventoryCapacity, supplyOption.Value.Amount);
 
         var metrics = builder.LastMiningPostSelectionMetrics;
@@ -130,7 +130,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(11, 6));
         var validPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(21, 6));
         TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(31, 6));
-        validPost.Deposit(ResourceName.Sandstone, 25);
+        validPost.Deposit(ResourceName.Malachite, 25);
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 9), "Builder", "builder");
         var scaffold = new Scaffolding(session, new Barracks(session));
@@ -139,6 +139,7 @@ public sealed class TrilobiteMiningPostSelectionTests
 
         Assert.NotNull(supplyOption);
         Assert.Same(validPost, supplyOption.Value.SourceBuilding);
+        Assert.Equal(ResourceName.Malachite, supplyOption.Value.ResourceType);
 
         var metrics = builder.LastMiningPostSelectionMetrics;
         Assert.NotNull(metrics);

@@ -53,6 +53,46 @@ internal static class CavePathfinder
         return null;
     }
 
+    public static List<GridPoint>? BuildPathToNearestEmptyTile(Cave cave, GridPoint startLocation)
+    {
+        var startTile = cave.GetTile(startLocation);
+        if (startTile is null || !startTile.CreatureFits() || !cave.IsTileReachable(startTile))
+        {
+            return null;
+        }
+
+        var queue = new Queue<Tile>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { startTile.Key };
+        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
+        queue.Enqueue(startTile);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (current.Key != startTile.Key &&
+                string.Equals(current.Base, "empty", StringComparison.Ordinal) &&
+                current.Built is null &&
+                current.Trilobites.Count == 0 &&
+                current.EnemyOccupant is null)
+            {
+                return ReconstructDirectPath(cameFrom, startTile.Key, current.Key);
+            }
+
+            foreach (var neighbor in GetNeighborsOrderedByKey(current))
+            {
+                if (!neighbor.CreatureFits() || !cave.IsTileReachable(neighbor) || !visited.Add(neighbor.Key))
+                {
+                    continue;
+                }
+
+                cameFrom[neighbor.Key] = current.Key;
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return null;
+    }
+
     public static Cave.MineablePathResult? BuildPathToNearestMineableType(
         Cave cave,
         GridPoint startLocation,

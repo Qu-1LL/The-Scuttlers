@@ -11,7 +11,7 @@ public sealed class Radar : Building
         : base("Radar", new GridPoint(4, 4), [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], session, false)
     {
         TextureKey = "Radar";
-        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         RadiusMax = 50;
         CurrentRadius = 0;
         GrowthChance = 0.1;

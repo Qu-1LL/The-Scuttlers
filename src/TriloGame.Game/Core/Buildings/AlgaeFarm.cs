@@ -37,7 +37,7 @@ public sealed class AlgaeFarm : Building
         HarvestYield = GameConstants.AlgaeHarvestYield;
         MaxTrilobites = 2;
         TraversalPath = CloneOpenMap(DefaultTraversalPath);
-        Recipe = new Dictionary<ResourceName, int> { [ResourceName.Sandstone] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Description = $"A passable algae farm. Up to {MaxTrilobites} worker trilobites harvest {HarvestYield} algae when random < growth/period.";
     }
 

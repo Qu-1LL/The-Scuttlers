@@ -6,6 +6,12 @@ public interface IResourceStorage
 
     IReadOnlyDictionary<ResourceName, int> GetStoredResources();
 
+    int GetStoredAmount(ResourceName resourceType);
+
+    int GetStoredAmount(ResourceCategory resourceCategory);
+
+    ResourceStorageMatch? FindStoredResource(ResourceRequirement requirement, int maxAmount);
+
     int GetInventoryTotal();
 
     int GetInventorySpace();

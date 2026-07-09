@@ -28,6 +28,23 @@ public sealed class ResourceStockpileSystem
         return total;
     }
 
+    public static int GetStoredAmount(GameSession session, ResourceCategory resourceCategory)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (session.Cave is null)
+        {
+            return 0;
+        }
+
+        var total = 0;
+        foreach (var storage in EnumerateResourceStorages(session))
+        {
+            total += storage.GetStoredAmount(resourceCategory);
+        }
+
+        return total;
+    }
+
     public static bool TryWithdrawStoredResource(GameSession session, ResourceName resourceType, int amount)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -46,6 +63,40 @@ public sealed class ResourceStockpileSystem
         foreach (var storage in EnumerateResourceStorages(session))
         {
             var withdrawn = storage.Withdraw(resourceType, remaining);
+            remaining -= withdrawn;
+            if (remaining <= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool TryWithdrawStoredResource(GameSession session, ResourceCategory resourceCategory, int amount)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (amount <= 0)
+        {
+            return false;
+        }
+
+        var available = GetStoredAmount(session, resourceCategory);
+        if (available < amount)
+        {
+            return false;
+        }
+
+        var remaining = amount;
+        foreach (var storage in EnumerateResourceStorages(session))
+        {
+            var match = storage.FindStoredResource(ResourceRequirement.ForCategory(resourceCategory, remaining), remaining);
+            if (match is null)
+            {
+                continue;
+            }
+
+            var withdrawn = storage.Withdraw(match.Value.ResourceType, remaining);
             remaining -= withdrawn;
             if (remaining <= 0)
             {
