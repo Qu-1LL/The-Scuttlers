@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -25,10 +26,7 @@ public sealed class Wall : Building, IBuildPlacementDragTarget
         TextureKey = Type.NoConnectionSprite;
         MaxHealth = Type.Health;
         Health = MaxHealth;
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            ["Sandstone"] = 5
-        };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Description = "A defensive wall segment that trilobites can traverse while enemies must break through it.";
     }
 

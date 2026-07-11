@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -7,6 +8,9 @@ public static class GameEvents
 {
     public const string TileMined = "tileMined";
     public const string WallMined = "wallMined";
+    public const string LumeniteMined = "LumeniteMined";
+    public const string ChitinstoneMined = "ChitinstoneMined";
+    public const string MycocoreMined = "MycocoreMined";
     public const string StorageInventoryChanged = "storageInventoryChanged";
     public const string AlgaeMined = "AlgaeMined";
     public const string SandstoneMined = "SandstoneMined";
@@ -22,6 +26,6 @@ public sealed record GameEventPayload(
     string? TileKey,
     GridPoint? Location,
     string? MinedType,
-    string? ResourceType,
+    ResourceName? ResourceType,
     object? Source,
     int ResourceDelta = 0);

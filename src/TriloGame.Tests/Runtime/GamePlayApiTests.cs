@@ -37,6 +37,51 @@ public sealed class GamePlayApiTests
     }
 
     [Fact]
+    public void PlaceBuilding_AppliesRotationToFootprint()
+    {
+        var host = new FakeGamePlayHost();
+        var api = new GamePlayApi(host);
+        var cave = host.Session.Cave!;
+        var rotatedFarm = new AlgaeFarm(host.Session);
+        rotatedFarm.RotateMap();
+        var location = TestWorldFactory.FindBuildLocation(cave, rotatedFarm, preserveReachability: true);
+
+        var built = api.PlaceBuilding("algaefarm", location, displayRotationTurns: 1);
+
+        Assert.True(built);
+        var placedFarm = Assert.Single(cave.GetBuildingList().OfType<AlgaeFarm>(), farm => farm.Location == location);
+        Assert.Equal(1, placedFarm.GetDisplayRotationTurns());
+        Assert.Equal(new GridPoint(3, 2), placedFarm.Size);
+    }
+
+    [Fact]
+    public void PlaceBuilding_PreservesExistingBuildingAccess()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var existingStorage = new Storage(session);
+        Assert.True(cave.Build(existingStorage, new GridPoint(12, 4)));
+
+        foreach (var location in new[]
+                 {
+                     new GridPoint(11, 3), new GridPoint(12, 3), new GridPoint(13, 3), new GridPoint(14, 3),
+                     new GridPoint(11, 6), new GridPoint(12, 6), new GridPoint(13, 6), new GridPoint(14, 6),
+                     new GridPoint(14, 4), new GridPoint(14, 5)
+                 })
+        {
+            SetWallTile(cave, location);
+        }
+
+        cave.RefreshReachableTiles();
+        var host = new FakeGamePlayHost(session);
+        var api = new GamePlayApi(host);
+
+        var built = api.PlaceBuilding("storage", new GridPoint(10, 4));
+
+        Assert.False(built);
+        Assert.DoesNotContain(cave.GetBuildingList(), building => building is Storage && building.Location == new GridPoint(10, 4));
+    }
+
+    [Fact]
     public void RunTicks_AdvancesLiveSnapshot()
     {
         var host = new FakeGamePlayHost();
@@ -63,6 +108,7 @@ public sealed class GamePlayApiTests
             .Where(tile =>
                 cave.IsTileRevealed(tile) &&
                 cave.CanPlaceAntHole(tile) &&
+                cave.PreviewAntHoleSpawnTiles(tile, 1).Count > 0 &&
                 tile.Neighbors.Any(neighbor => neighbor.CreatureFits() && string.Equals(neighbor.Base, "empty", StringComparison.Ordinal)))
             .OrderBy(tile => GridPoint.ManhattanDistance(tile.Coordinates, GridPoint.Zero))
             .First();
@@ -144,5 +190,14 @@ public sealed class GamePlayApiTests
         {
             _clock.RunSingleTick(Session);
         }
+    }
+
+    private static void SetWallTile(Cave cave, GridPoint location)
+    {
+        var tile = cave.GetTile(location)
+            ?? throw new InvalidOperationException($"Expected tile at {location}.");
+        tile.SetBase("wall");
+        tile.CreatureCanFit = false;
+        tile.ConfigureWall(1);
     }
 }

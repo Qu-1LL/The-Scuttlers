@@ -4,6 +4,7 @@ namespace TriloGame.Game.UI.Gum;
 
 public enum GumTextStyle
 {
+    Display,
     UiLarge,
     Ui,
     Small,
@@ -19,6 +20,7 @@ public static class GumTextLayout
     {
         return style switch
         {
+            GumTextStyle.Display => new GumTextMetrics(48, 26.4f, 56),
             GumTextStyle.UiLarge => new GumTextMetrics(24, 13.2f, 30),
             GumTextStyle.Ui => new GumTextMetrics(21, 11.4f, 26),
             GumTextStyle.Debug => new GumTextMetrics(19, 10.2f, 24),
@@ -82,6 +84,21 @@ public static class GumTextLayout
     }
 
     public static IReadOnlyList<string> Wrap(IEnumerable<string> paragraphs, int maxWidth, int maxLines, GumTextStyle style)
+    {
+        return WrapCore(paragraphs, maxWidth, maxLines, style, truncate: true);
+    }
+
+    public static IReadOnlyList<string> WrapAll(IEnumerable<string> paragraphs, int maxWidth, GumTextStyle style)
+    {
+        return WrapCore(paragraphs, maxWidth, int.MaxValue, style, truncate: false);
+    }
+
+    private static IReadOnlyList<string> WrapCore(
+        IEnumerable<string> paragraphs,
+        int maxWidth,
+        int maxLines,
+        GumTextStyle style,
+        bool truncate)
     {
         var metrics = GetMetrics(style);
         if (maxWidth <= 0 || maxLines <= 0)
@@ -158,7 +175,7 @@ public static class GumTextLayout
             lines.Add(FitToWidth(current, maxWidth, style));
         }
 
-        if (truncated && lines.Count > 0)
+        if (truncate && truncated && lines.Count > 0)
         {
             lines[^1] = FitToWidth($"{lines[^1].TrimEnd()}...", maxWidth, style);
         }

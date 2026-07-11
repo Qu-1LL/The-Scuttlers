@@ -5,9 +5,9 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class Garage : Building, IStorage
+public sealed class Garage : Building, IResourceStorage, IStorage
 {
-    private readonly Dictionary<string, int> _inventory = new(StringComparer.Ordinal);
+    private readonly Dictionary<ResourceName, int> _inventory = [];
     private readonly HashSet<Silo> _adjacentSilos = [];
     private int _inventoryTotal;
 
@@ -15,13 +15,10 @@ public sealed class Garage : Building, IStorage
         : base("Garage", new GridPoint(2, 2), [[0, 0], [0, 0]], session, false)
     {
         TextureKey = "Garage";
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            [OreType.SANDSTONE.Name] = 20
-        };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Capacity = 1000;
         ChosenResource = GrowableResourceType.ALGAE;
-        Description = $"A ranch garage that stores up to {Capacity} harvested resources and anchors one ranch.";
+        Description = $"A high-capacity algae garage that stores up to {Capacity} harvested resources and can anchor one ranch.";
     }
 
     public int Capacity { get; }
@@ -32,21 +29,35 @@ public sealed class Garage : Building, IStorage
 
     internal IReadOnlyCollection<Silo> AdjacentSilos => _adjacentSilos;
 
-    public IReadOnlyDictionary<string, int> GetInventory() => _inventory;
+    public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
+
+    public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
+
+    public int GetStoredAmount(ResourceName resourceType) => _inventory.GetValueOrDefault(resourceType, 0);
+
+    public int GetStoredAmount(ResourceCategory resourceCategory)
+    {
+        return ResourceInventoryHelper.GetStoredAmount(resourceCategory, GetStoredAmount);
+    }
+
+    public ResourceStorageMatch? FindStoredResource(ResourceRequirement requirement, int maxAmount)
+    {
+        return ResourceInventoryHelper.FindStoredResource(requirement, maxAmount, GetStoredAmount);
+    }
 
     public int GetInventoryTotal() => _inventoryTotal;
 
-    public int GetInventorySpace() => System.Math.Max(0, Capacity - _inventoryTotal);
+    public int GetInventorySpace() => Math.Max(0, Capacity - _inventoryTotal);
 
-    public int Deposit(string resourceType, int amount)
+    public int Deposit(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
 
         _inventory.TryAdd(resourceType, 0);
-        var accepted = System.Math.Min(GetInventorySpace(), amount);
+        var accepted = Math.Min(GetInventorySpace(), amount);
         if (accepted <= 0)
         {
             return 0;
@@ -55,7 +66,7 @@ public sealed class Garage : Building, IStorage
         _inventory[resourceType] += accepted;
         _inventoryTotal += accepted;
         EmitStorageInventoryChanged(resourceType, accepted);
-        if (accepted > 0 && string.Equals(resourceType, OreType.ALGAE.Name, StringComparison.Ordinal))
+        if (resourceType == ResourceName.Algae)
         {
             TryOffloadAlgaeToAdjacentSilos();
         }
@@ -63,15 +74,15 @@ public sealed class Garage : Building, IStorage
         return accepted;
     }
 
-    public int Withdraw(string resourceType, int amount)
+    public int Withdraw(ResourceName resourceType, int amount)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0)
+        if (amount <= 0)
         {
             return 0;
         }
 
         _inventory.TryAdd(resourceType, 0);
-        var taken = System.Math.Min(_inventory[resourceType], amount);
+        var taken = Math.Min(_inventory[resourceType], amount);
         if (taken <= 0)
         {
             return 0;
@@ -86,7 +97,6 @@ public sealed class Garage : Building, IStorage
     public override void CleanupBeforeRemoval(object? source = null)
     {
         _adjacentSilos.Clear();
-
         if (_inventoryTotal > 0)
         {
             foreach (var pair in _inventory)
@@ -98,16 +108,10 @@ public sealed class Garage : Building, IStorage
 
                 EmitStorageInventoryChanged(pair.Key, -pair.Value);
             }
-
-            var resourceTypes = _inventory.Keys.ToArray();
-            for (var index = 0; index < resourceTypes.Length; index++)
-            {
-                _inventory[resourceTypes[index]] = 0;
-            }
-
-            _inventoryTotal = 0;
         }
 
+        _inventory.Clear();
+        _inventoryTotal = 0;
         base.CleanupBeforeRemoval(source);
     }
 
@@ -121,19 +125,18 @@ public sealed class Garage : Building, IStorage
         _adjacentSilos.Remove(silo);
     }
 
-    // Garages spill stored algae into their adjacent silos without touching non-algae resources.
     internal int TryOffloadAlgaeToAdjacentSilos()
     {
         var transferred = 0;
         while (TrySelectSiloForAlgaeOffload(out var silo, out var requestedTransfer))
         {
-            var withdrawn = Withdraw(OreType.ALGAE.Name, requestedTransfer);
+            var withdrawn = Withdraw(ResourceName.Algae, requestedTransfer);
             if (withdrawn <= 0)
             {
                 break;
             }
 
-            var accepted = silo!.Deposit(OreType.ALGAE.Name, withdrawn);
+            var accepted = silo!.Deposit(ResourceName.Algae, withdrawn);
             transferred += accepted;
             if (accepted >= withdrawn)
             {
@@ -141,9 +144,9 @@ public sealed class Garage : Building, IStorage
             }
 
             var remainder = withdrawn - accepted;
-            _inventory[OreType.ALGAE.Name] += remainder;
+            _inventory[ResourceName.Algae] += remainder;
             _inventoryTotal += remainder;
-            EmitStorageInventoryChanged(OreType.ALGAE.Name, remainder);
+            EmitStorageInventoryChanged(ResourceName.Algae, remainder);
             break;
         }
 
@@ -154,7 +157,7 @@ public sealed class Garage : Building, IStorage
     {
         silo = null;
         transferAmount = 0;
-        var availableAlgae = _inventory.GetValueOrDefault(OreType.ALGAE.Name, 0);
+        var availableAlgae = _inventory.GetValueOrDefault(ResourceName.Algae, 0);
         if (availableAlgae <= 0)
         {
             return false;
@@ -192,20 +195,20 @@ public sealed class Garage : Building, IStorage
         }
 
         silo = lowest;
-        transferAmount = System.Math.Min(availableAlgae, lowest.GetInventorySpace());
+        transferAmount = Math.Min(availableAlgae, lowest.GetInventorySpace());
         if (secondLowest is null)
         {
             return transferAmount > 0;
         }
 
         var gapToNextLowest = secondLowest.GetInventoryTotal() - lowest.GetInventoryTotal();
-        transferAmount = System.Math.Min(transferAmount, System.Math.Max(1, gapToNextLowest));
+        transferAmount = Math.Min(transferAmount, Math.Max(1, gapToNextLowest));
         return transferAmount > 0;
     }
 
-    private void EmitStorageInventoryChanged(string resourceType, int resourceDelta)
+    private void EmitStorageInventoryChanged(ResourceName resourceType, int resourceDelta)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || resourceDelta == 0)
+        if (resourceDelta == 0)
         {
             return;
         }

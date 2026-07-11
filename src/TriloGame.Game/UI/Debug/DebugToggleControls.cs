@@ -1,6 +1,5 @@
 using Microsoft.Xna.Framework;
 using RenderingLibrary.Graphics;
-using TriloGame.Game.Core.Constants;
 using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Game.UI.Debug;
@@ -8,28 +7,25 @@ namespace TriloGame.Game.UI.Debug;
 public sealed class DebugToggleControls
 {
     private readonly Action<bool> _setRoleLabels;
-    private readonly Action<bool> _setFreezeOpal;
-    private readonly Action<bool> _setAllowManualMining;
-    private readonly Action<bool> _setToggleMapVisibility;
     private readonly Action<bool> _setDisableEnemySpawns;
     private readonly Action<bool> _setNoCostBuildPlacement;
+    private readonly Action<bool> _setInfiniteDraft;
+    private readonly Action<bool> _setRevealMap;
     private readonly Action _playUiSelectSound;
 
     public DebugToggleControls(
         Action<bool> setRoleLabels,
-        Action<bool> setFreezeOpal,
-        Action<bool> setAllowManualMining,
-        Action<bool> setToggleMapVisibility,
         Action<bool> setDisableEnemySpawns,
         Action<bool> setNoCostBuildPlacement,
+        Action<bool> setInfiniteDraft,
+        Action<bool> setRevealMap,
         Action playUiSelectSound)
     {
         _setRoleLabels = setRoleLabels;
-        _setFreezeOpal = setFreezeOpal;
-        _setAllowManualMining = setAllowManualMining;
-        _setToggleMapVisibility = setToggleMapVisibility;
         _setDisableEnemySpawns = setDisableEnemySpawns;
         _setNoCostBuildPlacement = setNoCostBuildPlacement;
+        _setInfiniteDraft = setInfiniteDraft;
+        _setRevealMap = setRevealMap;
         _playUiSelectSound = playUiSelectSound;
     }
 
@@ -38,11 +34,10 @@ public sealed class DebugToggleControls
         Point point,
         bool debugMenuOpen,
         bool showRoleLabels,
-        bool freezeOpalProgression,
-        bool allowManualMining,
-        bool toggleMapVisibility,
         bool disableEnemySpawns,
-        bool noCostBuildPlacement)
+        bool noCostBuildPlacement,
+        bool infiniteDraft,
+        bool revealMap)
     {
         if (!debugMenuOpen)
         {
@@ -53,13 +48,6 @@ public sealed class DebugToggleControls
         if (bounds.ShowRoleLabels.Contains(point))
         {
             _setRoleLabels(!showRoleLabels);
-            _playUiSelectSound();
-            return true;
-        }
-
-        if (GameConstants.EnableOpal && bounds.FreezeOpal.Contains(point))
-        {
-            _setFreezeOpal(!freezeOpalProgression);
             _playUiSelectSound();
             return true;
         }
@@ -78,16 +66,16 @@ public sealed class DebugToggleControls
             return true;
         }
 
-        if (bounds.AllowManualMining.Contains(point))
+        if (bounds.InfiniteDraft.Contains(point))
         {
-            _setAllowManualMining(!allowManualMining);
+            _setInfiniteDraft(!infiniteDraft);
             _playUiSelectSound();
             return true;
         }
 
-        if (bounds.ToggleMapVisibility.Contains(point))
+        if (bounds.RevealMap.Contains(point))
         {
-            _setToggleMapVisibility(!toggleMapVisibility);
+            _setRevealMap(!revealMap);
             _playUiSelectSound();
             return true;
         }
@@ -100,11 +88,10 @@ public sealed class DebugToggleControls
         Point viewport,
         bool debugMenuOpen,
         bool showRoleLabels,
-        bool freezeOpalProgression,
-        bool allowManualMining,
-        bool toggleMapVisibility,
         bool disableEnemySpawns,
         bool noCostBuildPlacement,
+        bool infiniteDraft,
+        bool revealMap,
         Point pointer)
     {
         if (!debugMenuOpen)
@@ -114,33 +101,23 @@ public sealed class DebugToggleControls
 
         var bounds = BuildToggleBounds(viewport);
         DrawToggle(gumUi, bounds.ShowRoleLabels, "Show Role Labels", showRoleLabels, bounds.ShowRoleLabels.Contains(pointer));
-        if (GameConstants.EnableOpal)
-        {
-            DrawToggle(gumUi, bounds.FreezeOpal, "Freeze Opal", freezeOpalProgression, bounds.FreezeOpal.Contains(pointer));
-        }
-
         DrawToggle(gumUi, bounds.NoCostBuild, "No Cost Build", noCostBuildPlacement, bounds.NoCostBuild.Contains(pointer));
         DrawToggle(gumUi, bounds.DisableEnemySpawns, "Disable Enemy Spawns", disableEnemySpawns, bounds.DisableEnemySpawns.Contains(pointer));
-        DrawToggle(gumUi, bounds.AllowManualMining, "Allow Manual Mining", allowManualMining, bounds.AllowManualMining.Contains(pointer));
-        DrawToggle(gumUi, bounds.ToggleMapVisibility, "Toggle Map Visibility", toggleMapVisibility, bounds.ToggleMapVisibility.Contains(pointer));
+        DrawToggle(gumUi, bounds.InfiniteDraft, "Infinite Draft", infiniteDraft, bounds.InfiniteDraft.Contains(pointer));
+        DrawToggle(gumUi, bounds.RevealMap, "Reveal Map", revealMap, bounds.RevealMap.Contains(pointer));
     }
 
     private static DebugToggleBounds BuildToggleBounds(Point viewport)
     {
         var layout = DebugMenuLayout.Build(viewport);
-        var topRow = DebugMenuLayout.SplitRow(layout.VisualTopRowBounds, GameConstants.EnableOpal ? 4 : 3, layout.ButtonGap);
-        var bottomRow = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 2, layout.ButtonGap);
-        var freezeOpalBounds = GameConstants.EnableOpal ? topRow[1] : Rectangle.Empty;
-        var noCostBuildIndex = GameConstants.EnableOpal ? 2 : 1;
-        var disableEnemyIndex = GameConstants.EnableOpal ? 3 : 2;
-
+        var topRow = DebugMenuLayout.SplitRow(layout.VisualTopRowBounds, 4, layout.ButtonGap);
+        var bottomRow = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 1, layout.ButtonGap);
         return new DebugToggleBounds(
             ShowRoleLabels: topRow[0],
-            FreezeOpal: freezeOpalBounds,
-            NoCostBuild: topRow[noCostBuildIndex],
-            DisableEnemySpawns: topRow[disableEnemyIndex],
-            AllowManualMining: bottomRow[0],
-            ToggleMapVisibility: bottomRow[1]);
+            NoCostBuild: topRow[1],
+            DisableEnemySpawns: topRow[2],
+            InfiniteDraft: topRow[3],
+            RevealMap: bottomRow[0]);
     }
 
     private static void DrawToggle(GumUiRenderer gumUi, Rectangle bounds, string text, bool isChecked, bool hovered)
@@ -176,9 +153,8 @@ public sealed class DebugToggleControls
 
     private readonly record struct DebugToggleBounds(
         Rectangle ShowRoleLabels,
-        Rectangle FreezeOpal,
         Rectangle NoCostBuild,
         Rectangle DisableEnemySpawns,
-        Rectangle AllowManualMining,
-        Rectangle ToggleMapVisibility);
+        Rectangle InfiniteDraft,
+        Rectangle RevealMap);
 }

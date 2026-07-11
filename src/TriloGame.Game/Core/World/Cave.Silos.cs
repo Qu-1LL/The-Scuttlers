@@ -19,7 +19,7 @@ public sealed partial class Cave
             return false;
         }
 
-        var availableAlgae = plow.GetInventory().GetValueOrDefault(OreType.ALGAE.Name, 0);
+        var availableAlgae = plow.GetInventory().GetValueOrDefault(ResourceName.Algae, 0);
         if (availableAlgae <= 0)
         {
             return false;
@@ -38,10 +38,10 @@ public sealed partial class Cave
                 continue;
             }
 
-            var accepted = silo.Deposit(OreType.ALGAE.Name, availableAlgae);
+            var accepted = silo.Deposit(ResourceName.Algae, availableAlgae);
             if (accepted > 0)
             {
-                plow.Withdraw(OreType.ALGAE.Name, accepted);
+                plow.Withdraw(ResourceName.Algae, accepted);
             }
 
             return accepted > 0;

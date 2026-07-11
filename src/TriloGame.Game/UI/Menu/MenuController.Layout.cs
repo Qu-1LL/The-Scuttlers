@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.UI.Gum;
@@ -41,57 +42,9 @@ public sealed partial class MenuController
         var buildingScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.18f);
         var buildingSectionGap = (int)MathF.Round(16f * buildingScale);
         var previewHeight = Math.Min(
-            (int)MathF.Round(336f * buildingScale),
-            Math.Max((int)MathF.Round(220f * buildingScale), (int)MathF.Floor(contentBounds.Height * 0.4f)));
+            (int)MathF.Round(300f * buildingScale),
+            Math.Max((int)MathF.Round(190f * buildingScale), (int)MathF.Floor(contentBounds.Height * 0.34f)));
         var previewBounds = new Rectangle(contentBounds.X, contentBounds.Y, contentBounds.Width, previewHeight);
-        var previewPadding = (int)MathF.Round(12f * buildingScale);
-        var previewImageSize = Math.Clamp(
-            (int)MathF.Round(132f * buildingScale),
-            (int)MathF.Round(92f * buildingScale),
-            Math.Max((int)MathF.Round(92f * buildingScale), previewBounds.Height - (previewPadding * 2) - (int)MathF.Round(28f * buildingScale)));
-        var previewImageBounds = new Rectangle(
-            previewBounds.Right - previewPadding - previewImageSize,
-            previewBounds.Y + (int)MathF.Round(22f * buildingScale),
-            previewImageSize,
-            previewImageSize);
-        var previewTextX = previewBounds.X + previewPadding;
-        var previewTextRight = previewImageBounds.X - previewPadding;
-        var previewTextWidth = Math.Max(0, previewTextRight - previewTextX);
-        var previewTitleBounds = new Rectangle(
-            previewTextX,
-            previewBounds.Y + (int)MathF.Round(36f * buildingScale),
-            previewTextWidth,
-            (int)MathF.Round(28f * buildingScale));
-        var previewSizeBounds = new Rectangle(
-            previewTextX,
-            previewBounds.Y + (int)MathF.Round(66f * buildingScale),
-            previewTextWidth,
-            (int)MathF.Round(20f * buildingScale));
-        var previewDescriptionTop = previewBounds.Y + (int)MathF.Round(98f * buildingScale);
-        var previewDescriptionFlowGap = (int)MathF.Round(12f * buildingScale);
-        Rectangle? previewDescriptionIntroBounds = null;
-        var introHeight = previewImageBounds.Bottom - previewDescriptionTop;
-        if (previewTextWidth >= (int)MathF.Round(120f * buildingScale) &&
-            introHeight >= GumTextLayout.GetMetrics(GumTextStyle.Small).LineHeight)
-        {
-            previewDescriptionIntroBounds = new Rectangle(
-                previewTextX,
-                previewDescriptionTop,
-                previewTextWidth,
-                introHeight);
-        }
-
-        var previewDescriptionBodyTop = previewDescriptionIntroBounds?.Bottom ?? previewDescriptionTop;
-        if (previewDescriptionIntroBounds.HasValue)
-        {
-            previewDescriptionBodyTop += previewDescriptionFlowGap;
-        }
-
-        var previewDescriptionBodyBounds = new Rectangle(
-            previewTextX,
-            previewDescriptionBodyTop,
-            previewBounds.Width - (previewPadding * 2),
-            Math.Max(0, previewBounds.Bottom - previewDescriptionBodyTop - previewPadding));
         var buildGridFrameBounds = new Rectangle(
             contentBounds.X,
             previewBounds.Bottom + buildingSectionGap,
@@ -111,6 +64,31 @@ public sealed partial class MenuController
             out var buildGridScrollbarTrack,
             out var buildGridScrollbarThumb);
         BuildGridScroll = Clamp(BuildGridScroll, 0f, buildGridMaxScroll);
+        var activeBuildPreview = HoveredBuildOption ?? SelectedBuildOption;
+        var activeBuildPreviewKey = activeBuildPreview?.Name ?? string.Empty;
+        if (!string.Equals(_buildPreviewScrollKey, activeBuildPreviewKey, StringComparison.Ordinal))
+        {
+            BuildPreviewDescriptionScroll = 0f;
+            _buildPreviewScrollKey = activeBuildPreviewKey;
+        }
+
+        var buildPreviewDescriptionViewportBounds = activeBuildPreview is null
+            ? new Rectangle(
+                previewBounds.X + 12,
+                previewBounds.Y + 44,
+                previewBounds.Width - 24,
+                previewBounds.Height - 56)
+            : new Rectangle(
+                previewBounds.X + 12,
+                previewBounds.Y + 98,
+                Math.Max(140, (previewBounds.Width / 2) - 18),
+                previewBounds.Height - 110);
+        var buildPreviewDescriptionLayout = GumScrollableText.Build(
+            buildPreviewDescriptionViewportBounds,
+            activeBuildPreview?.Description ?? "Hover over a building card or click one to keep it selected here.",
+            GumTextStyle.Small,
+            BuildPreviewDescriptionScroll);
+        BuildPreviewDescriptionScroll = buildPreviewDescriptionLayout.Scroll;
 
         var selectedBounds = contentBounds;
         var selectedScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
@@ -118,32 +96,16 @@ public sealed partial class MenuController
         Rectangle? selectedRenamePrimaryButtonBounds = null;
         Rectangle? selectedRenameSecondaryButtonBounds = null;
         Rectangle? selectedTraitSummaryBounds = null;
+        Rectangle? selectedRecipeBounds = null;
+        string? selectedRecipeText = null;
         Rectangle? selectedInventoryFrameBounds = null;
-        Rectangle? selectedInventoryDescriptionBounds = null;
         Rectangle? selectedInventoryViewportBounds = null;
         IReadOnlyList<InventoryEntryRect> selectedInventoryEntries = [];
         float selectedInventoryMaxScroll = 0f;
         Rectangle? selectedInventoryScrollbarTrackBounds = null;
         Rectangle? selectedInventoryScrollbarThumbBounds = null;
-        Rectangle? selectedScaffoldingResourcesFrameBounds = null;
-        Rectangle? selectedScaffoldingRequiredLabelBounds = null;
-        Rectangle? selectedScaffoldingInputLabelBounds = null;
-        IReadOnlyList<InventoryEntryRect> selectedScaffoldingRequiredEntries = [];
-        IReadOnlyList<InventoryEntryRect> selectedScaffoldingInputEntries = [];
-        var selectedSupplementalText = GetSelectedSupplementalText(SelectedObject);
-        var selectedInfoBottom = selectedBounds.Y + 118;
-        if (!string.IsNullOrWhiteSpace(selectedSupplementalText))
-        {
-            selectedInfoBottom = selectedBounds.Y + 144;
-        }
-
-        var selectedFooterGap = (int)MathF.Round(12f * selectedScale);
-        var selectedDescriptionTop = selectedInfoBottom + (int)MathF.Round(18f * selectedScale);
-        var selectedDescriptionBounds = new Rectangle(
-            selectedBounds.X + 16,
-            selectedDescriptionTop,
-            selectedBounds.Width - 32,
-            Math.Max(0, (selectedBounds.Bottom - (int)MathF.Round(68f * selectedScale) - selectedFooterGap) - selectedDescriptionTop));
+        var selectedDetailTop = selectedBounds.Y + 118;
+        GumScrollableTextLayout selectedDescriptionLayout = default;
         if (SelectedObject is Trilobite)
         {
             var traitTop = selectedBounds.Y + (int)MathF.Round(122f * selectedScale);
@@ -182,12 +144,11 @@ public sealed partial class MenuController
                     renameRowHeight);
             }
 
-            var descriptionTop = renameRowY + renameRowHeight + (int)MathF.Round(18f * selectedScale);
-            selectedDescriptionBounds = new Rectangle(
-                selectedBounds.X + 16,
-                descriptionTop,
-                selectedBounds.Width - 32,
-                Math.Max(60, selectedBounds.Bottom - descriptionTop - (int)MathF.Round(84f * selectedScale)));
+            selectedDetailTop = renameRowY + renameRowHeight;
+        }
+        else if (SelectedObject is Building)
+        {
+            selectedDetailTop = selectedBounds.Y + 144;
         }
 
         var deleteSelectedBounds = new Rectangle(
@@ -196,76 +157,31 @@ public sealed partial class MenuController
             Math.Min((int)MathF.Round(240f * buildingScale), selectedBounds.Width - 32),
             (int)MathF.Round(50f * selectedScale));
 
-        if (SelectedObject is Scaffolding scaffolding)
+        if (SelectedObject is Trilobite selectedTrilobite)
         {
-            var scaffoldFrameTop = selectedInfoBottom + (int)MathF.Round(14f * selectedScale);
-            var scaffoldFrameLeft = selectedBounds.X + 16;
-            var scaffoldFrameWidth = selectedBounds.Width - 32;
-            var scaffoldFramePadding = (int)MathF.Round(10f * selectedScale);
-            var scaffoldSectionGap = (int)MathF.Round(12f * selectedScale);
-            var scaffoldLabelHeight = (int)MathF.Round(20f * selectedScale);
-            var scaffoldLabelGap = (int)MathF.Round(6f * selectedScale);
-            var scaffoldInnerWidth = scaffoldFrameWidth - (scaffoldFramePadding * 2);
+            var selectedBodyTop = selectedDetailTop + (int)MathF.Round(14f * selectedScale);
+            var bodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(10f * selectedScale);
+            var bodyHeight = Math.Max(96, bodyBottom - selectedBodyTop);
+            var inventoryDescriptionGap = (int)MathF.Round(12f * selectedScale);
+            var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(86f * selectedScale));
+            var descriptionHeight = Math.Clamp(
+                (int)MathF.Round(78f * selectedScale),
+                48,
+                Math.Max(48, bodyHeight - minimumInventoryHeight - inventoryDescriptionGap));
+            var inventoryHeight = Math.Max(48, bodyHeight - descriptionHeight - inventoryDescriptionGap);
 
-            var requiredInventoryEntries = BuildInventoryEntries(scaffolding.RecipeRequired, includeZeroValues: true);
-            var inputInventoryEntries = BuildInventoryEntries(scaffolding.RecipeDeposited, includeZeroValues: true);
-
-            var requiredGridTop = scaffoldFrameTop + scaffoldFramePadding + scaffoldLabelHeight + scaffoldLabelGap;
-            var requiredGridBounds = new Rectangle(scaffoldFrameLeft + scaffoldFramePadding, requiredGridTop, scaffoldInnerWidth, 0);
-            selectedScaffoldingRequiredEntries = BuildResourceGridLayout(requiredGridBounds, requiredInventoryEntries, selectedScale, out var requiredGridContentHeight);
-            var requiredSectionBottom = requiredGridTop + requiredGridContentHeight;
-
-            var inputLabelTop = requiredSectionBottom + scaffoldSectionGap;
-            var inputGridTop = inputLabelTop + scaffoldLabelHeight + scaffoldLabelGap;
-            var inputGridBounds = new Rectangle(scaffoldFrameLeft + scaffoldFramePadding, inputGridTop, scaffoldInnerWidth, 0);
-            selectedScaffoldingInputEntries = BuildResourceGridLayout(inputGridBounds, inputInventoryEntries, selectedScale, out var inputGridContentHeight);
-            var inputSectionBottom = inputGridTop + inputGridContentHeight;
-
-            var frameHeight = (inputSectionBottom - scaffoldFrameTop) + scaffoldFramePadding;
-            selectedScaffoldingResourcesFrameBounds = new Rectangle(scaffoldFrameLeft, scaffoldFrameTop, scaffoldFrameWidth, frameHeight);
-            selectedScaffoldingRequiredLabelBounds = new Rectangle(scaffoldFrameLeft + scaffoldFramePadding, scaffoldFrameTop + scaffoldFramePadding, scaffoldInnerWidth, scaffoldLabelHeight);
-            selectedScaffoldingInputLabelBounds = new Rectangle(scaffoldFrameLeft + scaffoldFramePadding, inputLabelTop, scaffoldInnerWidth, scaffoldLabelHeight);
-
-            var descriptionTop = selectedScaffoldingResourcesFrameBounds.Value.Bottom + selectedFooterGap;
-            selectedDescriptionBounds = new Rectangle(
-                selectedBounds.X + 16,
-                descriptionTop,
-                selectedBounds.Width - 32,
-                Math.Max(60, deleteSelectedBounds.Y - descriptionTop - selectedFooterGap));
-        }
-
-        if (SelectedObject is IStorage storage)
-        {
-            var inventoryTop = selectedInfoBottom + (int)MathF.Round(14f * selectedScale);
-            var inventoryHeight = Math.Max(0, deleteSelectedBounds.Y - inventoryTop - selectedFooterGap);
             selectedInventoryFrameBounds = new Rectangle(
                 selectedBounds.X + 16,
-                inventoryTop,
+                selectedBodyTop,
                 selectedBounds.Width - 32,
                 inventoryHeight);
-            if (inventoryHeight >= (int)MathF.Round(136f * selectedScale))
-            {
-                var descriptionHeight = Math.Min(
-                    (int)MathF.Round(44f * selectedScale),
-                    Math.Max(0, inventoryHeight - (int)MathF.Round(74f * selectedScale)));
-                if (descriptionHeight > 0)
-                {
-                    selectedInventoryDescriptionBounds = new Rectangle(
-                        selectedInventoryFrameBounds.Value.X + 10,
-                        selectedInventoryFrameBounds.Value.Y + (int)MathF.Round(34f * selectedScale),
-                        selectedInventoryFrameBounds.Value.Width - 20,
-                        descriptionHeight);
-                }
-            }
-
-            var inventoryViewportTop = selectedInventoryDescriptionBounds?.Bottom + (int)MathF.Round(8f * selectedScale)
-                ?? selectedInventoryFrameBounds.Value.Y + (int)MathF.Round(38f * selectedScale);
             selectedInventoryViewportBounds = new Rectangle(
                 selectedInventoryFrameBounds.Value.X + 10,
-                inventoryViewportTop,
+                selectedInventoryFrameBounds.Value.Y + 38,
                 selectedInventoryFrameBounds.Value.Width - 20,
-                Math.Max(0, selectedInventoryFrameBounds.Value.Bottom - inventoryViewportTop - 10));
-            var inventoryEntries = BuildInventoryEntries(storage.GetInventory());
+                Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
+
+            var inventoryEntries = BuildInventoryEntries(selectedTrilobite);
             selectedInventoryEntries = BuildInventoryLayout(
                 selectedInventoryViewportBounds.Value,
                 inventoryEntries,
@@ -274,6 +190,117 @@ public sealed partial class MenuController
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
             SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+
+            var selectedDescriptionViewportBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedInventoryFrameBounds.Value.Bottom + inventoryDescriptionGap,
+                selectedBounds.Width - 32,
+                Math.Max(48, deleteSelectedBounds.Y - selectedInventoryFrameBounds.Value.Bottom - inventoryDescriptionGap));
+            selectedDescriptionLayout = GumScrollableText.Build(
+                selectedDescriptionViewportBounds,
+                "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+                GumTextStyle.Small,
+                SelectedDescriptionScroll);
+            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+        }
+        else if (SelectedObject is IResourceStorage storage)
+        {
+            var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(96f * selectedScale));
+            var selectedBodyTop = Math.Min(
+                selectedDetailTop + (int)MathF.Round(14f * selectedScale),
+                deleteSelectedBounds.Y - minimumInventoryHeight - 14);
+            selectedInventoryFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                Math.Max(minimumInventoryHeight, deleteSelectedBounds.Y - selectedBodyTop - 14));
+            selectedInventoryViewportBounds = new Rectangle(
+                selectedInventoryFrameBounds.Value.X + 10,
+                selectedInventoryFrameBounds.Value.Y + 38,
+                selectedInventoryFrameBounds.Value.Width - 20,
+                Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
+            var inventoryEntries = BuildInventoryEntries(storage);
+            selectedInventoryEntries = BuildInventoryLayout(
+                selectedInventoryViewportBounds.Value,
+                inventoryEntries,
+                selectedScale,
+                out selectedInventoryMaxScroll,
+                out selectedInventoryScrollbarTrackBounds,
+                out selectedInventoryScrollbarThumbBounds);
+            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+        }
+        else if (SelectedObject is Scaffolding scaffolding)
+        {
+            var recipeTop = selectedDetailTop + (int)MathF.Round(10f * selectedScale);
+            var recipeHeight = (int)MathF.Round(22f * selectedScale);
+            var recipeGap = (int)MathF.Round(12f * selectedScale);
+            selectedRecipeBounds = new Rectangle(
+                selectedBounds.X + 16,
+                recipeTop,
+                selectedBounds.Width - 32,
+                recipeHeight);
+            selectedRecipeText = BuildScaffoldingRecipeText(scaffolding);
+
+            var selectedBodyTop = selectedRecipeBounds.Value.Bottom + recipeGap;
+            var bodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(10f * selectedScale);
+            var bodyHeight = Math.Max(96, bodyBottom - selectedBodyTop);
+            var inventoryDescriptionGap = (int)MathF.Round(12f * selectedScale);
+            var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(86f * selectedScale));
+            var descriptionHeight = Math.Clamp(
+                (int)MathF.Round(78f * selectedScale),
+                48,
+                Math.Max(48, bodyHeight - minimumInventoryHeight - inventoryDescriptionGap));
+            var inventoryHeight = Math.Max(48, bodyHeight - descriptionHeight - inventoryDescriptionGap);
+
+            selectedInventoryFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                inventoryHeight);
+            selectedInventoryViewportBounds = new Rectangle(
+                selectedInventoryFrameBounds.Value.X + 10,
+                selectedInventoryFrameBounds.Value.Y + 38,
+                selectedInventoryFrameBounds.Value.Width - 20,
+                Math.Max(48, selectedInventoryFrameBounds.Value.Height - 48));
+            var inventoryEntries = BuildInventoryEntries(scaffolding);
+            selectedInventoryEntries = BuildInventoryLayout(
+                selectedInventoryViewportBounds.Value,
+                inventoryEntries,
+                selectedScale,
+                out selectedInventoryMaxScroll,
+                out selectedInventoryScrollbarTrackBounds,
+                out selectedInventoryScrollbarThumbBounds);
+            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+
+            var selectedDescriptionViewportBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedInventoryFrameBounds.Value.Bottom + inventoryDescriptionGap,
+                selectedBounds.Width - 32,
+                Math.Max(48, deleteSelectedBounds.Y - selectedInventoryFrameBounds.Value.Bottom - inventoryDescriptionGap));
+            selectedDescriptionLayout = GumScrollableText.Build(
+                selectedDescriptionViewportBounds,
+                BuildSelectedDescriptionText(scaffolding),
+                GumTextStyle.Small,
+                SelectedDescriptionScroll);
+            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+        }
+        else if (SelectedObject is Creature or Building)
+        {
+            const int minimumDescriptionHeight = 48;
+            var selectedBodyTop = Math.Min(
+                selectedDetailTop + (int)MathF.Round(18f * selectedScale),
+                deleteSelectedBounds.Y - minimumDescriptionHeight - 14);
+            var selectedDescriptionViewportBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                Math.Max(minimumDescriptionHeight, deleteSelectedBounds.Y - selectedBodyTop - 14));
+            selectedDescriptionLayout = GumScrollableText.Build(
+                selectedDescriptionViewportBounds,
+                BuildSelectedDescriptionText(SelectedObject),
+                GumTextStyle.Small,
+                SelectedDescriptionScroll);
+            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
         }
 
         var assignmentScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
@@ -357,11 +384,7 @@ public sealed partial class MenuController
             contentFrameBounds,
             tabs,
             previewBounds,
-            previewTitleBounds,
-            previewSizeBounds,
-            previewImageBounds,
-            previewDescriptionIntroBounds,
-            previewDescriptionBodyBounds,
+            buildPreviewDescriptionLayout,
             buildGridFrameBounds,
             buildGridViewportBounds,
             buildCards,
@@ -373,20 +396,16 @@ public sealed partial class MenuController
             selectedRenamePrimaryButtonBounds,
             selectedRenameSecondaryButtonBounds,
             selectedTraitSummaryBounds,
+            selectedRecipeBounds,
+            selectedRecipeText,
             selectedInventoryFrameBounds,
-            selectedInventoryDescriptionBounds,
             selectedInventoryViewportBounds,
             selectedInventoryEntries,
             selectedInventoryMaxScroll,
             selectedInventoryScrollbarTrackBounds,
             selectedInventoryScrollbarThumbBounds,
-            selectedDescriptionBounds,
+            selectedDescriptionLayout,
             deleteSelectedBounds,
-            selectedScaffoldingResourcesFrameBounds,
-            selectedScaffoldingRequiredLabelBounds,
-            selectedScaffoldingRequiredEntries,
-            selectedScaffoldingInputLabelBounds,
-            selectedScaffoldingInputEntries,
             assignmentFilters,
             assignmentActiveBounds,
             assignmentActiveViewportBounds,
@@ -434,19 +453,36 @@ public sealed partial class MenuController
         var columnGap = (int)MathF.Round(10f * layoutScale);
         var rowGap = (int)MathF.Round(10f * layoutScale);
         var scrollbarGutter = 10;
+        var visibleOptionCount = 0;
+        for (var index = 0; index < options.Count; index++)
+        {
+            if (!IsBuildOptionTemporarilyHidden(options[index]))
+            {
+                visibleOptionCount++;
+            }
+        }
+
         var cardSize = Math.Max(
             72,
             (int)MathF.Floor((viewportBounds.Width - scrollbarGutter - (columnGap * (columns - 1))) / (float)columns));
-        var rowCount = (int)MathF.Ceiling(options.Count / (float)columns);
+        var rowCount = (int)MathF.Ceiling(visibleOptionCount / (float)columns);
         var contentHeight = rowCount == 0 ? 0 : (rowCount * cardSize) + (Math.Max(0, rowCount - 1) * rowGap);
         maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
         BuildGridScroll = Clamp(BuildGridScroll, 0f, maxScroll);
 
-        var cards = new List<BuildCardRect>(options.Count);
+        var cards = new List<BuildCardRect>(visibleOptionCount);
+        var visibleIndex = 0;
         for (var index = 0; index < options.Count; index++)
         {
-            var column = index % columns;
-            var row = index / columns;
+            var factory = options[index];
+            if (IsBuildOptionTemporarilyHidden(factory))
+            {
+                continue;
+            }
+
+            var column = visibleIndex % columns;
+            var row = visibleIndex / columns;
+            visibleIndex++;
             var x = viewportBounds.X + ((cardSize + columnGap) * column);
             var y = viewportBounds.Y + ((cardSize + rowGap) * row) - (int)MathF.Round(BuildGridScroll);
             var bounds = new Rectangle(x, y, cardSize, cardSize);
@@ -455,7 +491,7 @@ public sealed partial class MenuController
                 continue;
             }
 
-            cards.Add(new BuildCardRect(options[index], bounds));
+            cards.Add(new BuildCardRect(factory, bounds));
         }
 
         if (maxScroll <= 0f)
@@ -522,51 +558,98 @@ public sealed partial class MenuController
         return rows;
     }
 
-    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IReadOnlyDictionary<string, int> inventory, bool includeZeroValues = false)
+    private IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IResourceStorage storage)
     {
         var result = new List<InventoryEntryData>();
-        foreach (var pair in inventory)
+        foreach (var pair in storage.GetStoredResources())
         {
-            if (!includeZeroValues && pair.Value <= 0)
+            if (pair.Value <= 0)
             {
                 continue;
             }
 
-            result.Add(new InventoryEntryData(pair.Key, pair.Value, GetInventoryTextureKey(pair.Key)));
+            result.Add(new InventoryEntryData(ItemCatalog.GetName(pair.Key), pair.Value, ItemCatalog.GetTextureKey(pair.Key)));
         }
 
         return result;
     }
 
-    // Scaffolding uses the same resource card language as storage, but it does not need scrolling because recipes stay short.
-    private static IReadOnlyList<InventoryEntryRect> BuildResourceGridLayout(
-        Rectangle viewportBounds,
-        IReadOnlyList<InventoryEntryData> entries,
-        float layoutScale,
-        out int contentHeight)
+    private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(Scaffolding scaffolding)
     {
-        const int columns = 4;
-        var columnGap = (int)MathF.Round(10f * layoutScale);
-        var rowGap = (int)MathF.Round(10f * layoutScale);
-        var scrollbarGutter = 10;
-        var cardWidth = Math.Max(
-            76,
-            (int)MathF.Floor((viewportBounds.Width - scrollbarGutter - (columnGap * (columns - 1))) / (float)columns));
-        var cardHeight = Math.Max((int)MathF.Round(132f * layoutScale), cardWidth + (int)MathF.Round(34f * layoutScale));
-        var rowCount = (int)MathF.Ceiling(entries.Count / (float)columns);
-        contentHeight = rowCount == 0 ? 0 : (rowCount * cardHeight) + (Math.Max(0, rowCount - 1) * rowGap);
-
-        var cards = new List<InventoryEntryRect>(entries.Count);
-        for (var index = 0; index < entries.Count; index++)
+        var result = new List<InventoryEntryData>();
+        var depositedResources = scaffolding.GetDepositedResources();
+        foreach (var item in ItemCatalog.GetStockpileOrder())
         {
-            var column = index % columns;
-            var row = index / columns;
-            var x = viewportBounds.X + ((cardWidth + columnGap) * column);
-            var y = viewportBounds.Y + ((cardHeight + rowGap) * row);
-            cards.Add(new InventoryEntryRect(entries[index].ResourceType, entries[index].TextureKey, entries[index].Quantity, new Rectangle(x, y, cardWidth, cardHeight)));
+            if (!depositedResources.TryGetValue(item.Resource, out var amount) || amount <= 0)
+            {
+                continue;
+            }
+
+            result.Add(new InventoryEntryData(item.Name, amount, item.TextureKey));
         }
 
-        return cards;
+        return result;
+    }
+
+    private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IInventoryCarrier carrier)
+    {
+        if (!carrier.HasInventory() ||
+            !carrier.Inventory.Type.HasValue ||
+            carrier.Inventory.Amount <= 0)
+        {
+            return [];
+        }
+
+        return [new InventoryEntryData(
+            ItemCatalog.GetName(carrier.Inventory.Type.Value),
+            carrier.Inventory.Amount,
+            ItemCatalog.GetTextureKey(carrier.Inventory.Type.Value))];
+    }
+
+    private static string BuildSelectedDescriptionText(object? selectedObject)
+    {
+        return selectedObject switch
+        {
+            Creature => "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+            Building building when !string.IsNullOrWhiteSpace(building.Description)
+                => $"{building.Description}\n\nDelete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
+            _ => "Delete this building from the cave immediately. This uses the normal in-game removal flow and clears the current selection afterward."
+        };
+    }
+
+    private static string BuildScaffoldingRecipeText(Scaffolding scaffolding)
+    {
+        var requirements = new string[scaffolding.RecipeRequired.Count];
+        for (var index = 0; index < scaffolding.RecipeRequired.Count; index++)
+        {
+            requirements[index] = FormatRequirement(scaffolding.RecipeRequired[index]);
+        }
+
+        return $"Recipe: {string.Join(", ", requirements)}";
+    }
+
+    private static int GetScaffoldingRequiredAmount(Scaffolding scaffolding)
+    {
+        var total = 0;
+        for (var index = 0; index < scaffolding.RecipeRequired.Count; index++)
+        {
+            total += scaffolding.RecipeRequired[index].Amount;
+        }
+
+        return total;
+    }
+
+    private static string FormatRequirement(ResourceRequirement requirement)
+    {
+        var label = requirement.SpecificResource is { } resourceType
+            ? ItemCatalog.GetName(resourceType)
+            : GetResourceCategoryLabel(requirement.Category!.Value);
+        return $"{requirement.Amount} {label}";
+    }
+
+    private static string GetResourceCategoryLabel(ResourceCategory category)
+    {
+        return category.ToString();
     }
 
     private IReadOnlyList<InventoryEntryRect> BuildInventoryLayout(
@@ -622,15 +705,6 @@ public sealed partial class MenuController
         scrollbarTrackBounds = new Rectangle(scrollbarX, viewportBounds.Y, 6, trackHeight);
         scrollbarThumbBounds = new Rectangle(scrollbarX, thumbY, 6, (int)MathF.Round(thumbHeight));
         return cards;
-    }
-
-    private static string GetInventoryTextureKey(string resourceType)
-    {
-        return resourceType switch
-        {
-            "wall" => "wall",
-            _ => resourceType
-        };
     }
 
     private static MenuMetrics GetMetrics(Point viewport)
@@ -701,11 +775,7 @@ public sealed partial class MenuController
         Rectangle ContentFrameBounds,
         IReadOnlyList<LabeledRect> Tabs,
         Rectangle PreviewBounds,
-        Rectangle PreviewTitleBounds,
-        Rectangle PreviewSizeBounds,
-        Rectangle PreviewImageBounds,
-        Rectangle? PreviewDescriptionIntroBounds,
-        Rectangle PreviewDescriptionBodyBounds,
+        GumScrollableTextLayout BuildPreviewDescriptionLayout,
         Rectangle BuildGridFrameBounds,
         Rectangle BuildGridViewportBounds,
         IReadOnlyList<BuildCardRect> BuildCards,
@@ -717,20 +787,16 @@ public sealed partial class MenuController
         Rectangle? SelectedRenamePrimaryButtonBounds,
         Rectangle? SelectedRenameSecondaryButtonBounds,
         Rectangle? SelectedTraitSummaryBounds,
+        Rectangle? SelectedRecipeBounds,
+        string? SelectedRecipeText,
         Rectangle? SelectedInventoryFrameBounds,
-        Rectangle? SelectedInventoryDescriptionBounds,
         Rectangle? SelectedInventoryViewportBounds,
         IReadOnlyList<InventoryEntryRect> SelectedInventoryEntries,
         float SelectedInventoryMaxScroll,
         Rectangle? SelectedInventoryScrollbarTrackBounds,
         Rectangle? SelectedInventoryScrollbarThumbBounds,
-        Rectangle SelectedDescriptionBounds,
+        GumScrollableTextLayout SelectedDescriptionLayout,
         Rectangle DeleteSelectedBounds,
-        Rectangle? SelectedScaffoldingResourcesFrameBounds,
-        Rectangle? SelectedScaffoldingRequiredLabelBounds,
-        IReadOnlyList<InventoryEntryRect> SelectedScaffoldingRequiredEntries,
-        Rectangle? SelectedScaffoldingInputLabelBounds,
-        IReadOnlyList<InventoryEntryRect> SelectedScaffoldingInputEntries,
         IReadOnlyList<LabeledRect> AssignmentFilters,
         Rectangle AssignmentActiveBounds,
         Rectangle AssignmentActiveViewportBounds,

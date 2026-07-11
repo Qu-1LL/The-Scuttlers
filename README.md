@@ -4,11 +4,85 @@ An old version of the game is deployed to github pages here: https://qu-1ll.gith
 
 Current versions are not yet released to the browser, as we have moved the program to a C# build. You can download the latest version from the "releases" tab on the right side of your screen. There are instructions below to actually start the game up.
 
- ## Release Packaging
+## Release Packaging
 
-To use a downloaded release simply download the zipped files and unzip them. In the root of the release's directory there will be an application file named "TriloGame.Game.exe". Simply open that file and a window will open for the game!
+For macOS setup, including prerequisites and shell-safe commands, see
+[docs/mac-setup.md](docs/mac-setup.md).
 
-The game window may prompt you for two issues. First, if you don't have .NET 9 installed it will likely have you install it on your device. Next, it may tell you that the authors aren't trusted and you will need to give permission to run the program. When this window appears, simply press "More Info" and then press "Run Anyway" to run the application. (Unless you dont actually trust us, then feel free to close the window and delete the game files from your device.)
+Install the .NET 9 SDK, open a terminal in the repository root, and use either:
+
+```powershell
+launch
+```
+
+or:
+
+```powershell
+start
+```
+
+These repo-root commands restore, build, and run `src/TriloGame.Game/TriloGame.Game.csproj`.
+
+You can also call the wrappers directly:
+
+```powershell
+.\dotnet-launch.cmd
+.\dotnet-start.cmd
+```
+
+`dotnet launch` is not a reliable repo-local command by itself. The `dotnet` CLI only resolves custom verbs when `dotnet-launch` is installed in a place the `dotnet` host can discover, which is outside what a normal checked-in batch file can guarantee.
+
+On macOS, use the direct `dotnet` commands instead of the checked-in `.cmd` wrappers.
+
+The direct fallback is:
+
+```powershell
+dotnet restore src/TriloGame.Game/TriloGame.Game.csproj
+dotnet build src/TriloGame.Game/TriloGame.Game.csproj -c Debug
+dotnet run --project src/TriloGame.Game/TriloGame.Game.csproj -c Debug
+```
+
+## Runtime Automation API
+
+The live MonoGame host now exposes an in-process play/test API through
+`src/TriloGame.Game/Runtime/Automation/GamePlayApi.cs`.
+
+That API is intended for:
+
+- scripted scenario setup
+- runtime inspection
+- automation-oriented tests
+- future external tooling adapters
+
+See [docs/playtest-api.md](docs/playtest-api.md) for the current surface area.
+
+## UI Rendering
+
+For the current C# / MonoGame build, all screen-space UI should render through Gum,
+including UI text.
+
+That means:
+
+- panels, frames, cards, and overlays use Gum-backed rendering
+- buttons, toggles, and other controls use Gum-backed rendering
+- fitted and wrapped screen UI text should go through the Gum-backed text helpers
+- prefer fixed integer Gum `FontSize` values over fractional `FontScale` for routine UI text sizing
+
+Raw `SpriteBatch.DrawString` should not be used for new screen-space UI text.
+The only acceptable exception is world-space debug text that belongs to the game world
+overlay rather than the UI layer.
+
+## Release Packaging
+
+To publish the self-contained Windows build and push only those compiled files to the `dist` branch, run:
+
+```powershell
+.\push-dist.cmd
+```
+
+To use a downloaded release, unzip the package and run `TriloGame.Game.exe` from the release root.
+If Windows prompts for the .NET 9 runtime or asks you to trust the publisher, install the runtime
+if needed, then use `More Info` -> `Run Anyway` if you trust the build.
 
 That command publishes `src/TriloGame.Game/TriloGame.Game.csproj` to `artifacts/publish/win-x64` and pushes the published output to `origin/dist`.
 

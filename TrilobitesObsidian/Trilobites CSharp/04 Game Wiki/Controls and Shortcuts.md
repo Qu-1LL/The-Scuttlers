@@ -89,6 +89,7 @@ The settings menu currently exposes:
 - `Volume` from `0` to `100`
 - `-` and `+` buttons
 - clickable volume bar changes in `5`-point increments
+- `Music` checkbox to turn soundtrack playback on or off
 - `Return to Main Menu`, which closes the current colony and goes back to the startup menu
 
 ## Related notes

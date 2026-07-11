@@ -5,33 +5,27 @@ namespace TriloGame.Game.UI.Research;
 
 public static class ResearchDraftLayout
 {
-    private const int ClosedButtonHeight = 44;
-    private const int SkillTreeButtonWidth = 188;
-    private const int SkipButtonWidth = 128;
-    private const int ClosedButtonGap = 10;
-
-    public static Rectangle GetSkillTreeButtonBounds(Point viewport)
-    {
-        var settingsBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
-        return new Rectangle(settingsBounds.X, settingsBounds.Bottom + 10, SkillTreeButtonWidth, ClosedButtonHeight);
-    }
-
-    public static Rectangle GetSkipButtonBounds(Point viewport)
-    {
-        var skillTreeBounds = GetSkillTreeButtonBounds(viewport);
-        return new Rectangle(skillTreeBounds.Right + ClosedButtonGap, skillTreeBounds.Y, SkipButtonWidth, skillTreeBounds.Height);
-    }
+    public const int TreeCatalogCardColumns = 4;
+    public const int TreeViewportRimThickness = 4;
+    private const int DraftCardTopPadding = 0;
+    private const int DraftCardBottomPadding = 8;
+    private const int TreeCatalogCardGap = 14;
 
     public static Rectangle GetButtonBounds(Point viewport)
     {
-        return GetSkillTreeButtonBounds(viewport);
+        return SettingsMenuLayout.GetTopHudButtonBounds(viewport, 3);
+    }
+
+    public static Rectangle GetSkillTreeButtonBounds(Point viewport)
+    {
+        return GetButtonBounds(viewport);
     }
 
     public static ResearchDraftLayoutInfo Build(Point viewport, int branchCardCount = 3)
     {
         var safeBranchCardCount = Math.Max(0, branchCardCount);
-        var width = Math.Min(1120, Math.Max(840, viewport.X - 64));
-        var height = Math.Min(760, Math.Max(560, viewport.Y - 64));
+        var width = Math.Min(1360, Math.Max(960, viewport.X - 36));
+        var height = Math.Min(880, Math.Max(640, viewport.Y - 36));
         var panelBounds = new Rectangle(
             (viewport.X - width) / 2,
             (viewport.Y - height) / 2,
@@ -41,40 +35,40 @@ public static class ResearchDraftLayout
         var titleBounds = new Rectangle(panelBounds.X + 24, panelBounds.Y + 18, panelBounds.Width - 100, 28);
         var subtitleBounds = new Rectangle(panelBounds.X + 24, panelBounds.Y + 50, panelBounds.Width - 48, 22);
 
-        var contentTop = panelBounds.Y + 84;
-        var contentBottom = panelBounds.Bottom - 52;
+        var contentTop = panelBounds.Y + 86;
+        var contentBottom = panelBounds.Bottom - 36;
         var contentHeight = Math.Max(120, contentBottom - contentTop);
         var contentWidth = panelBounds.Width - 48;
-        var contentLeft = panelBounds.X + 24;
         var infoPanelWidth = Math.Clamp((int)MathF.Round(contentWidth * 0.25f), 220, 286);
-        var contentGap = 18;
         var hasDraftArea = safeBranchCardCount > 0;
+        var contentGap = hasDraftArea ? 14 : 18;
+        var leftContentWidth = Math.Max(360, contentWidth - infoPanelWidth - contentGap);
+        var preferredDraftAreaHeight = ResearchTreeCardRenderer.PreferredCardHeight + DraftCardTopPadding + DraftCardBottomPadding;
+        var maxDraftAreaHeight = Math.Max(150, contentHeight - 180);
         var draftAreaHeight = hasDraftArea
-            ? Math.Clamp((int)MathF.Round(contentHeight * 0.28f), 150, 186)
+            ? Math.Clamp(
+                preferredDraftAreaHeight,
+                150,
+                maxDraftAreaHeight)
             : 0;
         var draftAreaBounds = hasDraftArea
-            ? new Rectangle(contentLeft, contentTop, contentWidth, draftAreaHeight)
+            ? new Rectangle(panelBounds.X + 24, contentTop, leftContentWidth, draftAreaHeight)
             : Rectangle.Empty;
-        var draftHeaderBounds = hasDraftArea
-            ? new Rectangle(draftAreaBounds.X + 16, draftAreaBounds.Y + 10, draftAreaBounds.Width - 32, 20)
-            : Rectangle.Empty;
-        var lowerContentTop = hasDraftArea ? draftAreaBounds.Bottom + contentGap : contentTop;
-        var lowerContentHeight = Math.Max(160, contentBottom - lowerContentTop);
-        var leftContentWidth = Math.Max(360, contentWidth - infoPanelWidth - contentGap);
+        var draftHeaderBounds = Rectangle.Empty;
+        var treeTop = hasDraftArea ? draftAreaBounds.Bottom + contentGap : contentTop;
         var treeBounds = new Rectangle(
-            contentLeft,
-            lowerContentTop,
+            panelBounds.X + 24,
+            treeTop,
             leftContentWidth,
-            lowerContentHeight);
+            Math.Max(160, contentBottom - treeTop));
         var treeHeaderBounds = new Rectangle(treeBounds.X + 16, treeBounds.Y + 10, treeBounds.Width - 32, 20);
-        var treeViewportBounds = new Rectangle(treeBounds.X + 14, treeBounds.Y + 38, treeBounds.Width - 28, treeBounds.Height - 52);
-        var infoPanelBounds = new Rectangle(treeBounds.Right + contentGap, lowerContentTop, infoPanelWidth, lowerContentHeight);
+        var treeViewportBounds = BuildTreeViewportBounds(treeBounds);
+        var infoPanelBounds = new Rectangle(treeBounds.Right + contentGap, contentTop, infoPanelWidth, contentHeight);
         var branchCards = BuildBranchCards(draftAreaBounds, safeBranchCardCount);
         var footerBounds = new Rectangle(panelBounds.X + 24, panelBounds.Bottom - 36, panelBounds.Width - 48, 18);
 
         return new ResearchDraftLayoutInfo(
-            GetSkillTreeButtonBounds(viewport),
-            GetSkipButtonBounds(viewport),
+            GetButtonBounds(viewport),
             panelBounds,
             closeButtonBounds,
             titleBounds,
@@ -89,6 +83,71 @@ public static class ResearchDraftLayout
             footerBounds);
     }
 
+    public static ResearchDraftTreeCatalogLayoutInfo BuildTreeCatalog(Point viewport, int treeCount, float scroll = 0f)
+    {
+        var panelLayout = Build(viewport, branchCardCount: 0);
+        var panelBounds = panelLayout.PanelBounds;
+        var closeButtonBounds = panelLayout.CloseButtonBounds;
+        var backButtonBounds = new Rectangle(panelBounds.X + 18, panelBounds.Y + 16, 44, 38);
+        var titleBounds = new Rectangle(panelBounds.X + 96, panelBounds.Y + 18, panelBounds.Width - 192, 128);
+        var subtitleBounds = Rectangle.Empty;
+
+        var catalogFrameBounds = new Rectangle(
+            panelBounds.X + 24,
+            panelBounds.Y + 158,
+            panelBounds.Width - 48,
+            panelBounds.Height - 208);
+        var catalogViewportBounds = new Rectangle(
+            catalogFrameBounds.X + 14,
+            catalogFrameBounds.Y + 14,
+            catalogFrameBounds.Width - 28,
+            catalogFrameBounds.Height - 28);
+
+        var detailGap = 18;
+        var detailInfoPanelWidth = Math.Clamp((int)MathF.Round(catalogFrameBounds.Width * 0.25f), 220, 286);
+        var detailTreeFrameBounds = new Rectangle(
+            catalogFrameBounds.X,
+            catalogFrameBounds.Y,
+            Math.Max(360, catalogFrameBounds.Width - detailInfoPanelWidth - detailGap),
+            catalogFrameBounds.Height);
+        var detailTreeViewportBounds = BuildTreeViewportBounds(detailTreeFrameBounds);
+        var detailInfoPanelBounds = new Rectangle(
+            detailTreeFrameBounds.Right + detailGap,
+            catalogFrameBounds.Y,
+            detailInfoPanelWidth,
+            catalogFrameBounds.Height);
+
+        var cardBounds = BuildTreeCatalogCards(catalogViewportBounds, treeCount, scroll, out var maxScroll);
+        var scrollbarTrackBounds = maxScroll > 0f
+            ? new Rectangle(catalogFrameBounds.Right - 10, catalogViewportBounds.Y, 5, catalogViewportBounds.Height)
+            : Rectangle.Empty;
+        var scrollbarThumbBounds = maxScroll > 0f
+            ? BuildTreeCatalogScrollbarThumb(
+                scrollbarTrackBounds,
+                scroll,
+                maxScroll,
+                catalogViewportBounds.Height,
+                CalculateTreeCatalogContentHeight(treeCount))
+            : Rectangle.Empty;
+
+        return new ResearchDraftTreeCatalogLayoutInfo(
+            panelLayout.ButtonBounds,
+            panelBounds,
+            closeButtonBounds,
+            backButtonBounds,
+            titleBounds,
+            subtitleBounds,
+            catalogFrameBounds,
+            catalogViewportBounds,
+            detailTreeFrameBounds,
+            detailTreeViewportBounds,
+            detailInfoPanelBounds,
+            cardBounds,
+            maxScroll,
+            scrollbarTrackBounds,
+            scrollbarThumbBounds);
+    }
+
     private static IReadOnlyList<Rectangle> BuildBranchCards(Rectangle draftAreaBounds, int branchCardCount)
     {
         if (branchCardCount <= 0)
@@ -98,15 +157,13 @@ public static class ResearchDraftLayout
 
         const int gap = 16;
         const int sidePadding = 14;
-        const int topPadding = 40;
-        const int bottomPadding = 14;
         var totalGap = gap * Math.Max(0, branchCardCount - 1);
         var availableWidth = Math.Max(120, draftAreaBounds.Width - (sidePadding * 2) - totalGap);
         var cardWidth = Math.Max(120, availableWidth / branchCardCount);
-        var cardHeight = Math.Max(96, draftAreaBounds.Height - topPadding - bottomPadding);
+        var cardHeight = Math.Max(96, draftAreaBounds.Height - DraftCardTopPadding - DraftCardBottomPadding);
         var cards = new List<Rectangle>(branchCardCount);
         var x = draftAreaBounds.X + sidePadding;
-        var y = draftAreaBounds.Y + topPadding;
+        var y = draftAreaBounds.Y + DraftCardTopPadding;
         for (var index = 0; index < branchCardCount; index++)
         {
             cards.Add(new Rectangle(x, y, cardWidth, cardHeight));
@@ -115,11 +172,68 @@ public static class ResearchDraftLayout
 
         return cards;
     }
+
+    private static Rectangle BuildTreeViewportBounds(Rectangle frameBounds)
+    {
+        return new Rectangle(
+            frameBounds.X + TreeViewportRimThickness,
+            frameBounds.Y + TreeViewportRimThickness,
+            Math.Max(0, frameBounds.Width - (TreeViewportRimThickness * 2)),
+            Math.Max(0, frameBounds.Height - (TreeViewportRimThickness * 2)));
+    }
+
+    private static IReadOnlyList<Rectangle> BuildTreeCatalogCards(Rectangle viewportBounds, int treeCount, float scroll, out float maxScroll)
+    {
+        if (treeCount <= 0)
+        {
+            maxScroll = 0f;
+            return [];
+        }
+
+        var contentHeight = CalculateTreeCatalogContentHeight(treeCount);
+        maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
+        var clampedScroll = Math.Clamp(scroll, 0f, maxScroll);
+        var cardWidth = Math.Max(120, (viewportBounds.Width - (TreeCatalogCardGap * (TreeCatalogCardColumns - 1))) / TreeCatalogCardColumns);
+        var cards = new List<Rectangle>(treeCount);
+        for (var index = 0; index < treeCount; index++)
+        {
+            var column = index % TreeCatalogCardColumns;
+            var row = index / TreeCatalogCardColumns;
+            cards.Add(new Rectangle(
+                viewportBounds.X + (column * (cardWidth + TreeCatalogCardGap)),
+                viewportBounds.Y + (row * (ResearchTreeCardRenderer.PreferredCardHeight + TreeCatalogCardGap)) - (int)MathF.Round(clampedScroll),
+                cardWidth,
+                ResearchTreeCardRenderer.PreferredCardHeight));
+        }
+
+        return cards;
+    }
+
+    private static int CalculateTreeCatalogContentHeight(int treeCount)
+    {
+        if (treeCount <= 0)
+        {
+            return 0;
+        }
+
+        var rows = (int)MathF.Ceiling(treeCount / (float)TreeCatalogCardColumns);
+        return (rows * ResearchTreeCardRenderer.PreferredCardHeight) + (Math.Max(0, rows - 1) * TreeCatalogCardGap);
+    }
+
+    private static Rectangle BuildTreeCatalogScrollbarThumb(Rectangle trackBounds, float scroll, float maxScroll, int viewportHeight, int contentHeight)
+    {
+        var thumbHeight = Math.Clamp(
+            (int)MathF.Round(trackBounds.Height * (viewportHeight / (float)Math.Max(viewportHeight, contentHeight))),
+            36,
+            trackBounds.Height);
+        var travel = Math.Max(0, trackBounds.Height - thumbHeight);
+        var y = trackBounds.Y + (int)MathF.Round(travel * (Math.Clamp(scroll, 0f, maxScroll) / maxScroll));
+        return new Rectangle(trackBounds.X, y, trackBounds.Width, thumbHeight);
+    }
 }
 
 public readonly record struct ResearchDraftLayoutInfo(
-    Rectangle SkillTreeButtonBounds,
-    Rectangle SkipButtonBounds,
+    Rectangle ButtonBounds,
     Rectangle PanelBounds,
     Rectangle CloseButtonBounds,
     Rectangle TitleBounds,
@@ -132,3 +246,20 @@ public readonly record struct ResearchDraftLayoutInfo(
     Rectangle InfoPanelBounds,
     IReadOnlyList<Rectangle> BranchCardBounds,
     Rectangle FooterBounds);
+
+public readonly record struct ResearchDraftTreeCatalogLayoutInfo(
+    Rectangle ButtonBounds,
+    Rectangle PanelBounds,
+    Rectangle CloseButtonBounds,
+    Rectangle BackButtonBounds,
+    Rectangle TitleBounds,
+    Rectangle SubtitleBounds,
+    Rectangle CatalogFrameBounds,
+    Rectangle CatalogViewportBounds,
+    Rectangle DetailTreeFrameBounds,
+    Rectangle DetailTreeViewportBounds,
+    Rectangle DetailInfoPanelBounds,
+    IReadOnlyList<Rectangle> CardBounds,
+    float MaxScroll,
+    Rectangle ScrollbarTrackBounds,
+    Rectangle ScrollbarThumbBounds);

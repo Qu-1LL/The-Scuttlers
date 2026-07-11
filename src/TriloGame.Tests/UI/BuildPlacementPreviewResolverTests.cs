@@ -20,27 +20,6 @@ public sealed class BuildPlacementPreviewResolverTests
     }
 
     [Fact]
-    public void ResolveLocations_UsesAxisLineForWalls()
-    {
-        var session = new GameSession();
-
-        var locations = BuildPlacementPreviewResolver.ResolveLocations(
-            new Wall(session),
-            new GridPoint(9, 6),
-            new GridPoint(4, 4));
-
-        Assert.Equal(
-        [
-            new GridPoint(4, 4),
-            new GridPoint(5, 4),
-            new GridPoint(6, 4),
-            new GridPoint(7, 4),
-            new GridPoint(8, 4),
-            new GridPoint(9, 4)
-        ], locations);
-    }
-
-    [Fact]
     public void ResolveLocations_UsesFootprintGridForSoilPatches()
     {
         var session = new GameSession();

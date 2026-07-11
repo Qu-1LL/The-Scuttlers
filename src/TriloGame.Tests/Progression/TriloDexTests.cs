@@ -9,14 +9,64 @@ public sealed class TriloDexTests
     public void GlobalDex_ContainsTheAuthoredFeatureTreeCatalog()
     {
         Assert.Same(TriloDex.Global, TriloDex.Global);
-        Assert.Equal(28, TriloDex.GlobalFeatureTrees.Count);
-        Assert.Equal(28, TriloDex.Global.FeatureTrees.Count);
-        Assert.Equal(28, TriloDex.Global.Count);
+        Assert.Equal(18, TriloDex.GlobalFeatureTrees.Count);
+        Assert.Equal(18, TriloDex.Global.FeatureTrees.Count);
+        Assert.Equal(18, TriloDex.Global.Count);
         Assert.False(TriloDex.Global.IsEmpty);
 
         Assert.Equal(12, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 1));
-        Assert.Equal(12, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 2));
-        Assert.Equal(4, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 3));
+        Assert.Equal(5, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 2));
+        Assert.Equal(1, TriloDex.GlobalFeatureTrees.Count(tree => tree.Tier == 3));
+        Assert.All(TriloDex.GlobalFeatureTrees, tree => Assert.InRange(tree.Count, 10, 20));
+    }
+
+    [Fact]
+    public void GlobalDex_AssignsUniqueAuthoredDisplayColors()
+    {
+        string[] expectedColors =
+        [
+            "264653",
+            "2a9d8f",
+            "9a031e",
+            "5f0f40",
+            "81b29a",
+            "94d2bd",
+            "231942",
+            "fca311",
+            "6d597a",
+            "8900f2",
+            "4ecdc4",
+            "8ea604",
+            "f11515",
+            "b21e4b",
+            "7e766d",
+            "945600",
+            "affc41",
+            "b2ff9e"
+        ];
+
+        var displayColors = TriloDex.GlobalFeatureTrees
+            .Select(tree => tree.DisplayColor?.ToHex())
+            .ToArray();
+
+        Assert.Equal(expectedColors, displayColors);
+        Assert.Equal(expectedColors.Length, displayColors.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void GlobalDex_AssignsReadableDisplayNamesToEveryTree()
+    {
+        Assert.All(TriloDex.GlobalFeatureTrees, tree =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(tree.DisplayName));
+            Assert.False(string.IsNullOrWhiteSpace(tree.BranchName));
+            Assert.NotEqual(tree.Name, tree.DisplayName);
+            Assert.NotEqual(tree.Name, tree.BranchName);
+        });
+        Assert.Equal("Shellwright Basics", TriloDex.Global.FindFeatureTree("B1")!.DisplayName);
+        Assert.Equal("Founder's Shell", TriloDex.Global.FindFeatureTree("B1")!.BranchName);
+        Assert.Equal("Citadel Ecology", TriloDex.Global.FindFeatureTree("BCF1")!.DisplayName);
+        Assert.Equal("Citadel Bloom", TriloDex.Global.FindFeatureTree("BCF1")!.BranchName);
     }
 
     [Fact]

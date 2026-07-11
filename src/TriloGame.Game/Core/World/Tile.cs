@@ -2,6 +2,8 @@ namespace TriloGame.Game.Core.World;
 
 public sealed class Tile
 {
+    public const string CaveCrystalBase = "CaveCrystal";
+
     private readonly HashSet<Tile> _adjacent = [];
     private readonly List<Entities.Trilobite> _trilobites = [];
     private readonly Dictionary<string, int> _droppedResources = new(StringComparer.Ordinal);
@@ -13,6 +15,7 @@ public sealed class Tile
         Key = key;
         Coordinates = Shared.Math.GridPoint.Parse(key);
         Base = "empty";
+        HasFloorCover = true;
         CreatureCanFit = true;
     }
 
@@ -24,11 +27,21 @@ public sealed class Tile
 
     public string Base { get; private set; }
 
+    public TileDecoration Decoration { get; private set; }
+
+    public bool HasFloorCover { get; private set; }
+
+    public byte OreRotationQuarterTurns { get; private set; }
+
     public int ResourceYield { get; private set; }
 
     public int HitsPerYield { get; private set; }
 
     public int HitsRemaining { get; private set; }
+
+    public BiomeRegion? Biome { get; private set; }
+
+    public string? BiomeName => Biome?.Name;
 
     public Buildings.Building? Built { get; private set; }
 
@@ -68,7 +81,13 @@ public sealed class Tile
     public void SetBase(string tileBase)
     {
         Base = tileBase;
-        if (!string.Equals(tileBase, "wall", StringComparison.Ordinal))
+        ClearOreRotation();
+        if (!string.Equals(tileBase, "empty", StringComparison.Ordinal))
+        {
+            ClearDecoration();
+        }
+
+        if (!IsResourcelessBreakableBase(tileBase))
         {
             HitsRemaining = 0;
         }
@@ -92,14 +111,54 @@ public sealed class Tile
         HitsRemaining = Math.Max(1, hitsRequired);
     }
 
+    public void ConfigureCaveCrystal(int hitsRequired)
+    {
+        ClearResourceState();
+        HitsRemaining = Math.Max(1, hitsRequired);
+    }
+
     public void ClearResourceState()
     {
         ResourceYield = 0;
         HitsPerYield = 0;
         HitsRemaining = 0;
+        ClearOreRotation();
+    }
+
+    public void SetDecoration(TileDecoration decoration)
+    {
+        Decoration = decoration;
+    }
+
+    public void SetFloorCover(bool hasFloorCover)
+    {
+        HasFloorCover = hasFloorCover;
+    }
+
+    public void SetOreRotationQuarterTurns(int quarterTurns)
+    {
+        OreRotationQuarterTurns = GeneratedTileSpriteRotation.NormalizeQuarterTurns(quarterTurns);
+    }
+
+    public void ClearOreRotation()
+    {
+        OreRotationQuarterTurns = 0;
+    }
+
+    public void ClearDecoration()
+    {
+        Decoration = TileDecoration.None;
     }
 
     public bool IsOreTile() => ResourceYield > 0 && HitsPerYield > 0 && !string.Equals(Base, "wall", StringComparison.Ordinal);
+
+    public bool IsCaveCrystal() => string.Equals(Base, CaveCrystalBase, StringComparison.Ordinal);
+
+    public static bool IsResourcelessBreakableBase(string tileBase)
+    {
+        return string.Equals(tileBase, "wall", StringComparison.Ordinal) ||
+               string.Equals(tileBase, CaveCrystalBase, StringComparison.Ordinal);
+    }
 
     public bool ApplyOreMineHit(out bool depleted)
     {
@@ -128,6 +187,17 @@ public sealed class Tile
     public bool ApplyWallMineHit()
     {
         if (!string.Equals(Base, "wall", StringComparison.Ordinal) || HitsRemaining <= 0)
+        {
+            return false;
+        }
+
+        HitsRemaining--;
+        return HitsRemaining <= 0;
+    }
+
+    public bool ApplyCaveCrystalMineHit()
+    {
+        if (!IsCaveCrystal() || HitsRemaining <= 0)
         {
             return false;
         }
@@ -184,9 +254,14 @@ public sealed class Tile
         Built = building;
     }
 
-    public bool CreatureFits() => CreatureCanFit;
+    public bool CreatureFits() => CreatureCanFit && HasFloorCover;
 
-    public bool EnemyFits() => CreatureCanFit && Built is not Buildings.Wall;
+    internal void SetBiome(BiomeRegion? biome)
+    {
+        Biome = biome;
+    }
+
+    public bool EnemyFits() => CreatureCanFit && HasFloorCover && Built is not Buildings.Wall;
 
     public bool CreatureFits(Entities.Creature creature)
     {

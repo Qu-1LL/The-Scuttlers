@@ -3,21 +3,20 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
-using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
-using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Entities;
 
-public sealed partial class Trilobite : Creature
+public sealed partial class Trilobite : Creature, IInventoryCarrier
 {
+    private readonly TrilobiteBuildingAssignment _buildingAssignment = new();
+    private readonly TrilobiteFighterBehavior _fighterBehavior = new();
     private readonly List<string> _manualMineTileKeys = [];
     private bool _fleeingToQueen;
 
     public Trilobite(string name, GridPoint location, GameSession session)
         : base(name, location, session)
     {
-        Description = "A colony trilobite that follows assignments to mine, build, farm, or fight for the queen.";
         Inventory = new Core.Economy.Inventory();
         InventoryCapacity = GameConstants.TrilobiteCarryCapacity;
         BuilderWorkRate = 5;
@@ -30,7 +29,7 @@ public sealed partial class Trilobite : Creature
 
     public TrilobiteTraitState TraitState { get; }
 
-    public Building? AssignedBuilding { get; private set; }
+    public Building? AssignedBuilding => _buildingAssignment.Building;
 
     public string? PendingMineType { get; private set; }
 
@@ -39,13 +38,13 @@ public sealed partial class Trilobite : Creature
 
     private List<GridPoint>? PendingMinePath { get; set; }
 
-    private Enemy? FighterTarget { get; set; }
-
     public string? FighterTargetTileKey { get; private set; }
 
     public string? FighterPathMode { get; private set; }
 
     public MiningPost? BuilderSourcePost { get; private set; }
+
+    public Building? BuilderSourceBuilding { get; private set; }
 
     public int BuilderWorkRate { get; }
 
@@ -55,7 +54,7 @@ public sealed partial class Trilobite : Creature
 
     public int GetInventorySpace() => System.Math.Max(0, InventoryCapacity - Inventory.Amount);
 
-    public int AddToInventory(string resourceType, int amount) => Inventory.Add(resourceType, amount, InventoryCapacity);
+    public int AddToInventory(ResourceName resourceType, int amount) => Inventory.Add(resourceType, amount, InventoryCapacity);
 
     public int RemoveFromInventory(int amount) => Inventory.Remove(amount);
 
@@ -70,7 +69,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (!string.Equals(normalizedAssignment, "miner", StringComparison.Ordinal))
+        if (!TrilobiteRoleCatalog.IsRole(normalizedAssignment, TrilobiteRoles.Miner))
         {
             ClearManualMineOrders();
         }
@@ -111,46 +110,40 @@ public sealed partial class Trilobite : Creature
 
     public override Action? GetBehavior()
     {
-        return Assignment switch
-        {
-            "miner" => MinerBehavior,
-            "farmer" => FarmerBehavior,
-            "builder" => BuilderBehavior,
-            "fighter" => FighterBehavior,
-            _ => UnassignedBehavior
-        };
+        var behavior = TrilobiteRoleCatalog.GetOrUnassigned(Assignment);
+        return () => behavior.Start(this);
     }
 
-    private void UnassignedBehavior()
+    public override Action? GetNavigationFallback()
+    {
+        return TrilobiteRoleCatalog.GetOrUnassigned(Assignment).GetNavigationFallback(this);
+    }
+
+    internal void StartUnassignedRoleBehavior()
     {
         ClearFighterTarget();
         FighterPathMode = null;
         ReleaseAssignedBuilding();
     }
 
-    private void MinerBehavior() => EnqueueAction(() => { MinerStep1(); });
+    internal void EnqueueMinerRoleBehavior() => EnqueueAction(() => { MinerStep1(); });
 
-    private void FarmerBehavior() => EnqueueAction(() => { FarmerStep1(); });
+    internal void EnqueueFarmerRoleBehavior() => EnqueueAction(() => { FarmerStep1(); });
 
-    private void BuilderBehavior() => EnqueueAction(() => { BuilderStep1(); });
+    internal void EnqueueBuilderRoleBehavior() => EnqueueAction(() => { BuilderStep1(); });
 
-    private void FighterBehavior() => EnqueueAction(() => { FighterStep1(); });
+    internal void EnqueueFighterRoleBehavior() => EnqueueAction(() => { FighterStep1(); });
 
-    public bool IsMiner() => Assignment == "miner";
+    public bool IsMiner() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Miner);
 
-    public bool IsFarmer() => Assignment == "farmer";
+    public bool IsFarmer() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Farmer);
 
-    public bool IsBuilder() => Assignment == "builder";
+    public bool IsBuilder() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Builder);
 
-    public bool IsFighter() => Assignment == "fighter";
+    public bool IsFighter() => TrilobiteRoleCatalog.IsRole(Assignment, TrilobiteRoles.Fighter);
 
     protected override bool TryInterruptQueuedAction()
     {
-        if (TryHandleResourceCompleteScaffoldEscape(out var consumedTick))
-        {
-            return consumedTick;
-        }
-
         if (!ShouldFleeFromNearbyEnemy())
         {
             if (_fleeingToQueen)
@@ -159,6 +152,7 @@ public sealed partial class Trilobite : Creature
                 ClearActionQueue();
             }
 
+            TryLeaveScaffoldingWhileIdle();
             return false;
         }
 
@@ -198,186 +192,34 @@ public sealed partial class Trilobite : Creature
         return false;
     }
 
-    // Evacuate ready scaffolds before assignment or flee behavior can enqueue more work.
-    private bool TryHandleResourceCompleteScaffoldEscape(out bool consumedTick)
+    // Idle trilobites should step off scaffolding so finished builds can complete without prolonged blocking.
+    private void TryLeaveScaffoldingWhileIdle()
     {
-        consumedTick = false;
-        if (Cave is null ||
-            !IsTrackedInTileSystem ||
-            !Cave.IsResourceCompleteScaffoldingLocation(Location))
+        if (QueuedActionCount > 0 || Cave is null || !IsTrackedInTileSystem)
         {
-            return false;
+            return;
         }
 
-        ClearActionQueue();
-        if (TryMoveToAdjacentResourceCompleteScaffoldExit())
+        var currentTile = Cave.GetTile(Location);
+        if (currentTile?.Built is not Scaffolding)
         {
-            consumedTick = true;
-            return true;
+            return;
         }
 
-        var escapePath = BuildResourceCompleteScaffoldEscapePath();
-        if (escapePath is not null && QueueResourceCompleteScaffoldEscapePath(escapePath))
+        var path = Cave.BuildPathToNearestEmptyTile(Location);
+        if (path is null || path.Count < 2)
         {
-            return true;
+            return;
         }
 
-        consumedTick = true;
-        return true;
-    }
-
-    private bool TryMoveToAdjacentResourceCompleteScaffoldExit()
-    {
-        var cave = Cave;
-        var currentTile = cave?.GetTile(Location);
-        if (cave is null || currentTile is null)
-        {
-            return false;
-        }
-
-        Tile? selectedTile = null;
-        foreach (var neighbor in currentTile.Neighbors)
-        {
-            if (!cave.CanCreatureTraverseTile(this, neighbor) ||
-                cave.IsResourceCompleteScaffoldingTile(neighbor))
-            {
-                continue;
-            }
-
-            if (selectedTile is null || string.CompareOrdinal(neighbor.Key, selectedTile.Key) < 0)
-            {
-                selectedTile = neighbor;
-            }
-        }
-
-        return selectedTile is not null &&
-               cave.MoveCreature(this, selectedTile.Coordinates, allowResourceCompleteScaffolding: true);
-    }
-
-    // The escape search can traverse ready scaffolds but stops on the first non-ready passable tile.
-    private List<GridPoint>? BuildResourceCompleteScaffoldEscapePath()
-    {
-        var cave = Cave;
-        var startTile = cave?.GetTile(Location);
-        if (cave is null || startTile is null)
-        {
-            return null;
-        }
-
-        var stack = new Stack<Tile>();
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        var cameFrom = new Dictionary<string, string>(StringComparer.Ordinal);
-        stack.Push(startTile);
-        visited.Add(startTile.Key);
-
-        while (stack.Count > 0)
-        {
-            var current = stack.Pop();
-            if (!ReferenceEquals(current, startTile) &&
-                cave.CanCreatureTraverseTile(this, current) &&
-                !cave.IsResourceCompleteScaffoldingTile(current))
-            {
-                return ReconstructResourceCompleteScaffoldEscapePath(cameFrom, startTile.Key, current.Key);
-            }
-
-            var neighbors = GetNeighborsSortedDescending(current);
-            foreach (var neighbor in neighbors)
-            {
-                if (!cave.CanCreatureTraverseTile(this, neighbor) || !visited.Add(neighbor.Key))
-                {
-                    continue;
-                }
-
-                cameFrom[neighbor.Key] = current.Key;
-                stack.Push(neighbor);
-            }
-        }
-
-        return null;
-    }
-
-    private static List<Tile> GetNeighborsSortedDescending(Tile tile)
-    {
-        var neighbors = new List<Tile>(tile.Neighbors.Count);
-        foreach (var neighbor in tile.Neighbors)
-        {
-            var insertIndex = 0;
-            while (insertIndex < neighbors.Count &&
-                   string.CompareOrdinal(neighbor.Key, neighbors[insertIndex].Key) < 0)
-            {
-                insertIndex++;
-            }
-
-            neighbors.Insert(insertIndex, neighbor);
-        }
-
-        return neighbors;
-    }
-
-    private static List<GridPoint> ReconstructResourceCompleteScaffoldEscapePath(
-        IReadOnlyDictionary<string, string> cameFrom,
-        string startKey,
-        string destinationKey)
-    {
-        var path = new List<GridPoint>();
-        string? currentKey = destinationKey;
-        while (currentKey is not null)
-        {
-            path.Add(GridPoint.Parse(currentKey));
-            currentKey = string.Equals(currentKey, startKey, StringComparison.Ordinal)
-                ? null
-                : cameFrom.GetValueOrDefault(currentKey);
-        }
-
-        path.Reverse();
-        return path;
-    }
-
-    private bool QueueResourceCompleteScaffoldEscapePath(IReadOnlyList<GridPoint> path)
-    {
-        if (path.Count < 2)
-        {
-            return false;
-        }
-
-        ClearActionQueue();
-        for (var index = 1; index < path.Count; index++)
-        {
-            var next = path[index];
-            PathPreview.Add(next);
-            EnqueueAction(() => ExecuteResourceCompleteScaffoldEscapeStep(next));
-        }
-
-        return true;
-    }
-
-    private bool ExecuteResourceCompleteScaffoldEscapeStep(GridPoint next)
-    {
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        if (Cave?.MoveCreature(this, next, allowResourceCompleteScaffolding: true) == true)
-        {
-            if (PathPreview.Count > 0)
-            {
-                PathPreview.RemoveAt(0);
-            }
-
-            return true;
-        }
-
-        ClearActionQueue();
-        TryHandleResourceCompleteScaffoldEscape(out _);
-        return false;
+        QueueMovePath(path);
     }
 
     private bool ShouldFleeFromNearbyEnemy()
     {
         if (Cave is null ||
             !Session.Danger ||
-            (!IsMiner() && !IsFarmer() && !IsBuilder()))
+            !TrilobiteRoles.IsWorker(Assignment))
         {
             return false;
         }
@@ -406,11 +248,7 @@ public sealed partial class Trilobite : Creature
             ReleaseAssignedBuilding();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)MinerBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Miner);
 
         return false;
     }
@@ -437,11 +275,7 @@ public sealed partial class Trilobite : Creature
             ReleaseAssignedBuilding();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)FarmerBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Farmer);
 
         return false;
     }
@@ -470,11 +304,7 @@ public sealed partial class Trilobite : Creature
             ClearBuilderSourcePost();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)BuilderBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Builder);
 
         return false;
     }
@@ -498,13 +328,19 @@ public sealed partial class Trilobite : Creature
             ReleaseAssignedBuilding();
         }
 
-        var fallback = GetBehavior();
-        if (fallback is not null && !ReferenceEquals(fallback, (Action)FighterBehavior))
-        {
-            fallback();
-        }
+        StartCurrentRoleBehaviorIfNot(TrilobiteRoles.Fighter);
 
         return false;
+    }
+
+    private void StartCurrentRoleBehaviorIfNot(string role)
+    {
+        if (TrilobiteRoleCatalog.IsRole(Assignment, role))
+        {
+            return;
+        }
+
+        GetBehavior()?.Invoke();
     }
 
     public IReadOnlyList<AlgaeFarm> GetAlgaeFarms()
@@ -555,38 +391,14 @@ public sealed partial class Trilobite : Creature
         return false;
     }
 
-    private static bool IsGrowableResource(string? resourceType)
+    public int FeedQueenAlgae(Queen queen)
     {
-        if (string.IsNullOrWhiteSpace(resourceType))
-        {
-            return false;
-        }
-
-        var growableResources = GrowableResourceType.GetAll();
-        for (var index = 0; index < growableResources.Count; index++)
-        {
-            if (string.Equals(growableResources[index].Name, resourceType, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private bool HasQueenFeedInventory()
-    {
-        return HasInventory() && IsGrowableResource(Inventory.Type);
-    }
-
-    public int FeedQueenInventory(Queen queen)
-    {
-        if (!HasQueenFeedInventory() || !queen.CanConsumeResource(Inventory.Type))
+        if (!HasInventory() || Inventory.Type != ResourceName.Algae)
         {
             return 0;
         }
 
-        var result = queen.FeedResource(Inventory.Type!, Inventory.Amount, this, Cave);
+        var result = queen.FeedAlgae(Inventory.Amount, this, Cave);
         if (result.Accepted <= 0)
         {
             return 0;
@@ -612,10 +424,10 @@ public sealed partial class Trilobite : Creature
 
     public void SetAssignedBuilding(Building? building)
     {
-        if (!ReferenceEquals(AssignedBuilding, building))
+        if (!_buildingAssignment.IsAssignedTo(building))
         {
             ReleaseAssignedBuilding();
-            AssignedBuilding = building;
+            _buildingAssignment.Set(building);
         }
     }
 
@@ -629,45 +441,10 @@ public sealed partial class Trilobite : Creature
             return;
         }
 
-        switch (AssignedBuilding)
-        {
-            case MiningPost post:
-                if (PendingMineTileKey is not null)
-                {
-                    post.InvalidateMineableQueues();
-                }
-                post.RemoveAssignment(this);
-                break;
-            case AlgaeFarm farm:
-                farm.RemoveAssignment(this);
-                break;
-            case Ranch ranch:
-                ranch.RemoveAssignment(this);
-                break;
-            case StationBuilding station:
-                if (ReferenceEquals(HostedBuilding, station))
-                {
-                    if (restoreHostedCreatureToTileSystem)
-                    {
-                        station.TryRestoreCreatureToTileSystem(this);
-                    }
-                    else
-                    {
-                        LeaveTileSystem();
-                    }
-                }
-
-                station.RemoveAssignment(this);
-                break;
-            case Scaffolding scaffolding:
-                scaffolding.RemoveAssignment(this);
-                scaffolding.ReleaseMaterialReservation(this);
-                break;
-        }
+        _buildingAssignment.Release(this, restoreHostedCreatureToTileSystem, PendingMineTileKey is not null);
 
         PendingMineTileKey = null;
         PendingManualMineSelectionKey = null;
-        AssignedBuilding = null;
     }
 
     protected override bool EnsureReadyForTileNavigation()
@@ -676,7 +453,7 @@ public sealed partial class Trilobite : Creature
                (HostedBuilding as StationBuilding)?.TryRestoreCreatureToTileSystem(this) == true;
     }
 
-    private bool TryStationAtFighterStation(StationBuilding station)
+    internal bool TryStationAtFighterStation(StationBuilding station)
     {
         return station.TryStationCreature(this);
     }
@@ -689,12 +466,43 @@ public sealed partial class Trilobite : Creature
         }
 
         BuilderSourcePost = null;
+        BuilderSourceBuilding = null;
+    }
+
+    private void SetBuilderSource(Building sourceBuilding)
+    {
+        BuilderSourceBuilding = sourceBuilding;
+        BuilderSourcePost = sourceBuilding as MiningPost;
     }
 
     public void ClearFighterTarget()
     {
-        FighterTarget = null;
         FighterTargetTileKey = null;
+    }
+
+    internal void SetFighterTargetTileKey(string? tileKey)
+    {
+        FighterTargetTileKey = tileKey;
+    }
+
+    internal void SetFighterPathMode(string? mode)
+    {
+        FighterPathMode = mode;
+    }
+
+    internal bool EnsureReadyForRoleTileNavigation()
+    {
+        return EnsureReadyForTileNavigation();
+    }
+
+    internal void ArmEnemyBfsTraversal(Pathfinding.BfsField field)
+    {
+        ArmBfsTraversal(field, sharedFieldName: "enemy");
+    }
+
+    internal void ClearRoleBfsTraversal()
+    {
+        ClearBfsTraversal();
     }
 
     public IReadOnlyList<Barracks> GetBarracksBuildings()
@@ -988,46 +796,12 @@ public sealed partial class Trilobite : Creature
         return Cave?.GetEnemyAtTileKey(tileKey);
     }
 
-    // Fighters keep a live enemy reference so adjacent target checks survive tile-to-tile movement.
-    private Enemy? ResolveFighterTarget()
-    {
-        if (FighterTarget is null && FighterTargetTileKey is not null)
-        {
-            FighterTarget = GetEnemyAtTileKey(FighterTargetTileKey);
-        }
-
-        if (FighterTarget is null ||
-            FighterTarget.Health <= 0 ||
-            !ReferenceEquals(FighterTarget.Cave, Cave))
-        {
-            ClearFighterTarget();
-            return null;
-        }
-
-        FighterTargetTileKey = FighterTarget.Location.ToString();
-        return FighterTarget;
-    }
-
-    private void SetFighterTarget(Enemy? enemy)
-    {
-        if (enemy is null ||
-            enemy.Health <= 0 ||
-            !ReferenceEquals(enemy.Cave, Cave))
-        {
-            ClearFighterTarget();
-            return;
-        }
-
-        FighterTarget = enemy;
-        FighterTargetTileKey = enemy.Location.ToString();
-    }
-
     public bool IsAdjacentToTileKey(string tileKey, GridPoint? location = null)
     {
         return GridPoint.ManhattanDistance(location ?? Location, GridPoint.Parse(tileKey)) == 1;
     }
 
-    private Enemy? GetAdjacentEnemy(GridPoint? location = null)
+    public string? GetAdjacentEnemyTileKey(GridPoint? location = null)
     {
         var currentTile = Cave?.GetTile((location ?? Location).ToString());
         if (currentTile is null)
@@ -1035,52 +809,9 @@ public sealed partial class Trilobite : Creature
             return null;
         }
 
-        Enemy? selectedEnemy = null;
-        string? selectedKey = null;
-        foreach (var neighbor in currentTile.Neighbors)
-        {
-            var enemy = neighbor.EnemyOccupant;
-            if (enemy is null)
-            {
-                continue;
-            }
-
-            if (selectedEnemy is null || string.CompareOrdinal(neighbor.Key, selectedKey) < 0)
-            {
-                selectedEnemy = enemy;
-                selectedKey = neighbor.Key;
-            }
-        }
-
-        return selectedEnemy;
-    }
-
-    private bool IsAdjacentToEnemy(Enemy enemy, GridPoint? location = null)
-    {
-        return IsAdjacentToTileKey(enemy.Location.ToString(), location);
-    }
-
-    private Enemy? ResolveAdjacentFighterTarget(GridPoint? location = null)
-    {
-        var currentTarget = ResolveFighterTarget();
-        if (currentTarget is not null && IsAdjacentToEnemy(currentTarget, location))
-        {
-            return currentTarget;
-        }
-
-        var adjacentEnemy = GetAdjacentEnemy(location);
-        if (adjacentEnemy is null)
-        {
-            return null;
-        }
-
-        SetFighterTarget(adjacentEnemy);
-        return adjacentEnemy;
-    }
-
-    public string? GetAdjacentEnemyTileKey(GridPoint? location = null)
-    {
-        return GetAdjacentEnemy(location)?.Location.ToString();
+        return currentTile.Neighbors
+            .Select(neighbor => neighbor.EnemyOccupant is not null ? neighbor.Key : null)
+            .FirstOrDefault(key => key is not null);
     }
 
     public bool QueueFighterPath(IReadOnlyList<GridPoint> path, string? mode = null, bool clearExisting = true)
@@ -1226,545 +957,22 @@ public sealed partial class Trilobite : Creature
 
     public bool FighterStep1()
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        FighterPathMode = null;
-
-        if (ShouldHoldTurretPosition())
-        {
-            ClearFighterTarget();
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(true);
-        }
-
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        if (ResolveAdjacentFighterTarget() is not null)
-        {
-            return FighterStep2();
-        }
-
-        return FighterStep3();
+        return _fighterBehavior.Step1(this);
     }
 
     public bool FighterStep2()
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(true);
-        }
-
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        var enemy = ResolveAdjacentFighterTarget();
-        if (enemy is null)
-        {
-            return FighterStep3();
-        }
-
-        var dealt = DealDamage(enemy);
-        if (enemy.Health <= 0 || !ReferenceEquals(enemy.Cave, Cave))
-        {
-            ClearFighterTarget();
-        }
-        else
-        {
-            SetFighterTarget(enemy);
-        }
-
-        return dealt > 0;
+        return _fighterBehavior.Step2(this);
     }
 
     public bool FighterStep3()
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(true);
-        }
-
-        if (!EnsureReadyForTileNavigation())
-        {
-            return false;
-        }
-
-        if (ResolveFighterTarget() is null)
-        {
-            ClearFighterTarget();
-        }
-
-        var adjacentEnemy = ResolveAdjacentFighterTarget();
-        if (adjacentEnemy is not null)
-        {
-            ClearActionQueue();
-            return FighterStep2();
-        }
-
-        var cave = Cave;
-        var field = cave?.GetBfsFieldObject("enemy");
-        if (field is null || cave is null)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(false);
-        }
-
-        ClearActionQueue();
-        var resolvedField = field;
-        var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !cave.CanCreatureTraverseTile(this, attemptedTile)))
-        {
-            var refreshedField = cave.GetBfsFieldObject("enemy");
-            refreshedField?.Rebuild();
-            if (refreshedField is null)
-            {
-                ClearFighterTarget();
-                return FighterReturnToStation(false);
-            }
-
-            resolvedField = refreshedField;
-            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
-            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
-            {
-                ClearActionQueue();
-                return false;
-            }
-        }
-
-        if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
-        {
-            ClearActionQueue();
-            return false;
-        }
-
-        if (resolvedNext is null)
-        {
-            ClearFighterTarget();
-            return FighterReturnToStation(false);
-        }
-
-        ArmBfsTraversal(resolvedField, sharedFieldName: "enemy");
-        PathPreview.Add(resolvedNext.Value);
-        return FighterStepMove(resolvedNext.Value);
+        return _fighterBehavior.Step3(this);
     }
 
     public bool FighterStepMove(GridPoint nextLocation)
     {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        if (!Session.Danger)
-        {
-            if (FighterPathMode != "station")
-            {
-                ClearActionQueue();
-                return FighterStep1();
-            }
-
-            var assignedStation = GetAssignedFighterStation();
-            if (assignedStation is not null && TryStationAtFighterStation(assignedStation))
-            {
-                FighterPathMode = null;
-                ClearActionQueue();
-                return false;
-            }
-        }
-        else if (FighterPathMode == "station")
-        {
-            FighterPathMode = null;
-            ClearActionQueue();
-            return FighterStep1();
-        }
-
-        if (FighterPathMode != "station")
-        {
-            var hadTrackedTarget = FighterTarget is not null || FighterTargetTileKey is not null;
-            if (hadTrackedTarget && ResolveFighterTarget() is null)
-            {
-                ClearFighterTarget();
-                ClearActionQueue();
-                return FighterStep3();
-            }
-
-            var adjacentEnemy = ResolveAdjacentFighterTarget();
-            if (adjacentEnemy is not null)
-            {
-                ClearActionQueue();
-                return FighterStep2();
-            }
-        }
-
-        var wasStationMove = FighterPathMode == "station";
-        ClearBfsTraversal();
-        var moved = Cave?.MoveCreature(this, nextLocation) ?? false;
-        if (!moved)
-        {
-            if (wasStationMove)
-            {
-                FighterPathMode = null;
-            }
-
-            ClearActionQueue();
-            return wasStationMove ? FighterReturnToStation(true) : FighterStep3();
-        }
-
-        if (PathPreview.Count > 0)
-        {
-            PathPreview.RemoveAt(0);
-        }
-
-        if (wasStationMove)
-        {
-            var assignedStation = GetAssignedFighterStation();
-            if (assignedStation is not null && TryStationAtFighterStation(assignedStation))
-            {
-                FighterPathMode = null;
-                ClearActionQueue();
-                return false;
-            }
-
-            return true;
-        }
-
-        if (ResolveAdjacentFighterTarget() is not null)
-        {
-            ClearActionQueue();
-            return FighterStep2();
-        }
-
-        return true;
-    }
-
-    private bool ShouldHoldTurretPosition()
-    {
-        return GetAssignedFighterStation() is Turret turret &&
-               IsHostedOnBuilding(turret) &&
-               turret.IsCreatureStationed(this);
-    }
-
-    private bool IsSelectableRanch(Ranch? ranch)
-    {
-        return ranch is not null &&
-               ranch.Garage is not null &&
-               ranch.Garage.Location is not null &&
-               ranch.Garage.TileArray.Count > 0 &&
-               ranch.HasAssignmentSlot(this);
-    }
-
-    private bool CanReachRanch(Ranch ranch)
-    {
-        return Cave is not null &&
-               ranch.Garage is not null &&
-               Cave.GetBuildingBfsFieldValue(ranch.Garage, Location) != int.MaxValue;
-    }
-
-    internal Ranch? SelectRanch(Ranch? preferredRanch = null)
-    {
-        if (IsSelectableRanch(preferredRanch) && CanReachRanch(preferredRanch!))
-        {
-            return preferredRanch;
-        }
-
-        if (Cave is null)
-        {
-            return null;
-        }
-
-        Ranch? bestRanch = null;
-        var bestPriority = int.MinValue;
-        var bestDistance = int.MaxValue;
-        var ranches = Cave.GetRanches();
-        for (var index = 0; index < ranches.Count; index++)
-        {
-            var ranch = ranches[index];
-            if (!IsSelectableRanch(ranch) || ranch.Garage is null)
-            {
-                continue;
-            }
-
-            var distance = Cave.GetBuildingBfsFieldValue(ranch.Garage, Location);
-            if (distance == int.MaxValue)
-            {
-                continue;
-            }
-
-            if (ranch.FarmerAssignmentPriority > bestPriority ||
-                (ranch.FarmerAssignmentPriority == bestPriority && distance < bestDistance))
-            {
-                bestRanch = ranch;
-                bestPriority = ranch.FarmerAssignmentPriority;
-                bestDistance = distance;
-            }
-        }
-
-        return bestRanch;
-    }
-
-    public bool TryNavigateRanches()
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        var ranch = SelectRanch(GetAssignedRanch());
-        if (ranch is null)
-        {
-            return false;
-        }
-
-        SetAssignedBuilding(ranch);
-        if (!ranch.Assign(this))
-        {
-            ReleaseAssignedBuilding();
-            return false;
-        }
-
-        return FarmerRanchStep2();
-    }
-
-    public bool FarmerRanchStep2()
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        var ranch = GetAssignedRanch();
-        var garage = ranch?.Garage;
-        if (ranch is null || garage is null)
-        {
-            ReleaseAssignedBuilding();
-            EnqueueAction(() => { FarmerStep1(); });
-            return false;
-        }
-
-        if (ranch.IsHandlingFarmer(this))
-        {
-            return true;
-        }
-
-        if (IsAtBuildingNavigationTarget(garage))
-        {
-            return ranch.TryBeginGarageWait(this);
-        }
-
-        var navFallback = new Action(() =>
-        {
-            ReleaseAssignedBuilding();
-            FarmerStep1();
-        });
-
-        if (!NavigateToBuilding(garage, navFallback))
-        {
-            return false;
-        }
-
-        EnqueueAction(() => { FarmerRanchStep2(); });
-        return true;
-    }
-
-    private int GetStoredGrowableTotal(IStorage storage)
-    {
-        var total = 0;
-        var inventory = storage.GetInventory();
-        var growableResources = GrowableResourceType.GetAll();
-        for (var index = 0; index < growableResources.Count; index++)
-        {
-            total += inventory.GetValueOrDefault(growableResources[index].Name, 0);
-        }
-
-        return total;
-    }
-
-    private static int CompareStorageStableOrder(Building left, Building right)
-    {
-        var leftLocation = left.Location ?? GridPoint.Zero;
-        var rightLocation = right.Location ?? GridPoint.Zero;
-        var yComparison = leftLocation.Y.CompareTo(rightLocation.Y);
-        if (yComparison != 0)
-        {
-            return yComparison;
-        }
-
-        var xComparison = leftLocation.X.CompareTo(rightLocation.X);
-        return xComparison != 0
-            ? xComparison
-            : string.CompareOrdinal(left.Name, right.Name);
-    }
-
-    private bool CanReachGrowableStorage(Building storageBuilding)
-    {
-        return Cave is not null &&
-               storageBuilding.Location is not null &&
-               storageBuilding.TileArray.Count > 0 &&
-               (IsOnPassableBuildingTile(storageBuilding) || Cave.GetBuildingBfsFieldValue(storageBuilding, Location) != int.MaxValue);
-    }
-
-    private Building? SelectGrowableStorage()
-    {
-        if (Cave is null)
-        {
-            return null;
-        }
-
-        Building? bestStorage = null;
-        var bestGrowableTotal = 0;
-
-        foreach (var silo in Cave.GetSilos())
-        {
-            var storedGrowables = GetStoredGrowableTotal(silo);
-            if (storedGrowables <= 0 || !CanReachGrowableStorage(silo))
-            {
-                continue;
-            }
-
-            if (bestStorage is null ||
-                storedGrowables > bestGrowableTotal ||
-                (storedGrowables == bestGrowableTotal && CompareStorageStableOrder(silo, bestStorage) < 0))
-            {
-                bestStorage = silo;
-                bestGrowableTotal = storedGrowables;
-            }
-        }
-
-        foreach (var garage in Cave.GetGarages())
-        {
-            var storedGrowables = GetStoredGrowableTotal(garage);
-            if (storedGrowables <= 0 || !CanReachGrowableStorage(garage))
-            {
-                continue;
-            }
-
-            if (bestStorage is null ||
-                storedGrowables > bestGrowableTotal ||
-                (storedGrowables == bestGrowableTotal && CompareStorageStableOrder(garage, bestStorage) < 0))
-            {
-                bestStorage = garage;
-                bestGrowableTotal = storedGrowables;
-            }
-        }
-
-        return bestStorage;
-    }
-
-    private bool TryWithdrawGrowableInventory(IStorage storage)
-    {
-        if (HasInventory() || GetInventorySpace() <= 0)
-        {
-            return false;
-        }
-
-        var inventory = storage.GetInventory();
-        var growableResources = GrowableResourceType.GetAll();
-        var availableResourceTypes = new List<string>(growableResources.Count);
-
-        for (var index = 0; index < growableResources.Count; index++)
-        {
-            var resourceType = growableResources[index].Name;
-            if (inventory.GetValueOrDefault(resourceType, 0) > 0)
-            {
-                availableResourceTypes.Add(resourceType);
-            }
-        }
-
-        if (availableResourceTypes.Count == 0)
-        {
-            return false;
-        }
-
-        var selectedResourceType = availableResourceTypes[RandomUtil.NextInt(availableResourceTypes.Count)];
-        var requestedAmount = System.Math.Min(GetInventorySpace(), inventory.GetValueOrDefault(selectedResourceType, 0));
-        if (requestedAmount <= 0)
-        {
-            return false;
-        }
-
-        var withdrawn = storage.Withdraw(selectedResourceType, requestedAmount);
-        if (withdrawn <= 0)
-        {
-            return false;
-        }
-
-        var accepted = AddToInventory(selectedResourceType, withdrawn);
-        if (accepted < withdrawn)
-        {
-            storage.Deposit(selectedResourceType, withdrawn - accepted);
-        }
-
-        return accepted > 0;
-    }
-
-    public bool FarmerWithdrawFromStorage(Building storageBuilding)
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        if (HasQueenFeedInventory())
-        {
-            return FarmerStep4();
-        }
-
-        if (HasInventory())
-        {
-            ClearInventory();
-            EnqueueAction(() => { FarmerStep1(); });
-            return false;
-        }
-
-        if (storageBuilding is not IStorage storage || !CanReachGrowableStorage(storageBuilding))
-        {
-            EnqueueAction(() => { FarmerStep1(); });
-            return false;
-        }
-
-        if (!IsAtBuildingNavigationTarget(storageBuilding))
-        {
-            var navFallback = new Action(() => { FarmerStep1(); });
-            if (!NavigateToBuilding(storageBuilding, navFallback))
-            {
-                return false;
-            }
-
-            EnqueueAction(() => { FarmerWithdrawFromStorage(storageBuilding); });
-            return true;
-        }
-
-        if (!TryWithdrawGrowableInventory(storage))
-        {
-            EnqueueAction(() => { FarmerStep1(); });
-            return false;
-        }
-
-        return FarmerStep4();
+        return _fighterBehavior.StepMove(this, nextLocation);
     }
 
     public List<AlgaeFarm> GetAlgaeFarmPriorityList()
@@ -1921,36 +1129,19 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (HasQueenFeedInventory())
-        {
-            return FarmerStep4();
-        }
-
         if (HasInventory())
         {
+            if (Inventory.Type == ResourceName.Algae)
+            {
+                return FarmerStep4();
+            }
+
             ClearInventory();
-        }
-
-        var assignedRanch = GetAssignedRanch();
-        if (assignedRanch?.IsHandlingFarmer(this) == true)
-        {
-            return true;
-        }
-
-        if (SelectRanch(assignedRanch) is not null)
-        {
-            return TryNavigateRanches();
         }
 
         if (SelectAlgaeFarm(GetAssignedAlgaeFarm()) is null)
         {
             ReleaseAssignedBuilding();
-            var storageBuilding = SelectGrowableStorage();
-            if (storageBuilding is not null)
-            {
-                return FarmerWithdrawFromStorage(storageBuilding);
-            }
-
             EnqueueAction(() => { FarmerStep1(); });
             return false;
         }
@@ -2041,7 +1232,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (!HasQueenFeedInventory())
+        if (!HasInventory() || Inventory.Type != ResourceName.Algae)
         {
             EnqueueAction(() => { FarmerStep1(); });
             return false;
@@ -2139,7 +1330,7 @@ public sealed partial class Trilobite : Creature
             return FarmerStep4();
         }
 
-        var fed = FeedQueenInventory(queen);
+        var fed = FeedQueenAlgae(queen);
         if (fed <= 0)
         {
             EnqueueAction(() => { FarmerStep4(); });
@@ -2244,6 +1435,7 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        EnqueueAction(() => { MinerStep1(); });
         return true;
     }
 
@@ -2427,6 +1619,7 @@ public sealed partial class Trilobite : Creature
         if (GetAssignedMiningPost() is null && Cave is not null && !Cave.HasAvailableMiningPostAssignments)
         {
             ReleaseAssignedBuilding();
+            EnqueueAction(() => { MinerStep1(); });
             return false;
         }
 
@@ -2472,11 +1665,6 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (Cave is null || !Cave.HasAvailableMiningPostAssignments)
-        {
-            return false;
-        }
-
         return TryNavigateMiningPosts();
     }
 
@@ -2513,7 +1701,7 @@ public sealed partial class Trilobite : Creature
                 return true;
             }
 
-            var accepted = miningPost.Deposit(Inventory.Type!, Inventory.Amount);
+            var accepted = miningPost.Deposit(Inventory.Type!.Value, Inventory.Amount);
             RemoveFromInventory(accepted);
             if (HasInventory())
             {
@@ -2645,7 +1833,7 @@ public sealed partial class Trilobite : Creature
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
 
-        if (!Building.IsMineableType(targetTile.Base) && !(Cave?.HasOpal(targetTile) ?? false))
+        if (!Building.IsMineableType(targetTile.Base))
         {
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
@@ -2717,24 +1905,21 @@ public sealed partial class Trilobite : Creature
             return MineTileResult.NotApplied;
         }
 
-        var isOpal = Cave?.HasOpal(tile) ?? false;
-        if (!isOpal && !Building.IsMineableType(tile.Base))
+        if (!Building.IsMineableType(tile.Base))
+        {
+            return MineTileResult.NotApplied;
+        }
+
+        if (string.Equals(tile.Base, "wall", StringComparison.Ordinal) &&
+            GetInventorySpace() < GameConstants.WallMineResourceAmount)
         {
             return MineTileResult.NotApplied;
         }
 
         var tileCoords = GridPoint.Parse(tileKey);
-        if (isOpal)
+        if (!tile.CreatureFits())
         {
-            return Location == tileCoords
-                ? Session.MineTile(Cave!, tileKey, source: "creature")
-                : MineTileResult.NotApplied;
-        }
-
-        if (tile.Base == "wall")
-        {
-            if (GridPoint.ManhattanDistance(Location, tileCoords) != 1 ||
-                GetInventorySpace() < GameConstants.WallDropAmount)
+            if (GridPoint.ManhattanDistance(Location, tileCoords) != 1)
             {
                 return MineTileResult.NotApplied;
             }
@@ -2750,10 +1935,19 @@ public sealed partial class Trilobite : Creature
             return result;
         }
 
-        if (result.ResourceAmount > 0 && AddToInventory(result.ResourceType!, result.ResourceAmount) != result.ResourceAmount)
+        if (result.ResourceAmount > 0)
         {
-            RemoveFromInventory(result.ResourceAmount);
-            return MineTileResult.NotApplied;
+            if (!result.ResourceType.HasValue)
+            {
+                return MineTileResult.NotApplied;
+            }
+
+            var accepted = AddToInventory(result.ResourceType.Value, result.ResourceAmount);
+            if (accepted != result.ResourceAmount)
+            {
+                RemoveFromInventory(accepted);
+                return MineTileResult.NotApplied;
+            }
         }
 
         return result;
@@ -2774,7 +1968,7 @@ public sealed partial class Trilobite : Creature
         }
 
         var targetTile = Cave?.GetTile(PendingMineTileKey);
-        if (targetTile is null || (!Building.IsMineableType(targetTile.Base) && !(Cave?.HasOpal(targetTile) ?? false)))
+        if (targetTile is null || !Building.IsMineableType(targetTile.Base))
         {
             return RetargetStalePendingMineTarget(miningPost, PendingMineTileKey);
         }
@@ -2839,7 +2033,7 @@ public sealed partial class Trilobite : Creature
                 continue;
             }
 
-            if (Cave.IsTileRevealed(tile) && !Cave.HasOpal(tile) && !Building.IsMineableType(tile.Base))
+            if (Cave.IsTileRevealed(tile) && !Building.IsMineableType(tile.Base))
             {
                 _manualMineTileKeys.RemoveAt(index);
                 index--;
@@ -2872,7 +2066,7 @@ public sealed partial class Trilobite : Creature
         {
             var tile = Cave.GetTile(_manualMineTileKeys[index]);
             if (tile is null ||
-                (Cave.IsTileRevealed(tile) && !Cave.HasOpal(tile) && !Building.IsMineableType(tile.Base)))
+                (Cave.IsTileRevealed(tile) && !Building.IsMineableType(tile.Base)))
             {
                 _manualMineTileKeys.RemoveAt(index);
             }
@@ -2915,9 +2109,9 @@ public sealed partial class Trilobite : Creature
         return Cave.GetScaffoldingList().Where(scaffold => scaffold.IsInProgress()).ToList();
     }
 
-    private (MiningPost Post, string ResourceType, int Amount)? GetBuilderSupplyOptionFromCandidates(
+    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromMiningPosts(
         Scaffolding scaffold,
-        IReadOnlyList<string> neededResources,
+        IReadOnlyList<ScaffoldRequirementNeed> neededRequirements,
         IEnumerable<MiningPost> candidatePosts,
         bool orderedCandidates = false)
     {
@@ -2941,14 +2135,19 @@ public sealed partial class Trilobite : Creature
                 continue;
             }
 
-            foreach (var resourceType in neededResources)
+            foreach (var neededRequirement in neededRequirements)
             {
-                var missingAmount = scaffold.GetUnreservedRemainingRequirement(resourceType, this);
-                var availableAmount = post.GetAvailableInventory(resourceType, this);
-                var reserveAmount = System.Math.Min(InventoryCapacity, System.Math.Min(missingAmount, availableAmount));
-                if (reserveAmount > 0)
+                var reserveAmount = System.Math.Min(InventoryCapacity, neededRequirement.Amount);
+                var resourceMatch = post.FindAvailableResource(neededRequirement.Requirement, reserveAmount, this);
+                if (resourceMatch is not null)
                 {
-                    return (post, resourceType, reserveAmount);
+                    return (
+                        post,
+                        post,
+                        neededRequirement.RequirementIndex,
+                        neededRequirement.Requirement,
+                        resourceMatch.Value.ResourceType,
+                        resourceMatch.Value.Amount);
                 }
             }
         }
@@ -2956,20 +2155,78 @@ public sealed partial class Trilobite : Creature
         return null;
     }
 
-    public (MiningPost Post, string ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(Scaffolding scaffold, IReadOnlyList<MiningPost>? orderedPosts = null)
+    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromStorageBuildings(
+        Scaffolding scaffold,
+        IReadOnlyList<ScaffoldRequirementNeed> neededRequirements)
     {
-        var neededResources = scaffold.GetNeededResourceTypes(true, this);
-        if (neededResources.Count == 0)
+        if (Cave is null)
+        {
+            return null;
+        }
+
+        foreach (var building in Cave.GetBuildingList()
+                     .Where(building => building is not MiningPost && building is IResourceStorage)
+                     .OrderBy(building => Cave.GetBuildingBfsFieldValue(building, Location))
+                     .ThenBy(building => building.Location is null ? int.MaxValue : GridPoint.SquaredDistance(Location, building.Location.Value))
+                     .ThenBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal))
+        {
+            if (building is not IResourceStorage storage || !CanReachResourceStorage(building))
+            {
+                continue;
+            }
+
+            foreach (var neededRequirement in neededRequirements)
+            {
+                var reserveAmount = System.Math.Min(InventoryCapacity, neededRequirement.Amount);
+                var resourceMatch = storage.FindStoredResource(neededRequirement.Requirement, reserveAmount);
+                if (resourceMatch is not null)
+                {
+                    return (
+                        building,
+                        storage,
+                        neededRequirement.RequirementIndex,
+                        neededRequirement.Requirement,
+                        resourceMatch.Value.ResourceType,
+                        resourceMatch.Value.Amount);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(Scaffolding scaffold, IReadOnlyList<MiningPost>? orderedPosts = null)
+    {
+        var neededRequirements = scaffold.GetNeededRequirements(true, this);
+        if (neededRequirements.Count == 0)
         {
             return null;
         }
 
         if (orderedPosts is not null)
         {
-            return GetBuilderSupplyOptionFromCandidates(scaffold, neededResources, orderedPosts, orderedCandidates: true);
+            return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededRequirements, orderedPosts, orderedCandidates: true);
         }
 
-        return GetBuilderSupplyOptionFromCandidates(scaffold, neededResources, EnumerateMiningPostCandidates("builder-supply"));
+        return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededRequirements, EnumerateMiningPostCandidates("builder-supply")) ??
+               GetBuilderSupplyOptionFromStorageBuildings(scaffold, neededRequirements);
+    }
+
+    private bool CanReachResourceStorage(Building building)
+    {
+        return Cave is not null &&
+               building.Location is not null &&
+               building.TileArray.Count > 0 &&
+               (IsAtResourceStorageSource(building) || Cave.GetBuildingBfsFieldValue(building, Location) != int.MaxValue);
+    }
+
+    private bool IsAtResourceStorageSource(Building building)
+    {
+        return building switch
+        {
+            MiningPost post => post.IsLocationOnPost(Location),
+            _ => IsInBuildingWorkRange(building)
+        };
     }
 
     public bool CanActOnScaffold(Scaffolding scaffold)
@@ -2986,10 +2243,10 @@ public sealed partial class Trilobite : Creature
 
         if (HasInventory())
         {
-            return scaffold.NeedsResource(Inventory.Type!);
+            return scaffold.NeedsResource(Inventory.Type!.Value);
         }
 
-        if (scaffold.GetMaterialReservation(this) is not null || BuilderSourcePost?.GetMaterialReservation(this) is not null)
+        if (scaffold.GetMaterialReservation(this) is not null && BuilderSourceBuilding is not null)
         {
             return true;
         }
@@ -3004,7 +2261,7 @@ public sealed partial class Trilobite : Creature
             return true;
         }
 
-        return scaffold.IsConstructionComplete();
+        return scaffold.IsConstructionComplete() && !scaffold.CompletionPending;
     }
 
     public List<Scaffolding> GetScaffoldingPriorityList(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
@@ -3140,7 +2397,7 @@ public sealed partial class Trilobite : Creature
             return true;
         }
 
-        var accepted = post.Deposit(Inventory.Type!, Inventory.Amount);
+        var accepted = post.Deposit(Inventory.Type!.Value, Inventory.Amount);
         RemoveFromInventory(accepted);
         return HasInventory() ? BuilderDepositInventoryToNearestMiningPost() : BuilderStep1();
     }
@@ -3159,11 +2416,12 @@ public sealed partial class Trilobite : Creature
         }
 
         var scaffoldReservation = scaffold.GetMaterialReservation(this);
+        var sourceBuilding = BuilderSourceBuilding;
         var postReservation = BuilderSourcePost?.GetMaterialReservation(this);
 
         if (HasInventory())
         {
-            if (scaffold.NeedsResource(Inventory.Type!))
+            if (scaffold.NeedsResource(Inventory.Type!.Value))
             {
                 return BuilderStep4();
             }
@@ -3172,16 +2430,18 @@ public sealed partial class Trilobite : Creature
             return BuilderDepositInventoryToNearestMiningPost();
         }
 
-        if (scaffoldReservation is not null && BuilderSourcePost is not null && postReservation is not null)
+        if (scaffoldReservation is not null &&
+            sourceBuilding is not null &&
+            (BuilderSourcePost is null || postReservation is not null))
         {
             return BuilderStep3();
         }
 
-        if (scaffoldReservation is not null && BuilderSourcePost is null)
+        if (scaffoldReservation is not null && sourceBuilding is null)
         {
             scaffold.ReleaseMaterialReservation(this);
         }
-        else if (scaffoldReservation is null && BuilderSourcePost is not null)
+        else if (scaffoldReservation is null && sourceBuilding is not null)
         {
             ClearBuilderSourcePost();
         }
@@ -3225,23 +2485,30 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        var scaffoldReserved = scaffold.ReserveMaterial(this, supplyOption.Value.ResourceType, supplyOption.Value.Amount);
+        var scaffoldReserved = scaffold.ReserveMaterial(
+            this,
+            supplyOption.Value.RequirementIndex,
+            supplyOption.Value.ResourceType,
+            supplyOption.Value.Amount);
         if (scaffoldReserved <= 0)
         {
             return false;
         }
 
-        var postReserved = supplyOption.Value.Post.ReserveMaterial(this, supplyOption.Value.ResourceType, scaffoldReserved);
-        if (postReserved != scaffoldReserved)
+        if (supplyOption.Value.SourceBuilding is MiningPost sourcePost)
         {
-            scaffold.ReleaseMaterialReservation(this);
-            supplyOption.Value.Post.ReleaseMaterialReservation(this);
-            return false;
+            var postReserved = sourcePost.ReserveMaterial(this, supplyOption.Value.ResourceType, scaffoldReserved);
+            if (postReserved != scaffoldReserved)
+            {
+                scaffold.ReleaseMaterialReservation(this);
+                sourcePost.ReleaseMaterialReservation(this);
+                return false;
+            }
         }
 
-        BuilderSourcePost = supplyOption.Value.Post;
+        SetBuilderSource(supplyOption.Value.SourceBuilding);
 
-        if (supplyOption.Value.Post.IsLocationOnPost(Location))
+        if (IsAtResourceStorageSource(supplyOption.Value.SourceBuilding))
         {
             return BuilderStep3();
         }
@@ -3253,7 +2520,7 @@ public sealed partial class Trilobite : Creature
             BuilderStep1();
         });
 
-        if (!NavigateToBuilding(supplyOption.Value.Post, navFallback))
+        if (!NavigateToBuilding(supplyOption.Value.SourceBuilding, navFallback))
         {
             return false;
         }
@@ -3270,11 +2537,17 @@ public sealed partial class Trilobite : Creature
         }
 
         var scaffold = GetAssignedScaffolding();
-        var post = BuilderSourcePost;
+        var sourceBuilding = BuilderSourceBuilding;
+        var storage = sourceBuilding as IResourceStorage;
         var scaffoldReservation = scaffold?.GetMaterialReservation(this);
-        var postReservation = post?.GetMaterialReservation(this);
+        var postReservation = BuilderSourcePost?.GetMaterialReservation(this);
 
-        if (scaffold is null || post is null || scaffoldReservation is null || postReservation is null || scaffoldReservation.ResourceType != postReservation.ResourceType)
+        if (scaffold is null ||
+            sourceBuilding is null ||
+            storage is null ||
+            scaffoldReservation is null ||
+            (BuilderSourcePost is not null &&
+             (postReservation is null || scaffoldReservation.Value.ResourceType != postReservation.ResourceType)))
         {
             scaffold?.ReleaseMaterialReservation(this);
             ClearBuilderSourcePost();
@@ -3287,7 +2560,7 @@ public sealed partial class Trilobite : Creature
             return BuilderStep4();
         }
 
-        if (!post.IsLocationOnPost(Location))
+        if (!IsAtResourceStorageSource(sourceBuilding))
         {
             var navFallback = new Action(() =>
             {
@@ -3296,7 +2569,7 @@ public sealed partial class Trilobite : Creature
                 BuilderStep1();
             });
 
-            if (!NavigateToBuilding(post, navFallback))
+            if (!NavigateToBuilding(sourceBuilding, navFallback))
             {
                 return false;
             }
@@ -3305,8 +2578,14 @@ public sealed partial class Trilobite : Creature
             return true;
         }
 
-        var withdrawn = post.WithdrawReservedMaterial(this, System.Math.Min(GetInventorySpace(), scaffoldReservation.Amount));
-        if (withdrawn is null || withdrawn.Amount <= 0)
+        var activeScaffoldReservation = scaffoldReservation.Value;
+        var requestedAmount = System.Math.Min(GetInventorySpace(), activeScaffoldReservation.Amount);
+        var withdrawnResourceType = activeScaffoldReservation.ResourceType;
+        var withdrawnAmount = BuilderSourcePost is not null
+            ? BuilderSourcePost.WithdrawReservedMaterial(this, requestedAmount)?.Amount ?? 0
+            : storage.Withdraw(withdrawnResourceType, requestedAmount);
+
+        if (withdrawnAmount <= 0)
         {
             scaffold.ReleaseMaterialReservation(this);
             ClearBuilderSourcePost();
@@ -3314,9 +2593,9 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
-        if (AddToInventory(withdrawn.ResourceType, withdrawn.Amount) != withdrawn.Amount)
+        if (AddToInventory(withdrawnResourceType, withdrawnAmount) != withdrawnAmount)
         {
-            post.Deposit(withdrawn.ResourceType, withdrawn.Amount);
+            storage.Deposit(withdrawnResourceType, withdrawnAmount);
             scaffold.ReleaseMaterialReservation(this);
             ClearBuilderSourcePost();
             EnqueueAction(() => { BuilderStep1(); });
@@ -3324,6 +2603,7 @@ public sealed partial class Trilobite : Creature
         }
 
         BuilderSourcePost = null;
+        BuilderSourceBuilding = null;
         return BuilderStep4();
     }
 
@@ -3346,7 +2626,7 @@ public sealed partial class Trilobite : Creature
             return BuilderDepositInventoryToNearestMiningPost();
         }
 
-        if (!scaffold.NeedsResource(Inventory.Type!))
+        if (!scaffold.NeedsResource(Inventory.Type!.Value))
         {
             scaffold.ReleaseMaterialReservation(this);
             return BuilderDepositInventoryToNearestMiningPost();
@@ -3369,7 +2649,7 @@ public sealed partial class Trilobite : Creature
             return true;
         }
 
-        var accepted = scaffold.Deposit(Inventory.Type!, Inventory.Amount, this);
+        var accepted = scaffold.Deposit(Inventory.Type!.Value, Inventory.Amount, this);
         RemoveFromInventory(accepted);
         return HasInventory() ? BuilderDepositInventoryToNearestMiningPost() : BuilderStep1();
     }
@@ -3423,6 +2703,59 @@ public sealed partial class Trilobite : Creature
             return false;
         }
 
+        if (!scaffold.NeedsConstructionWork() && scaffold.CompletionPending)
+        {
+            return LeaveCompletedScaffold(scaffold);
+        }
+
+        return true;
+    }
+
+    private bool LeaveCompletedScaffold(Scaffolding scaffold)
+    {
+        if (Cave is null)
+        {
+            EnqueueAction(() => { BuilderStep1(); });
+            return true;
+        }
+
+        GridPoint? bestLocation = null;
+        var bestDistance = int.MaxValue;
+        string? bestKey = null;
+        foreach (var tile in scaffold.TileArray)
+        {
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (ReferenceEquals(neighbor.Built, scaffold) || !Cave.CanCreatureTraverseTile(this, neighbor))
+                {
+                    continue;
+                }
+
+                var distance = GridPoint.SquaredDistance(Location, neighbor.Coordinates);
+                if (bestLocation is null ||
+                    distance < bestDistance ||
+                    (distance == bestDistance && string.CompareOrdinal(neighbor.Key, bestKey) < 0))
+                {
+                    bestLocation = neighbor.Coordinates;
+                    bestDistance = distance;
+                    bestKey = neighbor.Key;
+                }
+            }
+        }
+
+        if (bestLocation is null)
+        {
+            EnqueueAction(() => { BuilderStep1(); });
+            return true;
+        }
+
+        var navFallback = new Action(() => { BuilderStep1(); });
+        if (!NavigateTo(bestLocation.Value, navFallback))
+        {
+            return false;
+        }
+
+        EnqueueAction(() => { BuilderStep1(); });
         return true;
     }
 }

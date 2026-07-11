@@ -57,7 +57,7 @@ or note the assumption in the final response.
 - farm algae and feed the queen
 - build through scaffolding and recipes
 - defend against ants and ant holes
-- manage opal pressure and other world hazards
+- manage other world hazards
 
 The project already contains:
 
@@ -131,7 +131,6 @@ Repository-level guidance is split so agents can read the narrowest relevant con
 - `src/TriloGame.Game/Audio/AGENTS.md`
   - cue registration and playback boundaries
   - session audio bridge ownership
-  - opal warning audio state ownership
 - `src/TriloGame.Game/Rendering/AGENTS.md`
   - camera/render helper placement
   - world-space versus screen-space rendering boundary
@@ -159,7 +158,8 @@ Repository-level guidance is split so agents can read the narrowest relevant con
 - Do not use `DateTime.Now`, `Stopwatch`, or wall-clock timing inside simulation decisions.
 - Keep event timing explicit. Never add "fire whenever" logic to the sim.
 - Randomness for gameplay should continue to use the project's established deterministic/random
-  utility patterns rather than ad-hoc sources.
+  utility patterns rather than ad-hoc sources; prefer `Shared/Utilities/XorShift64.cs` when code
+  needs explicit deterministic PRNG state, especially for generation or replay-sensitive logic.
 
 For timing ownership, system extraction seams, solution-map detail, golden-path files, and
 high-pressure files, read the nearest local `AGENTS.md` under `src/TriloGame.Game`.

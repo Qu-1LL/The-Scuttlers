@@ -9,9 +9,11 @@ public sealed class MusicService
     private MusicTrack _targetTrack = MusicTrack.AdaptiveTest1;
     private float _fadeSecondsRemaining;
     private float _fadeDurationSeconds;
+    private bool _isStarted;
 
     public int VolumePercent { get; private set; } = 100;
     public float NormalizedVolume => VolumePercent / 100f;
+    public bool IsMusicEnabled { get; private set; } = true;
 
     public void Register(MusicTrack track, SoundEffect music)
     {
@@ -24,6 +26,13 @@ public sealed class MusicService
     public void Start(MusicTrack audibleTrack)
     {
         _targetTrack = audibleTrack;
+        _isStarted = true;
+
+        if (!IsMusicEnabled)
+        {
+            StopLayerPlayback();
+            return;
+        }
 
         foreach (var pair in _layers)
         {
@@ -40,6 +49,13 @@ public sealed class MusicService
         }
 
         _targetTrack = track;
+        if (!IsMusicEnabled)
+        {
+            _fadeSecondsRemaining = 0f;
+            _fadeDurationSeconds = 0f;
+            return;
+        }
+
         _fadeDurationSeconds = Math.Max(0.001f, (float)duration.TotalSeconds);
         _fadeSecondsRemaining = _fadeDurationSeconds;
 
@@ -54,7 +70,7 @@ public sealed class MusicService
 
     public void Update(GameTime gameTime)
     {
-        if (_fadeSecondsRemaining <= 0f)
+        if (!IsMusicEnabled || _fadeSecondsRemaining <= 0f)
         {
             return;
         }
@@ -79,14 +95,11 @@ public sealed class MusicService
 
     public void Stop()
     {
+        _isStarted = false;
         _fadeSecondsRemaining = 0f;
         _fadeDurationSeconds = 0f;
 
-        foreach (var layer in _layers.Values)
-        {
-            layer.Volume = 0f;
-            layer.Stop();
-        }
+        StopLayerPlayback();
     }
 
     public bool SetVolumePercent(int volumePercent)
@@ -98,11 +111,57 @@ public sealed class MusicService
         }
 
         VolumePercent = clamped;
-        foreach (var pair in _layers)
-        {
-            pair.Value.Volume = pair.Key == _targetTrack ? NormalizedVolume : 0f;
-        }
+        ApplyTargetVolumes();
 
         return true;
+    }
+
+    public bool SetMusicEnabled(bool enabled)
+    {
+        if (enabled == IsMusicEnabled)
+        {
+            return false;
+        }
+
+        IsMusicEnabled = enabled;
+        _fadeSecondsRemaining = 0f;
+        _fadeDurationSeconds = 0f;
+
+        if (!enabled)
+        {
+            StopLayerPlayback();
+            return true;
+        }
+
+        if (_isStarted)
+        {
+            foreach (var layer in _layers.Values)
+            {
+                if (layer.State != SoundState.Playing)
+                {
+                    layer.Play();
+                }
+            }
+        }
+
+        ApplyTargetVolumes();
+        return true;
+    }
+
+    private void ApplyTargetVolumes()
+    {
+        foreach (var pair in _layers)
+        {
+            pair.Value.Volume = IsMusicEnabled && pair.Key == _targetTrack ? NormalizedVolume : 0f;
+        }
+    }
+
+    private void StopLayerPlayback()
+    {
+        foreach (var layer in _layers.Values)
+        {
+            layer.Volume = 0f;
+            layer.Stop();
+        }
     }
 }

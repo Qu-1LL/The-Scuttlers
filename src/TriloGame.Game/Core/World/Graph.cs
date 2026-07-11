@@ -9,7 +9,7 @@ public class Graph
     private readonly List<Tile> _tilesInOrder = [];
     private readonly List<Tile?> _tilesById = [];
 
-    public Tile AddTile(string key)
+    public virtual Tile AddTile(string key)
     {
         if (!Tiles.TryGetValue(key, out var tile))
         {
@@ -23,7 +23,7 @@ public class Graph
         return tile;
     }
 
-    public Tile? RemoveTile(string key)
+    public virtual Tile? RemoveTile(string key)
     {
         if (!Tiles.TryGetValue(key, out var deleted))
         {

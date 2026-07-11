@@ -15,21 +15,19 @@ public static class BuildPlacementDragLayout
         };
     }
 
-    // Snap line drags to the axis that keeps the hovered tile closest to the preview.
     public static GridPoint ResolveAxisLineEnd(GridPoint start, GridPoint hoveredTile)
     {
-        var horizontalDistance = System.Math.Abs(hoveredTile.Y - start.Y);
-        var verticalDistance = System.Math.Abs(hoveredTile.X - start.X);
+        var horizontalDistance = Math.Abs(hoveredTile.Y - start.Y);
+        var verticalDistance = Math.Abs(hoveredTile.X - start.X);
         return horizontalDistance <= verticalDistance
             ? new GridPoint(hoveredTile.X, start.Y)
             : new GridPoint(start.X, hoveredTile.Y);
     }
 
-    // Expand the snapped axis endpoints into one placement per tile.
     public static List<GridPoint> BuildAxisLine(GridPoint start, GridPoint hoveredTile)
     {
         var end = ResolveAxisLineEnd(start, hoveredTile);
-        var locations = new List<GridPoint>(System.Math.Max(System.Math.Abs(end.X - start.X), System.Math.Abs(end.Y - start.Y)) + 1);
+        var locations = new List<GridPoint>(Math.Max(Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y)) + 1);
 
         if (start.X == end.X)
         {
@@ -59,15 +57,14 @@ public static class BuildPlacementDragLayout
         return locations;
     }
 
-    // Expand drags into a footprint-aligned grid using the building's placement step.
     public static List<GridPoint> BuildFootprintGrid(GridPoint start, GridPoint hoveredTile, GridPoint step)
     {
-        var stepWidth = System.Math.Max(1, step.X);
-        var stepHeight = System.Math.Max(1, step.Y);
+        var stepWidth = Math.Max(1, step.X);
+        var stepHeight = Math.Max(1, step.Y);
         var stepX = hoveredTile.X >= start.X ? stepWidth : -stepWidth;
         var stepY = hoveredTile.Y >= start.Y ? stepHeight : -stepHeight;
-        var countX = (System.Math.Abs(hoveredTile.X - start.X) / stepWidth) + 1;
-        var countY = (System.Math.Abs(hoveredTile.Y - start.Y) / stepHeight) + 1;
+        var countX = (Math.Abs(hoveredTile.X - start.X) / stepWidth) + 1;
+        var countY = (Math.Abs(hoveredTile.Y - start.Y) / stepHeight) + 1;
         var locations = new List<GridPoint>(countX * countY);
 
         for (var y = 0; y < countY; y++)

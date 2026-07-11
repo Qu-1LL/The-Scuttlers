@@ -55,9 +55,9 @@ public sealed class Queen : Building
         return CanBeFedAt(creature.Location);
     }
 
-    public bool CanConsumeResource(string? resourceType)
+    public bool CanConsumeResource(ResourceName? resourceType)
     {
-        if (string.IsNullOrWhiteSpace(resourceType))
+        if (!resourceType.HasValue)
         {
             return false;
         }
@@ -65,7 +65,7 @@ public sealed class Queen : Building
         var growableResources = GrowableResourceType.GetAll();
         for (var index = 0; index < growableResources.Count; index++)
         {
-            if (string.Equals(growableResources[index].Name, resourceType, StringComparison.Ordinal))
+            if (growableResources[index].Resource == resourceType.Value)
             {
                 return true;
             }
@@ -106,7 +106,7 @@ public sealed class Queen : Building
     }
 
     // The queen currently values every growable crop as one food unit so idle farmers can haul any stored crop.
-    public (int Accepted, int SpawnCount) FeedResource(string resourceType, int amount, Trilobite? creature = null, World.Cave? cave = null)
+    public (int Accepted, int SpawnCount) FeedResource(ResourceName resourceType, int amount, Trilobite? creature = null, World.Cave? cave = null)
     {
         if (amount <= 0 || !CanConsumeResource(resourceType))
         {
@@ -135,6 +135,6 @@ public sealed class Queen : Building
 
     public (int Accepted, int SpawnCount) FeedAlgae(int amount, Trilobite? creature = null, World.Cave? cave = null)
     {
-        return FeedResource(OreType.ALGAE.Name, amount, creature, cave);
+        return FeedResource(ResourceName.Algae, amount, creature, cave);
     }
 }

@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Runtime.Bootstrap;
 
 namespace TriloGame.Tests.Runtime;
@@ -13,7 +14,6 @@ public sealed class GameSessionBootstrapperTests
         var queen = Assert.IsType<Queen>(cave.GetQueenBuilding());
 
         Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
-        Assert.Null(cave.GetOpalNode());
 
         var assignments = cave.GetTrilobiteList().ToDictionary(trilobite => trilobite.Name, trilobite => trilobite.Assignment, StringComparer.Ordinal);
         Assert.Equal("miner", assignments["Jeffery"]);
@@ -37,11 +37,69 @@ public sealed class GameSessionBootstrapperTests
     }
 
     [Fact]
+    public void CreateNewGame_AllowsAnExplicitWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.Version0);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsPerlinNoiseWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.PerlinNoise);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsPerlinRandomWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.PerlinRandom);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsFractalBrownianMotionWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.FractalBrownianMotion);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
+    public void CreateNewGame_AllowsPatternlessRandomWorldGenerationMethod()
+    {
+        var result = new GameSessionBootstrapper().CreateNewGame(WorldGenerationMethod.PatternlessRandom);
+        var cave = Assert.IsType<Cave>(result.Session.Cave);
+
+        Assert.NotEmpty(cave.GetTiles());
+        Assert.Contains(cave.GetTiles(), tile => tile.Base == "wall");
+        Assert.NotNull(cave.GetQueenBuilding());
+        Assert.Contains(cave.GetBuildingList(), building => building is MiningPost);
+    }
+
+    [Fact]
     public void CreateNewGame_SeedsTheSkillTreeWithAnUnlockedRootAnchor()
     {
         var result = new GameSessionBootstrapper().CreateNewGame();
 
-        var root = Assert.IsType<TriloGame.Game.Core.Progression.BinarySkillNode>(result.Session.SkillTree.Root);
+        var root = Assert.IsType<TriloGame.Game.Core.Progression.TreeInstanceNode>(result.Session.SkillTree.Root);
         Assert.Equal("Hive Core", root.Name);
         Assert.True(root.IsUnlocked);
         Assert.Equal(1, result.Session.SkillTree.Count);

@@ -61,4 +61,21 @@ public sealed class SettingsMenuLayoutTests
 
         Assert.True(panelBounds.Contains(barBounds));
     }
+
+    [Fact]
+    public void GetMusicToggleBounds_StaysBetweenVolumeAndTrilodex()
+    {
+        var viewport = new Point(1440, 900);
+        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport);
+
+        var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
+        var musicToggleBounds = SettingsMenuLayout.GetMusicToggleBounds(panelBounds);
+        var checkboxBounds = SettingsMenuLayout.GetMusicCheckboxBounds(panelBounds);
+        var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
+
+        Assert.True(panelBounds.Contains(musicToggleBounds));
+        Assert.True(musicToggleBounds.Contains(checkboxBounds));
+        Assert.True(volumeBarBounds.Bottom < musicToggleBounds.Y);
+        Assert.True(musicToggleBounds.Bottom < trilodexBounds.Y);
+    }
 }

@@ -1,15 +1,19 @@
 namespace TriloGame.Game.Core.Economy;
 
-public sealed record GrowableResourceType(OreType HarvestedOre)
+public sealed record GrowableResourceType(ItemType HarvestedItem)
 {
-    public static readonly GrowableResourceType ALGAE = new(OreType.ALGAE);
+    public static readonly GrowableResourceType ALGAE = new(ItemCatalog.Algae);
 
-    private static readonly IReadOnlyList<GrowableResourceType> All = new[]
-    {
+    private static readonly GrowableResourceType[] All =
+    [
         ALGAE
-    };
+    ];
 
-    public string Name => HarvestedOre.Name;
+    public string Name => HarvestedItem.Name;
+
+    public ResourceName Resource => HarvestedItem.Resource;
+
+    public ItemType HarvestedOre => HarvestedItem;
 
     public static IReadOnlyList<GrowableResourceType> GetAll() => All;
 

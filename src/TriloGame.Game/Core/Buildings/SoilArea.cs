@@ -1,3 +1,4 @@
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
@@ -63,7 +64,6 @@ public sealed class SoilArea : Building
         return placements;
     }
 
-    // Soil areas are selection aggregates; the member soil patches own the actual growth ticks.
     public override int Tick(Cave cave)
     {
         var advancedTiles = 0;
@@ -172,16 +172,15 @@ public sealed class SoilArea : Building
                 continue;
             }
 
-            minX = System.Math.Min(minX, location.X);
-            minY = System.Math.Min(minY, location.Y);
-            maxX = System.Math.Max(maxX, location.X + soilPatch.Size.X - 1);
-            maxY = System.Math.Max(maxY, location.Y + soilPatch.Size.Y - 1);
+            minX = Math.Min(minX, location.X);
+            minY = Math.Min(minY, location.Y);
+            maxX = Math.Max(maxX, location.X + soilPatch.Size.X - 1);
+            maxY = Math.Max(maxY, location.Y + soilPatch.Size.Y - 1);
         }
 
         return minX != int.MaxValue;
     }
 
-    // Soil areas are selection aggregates; refresh from live patch tiles whenever membership changes.
     internal void RefreshSelectionFootprint(Ranch? ranchFilter = null)
     {
         var tiles = new List<Tile>();
@@ -226,10 +225,10 @@ public sealed class SoilArea : Building
         for (var index = 0; index < tiles.Count; index++)
         {
             var point = tiles[index].Coordinates;
-            minX = System.Math.Min(minX, point.X);
-            minY = System.Math.Min(minY, point.Y);
-            maxX = System.Math.Max(maxX, point.X);
-            maxY = System.Math.Max(maxY, point.Y);
+            minX = Math.Min(minX, point.X);
+            minY = Math.Min(minY, point.Y);
+            maxX = Math.Max(maxX, point.X);
+            maxY = Math.Max(maxY, point.Y);
         }
 
         Location = new GridPoint(minX, minY);
@@ -276,10 +275,10 @@ public sealed class SoilArea : Building
         {
             var soilPatch = pair.Key;
             var offset = pair.Value;
-            minX = System.Math.Min(minX, offset.X);
-            minY = System.Math.Min(minY, offset.Y);
-            maxX = System.Math.Max(maxX, offset.X + soilPatch.Size.X - 1);
-            maxY = System.Math.Max(maxY, offset.Y + soilPatch.Size.Y - 1);
+            minX = Math.Min(minX, offset.X);
+            minY = Math.Min(minY, offset.Y);
+            maxX = Math.Max(maxX, offset.X + soilPatch.Size.X - 1);
+            maxY = Math.Max(maxY, offset.Y + soilPatch.Size.Y - 1);
         }
 
         Size = new GridPoint((maxX - minX) + 1, (maxY - minY) + 1);
@@ -290,7 +289,8 @@ public sealed class SoilArea : Building
 
     private void RefreshRecipe()
     {
-        var recipe = new Dictionary<string, int>(StringComparer.Ordinal);
+        var resourceAmounts = new Dictionary<ResourceName, int>();
+        var categoryAmounts = new Dictionary<ResourceCategory, int>();
         foreach (var soilPatch in _soilPatches)
         {
             var patchRecipe = soilPatch.GetRecipe();
@@ -299,9 +299,33 @@ public sealed class SoilArea : Building
                 continue;
             }
 
-            foreach (var pair in patchRecipe)
+            foreach (var requirement in patchRecipe)
             {
-                recipe[pair.Key] = recipe.GetValueOrDefault(pair.Key) + pair.Value;
+                if (requirement.SpecificResource is { } specificResource)
+                {
+                    resourceAmounts[specificResource] = resourceAmounts.GetValueOrDefault(specificResource) + requirement.Amount;
+                    continue;
+                }
+
+                var category = requirement.Category!.Value;
+                categoryAmounts[category] = categoryAmounts.GetValueOrDefault(category) + requirement.Amount;
+            }
+        }
+
+        var recipe = new List<ResourceRequirement>(resourceAmounts.Count + categoryAmounts.Count);
+        foreach (var resourceType in Enum.GetValues<ResourceName>())
+        {
+            if (resourceAmounts.TryGetValue(resourceType, out var amount) && amount > 0)
+            {
+                recipe.Add(ResourceRequirement.ForResource(resourceType, amount));
+            }
+        }
+
+        foreach (var category in Enum.GetValues<ResourceCategory>())
+        {
+            if (categoryAmounts.TryGetValue(category, out var amount) && amount > 0)
+            {
+                recipe.Add(ResourceRequirement.ForCategory(category, amount));
             }
         }
 

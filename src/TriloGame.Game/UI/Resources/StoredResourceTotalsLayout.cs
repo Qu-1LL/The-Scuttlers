@@ -15,7 +15,7 @@ public static class StoredResourceTotalsLayout
     private const int PanelBorderThickness = 2;
     private const int PanelTopGap = 10;
 
-    public static StoredResourceTotalsLayoutInfo Build(Point viewport, IReadOnlyDictionary<string, int> resources)
+    public static StoredResourceTotalsLayoutInfo Build(Point viewport, IReadOnlyDictionary<ResourceName, int> resources)
     {
         ArgumentNullException.ThrowIfNull(resources);
 
@@ -31,7 +31,7 @@ public static class StoredResourceTotalsLayout
         var maxMeasuredTextWidth = 0;
         foreach (var entry in entries)
         {
-            var resourceNameWidth = GumTextLayout.Measure(entry.ResourceType, textStyle).X;
+            var resourceNameWidth = GumTextLayout.Measure(entry.DisplayName, textStyle).X;
             var countWidth = GumTextLayout.Measure(entry.CountText, textStyle).X;
             maxMeasuredTextWidth = Math.Max(maxMeasuredTextWidth, Math.Max(resourceNameWidth, countWidth));
         }
@@ -59,7 +59,13 @@ public static class StoredResourceTotalsLayout
                 rowTop,
                 Math.Max(1, panelBounds.Right - PanelPadding - (iconBounds.Right + IconTextGap)),
                 rowHeight);
-            rows.Add(new StoredResourceTotalsRowLayout(entries[index].ResourceType, entries[index].CountText, iconBounds, textBounds));
+            rows.Add(new StoredResourceTotalsRowLayout(
+                entries[index].ResourceType,
+                entries[index].DisplayName,
+                entries[index].TextureKey,
+                entries[index].CountText,
+                iconBounds,
+                textBounds));
         }
 
         return new StoredResourceTotalsLayoutInfo(
@@ -69,37 +75,49 @@ public static class StoredResourceTotalsLayout
             PanelBorderThickness);
     }
 
-    private static List<StoredResourceEntry> BuildVisibleEntries(IReadOnlyDictionary<string, int> resources)
+    private static List<StoredResourceEntry> BuildVisibleEntries(IReadOnlyDictionary<ResourceName, int> resources)
     {
         var entries = new List<StoredResourceEntry>();
-        var includedResourceTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var includedResourceTypes = new HashSet<ResourceName>();
 
-        foreach (var ore in OreType.GetOres())
+        foreach (var item in ItemCatalog.GetStockpileOrder())
         {
-            var count = resources.GetValueOrDefault(ore.Name, 0);
+            var count = resources.GetValueOrDefault(item.Resource, 0);
             if (count <= 0)
             {
                 continue;
             }
 
-            entries.Add(new StoredResourceEntry(ore.Name, count.ToString()));
-            includedResourceTypes.Add(ore.Name);
+            entries.Add(new StoredResourceEntry(
+                item.Resource,
+                item.Name,
+                item.TextureKey,
+                count.ToString()));
+            includedResourceTypes.Add(item.Resource);
         }
 
-        foreach (var pair in resources.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        foreach (var pair in resources.OrderBy(pair => ItemCatalog.GetName(pair.Key), StringComparer.OrdinalIgnoreCase))
         {
             if (pair.Value <= 0 || !includedResourceTypes.Add(pair.Key))
             {
                 continue;
             }
 
-            entries.Add(new StoredResourceEntry(pair.Key, pair.Value.ToString()));
+            entries.Add(new StoredResourceEntry(
+                pair.Key,
+                ItemCatalog.GetName(pair.Key),
+                ItemCatalog.GetTextureKey(pair.Key),
+                pair.Value.ToString()));
         }
 
         return entries;
     }
 
-    private readonly record struct StoredResourceEntry(string ResourceType, string CountText);
+    private readonly record struct StoredResourceEntry(
+        ResourceName ResourceType,
+        string DisplayName,
+        string TextureKey,
+        string CountText);
 }
 
 public readonly record struct StoredResourceTotalsLayoutInfo(
@@ -112,7 +130,9 @@ public readonly record struct StoredResourceTotalsLayoutInfo(
 }
 
 public readonly record struct StoredResourceTotalsRowLayout(
-    string ResourceType,
+    ResourceName ResourceType,
+    string DisplayName,
+    string TextureKey,
     string CountText,
     Rectangle IconBounds,
     Rectangle TextBounds);

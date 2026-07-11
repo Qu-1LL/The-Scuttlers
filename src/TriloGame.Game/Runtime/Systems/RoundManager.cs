@@ -15,15 +15,14 @@ public readonly record struct RoundInfo(
 {
     public double SpawnWindowEndMs => SpawnWindowStartMs + SpawnWindowDurationMs;
 
-    public double RemainingDurationMs => GracePeriodActive
-        ? Math.Max(0d, DurationMs - ElapsedGameTimeMs)
-        : 0d;
+    public double RemainingDurationMs => Math.Max(0d, DurationMs - ElapsedGameTimeMs);
 }
 
 public sealed class RoundManager
 {
     private int _currentRoundNumber;
     private double _currentRoundElapsedGameTimeMs;
+    private double _currentRoundSpawnWindowDurationMs = GameConstants.RoundSpawnWindowDurationMs;
     private bool _isInitialized;
     private bool _isGracePeriodActive;
     private bool _deferNextRoundStart;
@@ -61,7 +60,7 @@ public sealed class RoundManager
         StartCurrentRound(session, round);
     }
 
-    // Advance the current round clock and flip into the defense phase when grace expires.
+    // Advance the current round clock and flip into the spawn phase when grace expires.
     public void Advance(GameSession session, double gameElapsedMs)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -70,6 +69,8 @@ public sealed class RoundManager
         {
             Reset(session);
         }
+
+        UpdateCurrentRoundSpawnWindowDuration(session);
 
         if (_hasDeferredNextRoundStart)
         {
@@ -202,23 +203,33 @@ public sealed class RoundManager
     // Package the current round state into a stable data snapshot for listeners.
     private RoundInfo BuildRoundInfo(GameSession? session)
     {
+        if (session is not null)
+        {
+            UpdateCurrentRoundSpawnWindowDuration(session);
+        }
+
         var roundPhaseDurationMs = _isGracePeriodActive
             ? GameConstants.RoundGraceDurationMs
-            : 0d;
+            : _currentRoundSpawnWindowDurationMs;
         var spawnWindowStartMs = _isGracePeriodActive
             ? GameConstants.RoundGraceDurationMs
             : 0d;
-        var spawnWindowDurationMs = session is null
-            ? GameConstants.RoundSpawnWindowDurationMs
-            : Math.Clamp(session.Runtime.RoundSpawnWindowDurationMs, 0d, GameConstants.RoundGraceDurationMs);
         return new RoundInfo(
             _currentRoundNumber,
             _currentRoundElapsedGameTimeMs,
             roundPhaseDurationMs,
             spawnWindowStartMs,
-            spawnWindowDurationMs,
+            _currentRoundSpawnWindowDurationMs,
             GameConstants.RoundBaseAntCount + (GameConstants.RoundAntGrowthPerRound * _currentRoundNumber),
             _isGracePeriodActive);
+    }
+
+    private void UpdateCurrentRoundSpawnWindowDuration(GameSession session)
+    {
+        _currentRoundSpawnWindowDurationMs = Math.Clamp(
+            session.Runtime.RoundSpawnWindowDurationMs,
+            0d,
+            GameConstants.RoundGraceDurationMs);
     }
 
     // Write a round-system trace message with the current tick for debugging.
@@ -227,13 +238,13 @@ public sealed class RoundManager
         Trace.WriteLine($"[RoundManager][Tick {session.TickCount}] {message}");
     }
 
-    // Flip the round from grace into defense and notify downstream systems once.
+    // Flip the round from grace into the spawn phase and notify downstream systems once.
     private void EndCurrentGracePeriod(GameSession session)
     {
         _isGracePeriodActive = false;
         _currentRoundElapsedGameTimeMs = 0d;
         var graceEnded = BuildRoundInfo(session);
-        Log(session, $"Round {graceEnded.RoundNumber} defend phase start.");
+        Log(session, $"Round {graceEnded.RoundNumber} spawn phase start.");
         GracePeriodEnded?.Invoke(graceEnded);
     }
 

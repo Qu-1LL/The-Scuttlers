@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -36,7 +37,7 @@ public sealed class AlgaeFarm : Building
         HarvestYield = GameConstants.AlgaeHarvestYield;
         MaxTrilobites = 2;
         TraversalPath = CloneOpenMap(DefaultTraversalPath);
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Description = $"A passable algae farm. Up to {MaxTrilobites} worker trilobites harvest {HarvestYield} algae when random < growth/period.";
     }
 
@@ -290,7 +291,7 @@ public sealed class AlgaeFarm : Building
         _traversalHead = orderedNodes[0];
     }
 
-    public bool TryHarvest(Trilobite creature)
+    public bool TryHarvest(IInventoryCarrier creature)
     {
         Growth++;
         if (RandomUtil.NextDouble() >= ((double)Growth / Period))
@@ -298,7 +299,7 @@ public sealed class AlgaeFarm : Building
             return false;
         }
 
-        var harvested = creature.AddToInventory("Algae", HarvestYield);
+        var harvested = creature.AddToInventory(ResourceName.Algae, HarvestYield);
         if (harvested != HarvestYield)
         {
             return false;

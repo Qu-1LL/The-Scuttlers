@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -56,9 +57,9 @@ public class Building
 
     public BfsField BfsField { get; set; }
 
-    public Dictionary<string, int>? Recipe { get; protected set; }
+    public List<ResourceRequirement>? Recipe { get; protected set; }
 
-    public Dictionary<string, int>? ConstructionCost { get; protected set; }
+    public List<ResourceRequirement>? ConstructionCost { get; protected set; }
 
     public bool Selectable { get; protected set; }
 
@@ -102,14 +103,14 @@ public class Building
         DisplayRotationTurns = ((turns % 4) + 4) % 4;
     }
 
-    public virtual Dictionary<string, int>? GetRecipe()
+    public virtual IReadOnlyList<ResourceRequirement>? GetRecipe()
     {
-        return Recipe is null ? null : new Dictionary<string, int>(Recipe, StringComparer.Ordinal);
+        return Recipe is null ? null : [.. Recipe];
     }
 
-    public virtual Dictionary<string, int>? GetConstructionCost()
+    public virtual IReadOnlyList<ResourceRequirement>? GetConstructionCost()
     {
-        return ConstructionCost is null ? null : new Dictionary<string, int>(ConstructionCost, StringComparer.Ordinal);
+        return ConstructionCost is null ? null : [.. ConstructionCost];
     }
 
     public virtual bool CanBeSelected() => Selectable;
@@ -244,6 +245,7 @@ public class Building
     public static bool IsMineableType(string tileType)
     {
         return string.Equals(tileType, "wall", StringComparison.Ordinal) ||
+               string.Equals(tileType, World.Tile.CaveCrystalBase, StringComparison.Ordinal) ||
                Economy.OreType.GetOres().Any(ore => string.Equals(ore.Name, tileType, StringComparison.Ordinal));
     }
 }

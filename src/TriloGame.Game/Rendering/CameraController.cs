@@ -12,9 +12,11 @@ public sealed class CameraController
     private float _shakeNoiseTime;
     private Vector2 _shakeOffset;
 
-    public float CurrentScale { get; set; } = 1f;
+    public float CurrentScale { get; set; } = GameConstants.DefaultCameraScale;
 
     public Vector2 CameraOrigin { get; private set; }
+
+    public Vector2 ParallaxScreenOffset { get; private set; }
 
     public Vector2 ViewCenter { get; private set; }
 
@@ -29,6 +31,7 @@ public sealed class CameraController
 
     public void SetOrigin(Vector2 origin)
     {
+        ParallaxScreenOffset += (CameraOrigin - origin) * CurrentScale;
         CameraOrigin = origin;
     }
 
@@ -42,7 +45,9 @@ public sealed class CameraController
 
     public void PanByScreenDelta(float dx, float dy)
     {
-        CameraOrigin -= new Vector2(dx, dy) * (1f / CurrentScale);
+        var screenDelta = new Vector2(dx, dy);
+        CameraOrigin -= screenDelta * (1f / CurrentScale);
+        ParallaxScreenOffset += screenDelta;
     }
 
     public void Update(GameTime gameTime)
@@ -99,5 +104,12 @@ public sealed class CameraController
     public Vector2 ScreenToWorld(Point screen)
     {
         return CameraOrigin + ((screen.ToVector2() - ViewCenter - _shakeOffset) * (1f / CurrentScale));
+    }
+
+    // Expose the current world-space view corners so renderers can cull by the actual camera footprint.
+    public void GetVisibleWorldBounds(Point viewportSize, out Vector2 topLeft, out Vector2 bottomRight)
+    {
+        topLeft = ScreenToWorld(Point.Zero);
+        bottomRight = ScreenToWorld(viewportSize);
     }
 }

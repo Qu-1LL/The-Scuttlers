@@ -7,15 +7,15 @@ public sealed class ResourceCostComparerTests
     [Fact]
     public void HasRequiredResources_ReturnsTrue_WhenEveryCostIsCovered()
     {
-        var available = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        var available = new Dictionary<ResourceName, int>
         {
-            ["sandstone"] = 120,
-            ["magnetite"] = 8
+            [ResourceName.Sandstone] = 120,
+            [ResourceName.Magnetite] = 8
         };
-        var costs = new Dictionary<string, int>(StringComparer.Ordinal)
+        var costs = new Dictionary<ResourceName, int>
         {
-            ["Sandstone"] = 100,
-            ["Magnetite"] = 8
+            [ResourceName.Sandstone] = 100,
+            [ResourceName.Magnetite] = 8
         };
 
         var result = ResourceCostComparer.HasRequiredResources(available, costs);
@@ -27,19 +27,19 @@ public sealed class ResourceCostComparerTests
     [Fact]
     public void TryFindFirstShortfall_ReturnsMissingResourceAndAmount()
     {
-        var available = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        var available = new Dictionary<ResourceName, int>
         {
-            ["Sandstone"] = 35
+            [ResourceName.Sandstone] = 35
         };
-        var costs = new Dictionary<string, int>(StringComparer.Ordinal)
+        var costs = new Dictionary<ResourceName, int>
         {
-            ["Sandstone"] = 50
+            [ResourceName.Sandstone] = 50
         };
 
         var hasShortfall = ResourceCostComparer.TryFindFirstShortfall(available, costs, out var shortfall);
 
         Assert.True(hasShortfall);
-        Assert.Equal("Sandstone", shortfall.ResourceType);
+        Assert.Equal(ResourceName.Sandstone, shortfall.ResourceType);
         Assert.Equal(15, shortfall.MissingAmount);
     }
 }

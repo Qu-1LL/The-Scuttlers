@@ -33,20 +33,35 @@
 /processor:TextureProcessor
 /build:Textures/AlgaeFarm.png
 
+#begin Textures/Algae.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Algae.png
+
+#begin Textures/Garage.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Garage.png
+
 #begin Textures/AntHole.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/AntHole.png
 
-#begin Textures/AlgaeTile.png
+#begin Textures/dark-rock-wall-seamless-texture-free-105.jpg
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/AlgaeTile.png
+/build:Textures/dark-rock-wall-seamless-texture-free-105.jpg
 
 #begin Textures/BackArrow.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/BackArrow.png
+
+#begin Textures/CaveBackground2.jpg
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/CaveBackground2.jpg
 
 #begin Textures/Barracks.png
 /importer:TextureImporter
@@ -103,15 +118,45 @@
 /processor:TextureProcessor
 /build:Textures/wall_4.png
 
-#begin Textures/CochiniumTile.png
+#begin Textures/Chitinstone.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/CochiniumTile.png
+/build:Textures/Chitinstone.png
+
+#begin Textures/Cochinium.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Cochinium.png
+
+#begin Textures/CaveCrystalClean.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/CaveCrystalClean.png
 
 #begin Textures/EmptyTile.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/EmptyTile.png
+
+#begin Textures/EmptyTile_Sand.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Sand.png
+
+#begin Textures/EmptyTile_Lush.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Lush.png
+
+#begin Textures/EmptyTile_Green.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Green.png
+
+#begin Textures/EmptyTile_Lava.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/EmptyTile_Lava.png
 
 #begin Textures/Enemy.png
 /importer:TextureImporter
@@ -133,70 +178,85 @@
 /processor:TextureProcessor
 /build:Textures/HealingMist3.png
 
-#begin Textures/HowDoIGetHimOff.png
+#begin Textures/Lumenite.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/HowDoIGetHimOff.png
+/build:Textures/Lumenite.png
 
-#begin Textures/IlmeniteTile.png
+#begin Textures/Ilmenite.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/IlmeniteTile.png
+/build:Textures/Ilmenite.png
 
-#begin Textures/MagnetiteTile.png
+#begin Textures/Magnetite.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/MagnetiteTile.png
+/build:Textures/Magnetite.png
 
-#begin Textures/MalachiteTile.png
+#begin Textures/Malachite.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/MalachiteTile.png
+/build:Textures/Malachite.png
 
-#begin Textures/MenuBlock.png
+#begin Textures/Mycocore.png
 /importer:TextureImporter
 /processor:TextureProcessor
-/build:Textures/MenuBlock.png
+/build:Textures/Mycocore.png
 
 #begin Textures/MiningPost.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/MiningPost.png
 
-#begin Textures/OrePath.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/OrePath.png
-
-#begin Textures/Opal.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/Opal.png
-
 #begin Textures/Path.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Path.png
-
-#begin Textures/PeroteneTile.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/PeroteneTile.png
 
 #begin Textures/Queen.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Queen.png
 
+#begin Textures/Perotene.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Perotene.png
+
+#begin Textures/Sandstone.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Sandstone.png
+
+#begin Textures/Silo.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Silo.png
+
+#begin Textures/SoilTile_0.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_0.png
+
+#begin Textures/SoilTile_Algae_1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_1.png
+
+#begin Textures/SoilTile_Algae_2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_2.png
+
+#begin Textures/SoilTile_Algae_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Algae_3.png
+
 #begin Textures/Radar.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Radar.png
-
-#begin Textures/SandTile.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/SandTile.png
 
 #begin Textures/Scaffold.png
 /importer:TextureImporter
@@ -253,21 +313,6 @@
 /processor:TextureProcessor
 /build:Textures/Turret.png
 
-#begin Textures/window_3x1.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/window_3x1.png
-
-#begin Textures/window_4x1.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/window_4x1.png
-
-#begin Textures/window_5x4.png
-/importer:TextureImporter
-/processor:TextureProcessor
-/build:Textures/window_5x4.png
-
 #begin Audio/Effects/BuildingFinished.wav
 /importer:WavImporter
 /processor:SoundEffectProcessor
@@ -317,6 +362,16 @@
 /importer:WavImporter
 /processor:SoundEffectProcessor
 /build:Audio/Effects/UiSelect.wav
+
+#begin Audio/Invalid.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Invalid.mp3
+
+#begin Audio/UnlockNode.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/UnlockNode.mp3
 
 #begin Audio/Effects/VolumeSound.wav
 /importer:WavImporter

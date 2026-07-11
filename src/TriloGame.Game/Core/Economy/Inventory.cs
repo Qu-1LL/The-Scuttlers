@@ -2,15 +2,15 @@ namespace TriloGame.Game.Core.Economy;
 
 public sealed class Inventory
 {
-    public string? Type { get; private set; }
+    public ResourceName? Type { get; private set; }
 
     public int Amount { get; private set; }
 
-    public bool HasItems => Amount > 0 && !string.IsNullOrWhiteSpace(Type);
+    public bool HasItems => Amount > 0 && Type.HasValue;
 
-    public int Add(string resourceType, int amount, int capacity)
+    public int Add(ResourceName resourceType, int amount, int capacity)
     {
-        if (string.IsNullOrWhiteSpace(resourceType) || amount <= 0 || capacity <= 0)
+        if (amount <= 0 || capacity <= 0)
         {
             return 0;
         }
@@ -20,7 +20,7 @@ public sealed class Inventory
             Type = resourceType;
         }
 
-        if (!string.Equals(Type, resourceType, StringComparison.Ordinal))
+        if (Type != resourceType)
         {
             return 0;
         }
@@ -28,6 +28,12 @@ public sealed class Inventory
         var accepted = System.Math.Min(System.Math.Max(0, capacity - Amount), amount);
         Amount += accepted;
         return accepted;
+    }
+
+    public int Add(ItemType itemType, int amount, int capacity)
+    {
+        ArgumentNullException.ThrowIfNull(itemType);
+        return Add(itemType.Resource, amount, capacity);
     }
 
     public int Remove(int amount)

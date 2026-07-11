@@ -36,10 +36,8 @@ public sealed class GumShapePool
         shape.Y = bounds.Y;
         shape.Width = bounds.Width;
         shape.Height = bounds.Height;
-        shape.CornerRadius = radius;
         shape.Color = color;
-        shape.IsFilled = isFilled;
-        shape.StrokeWidth = strokeWidth;
+        GumRoundedRectangleRuntimeShape.Apply(shape, radius, isFilled, strokeWidth);
     }
 
     private RoundedRectangleRuntime GetRoundedShape(int index)

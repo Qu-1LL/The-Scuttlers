@@ -1,5 +1,6 @@
 using System.Numerics;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Vehicles;
@@ -43,7 +44,7 @@ public sealed class Ranch : Building, IStorage
         new GridPoint(0, -1)
     ];
 
-    private static readonly IReadOnlyDictionary<string, int> EmptyInventory = new Dictionary<string, int>(StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<ResourceName, int> EmptyInventory = new Dictionary<ResourceName, int>();
     private readonly HashSet<SoilArea> _soilAreas = [];
     private readonly HashSet<SoilTile> _soilTiles = [];
     private readonly HashSet<Creature> _assignments = [];
@@ -79,15 +80,15 @@ public sealed class Ranch : Building, IStorage
 
     public int Capacity => Garage?.Capacity ?? 0;
 
-    public IReadOnlyDictionary<string, int> GetInventory() => Garage?.GetInventory() ?? EmptyInventory;
+    public IReadOnlyDictionary<ResourceName, int> GetInventory() => Garage?.GetInventory() ?? EmptyInventory;
 
     public int GetInventoryTotal() => Garage?.GetInventoryTotal() ?? 0;
 
     public int GetInventorySpace() => Garage?.GetInventorySpace() ?? 0;
 
-    public int Deposit(string resourceType, int amount) => Garage?.Deposit(resourceType, amount) ?? 0;
+    public int Deposit(ResourceName resourceType, int amount) => Garage?.Deposit(resourceType, amount) ?? 0;
 
-    public int Withdraw(string resourceType, int amount) => Garage?.Withdraw(resourceType, amount) ?? 0;
+    public int Withdraw(ResourceName resourceType, int amount) => Garage?.Withdraw(resourceType, amount) ?? 0;
 
     public override int Tick(Cave cave)
     {

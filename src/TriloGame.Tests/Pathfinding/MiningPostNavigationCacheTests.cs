@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
@@ -75,7 +76,7 @@ public sealed class MiningPostNavigationCacheTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(27, 12, new GridPoint(12, 0));
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
         var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(20, 6));
-        leftPost.Deposit("Sandstone", leftPost.Capacity);
+        leftPost.Deposit(ResourceName.Sandstone, leftPost.Capacity);
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Builder", "builder");
 
         session.MiningPostMovementTelemetry.Reset();

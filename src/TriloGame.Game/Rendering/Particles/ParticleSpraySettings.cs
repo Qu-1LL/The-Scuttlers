@@ -20,6 +20,8 @@ public sealed class ParticleSpraySettings
 
     public float Drag { get; set; } = 4f;
 
+    public float BrownianMotion { get; set; }
+
     public float SpawnJitterPixels { get; set; } = 6f;
 
     public float StartScale { get; set; } = 0.8f;

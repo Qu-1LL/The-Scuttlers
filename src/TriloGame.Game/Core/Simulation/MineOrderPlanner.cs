@@ -132,11 +132,6 @@ public static class MineOrderPlanner
 
     public static Tile? ResolveTarget(Cave cave, Tile tile)
     {
-        if (cave.IsTileRevealed(tile) && cave.HasOpal(tile) && GetNavigationTarget(cave, tile) is not null)
-        {
-            return tile;
-        }
-
         if (cave.IsTileRevealed(tile) &&
             Building.IsMineableType(tile.Base) &&
             GetNavigationTarget(cave, tile) is not null)
@@ -173,9 +168,14 @@ public static class MineOrderPlanner
 
     public static GridPoint? GetNavigationTarget(Cave cave, Tile tile)
     {
-        if (!string.Equals(tile.Base, "wall", StringComparison.Ordinal))
+        if (tile.CreatureFits())
         {
-            return tile.CreatureFits() ? tile.Coordinates : null;
+            return tile.Coordinates;
+        }
+
+        if (!Building.IsMineableType(tile.Base))
+        {
+            return null;
         }
 
         GridPoint? bestTarget = null;

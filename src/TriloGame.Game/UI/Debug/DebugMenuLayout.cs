@@ -11,15 +11,13 @@ public static class DebugMenuLayout
         const float baseMinPanelWidth = 400f;
         const float baseContentPadding = 18f;
         const float baseHeaderHeight = 30f;
-        const float baseSummaryHeight = 108f;
-        const float basePerformanceHeight = 272f;
         const float baseSectionGap = 8f;
         const float baseSectionLabelHeight = 18f;
         const float baseRowGap = 6f;
         const float baseButtonHeight = 40f;
         const float baseFooterHeight = 20f;
         const float baseButtonGap = 10f;
-        const float baseRequiredHeight = 886f;
+        const float baseRequiredHeight = 592f;
 
         var outerMargin = (int)MathF.Round(baseOuterMargin);
         var availableWidth = Math.Max(280, viewport.X - (outerMargin * 2));
@@ -28,8 +26,6 @@ public static class DebugMenuLayout
 
         var contentPadding = (int)MathF.Round(baseContentPadding * scale);
         var headerHeight = (int)MathF.Round(baseHeaderHeight * scale);
-        var summaryHeight = (int)MathF.Round(baseSummaryHeight * scale);
-        var performanceHeight = (int)MathF.Round(basePerformanceHeight * scale);
         var sectionGap = (int)MathF.Round(baseSectionGap * scale);
         var sectionLabelHeight = (int)MathF.Round(baseSectionLabelHeight * scale);
         var rowGap = (int)MathF.Round(baseRowGap * scale);
@@ -41,14 +37,10 @@ public static class DebugMenuLayout
         var speedSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
         var bfsSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
         var visualSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
-        var actionsSectionHeight = sectionLabelHeight + rowGap + buttonHeight;
+        var actionsSectionHeight = sectionLabelHeight + rowGap + buttonHeight + rowGap + buttonHeight;
 
         var requiredPanelHeight = (contentPadding * 2)
             + headerHeight
-            + sectionGap
-            + summaryHeight
-            + sectionGap
-            + performanceHeight
             + sectionGap
             + quickSectionHeight
             + sectionGap
@@ -73,12 +65,6 @@ public static class DebugMenuLayout
         var headerBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, headerHeight);
         cursorY = headerBounds.Bottom + sectionGap;
 
-        var summaryBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, summaryHeight);
-        cursorY = summaryBounds.Bottom + sectionGap;
-
-        var performanceBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, performanceHeight);
-        cursorY = performanceBounds.Bottom + sectionGap;
-
         var quickControlsLabelBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, sectionLabelHeight);
         var quickControlsRowBounds = new Rectangle(contentBounds.X, quickControlsLabelBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
         cursorY = quickControlsRowBounds.Bottom + sectionGap;
@@ -99,7 +85,8 @@ public static class DebugMenuLayout
 
         var actionsLabelBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, sectionLabelHeight);
         var actionsRowBounds = new Rectangle(contentBounds.X, actionsLabelBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
-        cursorY = actionsRowBounds.Bottom + sectionGap;
+        var spawnActionsRowBounds = new Rectangle(contentBounds.X, actionsRowBounds.Bottom + rowGap, contentBounds.Width, buttonHeight);
+        cursorY = spawnActionsRowBounds.Bottom + sectionGap;
 
         var footerBounds = new Rectangle(contentBounds.X, cursorY, contentBounds.Width, footerHeight);
 
@@ -108,8 +95,6 @@ public static class DebugMenuLayout
             PanelBounds: panelBounds,
             ContentBounds: contentBounds,
             HeaderBounds: headerBounds,
-            SummaryBounds: summaryBounds,
-            PerformanceBounds: performanceBounds,
             QuickControlsLabelBounds: quickControlsLabelBounds,
             QuickControlsRowBounds: quickControlsRowBounds,
             SpeedLabelBounds: speedLabelBounds,
@@ -122,6 +107,7 @@ public static class DebugMenuLayout
             VisualBottomRowBounds: visualBottomRowBounds,
             ActionsLabelBounds: actionsLabelBounds,
             ActionsRowBounds: actionsRowBounds,
+            SpawnActionsRowBounds: spawnActionsRowBounds,
             FooterBounds: footerBounds,
             ButtonGap: buttonGap,
             ContentPadding: contentPadding,
@@ -170,8 +156,6 @@ public readonly record struct DebugMenuLayoutInfo(
     Rectangle PanelBounds,
     Rectangle ContentBounds,
     Rectangle HeaderBounds,
-    Rectangle SummaryBounds,
-    Rectangle PerformanceBounds,
     Rectangle QuickControlsLabelBounds,
     Rectangle QuickControlsRowBounds,
     Rectangle SpeedLabelBounds,
@@ -184,6 +168,7 @@ public readonly record struct DebugMenuLayoutInfo(
     Rectangle VisualBottomRowBounds,
     Rectangle ActionsLabelBounds,
     Rectangle ActionsRowBounds,
+    Rectangle SpawnActionsRowBounds,
     Rectangle FooterBounds,
     int ButtonGap,
     int ContentPadding,

@@ -1,5 +1,6 @@
 using System.Numerics;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -24,7 +25,7 @@ public abstract class StationBuilding : Building, IStationBuilding
     {
         TextureKey = textureKey;
         Description = description;
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal) { ["Sandstone"] = 20 };
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         FighterAssignmentPriority = fighterAssignmentPriority;
         _stations = stations.ToArray();
     }

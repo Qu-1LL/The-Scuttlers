@@ -1,4 +1,3 @@
-using System;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -60,7 +59,6 @@ public sealed class SoilTile
         }
     }
 
-    // Each soil tile only rolls growth on matching tick digits, then succeeds on a strict > 0.7 hit.
     internal int Tick(Random random, int currentTickMod)
     {
         if (GrowthLevel <= DormantGrowthLevel ||
@@ -71,8 +69,7 @@ public sealed class SoilTile
             return 0;
         }
 
-        var roll = random.NextDouble();
-        if (roll <= GrowthChanceThreshold)
+        if (random.NextDouble() <= GrowthChanceThreshold)
         {
             return 0;
         }
@@ -108,7 +105,6 @@ public sealed class SoilTile
         return true;
     }
 
-    // Planting activates dormant soil and retargets future harvests to the garage's chosen growable crop.
     public bool Plant(GrowableResourceType resourceType)
     {
         var changed = !Equals(PlantedResource, resourceType);
@@ -126,7 +122,7 @@ public sealed class SoilTile
 
     internal void TileAddedToRanch()
     {
-        GrowthConstant = System.Math.Clamp(
+        GrowthConstant = Math.Clamp(
             RandomUtil.NextNormal(RanchGrowthMedian, RanchGrowthStandardDeviation),
             0d,
             MaxRanchGrowthConstant);
@@ -139,12 +135,12 @@ public sealed class SoilTile
 
     internal void SetGrowthConstant(double value)
     {
-        GrowthConstant = System.Math.Max(0d, value);
+        GrowthConstant = Math.Max(0d, value);
     }
 
     internal void SetReturnedAlgaeAmount(int amount)
     {
-        ReturnedAlgaeAmount = System.Math.Max(0, amount);
+        ReturnedAlgaeAmount = Math.Max(0, amount);
     }
 
     internal void SetPlantedResource(GrowableResourceType? resourceType)
@@ -155,7 +151,7 @@ public sealed class SoilTile
 
     internal void SetGrowthLevel(int level)
     {
-        GrowthLevel = System.Math.Clamp(level, DormantGrowthLevel, MaxGrowthLevel);
+        GrowthLevel = Math.Clamp(level, DormantGrowthLevel, MaxGrowthLevel);
         RefreshTextureKey();
     }
 

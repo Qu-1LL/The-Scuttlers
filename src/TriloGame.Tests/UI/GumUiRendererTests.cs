@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using MonoGameGum.GueDeriving;
 using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Tests.UI;
@@ -48,6 +49,62 @@ public sealed class GumUiRendererTests
     public void CreateLineLayout_RejectsZeroLengthLines()
     {
         Assert.Throws<ArgumentException>(() => GumUiRenderer.CreateLineLayout(new Vector2(12f, 18f), new Vector2(12f, 18f), 2));
+    }
+
+    [Fact]
+    public void AddText_UsesRequestedFontSizeWithoutScaling()
+    {
+        var renderer = new GumUiRenderer(addToManagers: false);
+        renderer.BeginFrame(new Point(800, 600));
+
+        renderer.AddText(
+            new Rectangle(10, 12, 400, 150),
+            "Trilodex",
+            Color.White,
+            fontSize: 120);
+
+        var text = Assert.IsType<TextRuntime>(renderer.Root.Children[^1]);
+        Assert.False(text.UseCustomFont);
+        Assert.Equal(GumTextStyleCatalog.DefaultFontFamily, text.Font);
+        Assert.Equal(120, text.FontSize);
+        Assert.Equal(1f, text.FontScale);
+    }
+
+    [Fact]
+    public void AddFilledRectangle_UsesSolidColoredRectangleRuntime()
+    {
+        var renderer = new GumUiRenderer(addToManagers: false);
+        renderer.BeginFrame(new Point(800, 600));
+
+        renderer.AddFilledRectangle(new Rectangle(10, 12, 40, 24), Color.CornflowerBlue);
+
+        var rectangle = Assert.IsType<ColoredRectangleRuntime>(renderer.Root.Children[^1]);
+        Assert.Equal(10, rectangle.X);
+        Assert.Equal(12, rectangle.Y);
+        Assert.Equal(40, rectangle.Width);
+        Assert.Equal(24, rectangle.Height);
+        Assert.Equal(Color.CornflowerBlue, rectangle.Color);
+    }
+
+    [Fact]
+    public void AddRoundedFrame_UsesFilledRoundedRectangleWithStrokedOutline()
+    {
+        var renderer = new GumUiRenderer(addToManagers: false);
+        renderer.BeginFrame(new Point(800, 600));
+
+        var fill = new Color(8, 19, 29, 247);
+        var border = new Color(77, 122, 140);
+        renderer.AddRoundedFrame(new Rectangle(10, 12, 200, 80), fill, border, thickness: 3, radius: 16);
+
+        var filledRectangle = Assert.IsType<RoundedRectangleRuntime>(renderer.Root.Children[^2]);
+        var outline = Assert.IsType<RoundedRectangleRuntime>(renderer.Root.Children[^1]);
+        Assert.True(filledRectangle.IsFilled);
+        Assert.Equal(fill, filledRectangle.Color);
+        Assert.Equal(16, filledRectangle.CornerRadius);
+        Assert.False(outline.IsFilled);
+        Assert.Equal(border, outline.Color);
+        Assert.Equal(3, outline.StrokeWidth);
+        Assert.Equal(16, outline.CornerRadius);
     }
 
     private static void AssertVectorEqual(Vector2 expected, Vector2 actual)

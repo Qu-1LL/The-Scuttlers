@@ -22,15 +22,15 @@ public sealed class GameSession
     {
         EventBus = new GameEventBus();
         Stats = new StatsTracker(EventBus);
-        Resources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        Resources = new Dictionary<ResourceName, int>
         {
-            ["algae"] = 0,
-            ["sandstone"] = 0,
-            ["malachite"] = 0,
-            ["magnetite"] = 0,
-            ["perotene"] = 0,
-            ["ilmenite"] = 0,
-            ["cochinium"] = 0
+            [ResourceName.Algae] = 0,
+            [ResourceName.Sandstone] = 0,
+            [ResourceName.Malachite] = 0,
+            [ResourceName.Magnetite] = 0,
+            [ResourceName.Perotene] = 0,
+            [ResourceName.Ilmenite] = 0,
+            [ResourceName.Cochinium] = 0
         };
         EventBus.Subscribe(GameEvents.StorageInventoryChanged, HandleStorageInventoryChanged);
         BfsFields = new Dictionary<string, BfsField>(StringComparer.Ordinal);
@@ -49,7 +49,7 @@ public sealed class GameSession
 
     public StatsTracker Stats { get; }
 
-    public Dictionary<string, int> Resources { get; }
+    public Dictionary<ResourceName, int> Resources { get; }
 
     public Dictionary<string, BfsField> BfsFields { get; set; }
 
@@ -89,11 +89,16 @@ public sealed class GameSession
         return EventBus.Emit(eventName, payload);
     }
 
+    public int GetStoredResourceTotal(ResourceName resourceType)
+    {
+        return Resources.GetValueOrDefault(resourceType, 0);
+    }
+
     public int GetStoredResourceTotal(string resourceType)
     {
-        return string.IsNullOrWhiteSpace(resourceType)
-            ? 0
-            : Resources.GetValueOrDefault(resourceType, 0);
+        return ItemCatalog.TryGetResource(resourceType, out var resourceName)
+            ? GetStoredResourceTotal(resourceName)
+            : 0;
     }
 
     public void RequestAudioCue(GameAudioCue cue)
@@ -123,19 +128,20 @@ public sealed class GameSession
 
     private void HandleStorageInventoryChanged(GameEventPayload payload)
     {
-        if (string.IsNullOrWhiteSpace(payload.ResourceType) || payload.ResourceDelta == 0)
+        if (!payload.ResourceType.HasValue || payload.ResourceDelta == 0)
         {
             return;
         }
 
-        Resources.TryAdd(payload.ResourceType, 0);
-        var nextTotal = Resources[payload.ResourceType] + payload.ResourceDelta;
+        var resourceType = payload.ResourceType.Value;
+        Resources.TryAdd(resourceType, 0);
+        var nextTotal = Resources[resourceType] + payload.ResourceDelta;
         if (nextTotal < 0)
         {
-            throw new InvalidOperationException($"Stored resource total for {payload.ResourceType} cannot become negative.");
+            throw new InvalidOperationException($"Stored resource total for {resourceType} cannot become negative.");
         }
 
-        Resources[payload.ResourceType] = nextTotal;
+        Resources[resourceType] = nextTotal;
     }
 
     public Shared.State.ProjectileFlight? LaunchProjectile(Entities.Creature source, Entities.Creature target, Projectile projectile)
@@ -178,14 +184,39 @@ public sealed class GameSession
         return OreType.GetOres().Any(ore => string.Equals(ore.Name, tileType, StringComparison.Ordinal));
     }
 
+    private static ResourceName? ResolveMinedResourceType(string tileType)
+    {
+        if (string.Equals(tileType, "wall", StringComparison.Ordinal))
+        {
+            return GameConstants.WallMineResourceAmount > 0
+                ? GameConstants.WallMineResourceType
+                : null;
+        }
+
+        if (Tile.IsResourcelessBreakableBase(tileType))
+        {
+            return null;
+        }
+
+        if (OreType.TryGet(tileType, out var oreType))
+        {
+            return oreType.Resource;
+        }
+
+        return ItemCatalog.TryGetResource(tileType, out var resourceName)
+            ? resourceName
+            : null;
+    }
+
     public void EmitMineEvents(string tileType, Cave cave, string tileKey, object? source = null)
     {
+        var resourceType = ResolveMinedResourceType(tileType);
         var payload = new GameEventPayload(
             cave,
             tileKey,
             GridPoint.Parse(tileKey),
             tileType,
-            string.Equals(tileType, "wall", StringComparison.Ordinal) ? OreType.SANDSTONE.Name : tileType,
+            resourceType,
             source);
 
         Emit(GameEvents.TileMined, payload);
@@ -210,15 +241,15 @@ public sealed class GameSession
             return MineTileResult.NotApplied;
         }
 
-        if (cave.HasOpal(tile))
-        {
-            return cave.MineOpal(tile);
-        }
-
         var tileType = tile.Base;
         if (string.Equals(tileType, "wall", StringComparison.Ordinal))
         {
             return MineWallTile(cave, tile, tileKey, dropTargetTileKey, source);
+        }
+
+        if (tile.IsCaveCrystal())
+        {
+            return MineCaveCrystalTile(cave, tile, tileKey, source);
         }
 
         if (!IsOreTileType(tileType))
@@ -242,7 +273,55 @@ public sealed class GameSession
         }
 
         EmitMineEvents(tileType, cave, tileKey, source);
-        return new MineTileResult(true, true, tileType, 1, depleted, null, 0, tile.ResourceYield, tile.HitsRemaining);
+        return new MineTileResult(
+            true,
+            true,
+            OreType.TryGet(tileType, out var oreType) ? oreType.Resource : null,
+            1,
+            depleted,
+            null,
+            0,
+            tile.ResourceYield,
+            tile.HitsRemaining);
+    }
+
+    private MineTileResult MineCaveCrystalTile(Cave cave, Tile tile, string tileKey, object? source = null)
+    {
+        if (!tile.IsCaveCrystal())
+        {
+            return MineTileResult.NotApplied;
+        }
+
+        if (!tile.ApplyCaveCrystalMineHit())
+        {
+            return new MineTileResult(true, false, null, 0, false, null, 0, 0, tile.HitsRemaining);
+        }
+
+        tile.SetBase("empty");
+        tile.ClearResourceState();
+        tile.CreatureCanFit = true;
+
+        var reachabilityResult = cave.RefreshReachableTiles();
+        string[] ownershipDirtyKeys = reachabilityResult.ChangedKeys.Count == 0
+            ? [tileKey]
+            : reachabilityResult.ChangedKeys.Append(tileKey).Distinct(StringComparer.Ordinal).ToArray();
+
+        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
+        cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
+        cave.NotifyMineableTilesChanged([tileKey]);
+        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
+
+        EmitMineEvents(Tile.CaveCrystalBase, cave, tileKey, source);
+        return new MineTileResult(
+            true,
+            false,
+            null,
+            0,
+            true,
+            null,
+            0,
+            0,
+            0);
     }
 
     public MineTileResult MineWallTile(Cave cave, Tile tile, string emptyCoords, string? dropTargetTileKey = null, object? source = null)
@@ -406,9 +485,9 @@ public sealed class GameSession
         EmitMineEvents("wall", cave, emptyCoords, source);
         return new MineTileResult(
             true,
-            true,
-            OreType.SANDSTONE.Name,
-            GameConstants.WallDropAmount,
+            GameConstants.WallMineResourceAmount > 0,
+            GameConstants.WallMineResourceAmount > 0 ? GameConstants.WallMineResourceType : null,
+            GameConstants.WallMineResourceAmount > 0 ? GameConstants.WallMineResourceAmount : 0,
             true,
             null,
             0,
@@ -418,7 +497,7 @@ public sealed class GameSession
 
     public string FormatInventory(Inventory inventory)
     {
-        return !inventory.HasItems ? "empty" : $"{inventory.Amount} {inventory.Type}";
+        return !inventory.HasItems ? "empty" : $"{inventory.Amount} {ItemCatalog.GetName(inventory.Type!.Value)}";
     }
 
     public string FormatStatsSnapshot()
@@ -447,7 +526,7 @@ public sealed class GameSession
 public readonly record struct MineTileResult(
     bool HitApplied,
     bool YieldedResource,
-    string? ResourceType,
+    ResourceName? ResourceType,
     int ResourceAmount,
     bool TileDepleted,
     string? DroppedAtTileKey,

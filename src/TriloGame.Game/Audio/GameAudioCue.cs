@@ -12,6 +12,8 @@ public enum GameAudioCue
     TrilobiteBirth,
     TrilobiteSelected,
     UiSelect,
+    InvalidBranchPlacement,
+    UnlockNode,
     VolumeSound,
     MiningPostFocus,
     AlgaeFarmFocus

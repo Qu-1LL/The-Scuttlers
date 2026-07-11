@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using TriloGame.Game.Audio;
+using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.UI.Research;
 
 namespace TriloGame.Game;
@@ -8,25 +11,15 @@ public sealed partial class GameApp
 {
     private bool HandleResearchDraftButtonClick(Point point)
     {
-        var outcome = _researchDraft.HandleClosedButtonClick(point, Window.ClientBounds.Size, CanSkipCurrentRoundGracePeriod());
-        switch (outcome)
+        var outcome = _researchDraft.HandleClosedButtonClick(point, Window.ClientBounds.Size);
+        if (outcome != ResearchDraftInteractionOutcome.RequestedOpen)
         {
-            case ResearchDraftInteractionOutcome.RequestedOpen:
-                PlayUiSelectSound();
-                OpenResearchDraftMenu();
-                return true;
-            case ResearchDraftInteractionOutcome.RequestedSkipGracePeriod:
-                if (_roundManager.TrySkipCurrentGracePeriod(_session))
-                {
-                    PlayUiSelectSound();
-                }
-
-                return true;
-            case ResearchDraftInteractionOutcome.Consumed:
-                return true;
-            default:
-                return false;
+            return false;
         }
+
+        PlayUiSelectSound();
+        OpenResearchDraftMenu();
+        return true;
     }
 
     private void HandleResearchDraftMenuInput()
@@ -52,6 +45,38 @@ public sealed partial class GameApp
                 _researchDraftSystem);
         }
 
+        if (_input.RightPressed &&
+            _researchDraft.HandleSecondaryClick(_researchDraftSystem))
+        {
+            PlayUiSelectSound();
+            return;
+        }
+
+        if (_input.LeftPressed)
+        {
+            _researchDraft.HandlePointerDown(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
+        if (_input.LeftHeld)
+        {
+            _researchDraft.HandlePointerDrag(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
+        if (_input.MiddlePressed)
+        {
+            _researchDraft.HandlePanPointerDown(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
+        if (_input.MiddleHeld)
+        {
+            _researchDraft.HandlePanPointerDrag(_input.MousePoint);
+        }
+
+        if (_input.MiddleReleased)
+        {
+            _researchDraft.HandlePanPointerUp(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
+        }
+
         if (!_input.LeftReleased)
         {
             return;
@@ -60,28 +85,48 @@ public sealed partial class GameApp
         var outcome = _researchDraft.HandlePointerUp(_input.MousePoint, Window.ClientBounds.Size, _session, _researchDraftSystem);
         switch (outcome)
         {
+            case ResearchDraftInteractionOutcome.RequestedBranchPreview:
+                if (_researchDraft.TryTakeBranchPreviewRequest(out var branch, out var title) &&
+                    branch is not null)
+                {
+                    _trilodex.OpenBranchPreview(branch, title);
+                    PlayUiSelectSound();
+                }
+
+                break;
             case ResearchDraftInteractionOutcome.RequestedClose:
                 PlayUiSelectSound();
                 CloseResearchDraftMenu();
                 break;
             case ResearchDraftInteractionOutcome.BranchPlaced:
-                PlayUiSelectSound();
-                CloseResearchDraftMenu();
                 _roundManager.TryStartDeferredNextRound(_session);
+                if (_infiniteDraft)
+                {
+                    _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
+                }
+
+                PlayUiSelectSound();
+                break;
+            case ResearchDraftInteractionOutcome.BranchPlacementObstructed:
+                _audio.Play(GameAudioCue.InvalidBranchPlacement);
+                break;
+            case ResearchDraftInteractionOutcome.NodeUnlocked:
+                _audio.Play(GameAudioCue.UnlockNode);
+                break;
+            case ResearchDraftInteractionOutcome.NodeSelected:
+                PlayUiSelectSound();
                 break;
         }
     }
 
     private void OpenResearchDraftMenu(bool pauseSimulationIfNeeded = true)
     {
+        EnsureInfiniteDraftOffer();
         CloseSettingsMenu();
+        ForceCloseTrilodexMenu();
         _debugMenuOpen = false;
         _roleRadialMenu = null;
-        _leftPanActive = false;
-        _selectionDragActive = false;
-        _selectionDragMode = null;
-        _selectionBoxBounds = null;
-        _input.EndDrag();
+        ResetPointerInteractionState();
         _researchDraft.Open(_researchDraftSystem);
 
         if (pauseSimulationIfNeeded && !_mainMenuOpen && !_gamePaused)
@@ -120,17 +165,22 @@ public sealed partial class GameApp
         _resumeSimulationAfterClosingResearchDraft = false;
     }
 
+    private void EnsureInfiniteDraftOffer()
+    {
+        if (!_infiniteDraft || _researchDraftSystem.HasPendingDraft)
+        {
+            return;
+        }
+
+        var createdDraft = _researchDraftSystem.CreateDraft(_session, _roundManager.CurrentRound, ResearchDraftSource.InfiniteDraft);
+        if (createdDraft is null)
+        {
+            Trace.WriteLine($"[ResearchDraft][Tick {_session.TickCount}] Infinite draft requested a new offer, but no draftable branches were available.");
+        }
+    }
+
     private bool ResearchDraftCoversPoint(Point point)
     {
         return _researchDraft.CoversScreenPoint(point, Window.ClientBounds.Size);
-    }
-
-    private bool CanSkipCurrentRoundGracePeriod()
-    {
-        return !_mainMenuOpen &&
-               !_isGameOver &&
-               !HasLostQueen() &&
-               !_roundManager.HasDeferredNextRoundStart &&
-               _roundManager.IsGracePeriodActive;
     }
 }

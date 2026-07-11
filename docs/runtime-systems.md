@@ -21,20 +21,29 @@ management inside `GameApp`.
 - `Runtime/Systems/GameOverStateSystem.cs`
   - owns queen-loss detection and continue/restart state
 - `Runtime/Systems/RoundManager.cs`
-  - owns round number plus the wait/defend phase lifecycle for each round
-  - advances each round through a 5-minute in-game wait phase, then an open-ended defense phase
+  - owns round number plus the wait/spawn phase lifecycle for each round
+  - advances each round through a 3-minute in-game wait phase, then a timed enemy-spawn phase
   - raises the round-end draft hook used by the research draft flow
 - `Runtime/Systems/AntHandler.cs`
   - receives round spawn requests
-  - schedules ant spawns across the round spawn window once a defense phase begins
-  - reports when the current defense phase is fully cleared so the next round can begin
+  - schedules ant spawns across the round spawn window once a spawn phase begins
+  - reports when the current spawn window has fully elapsed so the next round can begin
   - routes actual spawning through the ant-hole abstraction instead of `GameApp`
 - `Runtime/Systems/ResearchDraftSystem.cs`
-  - generates three candidate research branches after a cleared round when the queen survives
+  - generates three candidate research branches after a completed round when the queen survives
+  - can also generate immediate follow-up offers while infinite draft is enabled
   - preserves pending drafts until the player places one branch onto the live skill tree
   - owns draft-offer state so the UI can reopen the research menu without rerolling branches
-- `Audio/OpalAudioSystem.cs`
-  - owns the opal red-phase audio state machine
+- `Runtime/Systems/SkillTreeUnlockSystem.cs`
+  - owns adaptation-tree unlock cost, path, and resource checks outside rendering code
+  - spends Chitinstone through the resource-storage contract before applying node unlock effects
+- `Runtime/Systems/ResourceStockpileSystem.cs`
+  - aggregates live resource counts from buildings that expose the resource-storage contract
+  - withdraws stored resources in deterministic building order for runtime commands such as skill unlocks
+  - refreshes from current storage state so deposits, withdrawals, and removed storage buildings
+    are reflected by UI/tooling without duplicating resource math in the HUD
+  - uses the shared item catalog order so algae, stone, and mined resources appear in a stable
+    HUD/menu order without each screen duplicating icon and ordering rules
 - `Audio/SessionAudioBridge.cs`
   - attaches audio playback to session cue events
   - keeps the host from manually relaying simulation audio cues
@@ -51,7 +60,8 @@ The main goal is to make the game more scalable and more maintainable:
 - fixed-step orchestration should be reusable in tests
 - game-over state should not be a loose collection of booleans
 - round pacing and enemy-wave orchestration should not live in the render host
-- research-branch drafting and between-round progression offers should not live in the render host
+- research-branch drafting and progression offers should not live in the render host
+- skill-tree unlock policy and resource spending should not live in UI rendering code
 - automation and test hooks should be explicit, not hidden in UI code
 
 ### Current dependency direction

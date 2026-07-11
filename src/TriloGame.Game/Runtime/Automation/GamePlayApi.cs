@@ -194,8 +194,14 @@ public sealed class GamePlayApi
             return false;
         }
 
-        building.SetDisplayRotationTurns(displayRotationTurns);
-        return cave.Build(building, location);
+        var normalizedRotationTurns = ((displayRotationTurns % 4) + 4) % 4;
+        for (var turn = 0; turn < normalizedRotationTurns; turn++)
+        {
+            building.RotateMap();
+        }
+
+        building.SetDisplayRotationTurns(normalizedRotationTurns);
+        return cave.Build(building, location, preserveReachability: true);
     }
 
     // Resolve a trilobite by name through the live cave state.
@@ -212,8 +218,11 @@ public sealed class GamePlayApi
         {
             "algaefarm" or "algae_farm" or "farm" => new AlgaeFarm(session),
             "barracks" => new Barracks(session),
+            "garage" => new Garage(session),
             "miningpost" or "mining_post" or "mine" => new MiningPost(session),
             "radar" => new Radar(session),
+            "silo" => new Silo(session),
+            "soilpatch" or "soil_patch" or "soil" => new SoilPatch(session),
             "storage" => new Storage(session),
             "smith" => new Smith(session),
             "wall" => new Wall(session),

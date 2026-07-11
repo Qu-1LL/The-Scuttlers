@@ -6,13 +6,11 @@ namespace TriloGame.Tests.UI;
 public sealed class DebugMenuLayoutTests
 {
     [Fact]
-    public void Build_StacksTextCardsAndButtonRowsWithoutOverlap()
+    public void Build_StacksButtonRowsWithoutOverlap()
     {
         var layout = DebugMenuLayout.Build(new Point(1440, 900));
 
-        Assert.True(layout.HeaderBounds.Bottom <= layout.SummaryBounds.Top);
-        Assert.True(layout.SummaryBounds.Bottom <= layout.PerformanceBounds.Top);
-        Assert.True(layout.PerformanceBounds.Bottom <= layout.QuickControlsLabelBounds.Top);
+        Assert.True(layout.HeaderBounds.Bottom <= layout.QuickControlsLabelBounds.Top);
         Assert.True(layout.QuickControlsLabelBounds.Bottom <= layout.QuickControlsRowBounds.Top);
         Assert.True(layout.QuickControlsRowBounds.Bottom <= layout.SpeedLabelBounds.Top);
         Assert.True(layout.SpeedLabelBounds.Bottom <= layout.SpeedRowBounds.Top);
@@ -24,7 +22,9 @@ public sealed class DebugMenuLayoutTests
         Assert.True(layout.VisualTopRowBounds.Bottom <= layout.VisualBottomRowBounds.Top);
         Assert.True(layout.VisualBottomRowBounds.Bottom <= layout.ActionsLabelBounds.Top);
         Assert.True(layout.ActionsLabelBounds.Bottom <= layout.ActionsRowBounds.Top);
-        Assert.True(layout.ActionsRowBounds.Bottom <= layout.FooterBounds.Top);
+        Assert.True(layout.ActionsRowBounds.Bottom <= layout.SpawnActionsRowBounds.Top);
+        Assert.True(layout.SpawnActionsRowBounds.Bottom <= layout.FooterBounds.Top);
+        Assert.True(layout.VisualBottomRowBounds.Height > 0);
     }
 
     [Fact]

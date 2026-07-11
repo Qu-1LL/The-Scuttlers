@@ -1,5 +1,7 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
 
@@ -58,7 +60,7 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         farmer.SetAssignedBuilding(farm);
         Assert.True(farm.Assign(farmer));
-        Assert.Equal(1, farmer.AddToInventory("Sandstone", 1));
+        Assert.Equal(1, farmer.AddToInventory(ResourceName.Sandstone, 1));
 
         var nextLocation = farm.GetNextTraversalLocation(farmer.Location);
         Assert.NotNull(nextLocation);
@@ -85,88 +87,6 @@ public sealed class TrilobiteBuildingAssignmentTests
         var selectedFarm = farmer.SelectAlgaeFarm();
 
         Assert.Same(farm, selectedFarm);
-    }
-
-    [Fact]
-    public void FarmerStep1_FallsBackToLargestGrowableStorage_WhenAllFarmerSlotsAreFull()
-    {
-        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
-        var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(6, 6));
-        var firstFarmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Farmer A", "farmer");
-        var secondFarmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(7, 9), "Farmer B", "farmer");
-        var ignoredGarage = TestWorldFactory.BuildGarage(cave, session, new GridPoint(9, 10));
-        var smallerSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(1, 10));
-        var largerSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(14, 10));
-        var spawnTile = GetBuildingWorkTile(cave, largerSilo);
-        var waitingFarmer = TestWorldFactory.SpawnTrilobite(cave, session, spawnTile.Coordinates, "Farmer C", "farmer");
-
-        Assert.True(farm.Assign(firstFarmer));
-        Assert.True(farm.Assign(secondFarmer));
-        Assert.False(cave.HasOpenAlgaeFarms);
-        Assert.Equal(20, ignoredGarage.Deposit(OreType.SANDSTONE.Name, 20));
-        Assert.Equal(4, smallerSilo.Deposit(OreType.ALGAE.Name, 4));
-        Assert.Equal(9, largerSilo.Deposit(OreType.ALGAE.Name, 9));
-
-        for (var tick = 0; tick < 10 && !waitingFarmer.HasInventory(); tick++)
-        {
-            waitingFarmer.Move();
-        }
-
-        Assert.Equal(OreType.ALGAE.Name, waitingFarmer.Inventory.Type);
-        Assert.Equal(5, waitingFarmer.Inventory.Amount);
-        Assert.Equal(4, smallerSilo.GetInventoryTotal());
-        Assert.Equal(4, largerSilo.GetInventoryTotal());
-        Assert.Equal(20, ignoredGarage.GetInventory().GetValueOrDefault(OreType.SANDSTONE.Name, 0));
-        Assert.Equal(0, queen.AlgaeCount);
-        Assert.Null(waitingFarmer.GetAssignedBuilding());
-    }
-
-    [Fact]
-    public void FarmerStep1_WithdrawsOnlyGrowableResourcesFromGarageFallback()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 16, new GridPoint(8, 0));
-        var garage = TestWorldFactory.BuildGarage(cave, session, new GridPoint(8, 10));
-        var ranch = Assert.IsType<Ranch>(garage.Ranch);
-        var ranchFarmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 10), "Ranch Farmer", "farmer");
-        var spawnTile = GetBuildingWorkTile(cave, garage);
-        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, spawnTile.Coordinates, "Farmer", "farmer");
-
-        Assert.Equal(12, garage.Deposit(OreType.SANDSTONE.Name, 12));
-        Assert.Equal(7, garage.Deposit(OreType.ALGAE.Name, 7));
-        ranchFarmer.SetAssignedBuilding(ranch);
-        Assert.True(ranch.Assign(ranchFarmer));
-        Assert.False(ranch.HasAssignmentSlot());
-
-        for (var tick = 0; tick < 10 && !farmer.HasInventory(); tick++)
-        {
-            farmer.Move();
-        }
-
-        Assert.Equal(OreType.ALGAE.Name, farmer.Inventory.Type);
-        Assert.Equal(5, farmer.Inventory.Amount);
-        Assert.Equal(12, garage.GetInventory().GetValueOrDefault(OreType.SANDSTONE.Name, 0));
-        Assert.Equal(2, garage.GetInventory().GetValueOrDefault(OreType.ALGAE.Name, 0));
-        Assert.Null(farmer.GetAssignedBuilding());
-    }
-
-    [Fact]
-    public void IdleFarmer_WithdrawsFromStorageAndFeedsQueen_WhenNoAssignmentsAreOpen()
-    {
-        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(22, 20, new GridPoint(9, 2));
-        var silo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(9, 14));
-        var spawnTile = GetBuildingWorkTile(cave, silo);
-        var farmer = TestWorldFactory.SpawnTrilobite(cave, session, spawnTile.Coordinates, "Farmer", "farmer");
-
-        Assert.Equal(5, silo.Deposit(OreType.ALGAE.Name, 5));
-
-        for (var tick = 0; tick < 80 && queen.AlgaeCount == 0; tick++)
-        {
-            farmer.Move();
-        }
-
-        Assert.Equal(5, queen.AlgaeCount);
-        Assert.False(farmer.HasInventory());
-        Assert.Equal(0, silo.GetInventoryTotal());
     }
 
     [Fact]
@@ -331,8 +251,8 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.False(firstFighter.FighterReturnToStation(true));
         Assert.False(secondFighter.FighterReturnToStation(true));
 
-        var topLeftWorldX = (18 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
-        var topLeftWorldY = (6 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
+        var topLeftWorldX = (18 * TileConstants.TileSize) - TileConstants.TileHalfSize;
+        var topLeftWorldY = (6 * TileConstants.TileSize) - TileConstants.TileHalfSize;
 
         Assert.False(firstFighter.IsTrackedInTileSystem);
         Assert.False(secondFighter.IsTrackedInTileSystem);
@@ -344,8 +264,8 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Null(cave.GetTile(secondAccessTile.ToString())!.Built);
         Assert.DoesNotContain(firstFighter, cave.GetTile(firstAccessTile.ToString())!.Trilobites);
         Assert.DoesNotContain(secondFighter, cave.GetTile(secondAccessTile.ToString())!.Trilobites);
-        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + 80f, topLeftWorldY + 80f), firstFighter.HostedWorldPosition!.Value);
-        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + 160f, topLeftWorldY + 160f), secondFighter.HostedWorldPosition!.Value);
+        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + TileConstants.TileSize, topLeftWorldY + TileConstants.TileSize), firstFighter.HostedWorldPosition!.Value);
+        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + (TileConstants.TileSize * 2f), topLeftWorldY + (TileConstants.TileSize * 2f)), secondFighter.HostedWorldPosition!.Value);
     }
 
     [Fact]
@@ -364,14 +284,14 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         Assert.False(fighter.FighterReturnToStation(true));
 
-        var topLeftWorldX = (18 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
-        var topLeftWorldY = (6 * TriloGame.Game.Core.Constants.TileConstants.TileSize) - TriloGame.Game.Core.Constants.TileConstants.TileHalfSize;
+        var topLeftWorldX = (18 * TileConstants.TileSize) - TileConstants.TileHalfSize;
+        var topLeftWorldY = (6 * TileConstants.TileSize) - TileConstants.TileHalfSize;
 
         Assert.False(fighter.IsTrackedInTileSystem);
         Assert.Same(turret, fighter.HostedBuilding);
         Assert.Equal(accessTile, fighter.Location);
         Assert.Null(cave.GetTile(accessTile.ToString())!.Built);
-        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + 160f, topLeftWorldY + 80f), fighter.HostedWorldPosition!.Value);
+        Assert.Equal(new System.Numerics.Vector2(topLeftWorldX + (TileConstants.TileSize * 2f), topLeftWorldY + TileConstants.TileSize), fighter.HostedWorldPosition!.Value);
     }
 
     [Fact]
@@ -405,8 +325,8 @@ public sealed class TrilobiteBuildingAssignmentTests
         var secondScaffold = new Scaffolding(session, new Storage(session));
         Assert.True(cave.Build(firstScaffold, new GridPoint(6, 6)));
         Assert.True(cave.Build(secondScaffold, new GridPoint(14, 6)));
-        Assert.Equal(20, firstScaffold.Deposit("Sandstone", 20));
-        Assert.Equal(20, secondScaffold.Deposit("Sandstone", 20));
+        Assert.Equal(20, firstScaffold.Deposit(ResourceName.Sandstone, 20));
+        Assert.Equal(20, secondScaffold.Deposit(ResourceName.Sandstone, 20));
 
         var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
 
@@ -438,6 +358,60 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void BuilderAssignment_SkipsCompletionPendingScaffoldUntilItClears()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(22, 14, new GridPoint(1, 1));
+        var blockedScaffold = new Scaffolding(session, new Storage(session));
+        var availableScaffold = new Scaffolding(session, new Storage(session));
+        var blockedLocation = new GridPoint(6, 6);
+        var availableLocation = new GridPoint(14, 6);
+
+        Assert.True(cave.Build(blockedScaffold, blockedLocation));
+        Assert.True(cave.Build(availableScaffold, availableLocation));
+
+        var blockedRequirement = blockedScaffold.GetRemainingRequirement(ResourceName.Sandstone);
+        var availableRequirement = availableScaffold.GetRemainingRequirement(ResourceName.Sandstone);
+        Assert.Equal(blockedRequirement, blockedScaffold.Deposit(ResourceName.Sandstone, blockedRequirement));
+        Assert.Equal(availableRequirement, availableScaffold.Deposit(ResourceName.Sandstone, availableRequirement));
+
+        var blocker = TestWorldFactory.SpawnTrilobite(cave, session, blockedLocation, "Blocker", "unassigned");
+        Assert.Equal(
+            blockedScaffold.ConstructionRequired,
+            blockedScaffold.ApplyConstructionWork(blockedScaffold.ConstructionRequired));
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
+
+        Assert.True(blockedScaffold.CompletionPending);
+        Assert.Equal(blockedLocation, blocker.Location);
+        Assert.False(builder.CanActOnScaffold(blockedScaffold));
+        Assert.True(builder.CanActOnScaffold(availableScaffold));
+        Assert.Same(availableScaffold, builder.EnsureBuilderAssignment(true));
+    }
+
+    [Fact]
+    public void BuilderBuildsSoilPatchUsingOrganicResourceFromReachableMiningPost()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
+        Assert.Equal(5, post.Deposit(ResourceName.Chitinstone, 5));
+        var scaffold = new Scaffolding(session, new SoilPatch(session));
+        var scaffoldLocation = new GridPoint(12, 6);
+        Assert.True(cave.Build(scaffold, scaffoldLocation));
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 6), "Builder", "builder");
+        builder.RestartBehavior();
+
+        for (var tick = 0; tick < 80 && cave.GetSoilPatches().All(patch => patch.Location != scaffoldLocation); tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
+        Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
+        Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Chitinstone, 0));
+        Assert.False(builder.HasInventory());
+    }
+
+    [Fact]
     public void BarracksAssignment_IsTrackedAndRemovedWhenFighterDies()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(14, 0));
@@ -464,32 +438,5 @@ public sealed class TrilobiteBuildingAssignmentTests
         tile.SetBase("wall");
         tile.CreatureCanFit = false;
         tile.ConfigureWall(1);
-    }
-
-    private static TriloGame.Game.Core.World.Tile GetBuildingWorkTile(TriloGame.Game.Core.World.Cave cave, Building building)
-    {
-        var location = building.Location ?? throw new InvalidOperationException($"Expected {building.Name} to have a location.");
-        for (var y = location.Y - 1; y <= location.Y + building.Size.Y; y++)
-        {
-            for (var x = location.X - 1; x <= location.X + building.Size.X; x++)
-            {
-                var point = new GridPoint(x, y);
-                if (point.X >= location.X &&
-                    point.X < location.X + building.Size.X &&
-                    point.Y >= location.Y &&
-                    point.Y < location.Y + building.Size.Y)
-                {
-                    continue;
-                }
-
-                var tile = cave.GetTile(point);
-                if (tile?.CreatureFits() == true)
-                {
-                    return tile;
-                }
-            }
-        }
-
-        throw new InvalidOperationException($"Expected {building.Name} to have an adjacent work tile.");
     }
 }

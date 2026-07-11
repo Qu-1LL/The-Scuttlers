@@ -1,4 +1,3 @@
-using System;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -24,12 +23,8 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
         SoilArea = new SoilArea(session);
         SoilArea.AddSoilPatch(this);
         IgnoredByAnts = true;
-
-        Recipe = new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            [OreType.ALGAE.Name] = 5
-        };
-        Description = "A 2x2 patch of passable soil. Each tile grows its planted crop independently and joins a ranch through adjacent soil.";
+        Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Organic, 5)];
+        Description = "A 2x2 patch of passable soil. Each tile grows its planted crop independently.";
         TextureKey = "SoilTile_0";
     }
 
@@ -57,12 +52,11 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
 
     public GridPoint DragPlacementStep => DefaultSize;
 
-    public override int Tick(World.Cave _)
+    public override int Tick(World.Cave cave)
     {
         return Tick(RandomUtil.Shared, Session.TickCount % 10);
     }
 
-    // Each tile in a patch uses the current tick digit as a gate before rolling growth.
     internal int Tick(Random random, int currentTickMod)
     {
         var advancedTiles = 0;

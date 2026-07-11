@@ -23,7 +23,8 @@ pathfinding, economy, or progression.
 - Do not use `DateTime.Now`, `Stopwatch`, or wall-clock timing inside simulation decisions.
 - Keep event timing explicit. Never add "fire whenever" logic to the sim.
 - Randomness for gameplay should continue to use the project's established deterministic/random
-  utility patterns rather than ad-hoc sources.
+  utility patterns rather than ad-hoc sources; prefer `Shared/Utilities/XorShift64.cs` for
+  deterministic generation and other replay-sensitive PRNG state.
 
 Projectile firing decisions belong in `Core`, while projectile travel/impact timing belongs in
 runtime state/systems so hits can resolve between ticks without moving timing math into
@@ -120,11 +121,14 @@ These are current live rules. If a task changes them, update tests and docs in t
   - `Sigma` = fighter
 - Default runtime starts unpaused at `100 ms` tick speed.
 - Trilobites carry one item at a time.
-- Ore has finite yield, darkens as it depletes, and takes `1-5` hits per yielded unit.
-- Walls take `3` hits, drop sandstone, and miners haul dropped stone.
+- Ore has finite yield, darkens as it depletes, and takes `5` hits (`0.5` seconds of
+  simulation game-time) per yielded unit.
+- Walls take `3` hits and do not yield resources to trilobites.
+- Cave crystals render with the ore overlay layer, block placement/creature occupancy, take `3`
+  hits, and do not yield resources.
 - Queen death triggers a screen overlay rather than closing the app.
-- Opal and ant-hole systems are active world features.
-- Natural ant-hole spawning is governed by the opal grace/warning system.
+- Ant-hole systems are active world features.
+- Natural ant-hole spawning follows the current ambient spawn rules.
 
 ## Subsystem Reading Guide
 

@@ -5,7 +5,6 @@ using TriloGame.Game.Rendering.Particles;
 using TriloGame.Game.Runtime.Automation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.State;
-using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game;
 
@@ -114,7 +113,7 @@ public sealed partial class GameApp
                 var tileCenter = new Vector2(
                     (request.OriginTile.X + dx) * TileConstants.TileSize,
                     (request.OriginTile.Y + dy) * TileConstants.TileSize);
-                var texture = _deathMistTextures[RandomUtil.NextInt(_deathMistTextures.Length)];
+                var texture = _deathMistTextures[Rendering.Particles.RenderingRandom.NextInt(_deathMistTextures.Length)];
                 WorldParticleEmitter.EmitBurst(tileCenter, Vector2.Zero, texture, _deathMistSettings, _deathMistSettings.ParticlesPerTile);
             }
         }

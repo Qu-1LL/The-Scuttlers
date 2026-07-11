@@ -160,7 +160,7 @@ public sealed class AntHandlerTests
     }
 
     [Fact]
-    public void CanCompleteCurrentRound_RequiresAllScheduledSpawnsToFinishAndTrackedAntHolesToClear()
+    public void CanCompleteCurrentRound_RequiresSpawnWindowToFinishAndAllScheduledSpawnsToBeAttempted()
     {
         var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(90, 90, new GridPoint(20, 20));
         session.Runtime.DisableEnemySpawns = false;
@@ -169,25 +169,44 @@ public sealed class AntHandlerTests
         var round = new RoundInfo(
             1,
             0d,
+            GameConstants.RoundSpawnWindowDurationMs,
             0d,
-            0d,
-            0d,
+            GameConstants.RoundSpawnWindowDurationMs,
             1,
             false);
 
-        handler.HandleRoundStarted(round);
-        handler.Advance(session, round);
+        handler.HandleRoundStarted(round with { ElapsedGameTimeMs = 0d });
+        handler.Advance(session, round with { ElapsedGameTimeMs = 0d });
 
-        Assert.False(handler.CanCompleteCurrentRound(session, round));
+        Assert.False(handler.CanCompleteCurrentRound(session, round with { ElapsedGameTimeMs = 0d }));
         Assert.Equal(1, handler.GetRemainingKillsForRound(session, round));
 
-        var ant = cave.GetEnemyList().Single();
-        Assert.True(ant.RemoveFromGame("test"));
-        Assert.False(session.Danger);
-        Assert.Empty(cave.GetAntHoles());
+        handler.Advance(session, round with { ElapsedGameTimeMs = GameConstants.RoundSpawnWindowDurationMs });
 
-        Assert.Equal(0, handler.GetRemainingKillsForRound(session, round));
-        Assert.True(handler.CanCompleteCurrentRound(session, round));
+        Assert.Equal(1, handler.GetRemainingKillsForRound(session, round));
+        Assert.Single(cave.GetEnemyList());
+        Assert.True(handler.CanCompleteCurrentRound(session, round with { ElapsedGameTimeMs = GameConstants.RoundSpawnWindowDurationMs }));
+    }
+
+    [Fact]
+    public void CanCompleteCurrentRound_StillCompletesWhenEnemySpawnsAreDisabled()
+    {
+        var session = new GameSession();
+        session.Runtime.DisableEnemySpawns = true;
+        var handler = new AntHandler(new FakeAntHoleSpawner());
+        var round = new RoundInfo(
+            3,
+            0d,
+            GameConstants.RoundSpawnWindowDurationMs,
+            0d,
+            GameConstants.RoundSpawnWindowDurationMs,
+            2,
+            false);
+
+        handler.HandleRoundStarted(round with { ElapsedGameTimeMs = 0d });
+        handler.Advance(session, round with { ElapsedGameTimeMs = GameConstants.RoundSpawnWindowDurationMs });
+
+        Assert.True(handler.CanCompleteCurrentRound(session, round with { ElapsedGameTimeMs = GameConstants.RoundSpawnWindowDurationMs }));
     }
 
     private sealed class FakeAntHoleSpawner : IAntHoleSpawner

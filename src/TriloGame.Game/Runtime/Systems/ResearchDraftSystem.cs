@@ -1,8 +1,12 @@
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
-using TriloGame.Game.Shared.Math;
-
 namespace TriloGame.Game.Runtime.Systems;
+
+public enum ResearchDraftSource
+{
+    RoundReward,
+    InfiniteDraft
+}
 
 public sealed class ResearchDraftSystem
 {
@@ -10,14 +14,15 @@ public sealed class ResearchDraftSystem
 
     public bool HasPendingDraft => PendingDraft is not null;
 
-    // Clear any unplaced research offer between runs or resets.
     public void Reset()
     {
         PendingDraft = null;
     }
 
-    // Generate one round-scoped research offer and keep it stable until placement resolves it.
-    public ResearchDraftOffer? CreateDraft(GameSession session, RoundInfo round)
+    public ResearchDraftOffer? CreateDraft(
+        GameSession session,
+        RoundInfo round,
+        ResearchDraftSource source = ResearchDraftSource.RoundReward)
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -37,14 +42,14 @@ public sealed class ResearchDraftSystem
             return null;
         }
 
-        PendingDraft = new ResearchDraftOffer(round.RoundNumber, seed, generation);
+        PendingDraft = new ResearchDraftOffer(round.RoundNumber, source, seed, generation);
         return PendingDraft;
     }
 
-    // Place one branch from the pending offer and clear the offer on success.
-    public bool TryPlaceBranch(GameSession session, int branchIndex, GridPoint anchorLocation, out string? failureReason)
+    public bool TryPlaceBranch(GameSession session, int branchIndex, TreeInstanceNode anchorNode, out string? failureReason)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(anchorNode);
 
         if (PendingDraft is null)
         {
@@ -59,7 +64,14 @@ public sealed class ResearchDraftSystem
         }
 
         var branch = PendingDraft.Branches[branchIndex];
-        if (!session.SkillTree.TryPlaceResearchBranch(branch, anchorLocation, out failureReason))
+        var placementValidation = ResearchDraftPlacementValidator.Validate(session.SkillTree, branch, anchorNode);
+        if (!placementValidation.CanPlace)
+        {
+            failureReason = placementValidation.FailureReason;
+            return false;
+        }
+
+        if (!session.SkillTree.TryPlaceResearchBranch(branch, anchorNode, out failureReason))
         {
             return false;
         }
@@ -71,20 +83,23 @@ public sealed class ResearchDraftSystem
 
 public sealed class ResearchDraftOffer
 {
-    // Capture the generated research options and the seed that produced them.
     public ResearchDraftOffer(
         int sourceRoundNumber,
+        ResearchDraftSource source,
         int seed,
         ResearchBranchGenerationResult generation)
     {
         SourceRoundNumber = sourceRoundNumber >= 0
             ? sourceRoundNumber
             : throw new ArgumentOutOfRangeException(nameof(sourceRoundNumber), "Round number cannot be negative.");
+        Source = source;
         Seed = seed;
         Generation = generation ?? throw new ArgumentNullException(nameof(generation));
     }
 
     public int SourceRoundNumber { get; }
+
+    public ResearchDraftSource Source { get; }
 
     public int Seed { get; }
 
