@@ -36,7 +36,8 @@ public sealed class SettingsMenuRenderer
         Point pointer,
         bool isOpen,
         bool isMainMenuOpen,
-        int volumePercent)
+        int volumePercent,
+        bool musicEnabled)
     {
         if (!isMainMenuOpen)
         {
@@ -48,7 +49,7 @@ public sealed class SettingsMenuRenderer
             return;
         }
 
-        DrawPanel(gumUiRenderer, rendering, viewport, pointer, isMainMenuOpen, volumePercent);
+        DrawPanel(gumUiRenderer, rendering, viewport, pointer, isMainMenuOpen, volumePercent, musicEnabled);
     }
 
     private static void DrawTopHudButton(GumUiRenderer gumUiRenderer, Point viewport, Point pointer, bool isOpen)
@@ -71,7 +72,8 @@ public sealed class SettingsMenuRenderer
         Point viewport,
         Point pointer,
         bool isMainMenuOpen,
-        int volumePercent)
+        int volumePercent,
+        bool musicEnabled)
     {
         var includeQuitToMainMenu = !isMainMenuOpen;
         var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport, includeQuitToMainMenu);
@@ -83,6 +85,8 @@ public sealed class SettingsMenuRenderer
         var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
         var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
         var volumeFillBounds = SettingsMenuLayout.GetVolumeFillBounds(volumeBarBounds, volumePercent);
+        var musicToggleBounds = SettingsMenuLayout.GetMusicToggleBounds(panelBounds);
+        var musicCheckboxBounds = SettingsMenuLayout.GetMusicCheckboxBounds(panelBounds);
         var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
         var returnBounds = includeQuitToMainMenu
             ? SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds)
@@ -98,6 +102,7 @@ public sealed class SettingsMenuRenderer
         DrawChromeButton(gumUiRenderer, volumeDownBounds, volumeDownBounds.Contains(pointer), "-", GumTextStyle.Ui);
         DrawChromeButton(gumUiRenderer, volumeUpBounds, volumeUpBounds.Contains(pointer), "+", GumTextStyle.Ui);
         DrawVolumeBar(gumUiRenderer, volumeBarBounds, volumeFillBounds, volumeBarBounds.Contains(pointer));
+        DrawMusicToggle(gumUiRenderer, musicToggleBounds, musicCheckboxBounds, musicToggleBounds.Contains(pointer), musicEnabled);
         DrawTrilodexButton(gumUiRenderer, trilodexBounds, trilodexBounds.Contains(pointer));
 
         if (includeQuitToMainMenu)
@@ -122,6 +127,39 @@ public sealed class SettingsMenuRenderer
             2,
             12);
         gumUiRenderer.AddRoundedRectangle(fillBounds, new Color(143, 205, 226), 10);
+    }
+
+    private static void DrawMusicToggle(GumUiRenderer gumUiRenderer, Rectangle bounds, Rectangle checkboxBounds, bool hovered, bool musicEnabled)
+    {
+        var border = hovered ? new Color(188, 221, 234) : new Color(110, 149, 167);
+        gumUiRenderer.AddRoundedFrame(
+            checkboxBounds,
+            musicEnabled ? new Color(61, 92, 76) : new Color(10, 22, 32),
+            border,
+            2,
+            6);
+
+        if (musicEnabled)
+        {
+            var checkColor = new Color(231, 248, 235);
+            gumUiRenderer.AddLine(
+                new Vector2(checkboxBounds.X + 7, checkboxBounds.Y + 15),
+                new Vector2(checkboxBounds.X + 12, checkboxBounds.Bottom - 8),
+                checkColor,
+                3);
+            gumUiRenderer.AddLine(
+                new Vector2(checkboxBounds.X + 12, checkboxBounds.Bottom - 8),
+                new Vector2(checkboxBounds.Right - 6, checkboxBounds.Y + 7),
+                checkColor,
+                3);
+        }
+
+        GumUiText.AddFittedLeft(
+            gumUiRenderer,
+            new Rectangle(checkboxBounds.Right + 12, bounds.Y, Math.Max(0, bounds.Right - checkboxBounds.Right - 12), bounds.Height),
+            "Music",
+            Color.White,
+            GumTextStyle.Small);
     }
 
     private static void DrawTrilodexButton(GumUiRenderer gumUiRenderer, Rectangle bounds, bool hovered)

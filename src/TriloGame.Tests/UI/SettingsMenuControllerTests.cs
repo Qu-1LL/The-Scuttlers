@@ -16,7 +16,8 @@ public sealed class SettingsMenuControllerTests
             viewport,
             includeTopHudButton: true,
             allowQuitToMainMenu: true,
-            volumePercent: 50);
+            volumePercent: 50,
+            musicEnabled: true);
 
         Assert.Equal(SettingsMenuInteractionOutcome.RequestedOpen, result.Outcome);
     }
@@ -69,10 +70,36 @@ public sealed class SettingsMenuControllerTests
             viewport,
             includeTopHudButton: true,
             allowQuitToMainMenu: true,
-            volumePercent: 50);
+            volumePercent: 50,
+            musicEnabled: true);
 
         Assert.Equal(SettingsMenuInteractionOutcome.VolumeChanged, result.Outcome);
         Assert.Equal(SettingsMenuLayout.GetSnappedVolumeFromBar(volumeBarBounds, pointer.X), result.VolumePercent);
+    }
+
+    [Fact]
+    public void HandlePointerUp_ClickingMusicToggleRequestsOppositeMusicState()
+    {
+        var controller = new SettingsMenuController();
+        var viewport = new Point(1440, 900);
+        controller.Open(
+            pauseSimulationIfNeeded: false,
+            isMainMenuOpen: false,
+            isSimulationPaused: false);
+        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport, includeQuitToMainMenu: true);
+        var toggleBounds = SettingsMenuLayout.GetMusicToggleBounds(panelBounds);
+
+        var result = controller.HandlePointerUp(
+            toggleBounds.Center,
+            viewport,
+            includeTopHudButton: false,
+            allowQuitToMainMenu: true,
+            volumePercent: 50,
+            musicEnabled: true);
+
+        Assert.Equal(SettingsMenuInteractionOutcome.MusicToggled, result.Outcome);
+        Assert.False(result.MusicEnabled);
+        Assert.Equal(50, result.VolumePercent);
     }
 
     [Fact]
@@ -90,7 +117,8 @@ public sealed class SettingsMenuControllerTests
             viewport,
             includeTopHudButton: false,
             allowQuitToMainMenu: true,
-            volumePercent: 50);
+            volumePercent: 50,
+            musicEnabled: true);
 
         Assert.Equal(SettingsMenuInteractionOutcome.RequestedClose, result.Outcome);
     }
@@ -112,13 +140,15 @@ public sealed class SettingsMenuControllerTests
             viewport,
             includeTopHudButton: false,
             allowQuitToMainMenu: true,
-            volumePercent: 50);
+            volumePercent: 50,
+            musicEnabled: true);
         var mainMenuResult = controller.HandlePointerUp(
             returnButton.Center,
             viewport,
             includeTopHudButton: false,
             allowQuitToMainMenu: false,
-            volumePercent: 50);
+            volumePercent: 50,
+            musicEnabled: true);
 
         Assert.Equal(SettingsMenuInteractionOutcome.RequestedReturnToMainMenu, gameplayResult.Outcome);
         Assert.Equal(SettingsMenuInteractionOutcome.Consumed, mainMenuResult.Outcome);

@@ -9,13 +9,15 @@ public enum SettingsMenuInteractionOutcome
     RequestedOpen,
     RequestedClose,
     VolumeChanged,
+    MusicToggled,
     RequestedOpenTrilodex,
     RequestedReturnToMainMenu
 }
 
 public readonly record struct SettingsMenuInteractionResult(
     SettingsMenuInteractionOutcome Outcome,
-    int VolumePercent = 0)
+    int VolumePercent = 0,
+    bool MusicEnabled = true)
 {
     public bool Handled => Outcome != SettingsMenuInteractionOutcome.None;
 }
@@ -79,7 +81,8 @@ public sealed class SettingsMenuController
         Point viewport,
         bool includeTopHudButton,
         bool allowQuitToMainMenu,
-        int volumePercent)
+        int volumePercent,
+        bool musicEnabled)
     {
         if (includeTopHudButton && SettingsMenuLayout.GetSettingsButtonBounds(viewport).Contains(point))
         {
@@ -98,6 +101,7 @@ public sealed class SettingsMenuController
         var volumeDownBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
         var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
         var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
+        var musicToggleBounds = SettingsMenuLayout.GetMusicToggleBounds(panelBounds);
         var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
         if (SettingsMenuLayout.GetCloseButtonBounds(panelBounds).Contains(point) ||
             SettingsMenuLayout.GetBackButtonBounds(panelBounds).Contains(point))
@@ -124,6 +128,14 @@ public sealed class SettingsMenuController
             return new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.VolumeChanged,
                 SettingsMenuLayout.GetSnappedVolumeFromBar(volumeBarBounds, point.X));
+        }
+
+        if (musicToggleBounds.Contains(point))
+        {
+            return new SettingsMenuInteractionResult(
+                SettingsMenuInteractionOutcome.MusicToggled,
+                volumePercent,
+                !musicEnabled);
         }
 
         if (trilodexBounds.Contains(point))

@@ -31,7 +31,7 @@ These systems form the main loop described in [[Core Loop and Colony Growth]].
 - right-drag box select for trilobite groups
 - focus and follow behavior with `F`
 - colony side panel with `Buildings`, `Assignments`, and `Selected`
-- top-left settings panel with shared volume control
+- top-left settings panel with shared volume control and a music checkbox
 
 These are explained in [[Controls and Shortcuts]] and [[Getting Started and How to Play]].
 

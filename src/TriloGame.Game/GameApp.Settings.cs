@@ -22,7 +22,8 @@ public sealed partial class GameApp
                 Window.ClientBounds.Size,
                 includeTopHudButton: true,
                 allowQuitToMainMenu: true,
-                _audio.VolumePercent));
+                _audio.VolumePercent,
+                _music.IsMusicEnabled));
     }
 
     private bool HandleSettingsPanelClick(Point point, bool allowQuitToMainMenu)
@@ -33,7 +34,8 @@ public sealed partial class GameApp
                 Window.ClientBounds.Size,
                 includeTopHudButton: false,
                 allowQuitToMainMenu,
-                _audio.VolumePercent));
+                _audio.VolumePercent,
+                _music.IsMusicEnabled));
     }
 
     private bool HandleSettingsInteraction(SettingsMenuInteractionResult result)
@@ -56,6 +58,9 @@ public sealed partial class GameApp
             case SettingsMenuInteractionOutcome.VolumeChanged:
                 SetVolumeSetting(result.VolumePercent);
                 return true;
+            case SettingsMenuInteractionOutcome.MusicToggled:
+                SetMusicEnabledSetting(result.MusicEnabled);
+                return true;
             case SettingsMenuInteractionOutcome.RequestedOpenTrilodex:
                 PlayUiSelectSound();
                 OpenTrilodexMenu(pauseSimulationIfNeeded: !_mainMenuOpen);
@@ -74,6 +79,12 @@ public sealed partial class GameApp
     private void SetVolumeSetting(int volumePercent)
     {
         SetMasterVolume(volumePercent);
+    }
+
+    private void SetMusicEnabledSetting(bool musicEnabled)
+    {
+        PlayUiSelectSound();
+        _music.SetMusicEnabled(musicEnabled);
     }
 
     private void OpenSettingsMenu(bool pauseSimulationIfNeeded = true)

@@ -32,7 +32,7 @@ public static class SettingsMenuLayout
     public static Rectangle GetPanelBounds(Point viewport, bool includeQuitToMainMenu)
     {
         var width = Math.Min(420, Math.Max(320, viewport.X - 56));
-        var height = includeQuitToMainMenu ? 334 : 284;
+        var height = includeQuitToMainMenu ? 382 : 332;
         return new Rectangle((viewport.X - width) / 2, (viewport.Y - height) / 2, width, height);
     }
 
@@ -70,17 +70,28 @@ public static class SettingsMenuLayout
 
     public static Rectangle GetReturnToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 252, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetTrilodexButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 156, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204, panelBounds.Width - 48, 38);
+    }
+
+    public static Rectangle GetMusicToggleBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 152, panelBounds.Width - 48, 34);
+    }
+
+    public static Rectangle GetMusicCheckboxBounds(Rectangle panelBounds)
+    {
+        var toggleBounds = GetMusicToggleBounds(panelBounds);
+        return new Rectangle(toggleBounds.X, toggleBounds.Y + 3, 28, 28);
     }
 
     public static Rectangle GetQuitToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 252, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 300, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetDismissHintBounds(Rectangle panelBounds)

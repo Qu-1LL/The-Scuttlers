@@ -7,6 +7,6 @@
   labels to clip outside their bounds.
 - Keep iconography and labels centered inside their hit targets.
 - The top-left settings button opens a rounded settings panel with volume controls from
-  `0` to `100` in stepped increments and audio feedback on change.
+  `0` to `100`, a music checkbox, and audio feedback on volume changes.
 - The only intentional exception is the backtick debug menu, which keeps its sharper,
   utilitarian presentation.

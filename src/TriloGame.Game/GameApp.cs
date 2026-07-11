@@ -1961,7 +1961,8 @@ public sealed partial class GameApp
             _input.MousePoint,
             _settingsMenuOpen,
             _mainMenuOpen,
-            _audio.VolumePercent);
+            _audio.VolumePercent,
+            _music.IsMusicEnabled);
     }
 
     private void DrawResourceHud()
