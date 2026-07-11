@@ -493,15 +493,50 @@ public sealed partial class MenuController
 
     private void SyncBuildSelection(IReadOnlyList<Factory> options)
     {
-        if (SelectedBuildOption is null || options.All(factory => factory.Name != SelectedBuildOption.Name))
+        if (SelectedBuildOption is null || !ContainsVisibleBuildOption(options, SelectedBuildOption.Name))
         {
-            SelectedBuildOption = options.FirstOrDefault();
+            SelectedBuildOption = FindFirstVisibleBuildOption(options);
         }
 
-        if (HoveredBuildOption is not null && options.All(factory => factory.Name != HoveredBuildOption.Name))
+        if (HoveredBuildOption is not null && !ContainsVisibleBuildOption(options, HoveredBuildOption.Name))
         {
             HoveredBuildOption = null;
         }
+    }
+
+    // Temporarily suppress glitchy ranch/storage-adjacent buildings from the build menu.
+    private static bool IsBuildOptionTemporarilyHidden(Factory factory)
+    {
+        return factory.Name is "Soil Patch" or "Garage" or "Silo";
+    }
+
+    private static Factory? FindFirstVisibleBuildOption(IReadOnlyList<Factory> options)
+    {
+        for (var index = 0; index < options.Count; index++)
+        {
+            var factory = options[index];
+            if (!IsBuildOptionTemporarilyHidden(factory))
+            {
+                return factory;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsVisibleBuildOption(IReadOnlyList<Factory> options, string factoryName)
+    {
+        for (var index = 0; index < options.Count; index++)
+        {
+            var factory = options[index];
+            if (!IsBuildOptionTemporarilyHidden(factory) &&
+                string.Equals(factory.Name, factoryName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private IReadOnlyList<AssignmentEntryViewModel> BuildAssignmentEntries(IReadOnlyList<Trilobite> creatures)

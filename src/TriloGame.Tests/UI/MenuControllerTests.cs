@@ -332,6 +332,32 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
+    public void BuildingsTab_HidesTemporarilyDisabledBuildingsFromBuildCards()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new SoilPatch(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new Garage(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new Silo(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new Turret(game), session));
+        var menu = new MenuController();
+        var viewport = new Point(1440, 900);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.OpenPanel("buildings");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session])!;
+        var buildCards = ((System.Collections.IEnumerable)layout.GetType().GetProperty("BuildCards")!.GetValue(layout)!)
+            .Cast<object>()
+            .ToArray();
+        var buildNames = buildCards
+            .Select(card => ((Factory)card.GetType().GetProperty("Factory")!.GetValue(card)!).Name)
+            .ToArray();
+
+        Assert.Equal(["Turret"], buildNames);
+        Assert.Equal("Turret", menu.SelectedBuildOption?.Name);
+    }
+
+    [Fact]
     public void SelectedBuildingAssignmentCount_UsesCurrentBuildingAssignments()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
