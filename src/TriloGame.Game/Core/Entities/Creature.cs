@@ -153,8 +153,8 @@ public class Creature
     {
         return target switch
         {
-            Creature creature when !ReferenceEquals(creature, this) => creature.TakeDamage(Damage, this),
-            Building building => building.TakeDamage(Damage, this),
+            Creature creature when !ReferenceEquals(creature, this) => DealDamageToCreature(creature),
+            Building building => DealDamageToBuilding(building),
             _ => 0
         };
     }
@@ -166,6 +166,12 @@ public class Creature
             return 0;
         }
 
+        if (source is Creature sourceCreature)
+        {
+            // Direct damage may bypass DealDamage, so record creature-sourced hits here too.
+            Session.Combat.RecordAttack(sourceCreature, this, Session.TickCount);
+        }
+
         var applied = System.Math.Min(Health, amount);
         Health -= applied;
         if (Health <= 0)
@@ -175,6 +181,20 @@ public class Creature
         }
 
         return applied;
+    }
+
+    private int DealDamageToCreature(Creature creature)
+    {
+        // Record before applying damage so lethal hits still capture the live target context.
+        Session.Combat.RecordAttack(this, creature, Session.TickCount);
+        return creature.TakeDamage(Damage, this);
+    }
+
+    private int DealDamageToBuilding(Building building)
+    {
+        // Buildings are valid combat targets even though they do not enter combat themselves.
+        Session.Combat.RecordAttack(this, building, Session.TickCount);
+        return building.TakeDamage(Damage, this);
     }
 
     public virtual void CleanupBeforeRemoval(object? source = null)

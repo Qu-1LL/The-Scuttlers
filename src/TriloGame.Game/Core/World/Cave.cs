@@ -2099,6 +2099,9 @@ public sealed partial class Cave
         var currentTile = creature.IsTrackedInTileSystem
             ? GetTile(creature.Location)
             : null;
+        // Record death before cleanup clears cave/location and building tracking context.
+        var removedLocation = creature.Location;
+        Session.Combat.RecordDeath(creature, source, removedLocation, Session.TickCount);
         creature.ClearActionQueue();
         creature.NotifyTrackedByCreatureDied();
         creature.CleanupBeforeRemoval(source);

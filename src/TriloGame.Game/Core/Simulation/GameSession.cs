@@ -37,6 +37,7 @@ public sealed class GameSession
         ProgressionDex = TriloDex.Global;
         SkillTree = new SkillTree(ProgressionDex);
         GlobalResearch = new GlobalResearch();
+        Combat = new CombatObserver();
         Danger = false;
         TickCount = 0;
         Runtime = new GameSessionRuntimeState();
@@ -61,6 +62,8 @@ public sealed class GameSession
     public SkillTree SkillTree { get; }
 
     public GlobalResearch GlobalResearch { get; }
+
+    public CombatObserver Combat { get; }
 
     public Cave? Cave { get; set; }
 
@@ -146,6 +149,8 @@ public sealed class GameSession
             sourceWorldPosition,
             angleDegrees);
         Runtime.ActiveProjectileFlights.Add(flight);
+        // Firing is the combat start; projectile impact timing remains runtime-owned.
+        Combat.RecordAttack(source, target, TickCount);
         return flight;
     }
 
