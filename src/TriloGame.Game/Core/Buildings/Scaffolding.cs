@@ -1,6 +1,7 @@
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -50,6 +51,10 @@ public sealed class Scaffolding : Building
     }
 
     public Building TargetBuilding { get; }
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public IReadOnlyList<ResourceRequirement> RecipeRequired { get; }
 

@@ -75,6 +75,9 @@ public sealed class GameSession
 
     public MiningPostMovementTelemetry MiningPostMovementTelemetry { get; }
 
+    // Runtime installs the asynchronous building-field owner here without making Core depend on Runtime.
+    public IBuildingNavigationFieldService? BuildingNavigationFieldService { get; internal set; }
+
     public event Action<GameAudioCue>? AudioCueRequested;
     public event Action<float>? ScreenShakeRequested;
     public event Action<DeathMistRequest>? DeathMistRequested;
@@ -302,14 +305,15 @@ public sealed class GameSession
         tile.CreatureCanFit = true;
 
         var reachabilityResult = cave.RefreshReachableTiles();
-        string[] ownershipDirtyKeys = reachabilityResult.ChangedKeys.Count == 0
+        string[] navigationDirtyKeys = reachabilityResult.ChangedKeys.Count == 0
             ? [tileKey]
             : reachabilityResult.ChangedKeys.Append(tileKey).Distinct(StringComparer.Ordinal).ToArray();
 
-        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
+        cave.MarkAllBuildingFieldsDirty(navigationDirtyKeys, [], []);
         cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
         cave.NotifyMineableTilesChanged([tileKey]);
-        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
+        cave.NotifyBuildingNavigationTopologyChanged([tileKey]);
+        cave.NotifyBuildingNavigationTopologyChanged(navigationDirtyKeys);
 
         EmitMineEvents(Tile.CaveCrystalBase, cave, tileKey, source);
         return new MineTileResult(
@@ -472,15 +476,15 @@ public sealed class GameSession
             cave.AdvanceReachabilityVersionForIncrementalReachability();
         }
 
-        var ownershipDirtyKeys = changedKeys.Concat(reachabilityChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
+        var navigationDirtyKeys = changedKeys.Concat(reachabilityChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        cave.MarkAllBuildingFieldsDirty(navigationDirtyKeys, [], []);
         cave.ApplyMinedTileUpdateToAllBfsFields(emptyCoords);
         var mineableChangedKeys = changedKeys
             .Concat(newlyRevealedKeys.Where(key => Building.IsMineableType(cave.GetTile(key)?.Base ?? string.Empty)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         cave.NotifyMineableTilesChanged(mineableChangedKeys);
-        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
+        cave.NotifyBuildingNavigationTopologyChanged(navigationDirtyKeys);
 
         EmitMineEvents("wall", cave, emptyCoords, source);
         return new MineTileResult(

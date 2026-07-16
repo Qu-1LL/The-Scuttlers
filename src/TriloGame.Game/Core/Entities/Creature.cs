@@ -323,9 +323,14 @@ public class Creature
         }
 
         var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        if (building is MiningPost miningPostForTelemetry)
+        {
+            Session.MiningPostMovementTelemetry.RecordMovementFieldAccess(miningPostForTelemetry.RuntimeId);
+        }
+
         var path = building is MiningPost miningPost
             ? Cave.BuildPathToMiningPost(miningPost, Location)
-            : Cave.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+            : Cave.BuildPathToBuilding(building, Location);
         NavigationInstrumentation.RecordBuildingPathRequest(
             path?.Count ?? 0,
             GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
@@ -335,6 +340,11 @@ public class Creature
     protected Pathfinding.BfsField? GetBuildingNavigationField(Building? building)
     {
         if (building is null || Cave is null)
+        {
+            return null;
+        }
+
+        if (Cave.UsesAsyncBuildingNavigationField(building))
         {
             return null;
         }
@@ -462,6 +472,11 @@ public class Creature
 
     protected bool IsAtBuildingNavigationTarget(Building? building)
     {
+        if (building is not null && Cave?.UsesAsyncBuildingNavigationField(building) == true)
+        {
+            return Cave.GetBuildingNavigationDistance(building, Location) == 0;
+        }
+
         var field = GetBuildingNavigationField(building);
         return field is not null && field.GetFieldValue(Location, refresh: false) == 0;
     }
@@ -636,6 +651,34 @@ public class Creature
         if (clearExisting)
         {
             ClearActionQueue();
+        }
+
+        var cave = Cave;
+        if (cave is null)
+        {
+            return RunNavigationFallback(fallbackFn);
+        }
+
+        if (building is MiningPost miningPostForTelemetry)
+        {
+            Session.MiningPostMovementTelemetry.RecordMovementFieldAccess(miningPostForTelemetry.RuntimeId);
+        }
+
+        if (cave.UsesAsyncBuildingNavigationField(building))
+        {
+            if (cave.GetBuildingNavigationDistance(building, Location) == 0)
+            {
+                return true;
+            }
+
+            var asyncNext = cave.GetBuildingNavigationNextStep(building, Location);
+            if (asyncNext is null || IsImpassableTraversalStep(asyncNext.Value))
+            {
+                return RunNavigationFallback(fallbackFn);
+            }
+
+            var asyncMoved = cave.MoveCreature(this, asyncNext.Value);
+            return asyncMoved || RecoverBuildingNavigation(building, fallbackFn, asyncNext);
         }
 
         var field = GetBuildingNavigationField(building);

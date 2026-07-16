@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -24,6 +25,12 @@ public sealed class Garage : Building, IResourceStorage, IStorage
     public int Capacity { get; }
 
     public GrowableResourceType ChosenResource { get; }
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public Ranch? Ranch { get; internal set; }
 

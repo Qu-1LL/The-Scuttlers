@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
@@ -13,4 +14,10 @@ public sealed class Smith : Building
         Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Description = "A building that allows you to craft new items for your species.";
     }
+
+    public override bool MaintainsNavigationField => false;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.None;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 }

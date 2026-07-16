@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -27,6 +28,12 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
         Description = "A 2x2 patch of passable soil. Each tile grows its planted crop independently.";
         TextureKey = "SoilTile_0";
     }
+
+    public override bool MaintainsNavigationField => false;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.None;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 
     public Ranch? Ranch
     {

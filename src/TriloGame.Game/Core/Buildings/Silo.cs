@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -28,6 +29,12 @@ public sealed class Silo : Building, IResourceStorage
     public IReadOnlyCollection<Silo> AdjacentSilos => _adjacentSilos;
 
     public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
 

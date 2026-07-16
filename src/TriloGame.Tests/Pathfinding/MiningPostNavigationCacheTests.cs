@@ -71,7 +71,7 @@ public sealed class MiningPostNavigationCacheTests
     }
 
     [Fact]
-    public void SelectionGraphCounter_RemainsDeterministicAcrossFallbackSelections()
+    public void SelectionGraphCounter_RemainsZeroWhenSelectionUsesBuildingFields()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(27, 12, new GridPoint(12, 0));
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
@@ -86,6 +86,6 @@ public sealed class MiningPostNavigationCacheTests
 
         Assert.Same(rightPost, firstSelection);
         Assert.Same(firstSelection, secondSelection);
-        Assert.Equal(2, session.MiningPostMovementTelemetry.SelectionGraphBfsCount);
+        Assert.Equal(0, session.MiningPostMovementTelemetry.SelectionGraphBfsCount);
     }
 }

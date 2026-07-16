@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
@@ -20,6 +21,12 @@ public sealed class Storage : Building, IResourceStorage
     }
 
     public int Capacity { get; }
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public IReadOnlyDictionary<ResourceName, int> GetStoredResources() => _inventory;
 

@@ -545,6 +545,16 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return building?.Location?.ToString() ?? building?.Name ?? string.Empty;
     }
 
+    private int CompareBuildingNavigationPriority(Building left, Building right)
+    {
+        var leftDistance = Cave?.GetBuildingNavigationDistance(left, Location) ?? int.MaxValue;
+        var rightDistance = Cave?.GetBuildingNavigationDistance(right, Location) ?? int.MaxValue;
+        var distanceOrder = leftDistance.CompareTo(rightDistance);
+        return distanceOrder != 0
+            ? distanceOrder
+            : string.CompareOrdinal(GetOwnedBuildingSelectionKey(left), GetOwnedBuildingSelectionKey(right));
+    }
+
     private bool IsAtFighterStationNavigationTarget(StationBuilding station, GridPoint location)
     {
         if (Cave is null)
@@ -596,40 +606,30 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     private IEnumerable<TStation> EnumerateStationTypeCandidates<TStation>(
         int priority,
         TStation? nearestStation,
-        Func<TStation, IReadOnlyCollection<TStation>> getAdjacentStations,
         IEnumerable<TStation> allStations,
         ISet<StationBuilding> excludedStations,
         ISet<StationBuilding> visited)
         where TStation : StationBuilding
     {
-        var queue = new Queue<TStation>();
         if (IsSelectableStation(nearestStation, excludedStations) &&
             nearestStation!.FighterAssignmentPriority == priority &&
             visited.Add(nearestStation))
         {
-            queue.Enqueue(nearestStation);
+            yield return nearestStation;
         }
 
-        while (queue.Count > 0)
+        var candidates = new List<TStation>();
+        foreach (var station in allStations)
         {
-            var current = queue.Dequeue();
-            yield return current;
-
-            foreach (var neighbor in getAdjacentStations(current))
+            if (IsSelectableStation(station, excludedStations) &&
+                station.FighterAssignmentPriority == priority)
             {
-                if (IsSelectableStation(neighbor, excludedStations) &&
-                    neighbor.FighterAssignmentPriority == priority &&
-                    visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
+                candidates.Add(station);
             }
         }
 
-        foreach (var station in allStations
-                     .Where(station => IsSelectableStation(station, excludedStations) &&
-                                       station.FighterAssignmentPriority == priority)
-                     .OrderBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal))
+        candidates.Sort((left, right) => CompareBuildingNavigationPriority(left, right));
+        foreach (var station in candidates)
         {
             if (visited.Add(station))
             {
@@ -658,7 +658,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         foreach (var turret in EnumerateStationTypeCandidates(
                      priority,
                      Cave.GetNearestTurret(Location),
-                     Cave.GetAdjacentTurrets,
                      GetTurretBuildings(),
                      excludedStations,
                      visited))
@@ -669,7 +668,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         foreach (var barracks in EnumerateStationTypeCandidates(
                      priority,
                      Cave.GetNearestBarracks(Location),
-                     Cave.GetAdjacentBarracks,
                      GetBarracksBuildings(),
                      excludedStations,
                      visited))
@@ -1025,35 +1023,17 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             yield break;
         }
 
-        var nearestFarm = Cave.GetNearestAlgaeFarm(Location);
-        var queue = new Queue<AlgaeFarm>();
-        if (IsSelectableAlgaeFarm(nearestFarm, excludedFarms) && visited.Add(nearestFarm!))
+        var candidates = new List<AlgaeFarm>();
+        foreach (var farm in GetAlgaeFarms())
         {
-            queue.Enqueue(nearestFarm!);
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            yield return current;
-
-            foreach (var neighbor in Cave.GetAdjacentAlgaeFarms(current))
+            if (IsSelectableAlgaeFarm(farm, excludedFarms))
             {
-                if (IsSelectableAlgaeFarm(neighbor, excludedFarms) && visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
+                candidates.Add(farm);
             }
         }
 
-        if (visited.Count > 0)
-        {
-            yield break;
-        }
-
-        foreach (var farm in GetAlgaeFarms()
-                     .Where(farm => IsSelectableAlgaeFarm(farm, excludedFarms))
-                     .OrderBy(farm => GetOwnedBuildingSelectionKey(farm), StringComparer.Ordinal))
+        candidates.Sort((left, right) => CompareBuildingNavigationPriority(left, right));
+        foreach (var farm in candidates)
         {
             if (visited.Add(farm))
             {
@@ -1488,46 +1468,17 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         var nearestOwner = Cave.GetNearestMiningPost(Location);
         metrics.NearestOwnerPostKey = GetMiningPostSelectionKey(nearestOwner);
 
-        var queue = new Queue<MiningPost>();
-        if (IsSelectableMiningPost(nearestOwner, excludedPosts) && visited.Add(nearestOwner!))
+        var candidates = new List<MiningPost>();
+        foreach (var post in GetMiningPosts())
         {
-            queue.Enqueue(nearestOwner!);
-        }
-
-        if (queue.Count > 0)
-        {
-            Session.MiningPostMovementTelemetry.RecordSelectionGraphBfs();
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            metrics.CandidateCount++;
-            if (!ReferenceEquals(current, preferredPost) && !ReferenceEquals(current, nearestOwner))
+            if (IsSelectableMiningPost(post, excludedPosts))
             {
-                metrics.UsedAdjacencyFallback = true;
-            }
-
-            yield return current;
-
-            foreach (var neighbor in Cave.GetAdjacentMiningPosts(current))
-            {
-                if (IsSelectableMiningPost(neighbor, excludedPosts) && visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
+                candidates.Add(post);
             }
         }
 
-        if (metrics.CandidateCount > 0)
-        {
-            yield break;
-        }
-
-        metrics.FullScanFallbackCount++;
-        foreach (var post in GetMiningPosts()
-                     .Where(post => IsSelectableMiningPost(post, excludedPosts))
-                     .OrderBy(GetMiningPostSelectionKey, StringComparer.Ordinal))
+        candidates.Sort((left, right) => CompareBuildingNavigationPriority(left, right));
+        foreach (var post in candidates)
         {
             if (!visited.Add(post))
             {

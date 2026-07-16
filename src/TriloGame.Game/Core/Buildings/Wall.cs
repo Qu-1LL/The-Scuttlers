@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -31,6 +32,12 @@ public sealed class Wall : Building, IBuildPlacementDragTarget
     }
 
     public WallType Type { get; }
+
+    public override bool MaintainsNavigationField => false;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.None;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 
     public IReadOnlyDictionary<string, bool> Connections => _connections;
 

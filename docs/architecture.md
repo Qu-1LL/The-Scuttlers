@@ -67,6 +67,29 @@ The project is currently a single MonoGame game assembly with layered modules in
 - `Shared`
   - diagnostics, math, and utilities
 
+### Navigation ownership
+
+Per-building traversal navigation is split from the legacy synchronous `BfsField` path:
+
+- `Core` declares explicit building metadata for whether a building maintains a traversal field,
+  how its open-map seeds are selected, and whether maintenance is synchronous or asynchronous.
+- `Core` creates immutable tile/building topology snapshots and publishes immutable per-building
+  field snapshots for O(1) distance and next-step reads.
+- `Runtime/Systems/BuildingBfsFieldMaintenanceSystem` owns the single long-lived worker, its
+  topology mirror, incremental repair state, and command/result queues.
+- `enemy`, `colony`, `wall`, and the queen remain synchronous. Other navigable building fields are
+  asynchronously maintained in production; non-navigable buildings do not participate in the
+  per-building traversal-field set.
+- Mining-post movement uses the general per-building field path. Its compatibility telemetry is
+  retained, but there is no separate mining-post movement-field cache.
+- Building selection no longer maintains separate ownership BFS fields. Nearest-building queries
+  compare the corresponding per-building traversal fields, and assignment candidate lists are
+  ordered directly by those distances.
+
+Worker results are applied only at runtime pump points outside `TickRunner.RunTick`. Session and
+building runtime ids guard publication so detached sessions and replaced buildings cannot publish
+stale mutable state into the current simulation.
+
 ### Current host rule
 
 `GameApp` is the MonoGame host and composition root. It should wire modules together, but it

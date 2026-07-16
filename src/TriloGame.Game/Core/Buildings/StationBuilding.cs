@@ -2,6 +2,7 @@ using System.Numerics;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -31,6 +32,10 @@ public abstract class StationBuilding : Building, IStationBuilding
     }
 
     public IReadOnlyList<StationSlot> Stations => _stations;
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public int Capacity => _stations.Length;
 
