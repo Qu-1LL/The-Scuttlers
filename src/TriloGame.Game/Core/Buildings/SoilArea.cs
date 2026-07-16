@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
@@ -19,6 +20,12 @@ public sealed class SoilArea : Building
         TextureKey = "SoilTile_0";
         Description = "A grouped soil area made from soil patches placed together.";
     }
+
+    public override bool MaintainsNavigationField => false;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.None;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 
     public IReadOnlyCollection<SoilPatch> SoilPatches => _soilPatches;
 

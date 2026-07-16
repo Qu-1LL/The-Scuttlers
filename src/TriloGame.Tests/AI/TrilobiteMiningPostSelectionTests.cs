@@ -58,7 +58,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal("builder-deposit", metrics!.Purpose);
         Assert.Equal(2, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal("miner", metrics!.Purpose);
         Assert.Equal(2, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal("builder-supply", metrics!.Purpose);
         Assert.Equal(3, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]

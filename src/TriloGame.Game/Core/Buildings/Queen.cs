@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -30,6 +31,10 @@ public sealed class Queen : Building
         BroodlingCount = 1;
         Description = "The one and only Queen of your colony! Protect her at all costs!";
     }
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Synchronous;
 
     public override int ProjectionRadius => GameConstants.QueenEnemySpawnExclusionRadius;
 

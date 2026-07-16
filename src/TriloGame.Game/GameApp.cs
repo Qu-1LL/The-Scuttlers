@@ -62,6 +62,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly TrilodexController _trilodex = new();
     private readonly ResourceHudRenderer _resourceHud = new();
     private readonly GameSessionBootstrapper _bootstrapper = new();
+    private readonly BuildingBfsFieldMaintenanceSystem _buildingBfsFieldMaintenance = new();
     private readonly GameSimulationClockSystem _simulationClock = new();
     private readonly GameOverStateSystem _gameOverState = new();
     private readonly ResearchDraftSystem _researchDraftSystem = new();
@@ -315,6 +316,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     protected override void Update(GameTime gameTime)
     {
+        _buildingBfsFieldMaintenance.PumpCompleted();
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
         _session.Runtime.AdvancePresentation(gameTime.ElapsedGameTime.TotalMilliseconds);
@@ -768,6 +770,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     private void StartGameplaySession()
     {
+        _buildingBfsFieldMaintenance.Detach();
         _sessionAudioBridge.Detach();
         _sessionScreenShakeBridge.Detach();
         _sessionParticleBridge.Detach();
@@ -782,6 +785,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _appScreen = AppScreen.Gameplay;
         var bootstrap = _bootstrapper.CreateNewGame(_worldGenerationMethod);
         _session = bootstrap.Session;
+        _buildingBfsFieldMaintenance.Attach(_session);
         _session.Runtime.DisableEnemySpawns = false;
         _sessionAudioBridge.Attach(_session);
         _sessionScreenShakeBridge.Attach(_session);
@@ -1767,17 +1771,25 @@ public sealed partial class GameApp
 
     public void RunSingleTick()
     {
-        _simulationClock.RunSingleTick(_session, HandleSimulationTickCompleted);
+        _buildingBfsFieldMaintenance.PumpCompleted();
+        _simulationClock.RunSingleTick(_session, HandleSimulationTickCompletedAndPump);
         RefreshBfsFieldDebug();
     }
 
     private void AdvanceSimulation(GameTime gameTime)
     {
+        _buildingBfsFieldMaintenance.PumpCompleted();
         _simulationClock.Advance(
             _session,
             gameTime.ElapsedGameTime.TotalMilliseconds,
             _stopSimulationAfterTick,
-            HandleSimulationTickCompleted);
+            HandleSimulationTickCompletedAndPump);
+    }
+
+    private void HandleSimulationTickCompletedAndPump(GameSession session)
+    {
+        HandleSimulationTickCompleted(session);
+        _buildingBfsFieldMaintenance.PumpCompleted();
     }
 
     private bool StopSimulationAfterTick()
@@ -3390,6 +3402,7 @@ public sealed partial class GameApp
     {
         if (disposing)
         {
+            _buildingBfsFieldMaintenance.Dispose();
             _trilodexCatalogViewport?.Dispose();
         }
 

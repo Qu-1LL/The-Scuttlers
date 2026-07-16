@@ -1,6 +1,7 @@
 using System.Numerics;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Vehicles;
@@ -61,6 +62,12 @@ public sealed class Ranch : Building, IStorage
         TextureKey = "Garage";
         Description = "A ranch groups one garage with its connected soil tiles.";
     }
+
+    public override bool MaintainsNavigationField => false;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.None;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 
     public Garage? Garage { get; private set; }
 

@@ -657,7 +657,7 @@ public class Creature
 
     private void ArmFieldRouteContinuation(
         RouteContinuationKind kind,
-        Pathfinding.BfsField field,
+        Pathfinding.BfsField? field,
         string? sharedFieldName = null,
         Building? building = null)
     {
@@ -1177,9 +1177,14 @@ public class Creature
         }
 
         var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        if (building is MiningPost miningPostForTelemetry)
+        {
+            Session.MiningPostMovementTelemetry.RecordMovementFieldAccess(miningPostForTelemetry.RuntimeId);
+        }
+
         var path = building is MiningPost miningPost
             ? Cave.BuildPathToMiningPost(miningPost, Location)
-            : Cave.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+            : Cave.BuildPathToBuilding(building, Location);
         NavigationInstrumentation.RecordBuildingPathRequest(
             path?.Count ?? 0,
             GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
@@ -1189,6 +1194,11 @@ public class Creature
     protected Pathfinding.BfsField? GetBuildingNavigationField(Building? building)
     {
         if (building is null || Cave is null)
+        {
+            return null;
+        }
+
+        if (Cave.UsesAsyncBuildingNavigationField(building))
         {
             return null;
         }
@@ -1309,6 +1319,11 @@ public class Creature
 
     protected bool IsAtBuildingNavigationTarget(Building? building)
     {
+        if (building is not null && Cave?.UsesAsyncBuildingNavigationField(building) == true)
+        {
+            return Cave.GetBuildingNavigationDistance(building, Location) == 0;
+        }
+
         var field = GetBuildingNavigationField(building);
         return field is not null && field.GetFieldValue(Location, refresh: false) == 0;
     }
@@ -1499,6 +1514,99 @@ public class Creature
         return true;
     }
 
+    // Build a bounded route chunk from either the worker's immutable snapshot or a synchronous field.
+    private List<GridPoint>? BuildBuildingFieldPathChunk(
+        Building building,
+        GridPoint startLocation,
+        int maximumSteps,
+        out bool reachedFieldTarget)
+    {
+        reachedFieldTarget = false;
+        if (Cave is null || maximumSteps <= 0)
+        {
+            return null;
+        }
+
+        if (!Cave.UsesAsyncBuildingNavigationField(building))
+        {
+            var field = GetBuildingNavigationField(building);
+            return field is null
+                ? null
+                : BuildFieldPathChunk(field, startLocation, maximumSteps, out reachedFieldTarget);
+        }
+
+        var snapshot = building.PublishedNavigationField;
+        var startTile = Cave.GetTile(startLocation);
+        if (snapshot is null || startTile is null)
+        {
+            return null;
+        }
+
+        var current = startTile;
+        var currentDistance = snapshot.GetDistance(current.Id);
+        if (currentDistance == int.MaxValue)
+        {
+            return null;
+        }
+
+        if (currentDistance == 0)
+        {
+            reachedFieldTarget = true;
+            return [startLocation];
+        }
+
+        var path = new List<GridPoint>(Math.Min(maximumSteps, currentDistance) + 1) { startLocation };
+        for (var step = 0; step < maximumSteps && currentDistance > 0; step++)
+        {
+            var nextId = snapshot.GetNextStepTileId(current.Id);
+            var next = nextId < 0 ? null : Cave.GetTileById(nextId);
+            if (next is null || !Cave.CanCreatureTraverseTile(this, next))
+            {
+                break;
+            }
+
+            path.Add(next.Coordinates);
+            current = next;
+            currentDistance = snapshot.GetDistance(current.Id);
+        }
+
+        reachedFieldTarget = currentDistance == 0;
+        return path.Count >= 2 || reachedFieldTarget ? path : null;
+    }
+
+    // Start a streamed smooth route while retaining the building field as the authoritative target.
+    private bool TryBeginBuildingFieldRoute(Building building, bool clearExisting)
+    {
+        if (clearExisting)
+        {
+            ClearTaskQueue();
+        }
+
+        var path = BuildBuildingFieldPathChunk(building, Location, RouteRefillChunkCells, out var reachedFieldTarget);
+        if (path is null || Cave is null)
+        {
+            return false;
+        }
+
+        var route = ContinuousRoutePlanner.Build(Cave, this, path);
+        if (route.Count == 0)
+        {
+            return reachedFieldTarget;
+        }
+
+        NavigationInstrumentation.RecordQueuedNavigationSteps(route.Count);
+        if (!BeginRoute(route))
+        {
+            return false;
+        }
+
+        var kind = building is MiningPost
+            ? RouteContinuationKind.MiningPostField
+            : RouteContinuationKind.BuildingField;
+        ArmFieldRouteContinuation(kind, GetBuildingNavigationField(building), building: building);
+        return true;
+    }
+
     internal bool TryAppendRouteContinuation(bool force = false)
     {
         if (!EnsureReadyForNavigation() ||
@@ -1549,15 +1657,15 @@ public class Creature
             case RouteContinuationKind.BuildingField:
             case RouteContinuationKind.MiningPostField:
             {
-                var field = GetBuildingNavigationField(_routeContinuationBuilding);
-                if (field is null)
+                var building = _routeContinuationBuilding;
+                if (building is null)
                 {
                     ClearRouteContinuation();
                     return false;
                 }
 
-                path = BuildFieldPathChunk(field, appendStart, RouteRefillChunkCells, out reachedDestination);
-                _activeBfsTraversalField = field;
+                path = BuildBuildingFieldPathChunk(building, appendStart, RouteRefillChunkCells, out reachedDestination);
+                _activeBfsTraversalField = GetBuildingNavigationField(building);
                 break;
             }
         }
@@ -1646,20 +1754,12 @@ public class Creature
             return false;
         }
 
-        var field = GetBuildingNavigationField(building);
-        if (field is null)
+        if (building is MiningPost miningPostForTelemetry)
         {
-            return false;
+            Session.MiningPostMovementTelemetry.RecordMovementFieldAccess(miningPostForTelemetry.RuntimeId);
         }
 
-        var kind = building is MiningPost ? RouteContinuationKind.MiningPostField : RouteContinuationKind.BuildingField;
-        if (TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting))
-        {
-            return true;
-        }
-
-        field.Rebuild();
-        return TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting: false);
+        return TryBeginBuildingFieldRoute(building, clearExisting);
     }
 
     public bool NavigateToInteractionZone(

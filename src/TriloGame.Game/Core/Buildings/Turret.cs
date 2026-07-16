@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 

@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;

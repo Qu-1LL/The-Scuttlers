@@ -12,6 +12,7 @@ public class Building
 {
     private readonly List<World.Tile> _projectedTiles = [];
     private readonly List<InteractionZone> _interactionZones = [];
+    private BfsField? _bfsField;
 
     public Building(string name, GridPoint size, int[][] openMap, GameSession session, bool hasStation)
     {
@@ -24,7 +25,6 @@ public class Building
         HasStation = hasStation;
         TileArray = [];
         Description = string.Empty;
-        BfsField = new BfsField(name, "building", null, this);
         Health = 100;
         MaxHealth = 100;
         IgnoredByAnts = false;
@@ -51,6 +51,36 @@ public class Building
 
     public bool HasStation { get; }
 
+    public int RuntimeId { get; private set; }
+
+    public virtual bool MaintainsNavigationField => false;
+
+    public virtual BuildingNavigationSeedMode NavigationSeedMode
+    {
+        get
+        {
+            if (!MaintainsNavigationField)
+            {
+                return BuildingNavigationSeedMode.None;
+            }
+
+            for (var y = 0; y < OpenMap.Length; y++)
+            {
+                for (var x = 0; x < OpenMap[y].Length; x++)
+                {
+                    if (OpenMap[y][x] == 1)
+                    {
+                        return BuildingNavigationSeedMode.InteriorPassableOwnedTiles;
+                    }
+                }
+            }
+
+            return BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+        }
+    }
+
+    public virtual BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
+
     public GridPoint? Location { get; set; }
 
     public int Health { get; protected set; }
@@ -61,7 +91,12 @@ public class Building
 
     public World.Cave? Cave { get; set; }
 
-    public BfsField BfsField { get; set; }
+    // Kept lazy for compatibility with older callers; async navigation never shares this object with Runtime.
+    public BfsField BfsField => _bfsField ??= new BfsField(Name, "building", Cave, this);
+
+    public BuildingNavigationFieldSnapshot? PublishedNavigationField { get; private set; }
+
+    internal BuildingNavigationFieldSnapshot? PendingNavigationFieldInheritance { get; private set; }
 
     public List<ResourceRequirement>? Recipe { get; protected set; }
 
@@ -186,6 +221,116 @@ public class Building
     public bool MarkBfsFieldDirty(IEnumerable<string>? tileKeys = null)
     {
         return BfsField.MarkDirty(tileKeys ?? [], [], []);
+    }
+
+    internal void AssignRuntimeId(int runtimeId)
+    {
+        if (runtimeId <= 0 || (RuntimeId != 0 && RuntimeId != runtimeId))
+        {
+            throw new ArgumentOutOfRangeException(nameof(runtimeId));
+        }
+
+        RuntimeId = runtimeId;
+    }
+
+    internal void PublishNavigationField(BuildingNavigationFieldSnapshot snapshot)
+    {
+        PublishedNavigationField = snapshot;
+    }
+
+    internal void ClearPublishedNavigationField()
+    {
+        PublishedNavigationField = null;
+    }
+
+    internal void SetPendingNavigationFieldInheritance(BuildingNavigationFieldSnapshot? snapshot)
+    {
+        PendingNavigationFieldInheritance = snapshot;
+    }
+
+    internal void ClearPendingNavigationFieldInheritance()
+    {
+        PendingNavigationFieldInheritance = null;
+    }
+
+    public bool IsNavigationFieldCompatibleWith(Building other)
+    {
+        return other is not null &&
+               MaintainsNavigationField &&
+               other.MaintainsNavigationField &&
+               NavigationSeedMode == other.NavigationSeedMode &&
+               HasSameOwnedFootprint(other);
+    }
+
+    public bool HasSameOwnedFootprint(Building other)
+    {
+        if (other is null || Location is null || other.Location is null || Size != other.Size)
+        {
+            return false;
+        }
+
+        for (var y = 0; y < Size.Y; y++)
+        {
+            for (var x = 0; x < Size.X; x++)
+            {
+                if ((OpenMap[y][x] <= 1) != (other.OpenMap[y][x] <= 1))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return Location == other.Location;
+    }
+
+    public bool CanInheritNavigationFieldFrom(Building previousBuilding)
+    {
+        return previousBuilding is not null &&
+               IsNavigationFieldCompatibleWith(previousBuilding);
+    }
+
+    public IReadOnlyList<World.Tile> GetNavigationSeedTiles(World.Cave cave)
+    {
+        var seeds = new List<World.Tile>();
+        if (!MaintainsNavigationField || Location is null || TileArray.Count == 0)
+        {
+            return seeds;
+        }
+
+        if (NavigationSeedMode == BuildingNavigationSeedMode.InteriorPassableOwnedTiles)
+        {
+            foreach (var tile in TileArray)
+            {
+                if (ReferenceEquals(tile.Built, this) && tile.CreatureFits() && cave.IsTileReachable(tile))
+                {
+                    seeds.Add(tile);
+                }
+            }
+
+            return seeds;
+        }
+
+        var seen = new HashSet<int>();
+        foreach (var tile in TileArray)
+        {
+            if (!ReferenceEquals(tile.Built, this))
+            {
+                continue;
+            }
+
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (!ReferenceEquals(neighbor.Built, this) &&
+                    neighbor.CreatureFits() &&
+                    cave.IsTileReachable(neighbor) &&
+                    seen.Add(neighbor.Id))
+                {
+                    seeds.Add(neighbor);
+                }
+            }
+        }
+
+        return seeds;
     }
 
     public virtual int RestoreHealth()
