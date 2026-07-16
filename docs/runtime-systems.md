@@ -15,6 +15,12 @@ management inside `GameApp`.
   - owns tick speed and tick accumulator
   - advances the deterministic simulation through `TickRunner`
   - records runtime tick profiling around the simulation phases
+- `Runtime/Systems/BuildingBfsFieldMaintenanceSystem.cs`
+  - owns one dedicated background worker that polls for work at roughly one-millisecond intervals
+  - receives one coalesced dirty-tile batch plus immutable per-building cave snapshots
+  - computes every navigable building field in that batch without reading mutable simulation state
+  - publishes completed fields only from the simulation thread at a tick boundary
+  - pauses accepting new work while the simulation is paused; existing field values remain usable
 - `Shared/Diagnostics/TickProfiler.cs`
   - stores tick timing snapshots and rolling averages
   - is shared so runtime systems, crash diagnostics, and debug UI can read the same data model

@@ -90,7 +90,7 @@ public sealed class BfsFieldTests
     }
 
     [Fact]
-    public void NewBuilding_StartsWithGeneratedDirtyBfsField()
+    public void NewBuilding_GeneratesItsFieldBeforeRuntimeMaintenanceStarts()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
         var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(12, 5));
@@ -98,12 +98,12 @@ public sealed class BfsFieldTests
         var field = cave.GetBuildingBfsFieldObject(farm);
 
         Assert.True(field.HasCoverage());
-        Assert.False(field.IsUpdated());
+        Assert.True(field.IsUpdated());
         Assert.NotEqual(int.MaxValue, field.GetFieldValue(new GridPoint(4, 6), refresh: false));
     }
 
     [Fact]
-    public void DirtyBuildingField_ValueReadKeepsExistingCoverageUntilMoveFailure()
+    public void DirtyBuildingField_ValueReadRebalancesBeforeRuntimeMaintenanceStarts()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(1, 1));
         var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(12, 5));
@@ -122,7 +122,7 @@ public sealed class BfsFieldTests
         var staleValue = cave.GetBuildingBfsFieldValue(barracks, trilobite.Location);
 
         Assert.NotEqual(int.MaxValue, staleValue);
-        Assert.False(field.IsUpdated());
+        Assert.True(field.IsUpdated());
     }
 
     [Fact]

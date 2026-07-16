@@ -228,9 +228,8 @@ public sealed partial class Cave
         var dirtyKeyArray = dirtyKeys.ToArray();
         var reachability = RefreshReachableTiles();
         var dirtyFieldKeys = dirtyKeyArray.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        MarkAllBuildingFieldsDirty(dirtyFieldKeys, [], []);
         NotifyMineableTilesChanged(dirtyKeyArray);
-        RebalanceAllBfsFields(dirtyFieldKeys, [], []);
+        HandleNavigationTopologyChanged(dirtyFieldKeys, [], []);
     }
 
     private Tile? ResolveExplosionDropTile(Tile minedTile, string? dropTargetTileKey)

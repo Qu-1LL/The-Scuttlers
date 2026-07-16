@@ -42,7 +42,6 @@ public sealed class GameSession
         TickCount = 0;
         Runtime = new GameSessionRuntimeState();
         TraitHandler = new TrilobiteTraitHandler(this);
-        MiningPostMovementTelemetry = new MiningPostMovementTelemetry();
     }
 
     public GameEventBus EventBus { get; }
@@ -72,8 +71,6 @@ public sealed class GameSession
     public GameSessionRuntimeState Runtime { get; }
 
     public TrilobiteTraitHandler TraitHandler { get; }
-
-    public MiningPostMovementTelemetry MiningPostMovementTelemetry { get; }
 
     public event Action<GameAudioCue>? AudioCueRequested;
     public event Action<float>? ScreenShakeRequested;
@@ -267,9 +264,8 @@ public sealed class GameSession
         {
             tile.SetBase("empty");
             tile.ClearResourceState();
-            cave.MarkAllBuildingFieldsDirty([tileKey], [], []);
-            cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
             cave.NotifyMineableTilesChanged([tileKey]);
+            cave.HandleNavigationTopologyChanged([tileKey], [], []);
         }
 
         EmitMineEvents(tileType, cave, tileKey, source);
@@ -302,14 +298,12 @@ public sealed class GameSession
         tile.CreatureCanFit = true;
 
         var reachabilityResult = cave.RefreshReachableTiles();
-        string[] ownershipDirtyKeys = reachabilityResult.ChangedKeys.Count == 0
+        string[] fieldDirtyKeys = reachabilityResult.ChangedKeys.Count == 0
             ? [tileKey]
             : reachabilityResult.ChangedKeys.Append(tileKey).Distinct(StringComparer.Ordinal).ToArray();
 
-        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
-        cave.ApplyMinedTileUpdateToAllBfsFields(tileKey);
+        cave.HandleNavigationTopologyChanged(fieldDirtyKeys, [], []);
         cave.NotifyMineableTilesChanged([tileKey]);
-        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
 
         EmitMineEvents(Tile.CaveCrystalBase, cave, tileKey, source);
         return new MineTileResult(
@@ -472,15 +466,13 @@ public sealed class GameSession
             cave.AdvanceReachabilityVersionForIncrementalReachability();
         }
 
-        var ownershipDirtyKeys = changedKeys.Concat(reachabilityChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        cave.MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [], []);
-        cave.ApplyMinedTileUpdateToAllBfsFields(emptyCoords);
+        var fieldDirtyKeys = changedKeys.Concat(reachabilityChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        cave.HandleNavigationTopologyChanged(fieldDirtyKeys, [], []);
         var mineableChangedKeys = changedKeys
             .Concat(newlyRevealedKeys.Where(key => Building.IsMineableType(cave.GetTile(key)?.Base ?? string.Empty)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         cave.NotifyMineableTilesChanged(mineableChangedKeys);
-        cave.ApplyMinedTileUpdateToAllBuildingOwnershipFields(ownershipDirtyKeys);
 
         EmitMineEvents("wall", cave, emptyCoords, source);
         return new MineTileResult(

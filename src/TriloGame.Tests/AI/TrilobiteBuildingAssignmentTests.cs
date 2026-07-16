@@ -71,7 +71,7 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
-    public void FarmerSelection_UsesNearestOwnershipWhenLocalFarmFieldIsStale()
+    public void FarmerSelection_UsesNearestBuildingFieldWhenLocalFarmFieldIsStale()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 16, new GridPoint(0, 0));
         var farm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(6, 6));
@@ -90,7 +90,7 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
-    public void FighterSelection_UsesNearestBarracksOwnership_WhenUnassigned()
+    public void FighterSelection_UsesNearestBarracksField_WhenUnassigned()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
         TestWorldFactory.BuildBarracks(cave, session, new GridPoint(1, 6));
@@ -151,7 +151,7 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
-    public void FighterSelection_UsesNearestOwnershipWhenLocalBarracksFieldIsStale()
+    public void FighterSelection_UsesNearestBuildingFieldWhenLocalBarracksFieldIsStale()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
         var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(24, 6));
@@ -355,6 +355,23 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Same(secondScaffold, builder.GetAssignedScaffolding());
         Assert.DoesNotContain(builder, firstScaffold.GetAssignments());
         Assert.Contains(builder, secondScaffold.GetAssignments());
+    }
+
+    [Fact]
+    public void BuilderAssignment_UsesFirstReachableScaffoldWithAvailableResources()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(26, 14, new GridPoint(1, 1));
+        var firstScaffold = new Scaffolding(session, new Storage(session));
+        var secondScaffold = new Scaffolding(session, new Storage(session));
+
+        Assert.True(cave.Build(firstScaffold, new GridPoint(16, 6)));
+        Assert.True(cave.Build(secondScaffold, new GridPoint(5, 6)));
+        Assert.Equal(20, firstScaffold.Deposit(ResourceName.Sandstone, 20));
+        Assert.Equal(20, secondScaffold.Deposit(ResourceName.Sandstone, 20));
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 9), "Builder", "builder");
+
+        Assert.Same(firstScaffold, builder.EnsureBuilderAssignment(true));
     }
 
     [Fact]

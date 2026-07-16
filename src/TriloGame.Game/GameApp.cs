@@ -3104,6 +3104,7 @@ public sealed partial class GameApp
     {
         if (disposing)
         {
+            _simulationClock.Dispose();
             _trilodexCatalogViewport?.Dispose();
         }
 

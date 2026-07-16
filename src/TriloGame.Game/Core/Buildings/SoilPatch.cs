@@ -11,7 +11,7 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
     private readonly SoilTile[] _soilTiles;
 
     public SoilPatch(GameSession session)
-        : base("Soil Patch", DefaultSize, [[1, 1], [1, 1]], session, false)
+        : base("Soil Patch", DefaultSize, [[1, 1], [1, 1]], session, false, false)
     {
         _soilTiles =
         [

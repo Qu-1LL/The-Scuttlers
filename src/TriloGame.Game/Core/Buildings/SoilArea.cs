@@ -14,7 +14,7 @@ public sealed class SoilArea : Building
     private readonly HashSet<SoilTile> _soilTiles = [];
 
     public SoilArea(GameSession session)
-        : base("Soil Area", new GridPoint(1, 1), [[1]], session, false)
+        : base("Soil Area", new GridPoint(1, 1), [[1]], session, false, false)
     {
         TextureKey = "SoilTile_0";
         Description = "A grouped soil area made from soil patches placed together.";

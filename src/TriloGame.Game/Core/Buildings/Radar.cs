@@ -8,7 +8,7 @@ namespace TriloGame.Game.Core.Buildings;
 public sealed class Radar : Building
 {
     public Radar(GameSession session)
-        : base("Radar", new GridPoint(4, 4), [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], session, false)
+        : base("Radar", new GridPoint(4, 4), [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], session, false, false)
     {
         TextureKey = "Radar";
         Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];

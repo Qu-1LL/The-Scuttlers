@@ -31,7 +31,8 @@ public sealed class Scaffolding : Building
             targetBuilding.Size,
             BuildScaffoldOpenMap(targetBuilding.OpenMap),
             session,
-            false)
+            false,
+            true)
     {
         TargetBuilding = targetBuilding;
         TextureKey = "Scaffold";

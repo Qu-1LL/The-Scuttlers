@@ -596,42 +596,23 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     private IEnumerable<TStation> EnumerateStationTypeCandidates<TStation>(
         int priority,
         TStation? nearestStation,
-        Func<TStation, IReadOnlyCollection<TStation>> getAdjacentStations,
         IEnumerable<TStation> allStations,
         ISet<StationBuilding> excludedStations,
         ISet<StationBuilding> visited)
         where TStation : StationBuilding
     {
-        var queue = new Queue<TStation>();
         if (IsSelectableStation(nearestStation, excludedStations) &&
             nearestStation!.FighterAssignmentPriority == priority &&
             visited.Add(nearestStation))
         {
-            queue.Enqueue(nearestStation);
+            yield return nearestStation;
         }
 
-        while (queue.Count > 0)
+        foreach (var station in allStations)
         {
-            var current = queue.Dequeue();
-            yield return current;
-
-            foreach (var neighbor in getAdjacentStations(current))
-            {
-                if (IsSelectableStation(neighbor, excludedStations) &&
-                    neighbor.FighterAssignmentPriority == priority &&
-                    visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
-            }
-        }
-
-        foreach (var station in allStations
-                     .Where(station => IsSelectableStation(station, excludedStations) &&
-                                       station.FighterAssignmentPriority == priority)
-                     .OrderBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal))
-        {
-            if (visited.Add(station))
+            if (IsSelectableStation(station, excludedStations) &&
+                station.FighterAssignmentPriority == priority &&
+                visited.Add(station))
             {
                 yield return station;
             }
@@ -658,8 +639,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         foreach (var turret in EnumerateStationTypeCandidates(
                      priority,
                      Cave.GetNearestTurret(Location),
-                     Cave.GetAdjacentTurrets,
-                     GetTurretBuildings(),
+                     Cave.GetBuildingsByFieldDistance(GetTurretBuildings(), Location),
                      excludedStations,
                      visited))
         {
@@ -669,8 +649,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         foreach (var barracks in EnumerateStationTypeCandidates(
                      priority,
                      Cave.GetNearestBarracks(Location),
-                     Cave.GetAdjacentBarracks,
-                     GetBarracksBuildings(),
+                     Cave.GetBuildingsByFieldDistance(GetBarracksBuildings(), Location),
                      excludedStations,
                      visited))
         {
@@ -1025,37 +1004,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             yield break;
         }
 
-        var nearestFarm = Cave.GetNearestAlgaeFarm(Location);
-        var queue = new Queue<AlgaeFarm>();
-        if (IsSelectableAlgaeFarm(nearestFarm, excludedFarms) && visited.Add(nearestFarm!))
+        foreach (var farm in Cave.GetBuildingsByFieldDistance(GetAlgaeFarms(), Location))
         {
-            queue.Enqueue(nearestFarm!);
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            yield return current;
-
-            foreach (var neighbor in Cave.GetAdjacentAlgaeFarms(current))
-            {
-                if (IsSelectableAlgaeFarm(neighbor, excludedFarms) && visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
-            }
-        }
-
-        if (visited.Count > 0)
-        {
-            yield break;
-        }
-
-        foreach (var farm in GetAlgaeFarms()
-                     .Where(farm => IsSelectableAlgaeFarm(farm, excludedFarms))
-                     .OrderBy(farm => GetOwnedBuildingSelectionKey(farm), StringComparer.Ordinal))
-        {
-            if (visited.Add(farm))
+            if (IsSelectableAlgaeFarm(farm, excludedFarms) && visited.Add(farm))
             {
                 yield return farm;
             }
@@ -1488,53 +1439,19 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         var nearestOwner = Cave.GetNearestMiningPost(Location);
         metrics.NearestOwnerPostKey = GetMiningPostSelectionKey(nearestOwner);
 
-        var queue = new Queue<MiningPost>();
-        if (IsSelectableMiningPost(nearestOwner, excludedPosts) && visited.Add(nearestOwner!))
+        foreach (var post in Cave.GetBuildingsByFieldDistance(GetMiningPosts(), Location))
         {
-            queue.Enqueue(nearestOwner!);
-        }
-
-        if (queue.Count > 0)
-        {
-            Session.MiningPostMovementTelemetry.RecordSelectionGraphBfs();
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            metrics.CandidateCount++;
-            if (!ReferenceEquals(current, preferredPost) && !ReferenceEquals(current, nearestOwner))
-            {
-                metrics.UsedAdjacencyFallback = true;
-            }
-
-            yield return current;
-
-            foreach (var neighbor in Cave.GetAdjacentMiningPosts(current))
-            {
-                if (IsSelectableMiningPost(neighbor, excludedPosts) && visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
-            }
-        }
-
-        if (metrics.CandidateCount > 0)
-        {
-            yield break;
-        }
-
-        metrics.FullScanFallbackCount++;
-        foreach (var post in GetMiningPosts()
-                     .Where(post => IsSelectableMiningPost(post, excludedPosts))
-                     .OrderBy(GetMiningPostSelectionKey, StringComparer.Ordinal))
-        {
-            if (!visited.Add(post))
+            if (!IsSelectableMiningPost(post, excludedPosts) || !visited.Add(post))
             {
                 continue;
             }
 
             metrics.CandidateCount++;
+            if (!ReferenceEquals(post, preferredPost) && !ReferenceEquals(post, nearestOwner))
+            {
+                metrics.UsedAdjacencyFallback = true;
+            }
+
             yield return post;
         }
     }
@@ -1546,30 +1463,47 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return null;
         }
 
-        var preferredPost = GetAssignedMiningPost();
-        var shouldBalanceAssignments = ShouldBalanceMiningPostAssignments(preferredPost);
         MiningPost? bestPost = null;
         var bestCount = int.MaxValue;
+        var bestDistance = int.MaxValue;
+        var bestKey = string.Empty;
+        var currentPost = GetAssignedMiningPost();
 
-        foreach (var post in EnumerateMiningPostCandidates("miner", shouldBalanceAssignments ? null : preferredPost, excludedPosts))
+        LastMiningPostSelectionMetrics = new MiningPostSelectionMetrics
         {
-            if (!CanReachMiningPostArea(post) ||
+            Purpose = "miner"
+        };
+
+        foreach (var post in Cave.GetMiningPosts())
+        {
+            if (excludedPosts?.Contains(post) == true ||
+                post.Location is null ||
+                post.TileArray.Count == 0 ||
+                !CanReachMiningPostArea(post) ||
                 post.GetInventorySpace() <= 0 ||
                 (!HasManualMineOrders() && !post.AssignmentsAvailable))
             {
                 continue;
             }
 
-            if (!shouldBalanceAssignments)
+            LastMiningPostSelectionMetrics.CandidateCount++;
+            var assignmentCount = Cave.GetMiningPostAssignmentCount(post);
+            if (ReferenceEquals(post, currentPost))
             {
-                return post;
+                assignmentCount = System.Math.Max(0, assignmentCount - 1);
             }
 
-            var assignmentCount = Cave.GetMiningPostAssignmentCount(post);
-            if (bestPost is null || assignmentCount < bestCount)
+            var distance = Cave.GetBuildingBfsFieldValue(post, Location);
+            var key = post.Location.Value.ToString();
+            if (bestPost is null ||
+                assignmentCount < bestCount ||
+                (assignmentCount == bestCount && distance < bestDistance) ||
+                (assignmentCount == bestCount && distance == bestDistance && string.CompareOrdinal(key, bestKey) < 0))
             {
                 bestPost = post;
                 bestCount = assignmentCount;
+                bestDistance = distance;
+                bestKey = key;
             }
         }
 
@@ -2106,7 +2040,17 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return [];
         }
 
-        return Cave.GetScaffoldingList().Where(scaffold => scaffold.IsInProgress()).ToList();
+        var scaffolds = Cave.GetScaffoldingList();
+        var inProgress = new List<Scaffolding>(scaffolds.Count);
+        foreach (var scaffold in scaffolds)
+        {
+            if (scaffold.IsInProgress())
+            {
+                inProgress.Add(scaffold);
+            }
+        }
+
+        return inProgress;
     }
 
     private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromMiningPosts(
@@ -2267,25 +2211,25 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     public List<Scaffolding> GetScaffoldingPriorityList(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
     {
         var excluded = excludeScaffolds?.ToHashSet() ?? [];
-        return GetScaffoldingBuildings()
-            .Where(scaffold =>
-                !excluded.Contains(scaffold) &&
-                (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) != int.MaxValue &&
-                (!actionableOnly || CanActOnScaffold(scaffold)))
-            .OrderBy(scaffold => scaffold.GetVolume())
-            .ThenBy(scaffold => Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue)
-            .ThenBy(scaffold => scaffold.Location is null ? int.MaxValue : GridPoint.SquaredDistance(Location, scaffold.Location.Value))
-            .ToList();
+        var ordered = new List<Scaffolding>();
+        foreach (var scaffold in GetScaffoldingBuildings())
+        {
+            if (excluded.Contains(scaffold) ||
+                (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) == int.MaxValue ||
+                (actionableOnly && !CanActOnScaffold(scaffold)))
+            {
+                continue;
+            }
+
+            ordered.Add(scaffold);
+        }
+
+        return ordered;
     }
 
     private Scaffolding? GetBestScaffolding(bool actionableOnly = false, ISet<Scaffolding>? excludedScaffolds = null)
     {
-        Scaffolding? bestScaffold = null;
-        var bestVolume = int.MaxValue;
-        var bestBfs = int.MaxValue;
-        var bestDistance = int.MaxValue;
-        string? bestKey = null;
-
+        // The cave exposes scaffolds in placement order; preserve that order for FIFO work.
         foreach (var scaffold in GetScaffoldingBuildings())
         {
             if (excludedScaffolds?.Contains(scaffold) == true)
@@ -2293,30 +2237,16 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                 continue;
             }
 
-            var bfsValue = Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue;
-            if (bfsValue == int.MaxValue || (actionableOnly && !CanActOnScaffold(scaffold)))
+            if ((Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) == int.MaxValue ||
+                (actionableOnly && !CanActOnScaffold(scaffold)))
             {
                 continue;
             }
 
-            var volume = scaffold.GetVolume();
-            var distance = scaffold.Location is null ? int.MaxValue : GridPoint.SquaredDistance(Location, scaffold.Location.Value);
-            var tieKey = scaffold.Location?.ToString() ?? scaffold.Name;
-            if (bestScaffold is null ||
-                volume < bestVolume ||
-                (volume == bestVolume && bfsValue < bestBfs) ||
-                (volume == bestVolume && bfsValue == bestBfs && distance < bestDistance) ||
-                (volume == bestVolume && bfsValue == bestBfs && distance == bestDistance && string.CompareOrdinal(tieKey, bestKey) < 0))
-            {
-                bestScaffold = scaffold;
-                bestVolume = volume;
-                bestBfs = bfsValue;
-                bestDistance = distance;
-                bestKey = tieKey;
-            }
+            return scaffold;
         }
 
-        return bestScaffold;
+        return null;
     }
 
     public List<MiningPost> GetBuilderMiningPostPriorityList()
@@ -2329,6 +2259,13 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     public bool IsInBuildingWorkRange(Building building, GridPoint? location = null)
     {
         return (Cave?.GetBuildingBfsFieldValue(building, location ?? Location) ?? int.MaxValue) == 0;
+    }
+
+    // Scaffold deposits should come from the surrounding ring so builders do not park on the footprint.
+    private bool IsInScaffoldingDepositRange(Scaffolding scaffold)
+    {
+        return IsOnPassableBuildingTile(scaffold) ||
+               (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) == 0;
     }
 
     private bool CanReachScaffolding(Scaffolding scaffold)
@@ -2632,7 +2569,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return BuilderDepositInventoryToNearestMiningPost();
         }
 
-        if (!IsInBuildingWorkRange(scaffold))
+        if (!IsInScaffoldingDepositRange(scaffold))
         {
             var navFallback = new Action(() =>
             {

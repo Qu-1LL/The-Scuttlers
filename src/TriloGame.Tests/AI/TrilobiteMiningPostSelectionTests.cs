@@ -74,33 +74,33 @@ public sealed class TrilobiteMiningPostSelectionTests
         var metrics = miner.LastMiningPostSelectionMetrics;
         Assert.NotNull(metrics);
         Assert.Equal("miner", metrics!.Purpose);
-        Assert.Equal(2, metrics.CandidateCount);
+        Assert.Equal(1, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]
-    public void MinerSelection_ReusesAssignedPost_WhenItRemainsValid()
+    public void MinerSelection_ChoosesTheLeastLoadedAvailablePost()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(33, 12, new GridPoint(15, 0));
         SetTileBase(cave, new GridPoint(2, 10), OreType.CHITINSTONE.Name);
         SetTileBase(cave, new GridPoint(30, 10), OreType.CHITINSTONE.Name);
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
-        TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(27, 6));
+        var rightPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(27, 6));
         var miner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(25, 9), "Miner", "miner");
         miner.SetAssignedBuilding(leftPost);
         leftPost.Assign(miner, null);
 
         var selectedPost = miner.SelectMiningPostForMining();
 
-        Assert.Same(leftPost, selectedPost);
+        Assert.Same(rightPost, selectedPost);
 
         var metrics = miner.LastMiningPostSelectionMetrics;
         Assert.NotNull(metrics);
         Assert.Equal("miner", metrics!.Purpose);
-        Assert.Equal(1, metrics.CandidateCount);
+        Assert.Equal(2, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.ReusedPreferredPost);
+        Assert.False(metrics.ReusedPreferredPost);
     }
 
     [Fact]

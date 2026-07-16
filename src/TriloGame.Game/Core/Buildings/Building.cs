@@ -10,7 +10,7 @@ public class Building
 {
     private readonly List<World.Tile> _projectedTiles = [];
 
-    public Building(string name, GridPoint size, int[][] openMap, GameSession session, bool hasStation)
+    public Building(string name, GridPoint size, int[][] openMap, GameSession session, bool hasStation, bool navigable = true)
     {
         Name = name;
         Size = size;
@@ -18,9 +18,10 @@ public class Building
         OpenMap = CloneOpenMap(openMap);
         Session = session;
         HasStation = hasStation;
+        Navigable = navigable;
         TileArray = [];
         Description = string.Empty;
-        BfsField = new BfsField(name, "building", null, this);
+        BfsField = navigable ? new BfsField(name, "building", null, this) : null;
         Health = 100;
         MaxHealth = 100;
         IgnoredByAnts = false;
@@ -45,6 +46,8 @@ public class Building
 
     public bool HasStation { get; }
 
+    public bool Navigable { get; }
+
     public GridPoint? Location { get; set; }
 
     public int Health { get; protected set; }
@@ -55,7 +58,7 @@ public class Building
 
     public World.Cave? Cave { get; set; }
 
-    public BfsField BfsField { get; set; }
+    public BfsField? BfsField { get; set; }
 
     public List<ResourceRequirement>? Recipe { get; protected set; }
 
@@ -117,7 +120,7 @@ public class Building
 
     public bool MarkBfsFieldDirty(IEnumerable<string>? tileKeys = null)
     {
-        return BfsField.MarkDirty(tileKeys ?? [], [], []);
+        return BfsField?.MarkDirty(tileKeys ?? [], [], []) ?? false;
     }
 
     public virtual int RestoreHealth()

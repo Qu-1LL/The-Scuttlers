@@ -17,6 +17,12 @@ The project is currently a single MonoGame game assembly with layered modules in
   - cave generation is isolated in `Core/World/CaveGenerator.cs`; `Cave` owns world state and
     simulation-facing coordination rather than generation policy details
   - cave path queries that do not need to mutate world state live in `Core/Pathfinding`
+  - each navigable building owns its navigation field; topology changes enter one global dirty-tile
+    journal, and Runtime maintains all navigable building fields from one immutable coalesced batch
+  - previously published building fields remain readable while a replacement is being computed;
+    a building without a published field uses Manhattan distance for selection checks
+  - colony and active enemy fields remain owned by the deterministic tick phases, while building
+    field publication is kept at tick boundaries
   - trilobite role dispatch is isolated behind `Core/Entities/TrilobiteRoleBehavior.cs`, with
     role-specific behavior components such as `TrilobiteFighterBehavior.cs` owning extracted
     state machines
@@ -76,6 +82,7 @@ should not remain the long-term home for new gameplay rules or reusable orchestr
 
 - `Runtime/Bootstrap/GameSessionBootstrapper.cs`
 - `Runtime/Systems/GameSimulationClockSystem.cs`
+- `Runtime/Systems/BuildingBfsFieldMaintenanceSystem.cs`
 - `Runtime/Systems/GameOverStateSystem.cs`
 - `Runtime/Systems/RoundManager.cs`
 - `Runtime/Systems/AntHandler.cs`

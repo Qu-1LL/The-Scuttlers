@@ -280,7 +280,6 @@ internal static class TestWorldFactory
         }
 
         cave.ResetBfsFields();
-        cave.RebuildAllBuildingOwnershipFields();
     }
 
     public static GridPoint FindBuildLocation(Cave cave, Building building, bool preserveReachability = false)

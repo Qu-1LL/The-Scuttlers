@@ -3,10 +3,11 @@ using TriloGame.Game.Core.Simulation;
 
 namespace TriloGame.Game.Runtime.Systems;
 
-public sealed class GameSimulationClockSystem
+public sealed class GameSimulationClockSystem : IDisposable
 {
     private readonly TickProfilingObserver _tickProfilingObserver = new();
     private readonly ProjectileFlightSystem _projectileFlights = new();
+    private readonly BuildingBfsFieldMaintenanceSystem _buildingBfsMaintenance = new();
 
     public bool IsPaused { get; set; }
 
@@ -28,6 +29,7 @@ public sealed class GameSimulationClockSystem
         session.Runtime.CurrentTickSpeedMs = TickSpeedMs;
         _projectileFlights.Advance(session, TickSpeedMs);
         TickRunner.RunTick(session, _tickProfilingObserver);
+        _buildingBfsMaintenance.Update(session);
         afterTick?.Invoke(session);
     }
 
@@ -36,6 +38,7 @@ public sealed class GameSimulationClockSystem
     {
         if (IsPaused)
         {
+            _buildingBfsMaintenance.Update(session, isPaused: true);
             return 0;
         }
 
@@ -61,6 +64,7 @@ public sealed class GameSimulationClockSystem
             TickRunner.RunTick(session, _tickProfilingObserver);
             TickAccumulatorMs -= TickSpeedMs;
             executedTicks++;
+            _buildingBfsMaintenance.Update(session, isPaused: false);
             afterTick?.Invoke(session);
 
             if (shouldStop is not null && shouldStop())
@@ -70,5 +74,10 @@ public sealed class GameSimulationClockSystem
         }
 
         return executedTicks;
+    }
+
+    public void Dispose()
+    {
+        _buildingBfsMaintenance.Dispose();
     }
 }

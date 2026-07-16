@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
@@ -38,6 +39,28 @@ public sealed class TrilobiteBehaviorTests
         Assert.NotEqual(buildLocation, trilobite.Location);
         Assert.Equal("empty", destinationTile.Base);
         Assert.Null(destinationTile.Built);
+    }
+
+    [Fact]
+    public void BuilderStep4_DepositsFromAdjacentTileWithoutMovingOntoScaffold()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        var buildLocation = new GridPoint(6, 4);
+
+        Assert.True(cave.Build(scaffolding, buildLocation));
+
+        var startingLocation = new GridPoint(5, 4);
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, startingLocation, "Builder", "builder");
+        builder.SetAssignedBuilding(scaffolding);
+        scaffolding.Assign(builder);
+        builder.AddToInventory(ResourceName.Sandstone, 1);
+
+        builder.BuilderStep4();
+
+        Assert.Equal(startingLocation, builder.Location);
+        Assert.False(builder.HasInventory());
+        Assert.Equal(1, scaffolding.GetTotalDepositedAmount());
     }
 
     [Fact]

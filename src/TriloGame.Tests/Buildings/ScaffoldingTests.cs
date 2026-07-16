@@ -37,6 +37,24 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
+    public void ScaffoldingField_UsesAdjacentTilesAsZeroValueTargets()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        var location = new GridPoint(8, 4);
+
+        Assert.True(cave.Build(scaffolding, location));
+        Assert.True(scaffolding.Navigable);
+
+        var adjacentTile = scaffolding.TileArray
+            .SelectMany(tile => tile.Neighbors)
+            .First(tile => !ReferenceEquals(tile.Built, scaffolding) && tile.CreatureFits());
+
+        Assert.Equal(0, scaffolding.BfsField!.GetFieldValue(adjacentTile.Coordinates, refresh: false));
+        Assert.NotEqual(0, scaffolding.BfsField.GetFieldValue(location, refresh: false));
+    }
+
+    [Fact]
     public void Scaffolding_OpenMap_PreservesExcludedCellsAndMakesOtherTilesTraversable()
     {
         var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();

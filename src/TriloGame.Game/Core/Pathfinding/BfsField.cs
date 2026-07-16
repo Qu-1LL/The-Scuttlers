@@ -19,6 +19,7 @@ public sealed class BfsField
     private readonly List<int> _seedIds = [];
     private bool _fieldCacheDirty = true;
     private int _coverageCount;
+    private bool _maintenancePending;
 
     public BfsField(string name = "", string type = "shared", Cave? cave = null, Building? ownerBuilding = null)
     {
@@ -57,6 +58,12 @@ public sealed class BfsField
 
     public HashSet<Creature> TrackedCreatures { get; }
 
+    public long FieldTopologyVersion { get; private set; } = -1;
+
+    public long FieldReachabilityVersion { get; private set; } = -1;
+
+    public bool IsMaintenancePending => _maintenancePending;
+
     public void SetCave(Cave? cave)
     {
         if (ReferenceEquals(Cave, cave))
@@ -67,6 +74,12 @@ public sealed class BfsField
         Cave = cave;
         EnsureCapacity(cave?.TileCapacity ?? 0);
         _fieldCacheDirty = true;
+        if (cave is null)
+        {
+            FieldTopologyVersion = -1;
+            FieldReachabilityVersion = -1;
+            _maintenancePending = false;
+        }
     }
 
     public void SetOwnerBuilding(Building? building)
@@ -81,6 +94,7 @@ public sealed class BfsField
             : new Dictionary<string, int>(field, StringComparer.Ordinal);
         _fieldCacheDirty = false;
         ImportField(Field);
+        MarkCurrentVersion();
     }
 
     public Dictionary<string, int> CommitField(Dictionary<string, int> field)
@@ -191,6 +205,9 @@ public sealed class BfsField
         _coverageCount = 0;
         Field = new Dictionary<string, int>(StringComparer.Ordinal);
         _fieldCacheDirty = false;
+        FieldTopologyVersion = -1;
+        FieldReachabilityVersion = -1;
+        _maintenancePending = false;
         SetTrackedTargets();
         ClearUpdates();
     }
@@ -238,6 +255,7 @@ public sealed class BfsField
         return string.Equals(Type, "building", StringComparison.Ordinal) &&
                Cave is not null &&
                OwnerBuilding is not null &&
+               OwnerBuilding.Navigable &&
                OwnerBuilding.TileArray.Count > 0;
     }
 
@@ -277,6 +295,176 @@ public sealed class BfsField
         Array.Resize(ref _queued, newLength);
         Array.Resize(ref _nextStepIds, newLength);
         Array.Fill(_nextStepIds, -1, oldLength, newLength - oldLength);
+    }
+
+    public bool IsCurrentFor(long topologyVersion, long reachabilityVersion)
+    {
+        return !_maintenancePending &&
+               FieldTopologyVersion == topologyVersion &&
+               FieldReachabilityVersion == reachabilityVersion;
+    }
+
+    public void MarkMaintenancePending(long topologyVersion, long reachabilityVersion)
+    {
+        _maintenancePending = true;
+        FieldTopologyVersion = topologyVersion;
+        FieldReachabilityVersion = reachabilityVersion;
+    }
+
+    // Copy the live cave graph once so background work never reads mutable simulation objects.
+    public BuildingBfsFieldSnapshot? CreateBuildingMaintenanceSnapshot(IEnumerable<string>? dirtyKeys, bool forceRebuild)
+    {
+        if (!string.Equals(Type, "building", StringComparison.Ordinal) ||
+            Cave is null ||
+            OwnerBuilding is null ||
+            !OwnerBuilding.Navigable ||
+            OwnerBuilding.TileArray.Count == 0)
+        {
+            return null;
+        }
+
+        var navigation = CreateBuildingMaintenanceNavigationSnapshot();
+        return CreateBuildingMaintenanceSnapshot(navigation, dirtyKeys, forceRebuild);
+    }
+
+    // Capture topology once per batch; field-specific snapshots only add values and seeds.
+    public BuildingBfsNavigationSnapshot CreateBuildingMaintenanceNavigationSnapshot()
+    {
+        if (Cave is null)
+        {
+            return new BuildingBfsNavigationSnapshot([], [], []);
+        }
+
+        var capacity = Cave.TileCapacity;
+        EnsureCapacity(capacity);
+        var tileKeys = new string[capacity];
+        var neighbors = new int[capacity][];
+        var traversable = new bool[capacity];
+
+        foreach (var tile in Cave.GetTiles())
+        {
+            tileKeys[tile.Id] = tile.Key;
+            traversable[tile.Id] = Cave.IsTileReachable(tile) && tile.CreatureFits();
+            var neighborIds = new int[tile.Neighbors.Count];
+            var neighborIndex = 0;
+            foreach (var neighbor in tile.Neighbors)
+            {
+                neighborIds[neighborIndex++] = neighbor.Id;
+            }
+
+            neighbors[tile.Id] = neighborIds;
+        }
+
+        return new BuildingBfsNavigationSnapshot(tileKeys, neighbors, traversable);
+    }
+
+    public BuildingBfsFieldSnapshot? CreateBuildingMaintenanceSnapshot(
+        BuildingBfsNavigationSnapshot navigation,
+        IEnumerable<string>? dirtyKeys,
+        bool forceRebuild)
+    {
+        if (!string.Equals(Type, "building", StringComparison.Ordinal) ||
+            Cave is null ||
+            OwnerBuilding is null ||
+            !OwnerBuilding.Navigable ||
+            OwnerBuilding.TileArray.Count == 0)
+        {
+            return null;
+        }
+
+        var capacity = navigation.Traversable.Length;
+        EnsureCapacity(capacity);
+        var values = new int[capacity];
+        Array.Copy(_values, values, capacity);
+        var seeded = new bool[capacity];
+        var seeds = new List<int>();
+
+        if (OwnerBuilding is not Scaffolding)
+        {
+            foreach (var tile in OwnerBuilding.TileArray)
+            {
+                if (ReferenceEquals(tile.Built, OwnerBuilding) && navigation.Traversable[tile.Id])
+                {
+                    seeded[tile.Id] = true;
+                    seeds.Add(tile.Id);
+                }
+            }
+        }
+
+        if (seeds.Count == 0 || OwnerBuilding is Scaffolding)
+        {
+            for (var tileIndex = 0; tileIndex < OwnerBuilding.TileArray.Count; tileIndex++)
+            {
+                var tile = OwnerBuilding.TileArray[tileIndex];
+                foreach (var neighbor in tile.Neighbors)
+                {
+                    if ((OwnerBuilding is Scaffolding && ReferenceEquals(neighbor.Built, OwnerBuilding)) ||
+                        !navigation.Traversable[neighbor.Id] ||
+                        seeded[neighbor.Id])
+                    {
+                        continue;
+                    }
+
+                    seeded[neighbor.Id] = true;
+                    seeds.Add(neighbor.Id);
+                }
+            }
+        }
+
+        var dirtyIds = new List<int>();
+        var dirtySeen = new bool[capacity];
+        foreach (var dirtyKey in dirtyKeys ?? UpdatedTiles)
+        {
+            var dirtyTile = Cave.GetTile(dirtyKey);
+            if (dirtyTile is not null && !dirtySeen[dirtyTile.Id])
+            {
+                dirtySeen[dirtyTile.Id] = true;
+                dirtyIds.Add(dirtyTile.Id);
+            }
+        }
+
+        return new BuildingBfsFieldSnapshot(
+            navigation,
+            values,
+            [.. seeds],
+            [.. dirtyIds],
+            forceRebuild || _coverageCount == 0 || FieldTopologyVersion < 0);
+    }
+
+    // Publish a completed background result only from the simulation thread.
+    public void ApplyBuildingMaintenanceResult(
+        BuildingBfsFieldMaintenanceResult result,
+        long topologyVersion,
+        long reachabilityVersion)
+    {
+        EnsureCapacity(result.Values.Length);
+        Array.Copy(result.Values, _values, result.Values.Length);
+        Array.Clear(_covered, 0, _covered.Length);
+        Array.Clear(_blocked, 0, _blocked.Length);
+        Array.Clear(_seeded, 0, _seeded.Length);
+        Array.Clear(_queued, 0, _queued.Length);
+        Array.Fill(_nextStepIds, -1);
+        Array.Copy(result.NextStepIds, _nextStepIds, result.NextStepIds.Length);
+        _queue.Clear();
+        _seedIds.Clear();
+
+        _coverageCount = 0;
+        for (var tileId = 0; tileId < result.Traversable.Length; tileId++)
+        {
+            if (!result.Traversable[tileId])
+            {
+                continue;
+            }
+
+            _covered[tileId] = true;
+            _coverageCount++;
+        }
+
+        _fieldCacheDirty = true;
+        _maintenancePending = false;
+        FieldTopologyVersion = topologyVersion;
+        FieldReachabilityVersion = reachabilityVersion;
+        ClearUpdates();
     }
 
     private void ImportField(Dictionary<string, int> field)
@@ -474,27 +662,35 @@ public sealed class BfsField
             return;
         }
 
-        foreach (var tile in building.TileArray)
+        if (building is not Scaffolding)
         {
-            if (ReferenceEquals(tile.Built, building) && IsTilePassableToField(tile) && _covered[tile.Id])
+            foreach (var tile in building.TileArray)
             {
-                AddSeed(tile);
+                if (ReferenceEquals(tile.Built, building) && IsTilePassableToField(tile) && _covered[tile.Id])
+                {
+                    AddSeed(tile);
+                }
             }
         }
 
-        if (_seedIds.Count > 0)
+        if (_seedIds.Count > 0 && building is not Scaffolding)
         {
             return;
         }
 
-        foreach (var tile in building.TileArray)
+        for (var tileIndex = 0; tileIndex < building.TileArray.Count; tileIndex++)
         {
+            var tile = building.TileArray[tileIndex];
             foreach (var neighbor in tile.Neighbors)
             {
-                if (IsTilePassableToField(neighbor) && _covered[neighbor.Id])
+                if ((building is Scaffolding && ReferenceEquals(neighbor.Built, building)) ||
+                    !IsTilePassableToField(neighbor) ||
+                    !_covered[neighbor.Id])
                 {
-                    AddSeed(neighbor);
+                    continue;
                 }
+
+                AddSeed(neighbor);
             }
         }
     }
@@ -630,53 +826,6 @@ public sealed class BfsField
         return bestNeighbor == int.MaxValue ? int.MaxValue : bestNeighbor + 1;
     }
 
-    private void SetTileCoverage(Tile tile, bool shouldCover)
-    {
-        if (_covered[tile.Id] == shouldCover)
-        {
-            return;
-        }
-
-        _covered[tile.Id] = shouldCover;
-        _coverageCount += shouldCover ? 1 : -1;
-        if (!shouldCover)
-        {
-            _values[tile.Id] = int.MaxValue;
-        }
-    }
-
-    public bool ApplyMinedTileUpdate(string tileKey)
-    {
-        if (Cave is null)
-        {
-            return false;
-        }
-
-        var tile = GetTile(tileKey);
-        if (tile is null)
-        {
-            return false;
-        }
-
-        EnsureCapacity(Cave.TileCapacity);
-
-        var shouldCover = IsTileInCoverage(tile);
-        SetTileCoverage(tile, shouldCover);
-        if (!shouldCover)
-        {
-            _fieldCacheDirty = true;
-            return false;
-        }
-
-        // Mining only opens the tile that was just cleared; we keep this update local
-        // by deriving its value from already-known neighbor distances.
-        _blocked[tile.Id] = !IsTilePassableToField(tile);
-        _seeded[tile.Id] = false;
-        _values[tile.Id] = ComputeValue(tile);
-        _fieldCacheDirty = true;
-        return _values[tile.Id] != int.MaxValue;
-    }
-
     private void EnqueueTile(Tile tile)
     {
         if (!_covered[tile.Id] || _queued[tile.Id])
@@ -705,8 +854,21 @@ public sealed class BfsField
     {
         RebuildNextStepCache();
         _fieldCacheDirty = true;
+        MarkCurrentVersion();
         ClearUpdates();
         return GetField(false);
+    }
+
+    private void MarkCurrentVersion()
+    {
+        if (!string.Equals(Type, "building", StringComparison.Ordinal) || Cave is null)
+        {
+            return;
+        }
+
+        FieldTopologyVersion = Cave.TopologyVersion;
+        FieldReachabilityVersion = Cave.ReachabilityVersion;
+        _maintenancePending = false;
     }
 
     private void RebuildNextStepCache()

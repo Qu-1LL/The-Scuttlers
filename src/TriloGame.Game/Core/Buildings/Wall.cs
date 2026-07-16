@@ -20,7 +20,7 @@ public sealed class Wall : Building, IBuildPlacementDragTarget
     };
 
     public Wall(GameSession session, WallType? wallType = null)
-        : base((wallType ?? WallType.Default).Name, new GridPoint(1, 1), DefaultOpenMap, session, false)
+        : base((wallType ?? WallType.Default).Name, new GridPoint(1, 1), DefaultOpenMap, session, false, false)
     {
         Type = wallType ?? WallType.Default;
         TextureKey = Type.NoConnectionSprite;

@@ -24,16 +24,11 @@ public sealed partial class Cave : Graph
     private readonly List<Barracks> _barracks = [];
     private readonly List<Turret> _turrets = [];
     private readonly List<Wall> _walls = [];
-    private readonly List<Scaffolding> _scaffolds = [];
+    private readonly Queue<Scaffolding> _scaffolds = [];
     private readonly Dictionary<string, Enemy> _enemyOccupancy = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Vehicle> _vehicleOccupancy = new(StringComparer.Ordinal);
-    private readonly Dictionary<MiningPost, MiningPostMovementCacheEntry> _miningPostMovementCache = [];
     private readonly Dictionary<MiningPost, int> _miningPostAssignmentCounts = [];
     private readonly Dictionary<StationBuilding, int> _fighterStationAssignmentCounts = [];
-    private readonly MiningPostOwnershipField _miningPostOwnershipField;
-    private readonly AlgaeFarmOwnershipField _algaeFarmOwnershipField;
-    private readonly BarracksOwnershipField _barracksOwnershipField;
-    private readonly TurretOwnershipField _turretOwnershipField;
     private Queen? _queenBuilding;
 
     public Cave(GameSession session)
@@ -63,10 +58,6 @@ public sealed partial class Cave : Graph
         Buildings = [];
         RevealedTiles = [];
         ReachableTiles = [];
-        _miningPostOwnershipField = new MiningPostOwnershipField(this);
-        _algaeFarmOwnershipField = new AlgaeFarmOwnershipField(this);
-        _barracksOwnershipField = new BarracksOwnershipField(this);
-        _turretOwnershipField = new TurretOwnershipField(this);
         session.Cave = this;
         ResetBfsFields();
     }
@@ -113,7 +104,7 @@ public sealed partial class Cave : Graph
 
     public IReadOnlyList<Wall> GetWalls() => _walls;
 
-    public IReadOnlyList<Scaffolding> GetScaffoldingList() => _scaffolds;
+    public IReadOnlyCollection<Scaffolding> GetScaffoldingList() => _scaffolds;
 
     public IReadOnlyDictionary<MiningPost, int> GetMiningPostAssignmentCounts() => _miningPostAssignmentCounts;
 
@@ -282,7 +273,7 @@ public sealed partial class Cave : Graph
                 _walls.Add(wall);
                 break;
             case Scaffolding scaffolding:
-                _scaffolds.Add(scaffolding);
+                _scaffolds.Enqueue(scaffolding);
                 break;
         }
     }
@@ -307,7 +298,6 @@ public sealed partial class Cave : Graph
             case MiningPost post:
                 _miningPosts.Remove(post);
                 _miningPostAssignmentCounts.Remove(post);
-                ForgetMiningPostMovementCache(post);
                 SyncMiningPostAssignmentAvailability();
                 SyncMiningPostBuildingsAddedState();
                 break;
@@ -329,8 +319,32 @@ public sealed partial class Cave : Graph
                 _walls.Remove(wall);
                 break;
             case Scaffolding scaffolding:
-                _scaffolds.Remove(scaffolding);
+                RemoveScaffoldingFromQueue(scaffolding);
                 break;
+        }
+    }
+
+    // Preserve insertion order when a completed or cancelled scaffold leaves the FIFO queue.
+    private void RemoveScaffoldingFromQueue(Scaffolding scaffolding)
+    {
+        if (_scaffolds.Count == 0)
+        {
+            return;
+        }
+
+        var remaining = new Queue<Scaffolding>(_scaffolds.Count);
+        while (_scaffolds.Count > 0)
+        {
+            var candidate = _scaffolds.Dequeue();
+            if (!ReferenceEquals(candidate, scaffolding))
+            {
+                remaining.Enqueue(candidate);
+            }
+        }
+
+        while (remaining.Count > 0)
+        {
+            _scaffolds.Enqueue(remaining.Dequeue());
         }
     }
 
@@ -352,11 +366,6 @@ public sealed partial class Cave : Graph
     internal void AdvanceReachabilityVersionForIncrementalReachability()
     {
         AdvanceReachabilityVersion();
-    }
-
-    private void ForgetMiningPostMovementCache(MiningPost post)
-    {
-        _miningPostMovementCache.Remove(post);
     }
 
     public bool RefreshOpenAlgaeFarmAvailability()
@@ -708,8 +717,7 @@ public sealed partial class Cave : Graph
         Buildings.Add(building);
         _buildingList.Add(building);
         building.Cave = this;
-        building.BfsField.SetCave(this);
-        building.BfsField.SetOwnerBuilding(building);
+        GetBuildingBfsFieldObject(building);
         building.TileArray = [];
         building.Location = location;
 
@@ -748,22 +756,8 @@ public sealed partial class Cave : Graph
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var reachability = RefreshReachableTiles();
-        var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, builtBuildings, []);
-        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, builtBuildings);
-        RebalanceAllBfsFields(dirtyKeys, builtBuildings, []);
-        RebalanceAllBuildingOwnershipFields(dirtyKeys, builtBuildings);
-        for (var index = 0; index < builtBuildings.Count; index++)
-        {
-            var buildingField = GetBuildingBfsFieldObject(builtBuildings[index]);
-            buildingField.Rebuild();
-            buildingField.MarkDirty(ownershipDirtyKeys, builtBuildings, []);
-        }
-
-        if (builtBuildings.Any(static building => building is Wall))
-        {
-            RebuildWallBfsField();
-        }
+        var fieldDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
+        HandleNavigationTopologyChanged(fieldDirtyKeys, builtBuildings, []);
     }
 
     public bool RemoveBuilding(Building building, object? source = null)
@@ -853,19 +847,12 @@ public sealed partial class Cave : Graph
         building.CleanupBeforeRemoval(source);
         AdvanceTopologyVersion();
         var reachability = RefreshReachableTiles();
-        var ownershipDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
-        MarkAllBuildingFieldsDirty(ownershipDirtyKeys, [building], []);
-        MarkAllBuildingOwnershipFieldsDirty(ownershipDirtyKeys, [building]);
+        var fieldDirtyKeys = dirtyKeys.Concat(reachability.ChangedKeys).Distinct(StringComparer.Ordinal).ToArray();
         building.TileArray = [];
         building.Location = null;
         building.Cave = null;
-        building.BfsField.SetCave(null);
-        RebalanceAllBfsFields(dirtyKeys, [building], []);
-        RebalanceAllBuildingOwnershipFields(dirtyKeys, [building]);
-        if (building is Wall)
-        {
-            RebuildWallBfsField();
-        }
+        building.BfsField?.SetCave(null);
+        HandleNavigationTopologyChanged(fieldDirtyKeys, [building], []);
 
         foreach (var creature in affectedCreatures)
         {
@@ -982,309 +969,53 @@ public readonly record struct ReachabilityRefreshResult(int Count, IReadOnlyList
 
 public sealed partial class Cave
 {
-    private static bool HasActiveOwnershipBuildings<TBuilding>(IReadOnlyList<TBuilding> buildings)
-        where TBuilding : Building
-    {
-        return buildings.Any(building => building.Location is not null && building.TileArray.Count > 0);
-    }
-
-    private TField GetBuildingOwnershipFieldObject<TField, TBuilding>(TField field, IReadOnlyList<TBuilding> buildings)
-        where TField : BuildingOwnershipField<TBuilding>
-        where TBuilding : Building
-    {
-        if (!HasActiveOwnershipBuildings(buildings))
-        {
-            field.Deactivate();
-            return field;
-        }
-
-        field.SetCave(this);
-        return field;
-    }
-
-    public MiningPostOwnershipField GetMiningPostOwnershipFieldObject()
-    {
-        return GetBuildingOwnershipFieldObject(_miningPostOwnershipField, _miningPosts);
-    }
-
-    public AlgaeFarmOwnershipField GetAlgaeFarmOwnershipFieldObject()
-    {
-        return GetBuildingOwnershipFieldObject(_algaeFarmOwnershipField, _algaeFarms);
-    }
-
-    public BarracksOwnershipField GetBarracksOwnershipFieldObject()
-    {
-        return GetBuildingOwnershipFieldObject(_barracksOwnershipField, _barracks);
-    }
-
-    public TurretOwnershipField GetTurretOwnershipFieldObject()
-    {
-        return GetBuildingOwnershipFieldObject(_turretOwnershipField, _turrets);
-    }
-
-    public MiningPostOwnershipField MarkMiningPostOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetMiningPostOwnershipFieldObject();
-        field.MarkDirty(tileKeys, dirtyBuildings);
-        return field;
-    }
-
-    public AlgaeFarmOwnershipField MarkAlgaeFarmOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetAlgaeFarmOwnershipFieldObject();
-        field.MarkDirty(tileKeys, dirtyBuildings);
-        return field;
-    }
-
-    public BarracksOwnershipField MarkBarracksOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetBarracksOwnershipFieldObject();
-        field.MarkDirty(tileKeys, dirtyBuildings);
-        return field;
-    }
-
-    public TurretOwnershipField MarkTurretOwnershipFieldDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetTurretOwnershipFieldObject();
-        field.MarkDirty(tileKeys, dirtyBuildings);
-        return field;
-    }
-
-    public bool MarkAllBuildingOwnershipFieldsDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        MarkMiningPostOwnershipFieldDirty(tileKeys, dirtyBuildings);
-        MarkAlgaeFarmOwnershipFieldDirty(tileKeys, dirtyBuildings);
-        MarkBarracksOwnershipFieldDirty(tileKeys, dirtyBuildings);
-        MarkTurretOwnershipFieldDirty(tileKeys, dirtyBuildings);
-        return true;
-    }
-
-    public MiningPostOwnershipField RefreshMiningPostOwnershipField()
-    {
-        var field = GetMiningPostOwnershipFieldObject();
-        field.Refresh();
-        return field;
-    }
-
-    public AlgaeFarmOwnershipField RefreshAlgaeFarmOwnershipField()
-    {
-        var field = GetAlgaeFarmOwnershipFieldObject();
-        field.Refresh();
-        return field;
-    }
-
-    public BarracksOwnershipField RefreshBarracksOwnershipField()
-    {
-        var field = GetBarracksOwnershipFieldObject();
-        field.Refresh();
-        return field;
-    }
-
-    public TurretOwnershipField RefreshTurretOwnershipField()
-    {
-        var field = GetTurretOwnershipFieldObject();
-        field.Refresh();
-        return field;
-    }
-
-    public MiningPostOwnershipField RebuildMiningPostOwnershipField()
-    {
-        var field = GetMiningPostOwnershipFieldObject();
-        field.Rebuild();
-        return field;
-    }
-
-    public AlgaeFarmOwnershipField RebuildAlgaeFarmOwnershipField()
-    {
-        var field = GetAlgaeFarmOwnershipFieldObject();
-        field.Rebuild();
-        return field;
-    }
-
-    public BarracksOwnershipField RebuildBarracksOwnershipField()
-    {
-        var field = GetBarracksOwnershipFieldObject();
-        field.Rebuild();
-        return field;
-    }
-
-    public TurretOwnershipField RebuildTurretOwnershipField()
-    {
-        var field = GetTurretOwnershipFieldObject();
-        field.Rebuild();
-        return field;
-    }
-
-    public bool RebuildAllBuildingOwnershipFields()
-    {
-        RebuildMiningPostOwnershipField();
-        RebuildAlgaeFarmOwnershipField();
-        RebuildBarracksOwnershipField();
-        RebuildTurretOwnershipField();
-        return true;
-    }
-
-    public MiningPostOwnershipField RebalanceMiningPostOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetMiningPostOwnershipFieldObject();
-        field.MarkDirty(dirtyKeys, dirtyBuildings);
-        field.Refresh();
-        return field;
-    }
-
-    public AlgaeFarmOwnershipField RebalanceAlgaeFarmOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetAlgaeFarmOwnershipFieldObject();
-        field.MarkDirty(dirtyKeys, dirtyBuildings);
-        field.Refresh();
-        return field;
-    }
-
-    public BarracksOwnershipField RebalanceBarracksOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetBarracksOwnershipFieldObject();
-        field.MarkDirty(dirtyKeys, dirtyBuildings);
-        field.Refresh();
-        return field;
-    }
-
-    public TurretOwnershipField RebalanceTurretOwnershipField(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        var field = GetTurretOwnershipFieldObject();
-        field.MarkDirty(dirtyKeys, dirtyBuildings);
-        field.Refresh();
-        return field;
-    }
-
-    public bool RebalanceAllBuildingOwnershipFields(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null)
-    {
-        RebalanceMiningPostOwnershipField(dirtyKeys, dirtyBuildings);
-        RebalanceAlgaeFarmOwnershipField(dirtyKeys, dirtyBuildings);
-        RebalanceBarracksOwnershipField(dirtyKeys, dirtyBuildings);
-        RebalanceTurretOwnershipField(dirtyKeys, dirtyBuildings);
-        return true;
-    }
-
-    public bool ApplyMinedTileUpdateToAllBuildingOwnershipFields(IEnumerable<string>? tileKeys)
-    {
-        GetMiningPostOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
-        GetAlgaeFarmOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
-        GetBarracksOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
-        GetTurretOwnershipFieldObject().ApplyMinedTileUpdates(tileKeys);
-        return true;
-    }
-
-    public MiningPostOwnership GetMiningPostOwnership(GridPoint location)
-    {
-        return MiningPostOwnership.From(GetMiningPostOwnershipFieldObject().GetOwnership(location));
-    }
-
     public MiningPost? GetNearestMiningPost(GridPoint location)
     {
-        return GetMiningPostOwnershipFieldObject().GetOwner(location);
+        return GetNearestBuildingByField(_miningPosts, location);
     }
 
     public int GetNearestMiningPostDistance(GridPoint location)
     {
-        return GetMiningPostOwnershipFieldObject().GetDistance(location);
-    }
-
-    public IReadOnlyCollection<MiningPost> GetAdjacentMiningPosts(MiningPost post)
-    {
-        return GetMiningPostOwnershipFieldObject().GetAdjacentBuildings(post);
-    }
-
-    public IReadOnlyDictionary<MiningPost, IReadOnlyCollection<MiningPost>> GetMiningPostAdjacencyGraph()
-    {
-        return GetMiningPostOwnershipFieldObject().GetAdjacencyGraph();
-    }
-
-    public BuildingOwnership<AlgaeFarm> GetAlgaeFarmOwnership(GridPoint location)
-    {
-        return GetAlgaeFarmOwnershipFieldObject().GetOwnership(location);
+        return GetNearestBuildingDistanceByField(_miningPosts, location);
     }
 
     public AlgaeFarm? GetNearestAlgaeFarm(GridPoint location)
     {
-        return GetAlgaeFarmOwnershipFieldObject().GetOwner(location);
+        return GetNearestBuildingByField(_algaeFarms, location);
     }
 
     public int GetNearestAlgaeFarmDistance(GridPoint location)
     {
-        return GetAlgaeFarmOwnershipFieldObject().GetDistance(location);
-    }
-
-    public IReadOnlyCollection<AlgaeFarm> GetAdjacentAlgaeFarms(AlgaeFarm farm)
-    {
-        return GetAlgaeFarmOwnershipFieldObject().GetAdjacentBuildings(farm);
-    }
-
-    public IReadOnlyDictionary<AlgaeFarm, IReadOnlyCollection<AlgaeFarm>> GetAlgaeFarmAdjacencyGraph()
-    {
-        return GetAlgaeFarmOwnershipFieldObject().GetAdjacencyGraph();
-    }
-
-    public BuildingOwnership<Barracks> GetBarracksOwnership(GridPoint location)
-    {
-        return GetBarracksOwnershipFieldObject().GetOwnership(location);
+        return GetNearestBuildingDistanceByField(_algaeFarms, location);
     }
 
     public Barracks? GetNearestBarracks(GridPoint location)
     {
-        return GetBarracksOwnershipFieldObject().GetOwner(location);
+        return GetNearestBuildingByField(_barracks, location);
     }
 
     public int GetNearestBarracksDistance(GridPoint location)
     {
-        return GetBarracksOwnershipFieldObject().GetDistance(location);
-    }
-
-    public IReadOnlyCollection<Barracks> GetAdjacentBarracks(Barracks barracks)
-    {
-        return GetBarracksOwnershipFieldObject().GetAdjacentBuildings(barracks);
-    }
-
-    public IReadOnlyDictionary<Barracks, IReadOnlyCollection<Barracks>> GetBarracksAdjacencyGraph()
-    {
-        return GetBarracksOwnershipFieldObject().GetAdjacencyGraph();
-    }
-
-    public BuildingOwnership<Turret> GetTurretOwnership(GridPoint location)
-    {
-        return GetTurretOwnershipFieldObject().GetOwnership(location);
+        return GetNearestBuildingDistanceByField(_barracks, location);
     }
 
     public Turret? GetNearestTurret(GridPoint location)
     {
-        return GetTurretOwnershipFieldObject().GetOwner(location);
+        return GetNearestBuildingByField(_turrets, location);
     }
 
     public int GetNearestTurretDistance(GridPoint location)
     {
-        return GetTurretOwnershipFieldObject().GetDistance(location);
-    }
-
-    public IReadOnlyCollection<Turret> GetAdjacentTurrets(Turret turret)
-    {
-        return GetTurretOwnershipFieldObject().GetAdjacentBuildings(turret);
-    }
-
-    public IReadOnlyDictionary<Turret, IReadOnlyCollection<Turret>> GetTurretAdjacencyGraph()
-    {
-        return GetTurretOwnershipFieldObject().GetAdjacencyGraph();
+        return GetNearestBuildingDistanceByField(_turrets, location);
     }
 
     public IReadOnlyDictionary<string, Building> GetNearestBuildings(GridPoint location)
     {
         var nearestBuildings = new Dictionary<string, Building>(StringComparer.Ordinal);
-        var buildingOwnerships = GetNearestBuildingOwnerships(location);
-        foreach (var pair in buildingOwnerships)
-        {
-            if (pair.Value.Building is not null)
-            {
-                nearestBuildings[pair.Key] = pair.Value.Building;
-            }
-        }
+        AddNearestBuilding(nearestBuildings, "Mining Post", GetNearestMiningPost(location));
+        AddNearestBuilding(nearestBuildings, "Algae Farm", GetNearestAlgaeFarm(location));
+        AddNearestBuilding(nearestBuildings, "Barracks", GetNearestBarracks(location));
+        AddNearestBuilding(nearestBuildings, "Turret", GetNearestTurret(location));
 
         return nearestBuildings;
     }
@@ -1292,177 +1023,57 @@ public sealed partial class Cave
     public IReadOnlyDictionary<string, int> GetNearestBuildingDistances(GridPoint location)
     {
         var distances = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var pair in GetNearestBuildingOwnerships(location))
-        {
-            if (pair.Value.IsOwned)
-            {
-                distances[pair.Key] = pair.Value.Distance;
-            }
-        }
+        AddNearestBuildingDistance(distances, "Mining Post", GetNearestMiningPostDistance(location));
+        AddNearestBuildingDistance(distances, "Algae Farm", GetNearestAlgaeFarmDistance(location));
+        AddNearestBuildingDistance(distances, "Barracks", GetNearestBarracksDistance(location));
+        AddNearestBuildingDistance(distances, "Turret", GetNearestTurretDistance(location));
 
         return distances;
     }
 
-    public IReadOnlyDictionary<string, BuildingOwnershipSnapshot> GetNearestBuildingOwnerships(GridPoint location)
+    private static void AddNearestBuilding(IDictionary<string, Building> buildings, string name, Building? building)
     {
-        var ownerships = new Dictionary<string, BuildingOwnershipSnapshot>(StringComparer.Ordinal);
-        AddBuildingOwnershipSnapshot(ownerships, GetMiningPostOwnershipFieldObject().BuildingName, GetMiningPostOwnershipFieldObject().GetOwnership(location));
-        AddBuildingOwnershipSnapshot(ownerships, GetAlgaeFarmOwnershipFieldObject().BuildingName, GetAlgaeFarmOwnership(location));
-        AddBuildingOwnershipSnapshot(ownerships, GetBarracksOwnershipFieldObject().BuildingName, GetBarracksOwnership(location));
-        AddBuildingOwnershipSnapshot(ownerships, GetTurretOwnershipFieldObject().BuildingName, GetTurretOwnership(location));
-        return ownerships;
+        if (building is not null)
+        {
+            buildings[name] = building;
+        }
     }
 
-    private static void AddBuildingOwnershipSnapshot<TBuilding>(
-        IDictionary<string, BuildingOwnershipSnapshot> ownerships,
-        string buildingName,
-        BuildingOwnership<TBuilding> ownership)
-        where TBuilding : Building
+    private static void AddNearestBuildingDistance(IDictionary<string, int> distances, string name, int distance)
     {
-        if (!ownership.IsOwned || ownership.Building is null)
+        if (distance != int.MaxValue)
         {
-            return;
+            distances[name] = distance;
         }
-
-        ownerships[buildingName] = new BuildingOwnershipSnapshot(ownership.Building, ownership.Distance);
     }
 
-    internal MiningPostMovementCacheEntry GetMiningPostMovementCacheEntry(MiningPost post)
+    public BfsField? GetBuildingBfsFieldObject(Building building)
     {
-        if (!_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
-        {
-            cacheEntry = new MiningPostMovementCacheEntry(post, this);
-            _miningPostMovementCache[post] = cacheEntry;
-        }
-
-        return cacheEntry;
-    }
-
-    public bool InvalidateMiningPostMovementCache(MiningPost post, bool staleFailure = false)
-    {
-        if (!_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
-        {
-            return false;
-        }
-
-        cacheEntry.ForceRebuild = true;
-        if (staleFailure)
-        {
-            Session.MiningPostMovementTelemetry.RecordStalePathInvalidation();
-        }
-
-        return true;
-    }
-
-    public BfsField GetMiningPostMovementFieldObject(MiningPost post)
-    {
-        var cacheEntry = GetMiningPostMovementCacheEntry(post);
-        var telemetry = Session.MiningPostMovementTelemetry;
-        var forceRebuild = cacheEntry.ForceRebuild;
-        var versionDirty = cacheEntry.TopologyVersion != TopologyVersion ||
-                           cacheEntry.ReachabilityVersion != ReachabilityVersion;
-        var hasCachedCoverage = cacheEntry.Field.HasCoverage();
-
-        cacheEntry.Field.SetOwnerBuilding(post);
-        cacheEntry.Field.SetCave(post.Cave ?? this);
-
-        if (forceRebuild || !hasCachedCoverage)
-        {
-            telemetry.RecordCacheMiss();
-            cacheEntry.Field.Rebuild();
-            cacheEntry.TopologyVersion = TopologyVersion;
-            cacheEntry.ReachabilityVersion = ReachabilityVersion;
-            cacheEntry.ForceRebuild = false;
-            telemetry.RecordCacheRebuild();
-        }
-        else
-        {
-            telemetry.RecordCacheHit();
-            if (!versionDirty)
-            {
-                cacheEntry.TopologyVersion = TopologyVersion;
-                cacheEntry.ReachabilityVersion = ReachabilityVersion;
-            }
-        }
-
-        return cacheEntry.Field;
-    }
-
-    public List<GridPoint>? BuildPathToMiningPost(MiningPost post, GridPoint startLocation)
-    {
-        if (post.Location is null || post.TileArray.Count == 0)
+        if (!building.Navigable)
         {
             return null;
         }
 
-        return GetMiningPostMovementFieldObject(post).BuildPathFrom(startLocation, refresh: false);
-    }
-
-    public bool ShouldInvalidateMiningPostMovementCacheOnFailure(MiningPost post, GridPoint currentLocation, GridPoint attemptedLocation)
-    {
-        if (GridPoint.ManhattanDistance(currentLocation, attemptedLocation) != 1)
-        {
-            return true;
-        }
-
-        var tile = GetTile(attemptedLocation.ToString());
-        if (tile is null || !tile.CreatureFits() || !IsTileReachable(tile))
-        {
-            return true;
-        }
-
-        if (_miningPostMovementCache.TryGetValue(post, out var cacheEntry))
-        {
-            return cacheEntry.TopologyVersion != TopologyVersion ||
-                   cacheEntry.ReachabilityVersion != ReachabilityVersion ||
-                   cacheEntry.ForceRebuild;
-        }
-
-        return false;
-    }
-
-    public BfsField GetBuildingBfsFieldObject(Building building)
-    {
         building.BfsField ??= new BfsField(building.Name, "building", this, building);
         building.BfsField.SetOwnerBuilding(building);
         building.BfsField.SetCave(building.Cave ?? this);
         return building.BfsField;
     }
 
-    private BfsField GetAccessibleBuildingBfsFieldObject(Building building, bool rebuildIfEmpty, GridPoint? accessLocation = null)
+    private BfsField? GetAccessibleBuildingBfsFieldObject(Building building, bool rebuildIfEmpty, GridPoint? accessLocation = null)
     {
         var field = GetBuildingBfsFieldObject(building);
-        if (rebuildIfEmpty &&
-            field.HasActiveBuildingTarget() &&
-            !field.HasCoverage())
-        {
-            field.Rebuild();
-        }
-
-        if (accessLocation.HasValue &&
-            field.HasActiveBuildingTarget() &&
-            !field.IsUpdated())
-        {
-            var accessTile = GetTile(accessLocation.Value.ToString());
-            if (accessTile is not null &&
-                IsTileReachable(accessTile) &&
-                field.GetFieldValue(accessLocation.Value, refresh: false) == int.MaxValue)
-            {
-                field.Rebuild();
-            }
-        }
-
         return field;
     }
 
-    internal BfsField GetAccessibleBuildingBfsFieldObject(Building building, GridPoint accessLocation, bool rebuildIfEmpty = true)
+    internal BfsField? GetAccessibleBuildingBfsFieldObject(Building building, GridPoint accessLocation, bool rebuildIfEmpty = true)
     {
         return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty, accessLocation);
     }
 
-    public Dictionary<string, int> EnsureBuildingBfsField(Building building)
+    public Dictionary<string, int>? EnsureBuildingBfsField(Building building)
     {
-        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty: true).GetField(false);
+        return GetBuildingBfsFieldObject(building)?.GetField(false);
     }
 
     public bool MarkAllBuildingFieldsDirty(IEnumerable<string>? tileKeys = null, IEnumerable<Building>? dirtyBuildings = null, IEnumerable<Creature>? dirtyCreatures = null)
@@ -1470,6 +1081,11 @@ public sealed partial class Cave
         foreach (var building in _buildingList)
         {
             var fieldObject = GetBuildingBfsFieldObject(building);
+            if (fieldObject is null)
+            {
+                continue;
+            }
+
             fieldObject.MarkDirty(tileKeys, dirtyBuildings, dirtyCreatures);
         }
 
@@ -1594,42 +1210,25 @@ public sealed partial class Cave
 
     public int GetBuildingBfsFieldValue(Building building, GridPoint location)
     {
-        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty: true, accessLocation: location).GetFieldValue(location, refresh: false);
+        return GetBuildingBfsFieldValueOrManhattanDistance(building, location);
     }
 
     public GridPoint? GetBuildingBfsFieldNextStep(Building building, GridPoint location)
     {
-        return GetAccessibleBuildingBfsFieldObject(building, rebuildIfEmpty: true, accessLocation: location).GetNextStep(location, refresh: false);
-    }
-
-    public void ApplyMinedTileUpdateToAllBfsFields(string tileKey)
-    {
-        if (string.IsNullOrWhiteSpace(tileKey))
+        var field = GetBuildingBfsFieldObject(building);
+        if (field is null)
         {
-            return;
+            return null;
         }
 
-        foreach (var field in Session.BfsFields.Values)
+        if (!_asyncBuildingBfsMaintenanceEnabled)
         {
-            if (string.Equals(field.Type, "wall", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            field.ApplyMinedTileUpdate(tileKey);
+            return field.GetNextStep(location);
         }
 
-        foreach (var building in _buildingList)
-        {
-            building.BfsField.SetOwnerBuilding(building);
-            building.BfsField.SetCave(building.Cave ?? this);
-            building.BfsField.ApplyMinedTileUpdate(tileKey);
-        }
-
-        foreach (var cacheEntry in _miningPostMovementCache.Values)
-        {
-            cacheEntry.Field.ApplyMinedTileUpdate(tileKey);
-        }
+        return field.HasCoverage()
+            ? field.GetNextStep(location, refresh: false)
+            : null;
     }
 
     public int RevealTile(Tile tile, ISet<string>? newlyRevealedKeys = null)
@@ -1909,11 +1508,7 @@ public sealed partial class Cave
 
     public Dictionary<string, BfsField> RebalanceAllBfsFields(IEnumerable<string>? dirtyKeys = null, IEnumerable<Building>? dirtyBuildings = null, IEnumerable<Creature>? dirtyCreatures = null)
     {
-        foreach (var fieldName in GetBfsFieldNames())
-        {
-            RebalanceBfsField(fieldName, dirtyKeys, dirtyBuildings, dirtyCreatures);
-        }
-
+        RebalanceCriticalBfsFields(dirtyKeys, dirtyBuildings, dirtyCreatures);
         return Session.BfsFields;
     }
 

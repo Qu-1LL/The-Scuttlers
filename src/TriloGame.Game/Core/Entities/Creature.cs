@@ -323,9 +323,10 @@ public class Creature
         }
 
         var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
-        var path = building is MiningPost miningPost
-            ? Cave.BuildPathToMiningPost(miningPost, Location)
-            : Cave.BuildPathFromField(Cave.EnsureBuildingBfsField(building), Location);
+        var field = GetBuildingNavigationField(building);
+        var path = field is null
+            ? null
+            : field.BuildPathFrom(Location, refresh: !Cave.UsesAsyncBuildingBfsMaintenance);
         NavigationInstrumentation.RecordBuildingPathRequest(
             path?.Count ?? 0,
             GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
@@ -339,12 +340,15 @@ public class Creature
             return null;
         }
 
-        if (building is MiningPost miningPost)
+        var field = Cave.GetAccessibleBuildingBfsFieldObject(building, Location, rebuildIfEmpty: false);
+        if (field is null)
         {
-            return Cave.GetMiningPostMovementFieldObject(miningPost);
+            return null;
         }
 
-        return Cave.GetAccessibleBuildingBfsFieldObject(building, Location, rebuildIfEmpty: true);
+        return !Cave.UsesAsyncBuildingBfsMaintenance || field.HasCoverage()
+            ? field
+            : null;
     }
 
     protected void ArmBfsTraversal(Pathfinding.BfsField? field, string? sharedFieldName = null, Building? building = null)
@@ -377,21 +381,21 @@ public class Creature
             return null;
         }
 
-        if (building is MiningPost miningPost)
-        {
-            if (Cave.ShouldInvalidateMiningPostMovementCacheOnFailure(miningPost, Location, attemptedLocation))
-            {
-                Cave.InvalidateMiningPostMovementCache(miningPost, staleFailure: true);
-            }
-
-            return Cave.GetMiningPostMovementFieldObject(miningPost);
-        }
-
         if (building is not null)
         {
-            var buildingField = Cave.GetBuildingBfsFieldObject(building);
-            buildingField.Rebuild();
-            return buildingField;
+            if (!Cave.UsesAsyncBuildingBfsMaintenance)
+            {
+                var buildingField = Cave.GetBuildingBfsFieldObject(building);
+                if (buildingField is null)
+                {
+                    return null;
+                }
+
+                buildingField.Rebuild();
+                return buildingField;
+            }
+
+            return GetBuildingNavigationField(building);
         }
 
         if (!string.IsNullOrWhiteSpace(sharedFieldName))
@@ -510,13 +514,6 @@ public class Creature
         if (building is null)
         {
             return RunNavigationFallback(fallbackFn);
-        }
-
-        if (building is MiningPost miningPost &&
-            failedStep.HasValue &&
-            Cave?.ShouldInvalidateMiningPostMovementCacheOnFailure(miningPost, Location, failedStep.Value) == true)
-        {
-            Cave.InvalidateMiningPostMovementCache(miningPost, staleFailure: true);
         }
 
         if (IsAtBuildingNavigationTarget(building))
