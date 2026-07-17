@@ -15,6 +15,7 @@ management inside `GameApp`.
   - owns tick speed and tick accumulator
   - advances the deterministic simulation through `TickRunner`
   - records runtime tick profiling around the simulation phases
+  - exposes the fixed-tick interpolation alpha used to render `PreviousPosition` to `Position`
 - `Shared/Diagnostics/TickProfiler.cs`
   - stores tick timing snapshots and rolling averages
   - is shared so runtime systems, crash diagnostics, and debug UI can read the same data model
@@ -70,6 +71,28 @@ The main goal is to make the game more scalable and more maintainable:
 - runtime modules depend on `Core`
 - `Core` stays free of MonoGame host concerns
 - runtime profiling and stopwatch-based tick diagnostics stay outside `Core`
+
+### Deterministic tick order
+
+`TickRunner` advances traits and world fields, runs trilobite and enemy planning from the current
+tick state, resolves all creature locomotion together, resolves `CombatWorld` against final poses,
+resolves `MiningStrikeSystem` independently, then executes building/ranch/vehicle work.
+The creature movement phase is single threaded and ordered by stable creature ID. Parallel
+preferred-velocity work is intentionally deferred until profiling shows the single-threaded phase
+cannot meet its budget; reservations, environment collisions, and commits must remain ordered.
+
+Combat planning is prepared at the start of the creature-move phase. `CombatWorld` scores fixed
+8x8 threat sectors, creates intercept slots, assigns fighters in stable creature-ID order, and
+directs enemies to advance, engage, breach, retarget, or recover. Fighters pursue the assigned
+enemy's current world pose rather than the sector center, refresh routes on deterministic cell
+changes without skipping the movement phase, and ants acquire nearby trilobites from
+the combat hurtbox grid before falling back to the colony field. The existing mining states and
+mining order path are not consulted or modified by combat planning.
+
+`GameSessionRuntimeState` observes typed creature-damaged events and owns the presentation-only
+150 ms red flash. Repeated damage restarts the flash without making wall-clock time part of the
+simulation. The renderer uses the simulation clock's interpolation alpha for both creature
+position and shortest-arc facing.
 
 ### Preferred future direction
 

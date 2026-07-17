@@ -22,6 +22,8 @@ public sealed class GameAppDebugMetricsBuilderTests
                 1d,
                 1d,
                 1d,
+                1d,
+                1d,
                 2048,
                 1,
                 0,
@@ -37,6 +39,8 @@ public sealed class GameAppDebugMetricsBuilderTests
                 true),
             AverageTick: new TickTimingSnapshot(
                 4d,
+                0.5d,
+                0.5d,
                 0.5d,
                 0.5d,
                 0.5d,

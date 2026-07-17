@@ -5,6 +5,7 @@ namespace TriloGame.Game.Shared.State;
 
 public sealed class GameSessionRuntimeState
 {
+    public const double DamageFlashDurationMs = 150d;
     private int _nextDebugEnemyId = 1;
     private int _nextDebugTrilobiteId = 1;
 
@@ -20,7 +21,48 @@ public sealed class GameSessionRuntimeState
 
     public bool AllowManualMining { get; set; }
 
+    public bool ShowHitboxes { get; set; }
+
+    public bool ShowInteractionZones { get; set; }
+
     public List<ProjectileFlight> ActiveProjectileFlights { get; } = [];
+
+    private readonly Dictionary<int, double> _damageFlashRemainingMs = [];
+
+    public void RestartDamageFlash(int creatureId)
+    {
+        _damageFlashRemainingMs[creatureId] = DamageFlashDurationMs;
+    }
+
+    public float GetDamageFlashAlpha(int creatureId)
+    {
+        return _damageFlashRemainingMs.TryGetValue(creatureId, out var remaining)
+            ? (float)System.Math.Clamp(remaining / DamageFlashDurationMs, 0d, 1d)
+            : 0f;
+    }
+
+    public void AdvancePresentation(double elapsedMs)
+    {
+        if (elapsedMs <= 0d || _damageFlashRemainingMs.Count == 0)
+        {
+            return;
+        }
+
+        var ids = _damageFlashRemainingMs.Keys.ToArray();
+        for (var index = 0; index < ids.Length; index++)
+        {
+            var id = ids[index];
+            var remaining = _damageFlashRemainingMs[id] - elapsedMs;
+            if (remaining <= 0d)
+            {
+                _damageFlashRemainingMs.Remove(id);
+            }
+            else
+            {
+                _damageFlashRemainingMs[id] = remaining;
+            }
+        }
+    }
 
     // Preview the next generated debug enemy id without consuming it.
     public int PeekNextDebugEnemyId()

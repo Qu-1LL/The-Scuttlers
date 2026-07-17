@@ -378,6 +378,21 @@
 /processor:SoundEffectProcessor
 /build:Audio/Effects/VolumeSound.wav
 
+#begin Audio/Effects/RadarSound.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/Effects/RadarSound.wav
+
+#begin Audio/Effects/DepositSound.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/Effects/DepositSound.wav
+
+#begin Audio/Effects/CreatureDeath.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/build:Audio/Effects/CreatureDeath.wav
+
 #begin Audio/Effects/miningpostplaceholder.mp3
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
@@ -397,6 +412,16 @@
 /importer:Mp3Importer
 /processor:SoundEffectProcessor
 /build:Audio/Effects/mulch.mp3
+
+#begin Audio/Effects/OnAttack.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/OnAttack.mp3
+
+#begin Audio/Effects/OnHitAffect.mp3
+/importer:Mp3Importer
+/processor:SoundEffectProcessor
+/build:Audio/Effects/OnHitAffect.mp3
 
 #begin Audio/Music/cheerwine_diddy_party.mp3
 /importer:Mp3Importer

@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.World;
@@ -66,12 +67,12 @@ public sealed partial class Cave
             {
                 var cellLocation = new GridPoint(location.X + x, location.Y + y);
                 var required = building.OpenMap[y][x] <= 1;
-                var allowTrilobiteOccupants = building is Scaffolding && building.OpenMap[y][x] >= 1;
+                var allowCreatureOccupants = building.OpenMap[y][x] >= 1;
                 var cellFailures = required
                     ? EvaluateRequiredPlacementCell(
                         cellLocation,
                         requireReachableTiles,
-                        allowTrilobiteOccupants: allowTrilobiteOccupants)
+                        allowCreatureOccupants: allowCreatureOccupants)
                     : EvaluateOptionalPlacementCell(cellLocation);
 
                 failureReasons |= cellFailures;
@@ -118,13 +119,13 @@ public sealed partial class Cave
             {
                 var cellLocation = new GridPoint(location.X + x, location.Y + y);
                 var required = replacementBuilding.OpenMap[y][x] <= 1;
-                var allowTrilobiteOccupants = replacementBuilding.OpenMap[y][x] >= 1;
+                var allowCreatureOccupants = replacementBuilding.OpenMap[y][x] >= 1;
                 var cellFailures = required
                     ? EvaluateRequiredPlacementCell(
                         cellLocation,
                         requireReachableTiles: false,
                         ignoredBuilding: existingBuilding,
-                        allowTrilobiteOccupants: allowTrilobiteOccupants,
+                        allowCreatureOccupants: allowCreatureOccupants,
                         allowImpassableIgnoredBuildingTile: true)
                     : EvaluateOptionalPlacementCell(cellLocation);
 
@@ -140,7 +141,7 @@ public sealed partial class Cave
         GridPoint location,
         bool requireReachableTiles,
         Building? ignoredBuilding = null,
-        bool allowTrilobiteOccupants = false,
+        bool allowCreatureOccupants = false,
         bool allowImpassableIgnoredBuildingTile = false)
     {
         var tile = GetTile(location);
@@ -171,14 +172,9 @@ public sealed partial class Cave
             failures |= BuildPlacementFailureReason.ImpassableTile;
         }
 
-        if (tile.EnemyOccupant is not null)
+        if (!allowCreatureOccupants)
         {
-            failures |= BuildPlacementFailureReason.EnemyOccupant;
-        }
-
-        if (tile.Trilobites.Count > 0 && !allowTrilobiteOccupants)
-        {
-            failures |= BuildPlacementFailureReason.TrilobiteOccupant;
+            failures |= GetContinuousBodyPlacementFailures(location);
         }
 
         if (requireReachableTiles && !IsTileReachable(tile))
@@ -187,6 +183,74 @@ public sealed partial class Cave
         }
 
         return failures;
+    }
+
+    public bool HasCreatureOverlappingSolidCells(Building building, GridPoint location)
+    {
+        for (var y = 0; y < building.Size.Y; y++)
+        {
+            for (var x = 0; x < building.Size.X; x++)
+            {
+                if (building.OpenMap[y][x] >= 1)
+                {
+                    continue;
+                }
+
+                if (GetContinuousBodyPlacementFailures(new GridPoint(location.X + x, location.Y + y)) !=
+                    BuildPlacementFailureReason.None)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private BuildPlacementFailureReason GetContinuousBodyPlacementFailures(GridPoint cell)
+    {
+        var failures = BuildPlacementFailureReason.None;
+        var trilobites = GetTrilobiteList();
+        for (var index = 0; index < trilobites.Count; index++)
+        {
+            if (CircleOverlapsCell(trilobites[index], cell))
+            {
+                failures |= BuildPlacementFailureReason.TrilobiteOccupant;
+                break;
+            }
+        }
+
+        var enemies = GetEnemyList();
+        for (var index = 0; index < enemies.Count; index++)
+        {
+            if (CircleOverlapsCell(enemies[index], cell))
+            {
+                failures |= BuildPlacementFailureReason.EnemyOccupant;
+                break;
+            }
+        }
+
+        return failures;
+    }
+
+    private static bool CircleOverlapsCell(Creature creature, GridPoint cell)
+    {
+        if (creature.Cave is null || creature.Health <= 0)
+        {
+            return false;
+        }
+
+        var centerX = cell.X * WorldUnits.UnitsPerTile;
+        var centerY = cell.Y * WorldUnits.UnitsPerTile;
+        var minX = centerX - WorldUnits.UnitsPerHalfTile;
+        var maxX = centerX + WorldUnits.UnitsPerHalfTile;
+        var minY = centerY - WorldUnits.UnitsPerHalfTile;
+        var maxY = centerY + WorldUnits.UnitsPerHalfTile;
+        var closestX = Math.Clamp(creature.Position.X, minX, maxX);
+        var closestY = Math.Clamp(creature.Position.Y, minY, maxY);
+        var dx = (long)creature.Position.X - closestX;
+        var dy = (long)creature.Position.Y - closestY;
+        return (dx * dx) + (dy * dy) < (long)creature.CollisionRadius * creature.CollisionRadius;
     }
 
     private BuildPlacementFailureReason EvaluateOptionalPlacementCell(GridPoint location)

@@ -1,45 +1,88 @@
 using System.Numerics;
+using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Combat;
-using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
-using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Entities;
 
 public class Creature
 {
-    private const float MovementOffsetMinDistance = 1f;
-    private const float MovementOffsetMaxDistance = 15f;
-    private readonly Queue<Action> _queue = new();
+    private const int InteractionArrivalTolerancePixels = 12;
+    private const int QueenConveneIdleModulo = 4;
+    private const int IdleCandidateAttempts = 12;
+    private const int IdleMinimumRestTicks = 28;
+    private const int IdleRestTickRange = 73;
+    private const int IdleQueenSpreadRadiusTiles = 5;
+    internal const int RouteRefillLowWatermark = 3;
+    internal const int RouteRefillChunkCells = 10;
+    private readonly Queue<CreatureTask> _tasks = new();
     private readonly HashSet<Building> _trackedBy = [];
     private Pathfinding.BfsField? _activeBfsTraversalField;
+    private readonly List<WorldPoint> _activeRoute = [];
+    private int _activeRouteIndex;
+    private string _assignment;
+    private WorldVector _pendingImpulse;
+    private int _blockedTicks;
+    private int _movementBackoffTicks;
+    private bool _blockedThisTick;
+    private bool _consumedImpulseThisTick;
+    private bool _routeBuildDeferred;
+    private GridPoint? _locomotionRestoreCell;
+    private bool _routeRebuildRequested;
+    private RouteContinuationKind _routeContinuationKind;
+    private GridPoint _routeContinuationDestination;
+    private WorldPoint? _routeContinuationExactDestination;
+    private string? _routeContinuationSharedFieldName;
+    private Building? _routeContinuationBuilding;
+    private WorldPoint? _idleDestination;
+    private int _idleRestTicks;
+    private int _idleCycle;
 
-    public Creature(string name, GridPoint location, GameSession session)
+    public Creature(
+        string name,
+        GridPoint location,
+        GameSession session,
+        CreatureMovementProfile? movementProfile = null)
     {
+        var profile = movementProfile ?? CreatureMovementProfile.Trilobite;
+        Id = session.AllocateCreatureId();
         Name = name;
-        Location = location;
+        Position = WorldPoint.FromGridPoint(location);
+        PreviousPosition = Position;
+        Velocity = WorldVector.Zero;
+        DesiredVelocity = WorldVector.Zero;
+        CollisionRadius = profile.CollisionRadius;
+        SeparationPadding = profile.SeparationPadding;
+        BaseSpeed = profile.BaseSpeed;
+        Mass = profile.Mass;
         Session = session;
         Description = string.Empty;
         Health = 20;
         MaxHealth = 20;
         Damage = 5;
-        Assignment = "unassigned";
-        MovementOffset = Vector2.Zero;
+        _assignment = "unassigned";
+        Role = CreatureRole.Unassigned;
+        Activity = CreatureActivity.Idle;
+        PreviousFacing = new WorldVector(0, -WorldUnits.UnitsPerPixel);
+        FacingDirection = PreviousFacing;
+        MovementCohort = MovementCohort.None;
+        _idleRestTicks = GetIdleRestTicks(0);
         RotationRadians = 0f;
-        IsTrackedInTileSystem = true;
+        IsLocomotionEnabled = true;
         IsVisible = true;
-        PathPreview = [];
     }
 
     public string Name { get; private set; }
 
-    public string Description { get; protected set; }
+    public int Id { get; }
 
-    public List<GridPoint> PathPreview { get; }
+    public string Description { get; protected set; }
 
     public int Health { get; protected set; }
 
@@ -47,13 +90,63 @@ public class Creature
 
     public int Damage { get; protected set; }
 
-    public GridPoint Location { get; set; }
+    public int DamageFlashSequence { get; private set; }
+
+    public GridPoint Location => CurrentCell;
+
+    public GridPoint LocomotionRestoreCell => _locomotionRestoreCell ?? CurrentCell;
+
+    public GridPoint CurrentCell => Position.ToGridPoint();
+
+    public WorldPoint Position { get; private set; }
+
+    public WorldPoint PreviousPosition { get; private set; }
+
+    public WorldVector Velocity { get; private set; }
+
+    public WorldVector DesiredVelocity { get; private set; }
+
+    public int CollisionRadius { get; }
+
+    public int SeparationPadding { get; }
+
+    public int BaseSpeed { get; }
+
+    public int Mass { get; }
+
+    public CreatureRole Role { get; private set; }
+
+    public CreatureActivity Activity { get; private set; }
+
+    public WorldVector PreviousFacing { get; private set; }
+
+    public WorldVector FacingDirection { get; private set; }
+
+    public MovementCohort MovementCohort { get; private set; }
+
+    public WorldPoint? IdleDestination => _idleDestination;
+
+    public int IdleRestTicks => _idleRestTicks;
+
+    internal bool UsesQueenConveneIdlePattern => Role != CreatureRole.Enemy && (Id % QueenConveneIdleModulo) == 0;
+
+    public WorldPoint? MovementTarget { get; private set; }
+
+    public GridPoint? MovementTargetCell { get; private set; }
+
+    public bool HasActiveMovement => MovementTarget.HasValue;
+
+    public IReadOnlyList<WorldPoint> DesiredRoute => _activeRoute;
+
+    public int DesiredRouteIndex => _activeRouteIndex;
+
+    public InteractionZone? ReservedZone { get; private set; }
+
+    public int? ReservedZoneSlot { get; private set; }
 
     public float RotationRadians { get; set; }
 
-    public Vector2 MovementOffset { get; private set; }
-
-    public bool IsTrackedInTileSystem { get; private set; }
+    public bool IsLocomotionEnabled { get; private set; }
 
     public bool IsVisible { get; set; }
 
@@ -63,17 +156,37 @@ public class Creature
 
     public IVehicle? HostedVehicle { get; private set; }
 
-    public Vector2? HostedWorldPosition { get; private set; }
-
     public GameSession Session { get; }
 
     public World.Cave? Cave { get; set; }
 
-    public string Assignment { get; set; }
+    public string Assignment
+    {
+        get => _assignment;
+        set
+        {
+            var assignment = string.IsNullOrWhiteSpace(value) ? "unassigned" : value.Trim().ToLowerInvariant();
+            var role = CreatureRoleNames.Parse(assignment);
+            if (role != Role)
+            {
+                _tasks.Clear();
+                CancelMovement();
+                ReleaseInteractionReservation();
+                ClearBfsTraversal();
+            }
+
+            _assignment = assignment;
+            Role = role;
+        }
+    }
 
     public string? ActiveBfsTraversalFieldName { get; private set; }
 
     public Building? ActiveBfsTraversalBuilding { get; private set; }
+
+    internal RouteContinuationKind ActiveRouteContinuationKind => _routeContinuationKind;
+
+    internal int RemainingBufferedRoutePoints => Math.Max(0, _activeRoute.Count - _activeRouteIndex - 1);
 
     public IReadOnlyCollection<Building> TrackedBy => _trackedBy;
 
@@ -91,50 +204,85 @@ public class Creature
 
     public void HostOnBuilding(Building building, Vector2 worldPosition, bool drawBelowBuildings = false)
     {
-        // Hosted creatures keep their last tile `Location` as a restoration hint while
-        // world-space consumers render and fire from `HostedWorldPosition`/`GetWorldPosition`.
+        // Hosted creatures keep their last cell as a restoration hint and use Position as their anchor.
+        if (IsLocomotionEnabled)
+        {
+            _locomotionRestoreCell = CurrentCell;
+        }
+
         HostedBuilding = building;
         HostedVehicle = null;
-        HostedWorldPosition = worldPosition;
-        IsTrackedInTileSystem = false;
+        IsLocomotionEnabled = false;
         DrawBelowBuildings = drawBelowBuildings;
-        MovementOffset = Vector2.Zero;
+        SetKinematicWorldPosition(WorldPoint.FromWorldPixels(worldPosition));
+        Velocity = WorldVector.Zero;
+        DesiredVelocity = WorldVector.Zero;
+        MovementTarget = null;
+        MovementTargetCell = null;
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        Activity = CreatureActivity.Stationed;
         ClearBfsTraversal();
+        ClearRouteContinuation();
     }
 
     public void HostOnVehicle(IVehicle vehicle, Vector2 worldPosition)
     {
+        if (IsLocomotionEnabled)
+        {
+            _locomotionRestoreCell = CurrentCell;
+        }
+
         HostedBuilding = null;
         HostedVehicle = vehicle;
-        HostedWorldPosition = worldPosition;
-        IsTrackedInTileSystem = false;
+        IsLocomotionEnabled = false;
         IsVisible = true;
         DrawBelowBuildings = false;
-        MovementOffset = Vector2.Zero;
+        SetKinematicWorldPosition(WorldPoint.FromWorldPixels(worldPosition));
+        Velocity = WorldVector.Zero;
+        DesiredVelocity = WorldVector.Zero;
+        MovementTarget = null;
+        MovementTargetCell = null;
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        Activity = CreatureActivity.Stationed;
         ClearBfsTraversal();
+        ClearRouteContinuation();
     }
 
-    public void LeaveTileSystem()
+    public void DisableLocomotion()
+    {
+        if (IsLocomotionEnabled)
+        {
+            _locomotionRestoreCell = CurrentCell;
+        }
+
+        HostedBuilding = null;
+        HostedVehicle = null;
+        IsLocomotionEnabled = false;
+        IsVisible = true;
+        DrawBelowBuildings = false;
+        Velocity = WorldVector.Zero;
+        DesiredVelocity = WorldVector.Zero;
+        MovementTarget = null;
+        MovementTargetCell = null;
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        ClearBfsTraversal();
+        ClearRouteContinuation();
+    }
+
+    public void EnableLocomotion()
     {
         HostedBuilding = null;
         HostedVehicle = null;
-        HostedWorldPosition = null;
-        IsTrackedInTileSystem = false;
+        IsLocomotionEnabled = true;
+        _locomotionRestoreCell = null;
         IsVisible = true;
         DrawBelowBuildings = false;
-        MovementOffset = Vector2.Zero;
+        Activity = CreatureActivity.Idle;
         ClearBfsTraversal();
-    }
-
-    public void ReturnToTileSystem()
-    {
-        HostedBuilding = null;
-        HostedVehicle = null;
-        HostedWorldPosition = null;
-        IsTrackedInTileSystem = true;
-        IsVisible = true;
-        DrawBelowBuildings = false;
-        ClearBfsTraversal();
+        ClearRouteContinuation();
     }
 
     public bool CanBeDirectlySelected()
@@ -142,36 +290,107 @@ public class Creature
         return IsVisible && !DrawBelowBuildings;
     }
 
-    protected virtual bool EnsureReadyForTileNavigation()
+    protected virtual bool EnsureReadyForNavigation()
     {
-        return IsTrackedInTileSystem;
+        return IsLocomotionEnabled;
     }
 
-    public void ClearActionQueue()
+    public void ClearTaskQueue()
     {
-        _queue.Clear();
-        PathPreview.Clear();
+        _tasks.Clear();
+        CancelMovement();
+        ReleaseInteractionReservation();
         ClearBfsTraversal();
+    }
+
+    public bool TryReserveInteractionZone(InteractionZone zone)
+    {
+        if (ReferenceEquals(ReservedZone, zone) && ReservedZoneSlot.HasValue)
+        {
+            return zone.TryRenew(this, Session.TickCount, ReservedZoneSlot.Value);
+        }
+
+        ReleaseInteractionReservation();
+        if (!zone.TryReserve(this, Session.TickCount, out var slotIndex))
+        {
+            Activity = CreatureActivity.WaitingForSlot;
+            return false;
+        }
+
+        ReservedZone = zone;
+        ReservedZoneSlot = slotIndex;
+        return true;
+    }
+
+    public void ReleaseInteractionReservation()
+    {
+        ReservedZone?.Release(this);
+        ReservedZone = null;
+        ReservedZoneSlot = null;
+    }
+
+    public bool TryGetReservedZonePosition(out WorldPoint position)
+    {
+        if (ReservedZone is not null &&
+            ReservedZoneSlot is { } slotIndex &&
+            slotIndex >= 0 &&
+            slotIndex < ReservedZone.SlotPositions.Count)
+        {
+            position = ReservedZone.SlotPositions[slotIndex];
+            return true;
+        }
+
+        position = default;
+        return false;
+    }
+
+    public bool IsAtReservedInteractionSlot()
+    {
+        if (!TryGetReservedZonePosition(out var target))
+        {
+            return false;
+        }
+
+        var tolerance = WorldUnits.FromPixels(InteractionArrivalTolerancePixels);
+        return (Position - target).LengthSquared <= (long)tolerance * tolerance &&
+               Velocity.Length <= BaseSpeed;
+    }
+
+    public bool TryMoveInteractionReservation(GridPoint targetCell)
+    {
+        if (ReservedZone is null || !ReservedZoneSlot.HasValue)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < ReservedZone.SlotPositions.Count; index++)
+        {
+            if (ReservedZone.SlotPositions[index].ToGridPoint() != targetCell ||
+                !ReservedZone.TryMoveReservation(this, Session.TickCount, index))
+            {
+                continue;
+            }
+
+            ReservedZoneSlot = index;
+            BeginMovement(ReservedZone.SlotPositions[index]);
+            return true;
+        }
+
+        Activity = CreatureActivity.WaitingForSlot;
+        return false;
     }
 
     public bool RestartBehavior(bool clearQueue = true)
     {
         if (clearQueue)
         {
-            ClearActionQueue();
+            ClearTaskQueue();
         }
 
-        var behavior = GetBehavior();
-        if (behavior is null)
-        {
-            return false;
-        }
-
-        behavior();
-        return true;
+        return QueueBehavior();
     }
 
-    public virtual Action? GetBehavior() => null;
+    protected virtual bool QueueBehavior() => false;
 
     public bool Rename(string name)
     {
@@ -191,17 +410,6 @@ public class Creature
         return Health;
     }
 
-    public int DealDamage(object? target)
-    {
-        return target switch
-        {
-            Creature creature when !ReferenceEquals(creature, this) => creature.TakeDamage(Damage, this),
-            Building building => building.TakeDamage(Damage, this),
-            IVehicle vehicle => vehicle.TakeDamage(Damage, this),
-            _ => 0
-        };
-    }
-
     public virtual int TakeDamage(int amount, object? source = null)
     {
         if (amount <= 0 || Health <= 0)
@@ -211,9 +419,15 @@ public class Creature
 
         var applied = System.Math.Min(Health, amount);
         Health -= applied;
+        DamageFlashSequence++;
+        Session.NotifyCreatureDamaged(this, applied, source);
         if (Health <= 0)
         {
             Health = 0;
+            Session.RequestAudioCueOncePerTick(
+                GameAudioCue.CreatureDeath,
+                Position,
+                AudioCueRequest.CreatureEffectFootprintTiles);
             RemoveFromGame(source);
         }
 
@@ -226,14 +440,543 @@ public class Creature
 
     public virtual bool RemoveFromGame(object? source = null)
     {
+        Session.Combat.RemoveFor(this);
+        Session.Mining.RemoveFor(this);
         return Cave?.RemoveCreature(this, source) ?? true;
     }
 
     public Vector2 GetWorldPosition()
     {
-        return HostedWorldPosition ?? new Vector2(
-            Location.X * TileConstants.TileSize,
-            Location.Y * TileConstants.TileSize) + MovementOffset;
+        return Position.ToWorldPixels();
+    }
+
+    public Vector2 GetInterpolatedWorldPosition(float alpha)
+    {
+        alpha = Math.Clamp(alpha, 0f, 1f);
+        var previous = PreviousPosition.ToWorldPixels();
+        var current = Position.ToWorldPixels();
+        return Vector2.Lerp(previous, current, alpha);
+    }
+
+    public float GetInterpolatedFacingRadians(float alpha)
+    {
+        if (!IsLocomotionEnabled)
+        {
+            return RotationRadians;
+        }
+
+        alpha = Math.Clamp(alpha, 0f, 1f);
+        var previous = DirectionToRadians(PreviousFacing);
+        var current = DirectionToRadians(FacingDirection);
+        var delta = MathF.IEEERemainder(current - previous, MathF.Tau);
+        return previous + (delta * alpha);
+    }
+
+    private static float DirectionToRadians(WorldVector direction)
+    {
+        return direction.IsZero
+            ? 0f
+            : MathF.Atan2(direction.Y, direction.X) + (MathF.PI / 2f);
+    }
+
+    public void SetMovementCohort(MovementCohort cohort)
+    {
+        MovementCohort = cohort;
+    }
+
+    internal void Face(WorldVector direction)
+    {
+        if (!direction.IsZero)
+        {
+            FacingDirection = direction.WithMagnitude(WorldUnits.UnitsPerPixel);
+        }
+    }
+
+    internal void SnapPresentationPose()
+    {
+        PreviousPosition = Position;
+        PreviousFacing = FacingDirection;
+    }
+
+    public void ApplyImpulse(WorldVector impulse, int sourceId)
+    {
+        if (impulse.IsZero || Health <= 0)
+        {
+            return;
+        }
+
+        _pendingImpulse += impulse;
+        Activity = CreatureActivity.KnockedBack;
+    }
+
+    internal WorldVector ConsumePendingImpulse(int maximumMagnitude)
+    {
+        var consumed = _pendingImpulse.ClampMagnitude(maximumMagnitude);
+        _pendingImpulse -= consumed;
+        if (!consumed.IsZero)
+        {
+            _consumedImpulseThisTick = true;
+        }
+
+        return consumed;
+    }
+
+    internal bool HasPendingImpulse => !_pendingImpulse.IsZero;
+
+    internal WorldVector PendingImpulse => _pendingImpulse;
+
+    internal void BeginMovement(GridPoint targetCell)
+    {
+        MovementTargetCell = targetCell;
+        MovementTarget = WorldPoint.FromGridPoint(targetCell);
+        DesiredVelocity = (MovementTarget.Value - Position).ClampMagnitude(BaseSpeed);
+        Activity = CreatureActivity.Moving;
+        EnsureDestinationCohort(targetCell);
+    }
+
+    internal void BeginMovement(WorldPoint target)
+    {
+        MovementTargetCell = target.ToGridPoint();
+        MovementTarget = target;
+        DesiredVelocity = (target - Position).ClampMagnitude(BaseSpeed);
+        Activity = CreatureActivity.Moving;
+        EnsureDestinationCohort(target.ToGridPoint());
+    }
+
+    internal bool BeginRoute(IReadOnlyList<WorldPoint> route)
+    {
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        for (var index = 0; index < route.Count; index++)
+        {
+            if (route[index] != Position)
+            {
+                _activeRoute.Add(route[index]);
+            }
+        }
+
+        if (_activeRoute.Count == 0)
+        {
+            CancelMovement();
+            return false;
+        }
+
+        BeginMovement(_activeRoute[0]);
+        return true;
+    }
+
+    private bool AppendRoute(IReadOnlyList<WorldPoint> route)
+    {
+        var appended = false;
+        for (var index = 0; index < route.Count; index++)
+        {
+            var point = route[index];
+            if (point == Position ||
+                (_activeRoute.Count > 0 && point == _activeRoute[^1]))
+            {
+                continue;
+            }
+
+            _activeRoute.Add(point);
+            appended = true;
+        }
+
+        return appended;
+    }
+
+    private void ClearRouteContinuation()
+    {
+        _routeContinuationKind = RouteContinuationKind.None;
+        _routeContinuationExactDestination = null;
+        _routeContinuationSharedFieldName = null;
+        _routeContinuationBuilding = null;
+    }
+
+    private void ArmPointRouteContinuation(GridPoint destination, WorldPoint? exactDestination)
+    {
+        _routeContinuationKind = RouteContinuationKind.PointDestination;
+        _routeContinuationDestination = destination;
+        _routeContinuationExactDestination = exactDestination;
+        _routeContinuationSharedFieldName = null;
+        _routeContinuationBuilding = null;
+    }
+
+    private void ArmFieldRouteContinuation(
+        RouteContinuationKind kind,
+        Pathfinding.BfsField field,
+        string? sharedFieldName = null,
+        Building? building = null)
+    {
+        _routeContinuationKind = kind;
+        _routeContinuationExactDestination = null;
+        _routeContinuationSharedFieldName = sharedFieldName;
+        _routeContinuationBuilding = building;
+        ArmBfsTraversal(field, sharedFieldName, building);
+    }
+
+    internal void CancelMovement()
+    {
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        MovementTarget = null;
+        MovementTargetCell = null;
+        DesiredVelocity = WorldVector.Zero;
+        Velocity = WorldVector.Zero;
+        MovementCohort = MovementCohort.None;
+        ClearRouteContinuation();
+        if (Activity is CreatureActivity.Moving or CreatureActivity.KnockedBack)
+        {
+            Activity = CreatureActivity.Idle;
+        }
+    }
+
+    internal void BeginMovementTick()
+    {
+        if (_blockedThisTick)
+        {
+            _blockedTicks++;
+            if (_blockedTicks == 20)
+            {
+                _routeRebuildRequested = true;
+            }
+            else if (_blockedTicks >= 60)
+            {
+                ReleaseInteractionReservation();
+                CancelMovement();
+                _movementBackoffTicks = 1 + (Id % 5);
+                Activity = CreatureActivity.WaitingForSlot;
+                _blockedTicks = 0;
+            }
+        }
+        else
+        {
+            _blockedTicks = 0;
+        }
+
+        _blockedThisTick = false;
+        _consumedImpulseThisTick = false;
+        PreviousPosition = Position;
+        PreviousFacing = FacingDirection;
+    }
+
+    internal void SetDesiredVelocity(WorldVector desiredVelocity)
+    {
+        DesiredVelocity = desiredVelocity.ClampMagnitude(BaseSpeed);
+    }
+
+    internal int BlockedTicks => _blockedTicks;
+
+    internal void CompleteMovementTick()
+    {
+        Velocity = Position - PreviousPosition;
+        var facing = _consumedImpulseThisTick ? DesiredVelocity : Velocity;
+        if (!facing.IsZero)
+        {
+            Face(facing);
+        }
+    }
+
+    internal bool HasRouteContinuation => _activeRouteIndex + 1 < _activeRoute.Count;
+
+    internal bool HasStreamingRouteContinuation => _routeContinuationKind != RouteContinuationKind.None;
+
+    protected bool IsStreamingSharedFieldRoute(string sharedFieldName)
+    {
+        return _routeContinuationKind == RouteContinuationKind.SharedBfsField &&
+               string.Equals(_routeContinuationSharedFieldName, sharedFieldName, StringComparison.Ordinal);
+    }
+
+    internal void CommitMovement(WorldPoint position, WorldVector velocity)
+    {
+        var previous = Position;
+        Position = position;
+        Velocity = velocity;
+
+        if (MovementTarget is not { } target)
+        {
+            return;
+        }
+
+        var previousRemaining = target - previous;
+        var remaining = target - position;
+        var toleranceSquared = (long)WorldUnits.FromPixels(1) * WorldUnits.FromPixels(1);
+        var reached = remaining.LengthSquared <= toleranceSquared ||
+                      ((long)previousRemaining.X * remaining.X + (long)previousRemaining.Y * remaining.Y <= 0 &&
+                       !velocity.IsZero);
+        if (!reached)
+        {
+            Activity = CreatureActivity.Moving;
+            return;
+        }
+
+        Position = target;
+        _activeRouteIndex++;
+        if (_activeRouteIndex >= _activeRoute.Count)
+        {
+            TryAppendRouteContinuation(force: true);
+        }
+
+        if (_activeRouteIndex < _activeRoute.Count)
+        {
+            BeginMovement(_activeRoute[_activeRouteIndex]);
+        }
+        else
+        {
+            Velocity = WorldVector.Zero;
+            DesiredVelocity = WorldVector.Zero;
+            _activeRoute.Clear();
+            _activeRouteIndex = 0;
+            MovementTarget = null;
+            MovementTargetCell = null;
+            Activity = _routeBuildDeferred ? CreatureActivity.Planning : CreatureActivity.Idle;
+            MovementCohort = MovementCohort.None;
+            if (!_routeBuildDeferred)
+            {
+                ClearRouteContinuation();
+            }
+        }
+    }
+
+    private void EnsureDestinationCohort(GridPoint target)
+    {
+        if (MovementCohort.IsActive)
+        {
+            return;
+        }
+
+        var faction = Role == CreatureRole.Enemy ? CreatureFaction.Ants : CreatureFaction.Colony;
+        var goalId = unchecked((target.X * 397) ^ target.Y);
+        MovementCohort = new MovementCohort(faction, MovementGoalKind.Destination, goalId);
+    }
+
+    protected bool TryAdvanceIdleBehavior()
+    {
+        if (!CanUseIdleMovement || Cave is null || !IsLocomotionEnabled ||
+            ReservedZone is not null || HasPendingImpulse || Session.Danger)
+        {
+            ResetIdleBehavior();
+            return false;
+        }
+
+        if (_idleDestination.HasValue)
+        {
+            if (HasActiveMovement)
+            {
+                return true;
+            }
+
+            _idleDestination = null;
+            _idleRestTicks = GetIdleRestTicks(_idleCycle);
+            Activity = CreatureActivity.Idle;
+            return true;
+        }
+
+        if (_idleRestTicks-- > 0)
+        {
+            Activity = CreatureActivity.Idle;
+            return true;
+        }
+
+        if (TryBeginQueenConveneIdleMove())
+        {
+            return true;
+        }
+
+        for (var attempt = 0; attempt < IdleCandidateAttempts; attempt++)
+        {
+            var sample = GetIdleSample(_idleCycle, attempt + 1);
+            var distance = (WorldUnits.UnitsPerTile / 2) + (((sample >> 4) & 3) * (WorldUnits.UnitsPerTile / 2));
+            var direction = GetIdleDirection(sample, attempt);
+            var candidate = Position + new WorldVector(
+                (int)(((long)direction.X * distance) / 1000),
+                (int)(((long)direction.Y * distance) / 1000));
+            if (!Cave.CanCreatureOccupyWorldPosition(this, candidate))
+            {
+                continue;
+            }
+
+            _idleCycle++;
+            if (NavigateTo(candidate, clearExisting: false))
+            {
+                SetMovementCohort(new MovementCohort(
+                    CreatureFaction.Colony,
+                    MovementGoalKind.Idle,
+                    unchecked((Id * 397) ^ _idleCycle)));
+                _idleDestination = candidate;
+                return true;
+            }
+        }
+
+        _idleCycle++;
+        _idleRestTicks = GetIdleRestTicks(_idleCycle);
+        return true;
+    }
+
+    private bool TryBeginQueenConveneIdleMove()
+    {
+        if (!UsesQueenConveneIdlePattern || _idleCycle == 0 || (_idleCycle % 7) != 0 ||
+            Cave?.GetQueenBuilding() is not { } queen)
+        {
+            return false;
+        }
+
+        var queenCenter = WorldPoint.FromGridPoint(queen.GetCenter());
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var direction = IdleDirections[(Id + _idleCycle + attempt) % IdleDirections.Length];
+            var distance = WorldUnits.UnitsPerTile * 2;
+            var candidate = queenCenter + new WorldVector(
+                (int)(((long)direction.X * distance) / 1000),
+                (int)(((long)direction.Y * distance) / 1000));
+            if (!Cave.CanCreatureOccupyWorldPosition(this, candidate))
+            {
+                continue;
+            }
+
+            _idleCycle++;
+            if (NavigateTo(candidate, clearExisting: false))
+            {
+                SetMovementCohort(new MovementCohort(
+                    CreatureFaction.Colony,
+                    MovementGoalKind.Idle,
+                    unchecked((Id * 397) ^ _idleCycle)));
+                _idleDestination = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void ResetIdleBehavior()
+    {
+        _idleDestination = null;
+        _idleRestTicks = GetIdleRestTicks(_idleCycle);
+    }
+
+    protected virtual bool CanUseIdleMovement => Role == CreatureRole.Unassigned;
+
+    private int GetIdleRestTicks(int cycle)
+    {
+        return IdleMinimumRestTicks + PositiveModulo(GetIdleSample(cycle, 97), IdleRestTickRange);
+    }
+
+    private int GetIdleSample(int cycle, int salt)
+    {
+        unchecked
+        {
+            var sample = Id * 1103515245;
+            sample ^= cycle * -1640531527;
+            sample += salt * 12345;
+            sample ^= sample >> 16;
+            return sample & int.MaxValue;
+        }
+    }
+
+    private WorldVector GetIdleDirection(int sample, int attempt)
+    {
+        if (!UsesQueenConveneIdlePattern && TryGetQueenAvoidanceDirection(sample, attempt, out var direction))
+        {
+            return direction;
+        }
+
+        return IdleDirections[PositiveModulo(sample, IdleDirections.Length)];
+    }
+
+    private bool TryGetQueenAvoidanceDirection(int sample, int attempt, out WorldVector direction)
+    {
+        direction = WorldVector.Zero;
+        if (Cave?.GetQueenBuilding() is not { } queen)
+        {
+            return false;
+        }
+
+        var queenCenter = WorldPoint.FromGridPoint(queen.GetCenter());
+        var awayFromQueen = Position - queenCenter;
+        if (awayFromQueen.IsZero ||
+            awayFromQueen.LengthSquared > (long)IdleQueenSpreadRadiusTiles * IdleQueenSpreadRadiusTiles * WorldUnits.UnitsPerTile * WorldUnits.UnitsPerTile)
+        {
+            return false;
+        }
+
+        var closestIndex = 0;
+        var bestDot = long.MinValue;
+        for (var index = 0; index < IdleDirections.Length; index++)
+        {
+            var candidate = IdleDirections[index];
+            var dot = ((long)candidate.X * awayFromQueen.X) + ((long)candidate.Y * awayFromQueen.Y);
+            if (dot > bestDot)
+            {
+                bestDot = dot;
+                closestIndex = index;
+            }
+        }
+
+        var spreadOffset = PositiveModulo(attempt + (sample >> 8), 5) - 2;
+        direction = IdleDirections[PositiveModulo(closestIndex + spreadOffset, IdleDirections.Length)];
+        return true;
+    }
+
+    private static int PositiveModulo(int value, int modulo)
+    {
+        var result = value % modulo;
+        return result < 0 ? result + modulo : result;
+    }
+
+    private static readonly WorldVector[] IdleDirections =
+    [
+        new(1000, 0), new(924, 383), new(707, 707), new(383, 924),
+        new(0, 1000), new(-383, 924), new(-707, 707), new(-924, 383),
+        new(-1000, 0), new(-924, -383), new(-707, -707), new(-383, -924),
+        new(0, -1000), new(383, -924), new(707, -707), new(924, -383)
+    ];
+
+    internal void MarkMovementBlocked()
+    {
+        _blockedThisTick = true;
+        if (Activity == CreatureActivity.Moving)
+        {
+            Activity = CreatureActivity.WaitingForSlot;
+        }
+    }
+
+    private void QueueActiveRouteRebuild()
+    {
+        if (Cave is null || _activeRoute.Count == 0)
+        {
+            return;
+        }
+
+        if (_routeContinuationKind != RouteContinuationKind.None && TryAppendRouteContinuation(force: true))
+        {
+            Activity = CreatureActivity.Moving;
+            return;
+        }
+
+        var destination = _activeRoute[^1];
+        CancelMovement();
+        EnqueueTask(CreatureTask.NavigateTo(destination));
+        Activity = CreatureActivity.Planning;
+    }
+
+    internal void SetWorldPosition(WorldPoint position, bool snapPrevious)
+    {
+        Position = position;
+        if (snapPrevious)
+        {
+            PreviousPosition = position;
+        }
+    }
+
+    private void SetKinematicWorldPosition(WorldPoint position)
+    {
+        Position = position;
+        PreviousPosition = position;
+    }
+
+    internal void SetActivity(CreatureActivity activity)
+    {
+        Activity = activity;
     }
 
     public bool ShootProjectile(Creature target, Projectile projectile)
@@ -267,32 +1010,22 @@ public class Creature
         _trackedBy.Clear();
     }
 
-    public bool EnqueueAction(Action action)
+    public bool EnqueueTask(CreatureTask task)
     {
-        _queue.Enqueue(action);
+        _tasks.Enqueue(task);
         return true;
     }
 
-    protected int QueuedActionCount => _queue.Count;
+    protected int QueuedTaskCount => _tasks.Count;
 
-    public virtual Action? GetNavigationFallback()
+    protected virtual bool ExecuteTask(CreatureTask task)
     {
-        return Assignment switch
+        return task.Kind switch
         {
-            "enemy" when this is Enemy enemy => () => enemy.EnemyStep1(),
-            _ => null
+            CreatureTaskKind.NavigateTo when task.UsesWorldTarget => NavigateTo(task.WorldTarget, clearExisting: false),
+            CreatureTaskKind.NavigateTo => NavigateTo(task.Target, clearExisting: false),
+            _ => false
         };
-    }
-
-    protected bool RunNavigationFallback(Action? fallbackFn)
-    {
-        ClearActionQueue();
-        if (fallbackFn is not null)
-        {
-            EnqueueAction(fallbackFn);
-        }
-
-        return false;
     }
 
     public List<GridPoint>? BuildNavigationPathToPoint(GridPoint destination)
@@ -304,7 +1037,38 @@ public class Creature
         }
 
         var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
-        var path = Cave.BuildPathFromField(Cave.BuildPointBfsField(destination), Location);
+        var path = Cave.BuildPointPath(Location, destination, out var deferred);
+        _routeBuildDeferred = deferred;
+        if (deferred)
+        {
+            Activity = CreatureActivity.Planning;
+        }
+
+        NavigationInstrumentation.RecordPointPathRequest(path?.Count ?? 0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
+        return path;
+    }
+
+    private List<GridPoint>? BuildNavigationPathChunkToPoint(
+        GridPoint destination,
+        GridPoint startLocation,
+        int maximumSteps,
+        out bool reachedDestination)
+    {
+        reachedDestination = false;
+        if (Cave is null)
+        {
+            NavigationInstrumentation.RecordPointPathRequest(0, 0L);
+            return null;
+        }
+
+        var allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+        var path = Cave.BuildPointPathChunk(startLocation, destination, maximumSteps, out var deferred, out reachedDestination);
+        _routeBuildDeferred = deferred;
+        if (deferred && !HasActiveMovement)
+        {
+            Activity = CreatureActivity.Planning;
+        }
+
         NavigationInstrumentation.RecordPointPathRequest(path?.Count ?? 0, GC.GetAllocatedBytesForCurrentThread() - allocatedStart);
         return path;
     }
@@ -419,23 +1183,16 @@ public class Creature
 
         if (refreshedField.GetFieldValue(Location, refresh: false) == 0)
         {
-            PathPreview.Clear();
             return true;
         }
 
         var retryNext = refreshedField.GetNextStep(Location, refresh: false);
         if (retryNext is null)
         {
-            PathPreview.Clear();
             return false;
         }
 
-        if (PathPreview.Count > 0)
-        {
-            PathPreview[0] = retryNext.Value;
-        }
-
-        return Cave?.MoveCreature(this, retryNext.Value) ?? false;
+        return Cave?.RequestCreatureMove(this, retryNext.Value) ?? false;
     }
 
     protected GridPoint? ResolveTraversalStep(
@@ -466,225 +1223,406 @@ public class Creature
         return field is not null && field.GetFieldValue(Location, refresh: false) == 0;
     }
 
-    protected bool RecoverNavigation(GridPoint? destination, Action? fallbackFn)
+    protected bool EnqueueResolvedPath(IReadOnlyList<GridPoint> path, bool clearExisting)
     {
-        NavigationInstrumentation.RecordNavigationReroute();
-        ClearActionQueue();
-        if (destination is null)
+        if (clearExisting)
         {
-            return RunNavigationFallback(fallbackFn);
+            ClearTaskQueue();
         }
 
-        var reroute = BuildNavigationPathToPoint(destination.Value);
-        if (reroute is not null && reroute.Count > 1)
+        if (path.Count < 2)
         {
-            EnqueueResolvedPath(reroute, () => RecoverNavigation(destination, fallbackFn), false);
             return false;
         }
 
-        return reroute is not null && reroute.Count == 1 || RunNavigationFallback(fallbackFn);
+        var route = Cave is null ? [] : ContinuousRoutePlanner.Build(Cave, this, path);
+        NavigationInstrumentation.RecordQueuedNavigationSteps(route.Count);
+        return BeginRoute(route);
     }
 
-    protected bool RecoverDirectNavigation(GridPoint? destination, Action? fallbackFn)
+    protected bool EnqueueFieldRouteChunk(Pathfinding.BfsField field, int maximumSteps, bool clearExisting)
     {
-        ClearActionQueue();
-        if (destination is null)
+        if (!EnsureReadyForNavigation() || Cave is null || maximumSteps <= 0)
         {
-            return RunNavigationFallback(fallbackFn);
-        }
-
-        var reroute = BuildDirectNavigationPathToPoint(destination.Value);
-        if (reroute is not null && reroute.Count > 1)
-        {
-            EnqueueResolvedPath(reroute, () => RecoverDirectNavigation(destination, fallbackFn), false);
             return false;
         }
 
-        return reroute is not null && reroute.Count == 1 || RunNavigationFallback(fallbackFn);
+        var current = Location;
+        var currentValue = field.GetFieldValue(current, refresh: false);
+        if (currentValue <= 0 || currentValue == int.MaxValue)
+        {
+            return false;
+        }
+
+        var path = new List<GridPoint>(maximumSteps + 1) { current };
+        for (var step = 0; step < maximumSteps && currentValue > 0; step++)
+        {
+            var next = field.GetNextStep(current, refresh: false);
+            if (next is null || Cave.GetTile(next.Value) is not { } nextTile ||
+                !Cave.CanCreatureTraverseTile(this, nextTile))
+            {
+                break;
+            }
+
+            path.Add(next.Value);
+            current = next.Value;
+            currentValue = field.GetFieldValue(current, refresh: false);
+        }
+
+        return path.Count >= 2 && EnqueueResolvedPath(path, clearExisting);
     }
 
-    protected bool RecoverBuildingNavigation(Building? building, Action? fallbackFn, GridPoint? failedStep = null)
+    protected bool BeginStreamingSharedFieldRoute(Pathfinding.BfsField field, string sharedFieldName, bool clearExisting)
     {
-        NavigationInstrumentation.RecordNavigationReroute();
-        ClearActionQueue();
-        if (building is null)
+        return TryBeginFieldRoute(
+            field,
+            RouteContinuationKind.SharedBfsField,
+            sharedFieldName,
+            building: null,
+            clearExisting);
+    }
+
+    private List<GridPoint>? BuildFieldPathChunk(
+        Pathfinding.BfsField field,
+        GridPoint startLocation,
+        int maximumSteps,
+        out bool reachedFieldTarget)
+    {
+        reachedFieldTarget = false;
+        if (Cave is null || maximumSteps <= 0)
         {
-            return RunNavigationFallback(fallbackFn);
+            return null;
         }
 
-        if (building is MiningPost miningPost &&
-            failedStep.HasValue &&
-            Cave?.ShouldInvalidateMiningPostMovementCacheOnFailure(miningPost, Location, failedStep.Value) == true)
+        var current = startLocation;
+        var currentValue = field.GetFieldValue(current, refresh: false);
+        if (currentValue == int.MaxValue)
         {
-            Cave.InvalidateMiningPostMovementCache(miningPost, staleFailure: true);
+            return null;
         }
 
-        if (IsAtBuildingNavigationTarget(building))
+        if (currentValue <= 0)
+        {
+            reachedFieldTarget = true;
+            return [current];
+        }
+
+        var path = new List<GridPoint>(Math.Min(maximumSteps, currentValue) + 1) { current };
+        for (var step = 0; step < maximumSteps && currentValue > 0; step++)
+        {
+            var next = field.GetNextStep(current, refresh: false);
+            if (next is null || Cave.GetTile(next.Value) is not { } nextTile ||
+                !Cave.CanCreatureTraverseTile(this, nextTile))
+            {
+                break;
+            }
+
+            path.Add(next.Value);
+            current = next.Value;
+            currentValue = field.GetFieldValue(current, refresh: false);
+        }
+
+        reachedFieldTarget = currentValue == 0;
+        return path.Count >= 2 || reachedFieldTarget ? path : null;
+    }
+
+    private bool TryBeginPointRoute(GridPoint destination, WorldPoint? exactDestination, bool clearExisting)
+    {
+        var path = BuildNavigationPathChunkToPoint(destination, Location, RouteRefillChunkCells, out var reachedDestination);
+        if (path is null || Cave is null)
+        {
+            if (_routeBuildDeferred)
+            {
+                if (clearExisting)
+                {
+                    ClearTaskQueue();
+                }
+
+                EnqueueTask(exactDestination.HasValue
+                    ? CreatureTask.NavigateTo(exactDestination.Value)
+                    : CreatureTask.NavigateTo(destination));
+                Activity = CreatureActivity.Planning;
+                return true;
+            }
+
+            return false;
+        }
+
+        if (clearExisting)
+        {
+            ClearTaskQueue();
+        }
+
+        var exactTarget = reachedDestination ? exactDestination : null;
+        if (path.Count < 2 && exactTarget is null)
         {
             return true;
         }
 
-        EnqueueAction(() => NavigateToBuilding(building, fallbackFn, clearExisting: false));
-        return false;
-    }
-
-    protected bool ExecuteNavigationStep(GridPoint next, Action? onFailure)
-    {
-        var result = PerformMove(next);
-        if (result == false)
+        var route = ContinuousRoutePlanner.Build(Cave, this, path, exactTarget);
+        if (route.Count == 0)
         {
-            onFailure?.Invoke();
-            return false;
+            return true;
         }
 
-        if (PathPreview.Count > 0)
-        {
-            NavigationInstrumentation.RecordPathPreviewFrontRemoval(PathPreview.Count);
-            PathPreview.RemoveAt(0);
-        }
-
-        return result;
-    }
-
-    protected bool EnqueueResolvedPath(IReadOnlyList<GridPoint> path, Action? onFailure, bool clearExisting)
-    {
-        if (clearExisting)
-        {
-            ClearActionQueue();
-        }
-
-        if (path.Count < 2)
+        NavigationInstrumentation.RecordQueuedNavigationSteps(route.Count);
+        if (!BeginRoute(route))
         {
             return false;
         }
 
-        foreach (var step in path.Skip(1))
-        {
-            var next = step;
-            PathPreview.Add(next);
-            EnqueueAction(() => ExecuteNavigationStep(next, onFailure));
-        }
-
-        NavigationInstrumentation.RecordQueuedNavigationSteps(path.Count - 1, PathPreview.Count);
+        ArmPointRouteContinuation(destination, exactDestination);
         return true;
     }
 
-    protected bool EnqueueResolvedBuildingPath(Building building, IReadOnlyList<GridPoint> path, Action? fallbackFn, bool clearExisting)
+    private bool TryBeginFieldRoute(
+        Pathfinding.BfsField field,
+        RouteContinuationKind kind,
+        string? sharedFieldName,
+        Building? building,
+        bool clearExisting)
     {
         if (clearExisting)
         {
-            ClearActionQueue();
+            ClearTaskQueue();
         }
 
-        if (path.Count < 2)
+        var path = BuildFieldPathChunk(field, Location, RouteRefillChunkCells, out _);
+        if (path is null || Cave is null)
         {
             return false;
         }
 
-        foreach (var step in path.Skip(1))
+        var route = ContinuousRoutePlanner.Build(Cave, this, path);
+        if (route.Count == 0)
         {
-            var next = step;
-            PathPreview.Add(next);
-            EnqueueAction(() => ExecuteNavigationStep(next, () => RecoverBuildingNavigation(building, fallbackFn, next)));
+            return true;
         }
 
+        NavigationInstrumentation.RecordQueuedNavigationSteps(route.Count);
+        if (!BeginRoute(route))
+        {
+            return false;
+        }
+
+        ArmFieldRouteContinuation(kind, field, sharedFieldName, building);
         return true;
     }
 
-    public bool NavigateTo(GridPoint destination, Action? fallbackFn = null, bool clearExisting = true)
+    internal bool TryAppendRouteContinuation(bool force = false)
     {
-        fallbackFn ??= GetNavigationFallback();
-        if (!EnsureReadyForTileNavigation())
+        if (!EnsureReadyForNavigation() ||
+            Cave is null ||
+            _routeContinuationKind == RouteContinuationKind.None ||
+            _activeRoute.Count == 0 ||
+            (!force && RemainingBufferedRoutePoints > RouteRefillLowWatermark))
         {
-            return RunNavigationFallback(fallbackFn);
+            return false;
         }
 
-        var path = BuildNavigationPathToPoint(destination);
-        if (path is null)
+        var appendOrigin = _activeRoute[^1];
+        var appendStart = appendOrigin.ToGridPoint();
+        List<GridPoint>? path = null;
+        WorldPoint? exactDestination = null;
+        var reachedDestination = false;
+
+        switch (_routeContinuationKind)
         {
-            return RunNavigationFallback(fallbackFn);
+            case RouteContinuationKind.PointDestination:
+                path = BuildNavigationPathChunkToPoint(
+                    _routeContinuationDestination,
+                    appendStart,
+                    RouteRefillChunkCells,
+                    out reachedDestination);
+                if (_routeBuildDeferred)
+                {
+                    return false;
+                }
+
+                exactDestination = reachedDestination ? _routeContinuationExactDestination : null;
+                break;
+            case RouteContinuationKind.SharedBfsField:
+            {
+                var field = string.IsNullOrWhiteSpace(_routeContinuationSharedFieldName)
+                    ? _activeBfsTraversalField
+                    : Cave.GetBfsFieldObject(_routeContinuationSharedFieldName);
+                if (field is null)
+                {
+                    ClearRouteContinuation();
+                    return false;
+                }
+
+                path = BuildFieldPathChunk(field, appendStart, RouteRefillChunkCells, out reachedDestination);
+                _activeBfsTraversalField = field;
+                break;
+            }
+            case RouteContinuationKind.BuildingField:
+            case RouteContinuationKind.MiningPostField:
+            {
+                var field = GetBuildingNavigationField(_routeContinuationBuilding);
+                if (field is null)
+                {
+                    ClearRouteContinuation();
+                    return false;
+                }
+
+                path = BuildFieldPathChunk(field, appendStart, RouteRefillChunkCells, out reachedDestination);
+                _activeBfsTraversalField = field;
+                break;
+            }
         }
 
-        return path.Count < 2 || EnqueueResolvedPath(path, () => RecoverNavigation(destination, fallbackFn), clearExisting);
+        if (path is null || path.Count < 2)
+        {
+            if (reachedDestination)
+            {
+                ClearRouteContinuation();
+            }
+
+            return false;
+        }
+
+        var route = ContinuousRoutePlanner.Build(Cave, this, path, exactDestination, appendOrigin);
+        var appended = AppendRoute(route);
+        if (appended)
+        {
+            NavigationInstrumentation.RecordQueuedNavigationSteps(route.Count);
+        }
+
+        if (appended && reachedDestination)
+        {
+            ClearRouteContinuation();
+        }
+
+        return appended;
     }
 
-    public bool NavigateToPointDirect(GridPoint destination, Action? fallbackFn = null, bool clearExisting = true)
+    public bool NavigateTo(GridPoint destination, bool clearExisting = true)
     {
-        fallbackFn ??= GetNavigationFallback();
-        if (!EnsureReadyForTileNavigation())
+        if (!EnsureReadyForNavigation())
         {
-            return RunNavigationFallback(fallbackFn);
+            return false;
+        }
+
+        return TryBeginPointRoute(destination, exactDestination: null, clearExisting);
+    }
+
+    public bool NavigateTo(WorldPoint destination, bool clearExisting = true)
+    {
+        if (!EnsureReadyForNavigation())
+        {
+            return false;
+        }
+
+        return TryBeginPointRoute(destination.ToGridPoint(), destination, clearExisting);
+    }
+
+    internal bool NavigateToViaSharedRoute(WorldPoint destination, GridPoint sharedRouteDestination, bool clearExisting = true)
+    {
+        if (!EnsureReadyForNavigation())
+        {
+            return false;
+        }
+
+        if (clearExisting)
+        {
+            ClearTaskQueue();
+        }
+
+        return TryBeginPointRoute(sharedRouteDestination, destination, clearExisting) ||
+               NavigateTo(destination, clearExisting: false);
+    }
+
+    public bool NavigateToPointDirect(GridPoint destination, bool clearExisting = true)
+    {
+        if (!EnsureReadyForNavigation())
+        {
+            return false;
         }
 
         var path = BuildDirectNavigationPathToPoint(destination);
         if (path is null)
         {
-            return RunNavigationFallback(fallbackFn);
+            return false;
         }
 
-        return path.Count < 2 || EnqueueResolvedPath(path, () => RecoverDirectNavigation(destination, fallbackFn), clearExisting);
+        return path.Count < 2 || EnqueueResolvedPath(path, clearExisting);
     }
 
-    public bool NavigateToBuilding(Building building, Action? fallbackFn = null, bool clearExisting = true)
+    public bool NavigateToBuilding(Building building, bool clearExisting = true)
     {
-        fallbackFn ??= GetNavigationFallback();
-        if (!EnsureReadyForTileNavigation())
+        if (!EnsureReadyForNavigation())
         {
-            return RunNavigationFallback(fallbackFn);
-        }
-
-        if (clearExisting)
-        {
-            ClearActionQueue();
+            return false;
         }
 
         var field = GetBuildingNavigationField(building);
         if (field is null)
         {
-            return RunNavigationFallback(fallbackFn);
+            return false;
         }
 
-        if (field.GetFieldValue(Location, refresh: false) == 0)
+        var kind = building is MiningPost ? RouteContinuationKind.MiningPostField : RouteContinuationKind.BuildingField;
+        if (TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting))
         {
             return true;
         }
 
-        var resolvedField = field;
-        var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || IsImpassableTraversalStep(resolvedNext.Value))
-        {
-            var attemptedStep = resolvedNext ?? Location;
-            var refreshedField = RefreshTraversalField(field, null, building, attemptedStep);
-            if (refreshedField is null)
-            {
-                return RunNavigationFallback(fallbackFn);
-            }
-
-            resolvedField = refreshedField;
-            resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
-            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
-            {
-                return true;
-            }
-
-            if (resolvedNext is null)
-            {
-                return RunNavigationFallback(fallbackFn);
-            }
-        }
-
-        ArmBfsTraversal(resolvedField, building: building);
-        ClearBfsTraversal();
-        var moved = Cave?.MoveCreature(this, resolvedNext.Value) ?? false;
-        return moved || RecoverBuildingNavigation(building, fallbackFn, resolvedNext);
+        field.Rebuild();
+        return TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting: false);
     }
 
-    public bool QueueMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)
+    public bool NavigateToInteractionZone(
+        Building building,
+        InteractionZonePurpose purpose,
+        bool clearExisting = true)
     {
-        fallbackFn ??= GetNavigationFallback();
-        if (!EnsureReadyForTileNavigation())
+        if (!EnsureReadyForNavigation())
         {
-            return RunNavigationFallback(fallbackFn);
+            return false;
+        }
+
+        if (clearExisting)
+        {
+            ClearTaskQueue();
+        }
+
+        if (!building.TryGetInteractionZone(purpose, out var zone) || !TryReserveInteractionZone(zone))
+        {
+            return false;
+        }
+
+        if (!TryGetReservedZonePosition(out var target))
+        {
+            ReleaseInteractionReservation();
+            return false;
+        }
+
+        var targetCell = target.ToGridPoint();
+        if (CurrentCell == targetCell)
+        {
+            if (Position != target)
+            {
+                BeginMovement(target);
+            }
+
+            return true;
+        }
+
+        if (NavigateTo(targetCell, clearExisting: false))
+        {
+            return true;
+        }
+
+        ReleaseInteractionReservation();
+        return false;
+    }
+
+    public bool QueueMovePath(IReadOnlyList<GridPoint> path)
+    {
+        if (!EnsureReadyForNavigation())
+        {
+            return false;
         }
 
         if (path.Count < 2)
@@ -692,16 +1630,14 @@ public class Creature
             return path.Count > 0;
         }
 
-        var destination = path[^1];
-        return EnqueueResolvedPath(path, () => RecoverNavigation(destination, fallbackFn), true);
+        return EnqueueResolvedPath(path, true);
     }
 
-    public bool AppendMovePath(IReadOnlyList<GridPoint> path, Action? fallbackFn = null)
+    public bool AppendMovePath(IReadOnlyList<GridPoint> path)
     {
-        fallbackFn ??= GetNavigationFallback();
-        if (!EnsureReadyForTileNavigation())
+        if (!EnsureReadyForNavigation())
         {
-            return RunNavigationFallback(fallbackFn);
+            return false;
         }
 
         if (path.Count < 2)
@@ -709,18 +1645,33 @@ public class Creature
             return path.Count > 0;
         }
 
-        var destination = path[^1];
-        return EnqueueResolvedPath(path, () => RecoverNavigation(destination, fallbackFn), false);
-    }
-
-    public List<GridPoint> GetQueuedPathPreview()
-    {
-        return PathPreview.Count == 0 ? [] : [Location, .. PathPreview];
+        return EnqueueResolvedPath(path, false);
     }
 
     public object? Move()
     {
-        // Driveable vehicles advance on the driver's turn instead of through the creature's own action queue.
+        if (_routeRebuildRequested)
+        {
+            _routeRebuildRequested = false;
+            QueueActiveRouteRebuild();
+        }
+
+        if (_movementBackoffTicks > 0)
+        {
+            _movementBackoffTicks--;
+            return null;
+        }
+
+        if (ReservedZone is not null &&
+            (!ReservedZone.Owner.OwnsInteractionZone(ReservedZone) ||
+             !ReservedZoneSlot.HasValue ||
+             !ReservedZone.TryRenew(this, Session.TickCount, ReservedZoneSlot.Value)))
+        {
+            ReleaseInteractionReservation();
+            Activity = CreatureActivity.WaitingForSlot;
+        }
+
+        // Driveable vehicles advance on the driver's turn instead of through the creature's own task queue.
         if (HostedVehicle is IDriveable driveable && driveable.IsCreatureDriving(this))
         {
             return HostedVehicle.Move();
@@ -731,47 +1682,60 @@ public class Creature
             return null;
         }
 
-        if (_queue.Count == 0)
-        {
-            GetBehavior()?.Invoke();
-        }
-
-        if (TryInterruptQueuedAction())
+        if (HasActiveMovement && TryInterruptActiveMovement())
         {
             return true;
         }
 
-        if (_queue.Count == 0)
+        if (HasActiveMovement)
+        {
+            TryAppendRouteContinuation();
+            return null;
+        }
+
+        if (HasPendingImpulse)
         {
             return null;
         }
 
-        var action = _queue.Dequeue();
-        action();
-        return true;
+        if (_tasks.Count == 0)
+        {
+            QueueBehavior();
+        }
+
+        if (TryInterruptQueuedTask())
+        {
+            return true;
+        }
+
+        if (_tasks.Count == 0)
+        {
+            TryAdvanceIdleBehavior();
+            return null;
+        }
+
+        var executed = ExecuteTask(_tasks.Dequeue());
+        if (!executed && _tasks.Count == 0)
+        {
+            TryAdvanceIdleBehavior();
+        }
+
+        return executed;
     }
 
-    protected virtual bool TryInterruptQueuedAction()
+    protected virtual bool TryInterruptQueuedTask()
     {
         return false;
     }
 
-    public void UpdateMovementOffset(bool randomize)
+    protected virtual bool TryInterruptActiveMovement()
     {
-        if (!IsTrackedInTileSystem)
-        {
-            MovementOffset = Vector2.Zero;
-            return;
-        }
-
-        MovementOffset = randomize
-            ? RandomUtil.NextMovementOffset(MovementOffsetMinDistance, MovementOffsetMaxDistance)
-            : Vector2.Zero;
+        return false;
     }
 
     public bool PerformMove(GridPoint next)
     {
-        if (!EnsureReadyForTileNavigation())
+        if (!EnsureReadyForNavigation())
         {
             return false;
         }
@@ -781,7 +1745,7 @@ public class Creature
         var building = ActiveBfsTraversalBuilding;
         ClearBfsTraversal();
 
-        var moved = Cave?.MoveCreature(this, next) ?? false;
+        var moved = Cave?.RequestCreatureMove(this, next) ?? false;
         if (moved || field is null || !IsImpassableTraversalStep(next))
         {
             return moved;

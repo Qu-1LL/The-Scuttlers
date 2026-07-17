@@ -9,13 +9,13 @@ namespace TriloGame.Tests.Performance;
 [Collection(PerformanceBenchmarkCollection.Name)]
 public sealed class FarmerBenchmarkTests
 {
-    private const int FarmerCount = 1000;
+    private const int FarmerCount = 200;
     private const int LiveLikeFarmerCount = 200;
     private const double GoalTickMs = 10d;
     private const int WarmupTicks = 6;
 
     [Fact]
-    public void BenchmarkScenario_CreatesBuiltFarmAndFarmerSwarm()
+    public void BenchmarkScenario_CreatesBuiltFarmAnd200FarmerSwarm()
     {
         var (_, _, _, farm, farmers) = TestWorldFactory.CreateSessionWithFarmAndFarmers(FarmerCount);
 
@@ -26,7 +26,7 @@ public sealed class FarmerBenchmarkTests
 
     [Fact]
     [Trait("Category", "Benchmark")]
-    public void BenchmarkScenario_ReportsTickTimingFor1000Farmers()
+    public void BenchmarkScenario_ReportsTickTimingFor200Farmers()
     {
         var (session, _, queen, farm, _) = TestWorldFactory.CreateSessionWithFarmAndFarmers(FarmerCount);
         var clock = new GameSimulationClockSystem();

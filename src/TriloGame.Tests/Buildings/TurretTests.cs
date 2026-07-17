@@ -93,8 +93,8 @@ public sealed class TurretTests
         secondFighter.SetAssignedBuilding(turret);
         Assert.True(turret.Assign(firstFighter));
         Assert.True(turret.Assign(secondFighter));
-        Assert.False(firstFighter.FighterReturnToStation(true));
-        Assert.False(secondFighter.FighterReturnToStation(true));
+        Assert.False(firstFighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
+        Assert.False(secondFighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
 
         var enemyTile = cave.GetTile(new GridPoint(25, 19))
             ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
@@ -120,7 +120,7 @@ public sealed class TurretTests
     }
 
     [Fact]
-    public void StationedFighter_ProjectilesUseHostedWorldPositionInsteadOfAccessTileCenter()
+    public void StationedFighter_ProjectilesUseAuthoritativeWorldPositionInsteadOfAccessTileCenter()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(1, 1));
         var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 18));
@@ -128,7 +128,7 @@ public sealed class TurretTests
         fighter.SetTraits(Array.Empty<TrilobiteTrait>());
         fighter.SetAssignedBuilding(turret);
         Assert.True(turret.Assign(fighter));
-        Assert.False(fighter.FighterReturnToStation(true));
+        Assert.False(fighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
 
         var enemyTile = cave.GetTile(new GridPoint(25, 19))
             ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
@@ -141,7 +141,7 @@ public sealed class TurretTests
         }
 
         var projectile = Assert.Single(session.Runtime.ActiveProjectileFlights);
-        Assert.Equal(fighter.HostedWorldPosition!.Value, projectile.SourceWorldPosition);
+        Assert.Equal(fighter.GetWorldPosition(), projectile.SourceWorldPosition);
         Assert.NotEqual(new System.Numerics.Vector2(fighter.Location.X * TileConstants.TileSize, fighter.Location.Y * TileConstants.TileSize), projectile.SourceWorldPosition);
     }
 
@@ -154,7 +154,7 @@ public sealed class TurretTests
         fighter.SetTraits(Array.Empty<TrilobiteTrait>());
         fighter.SetAssignedBuilding(turret);
         Assert.True(turret.Assign(fighter));
-        Assert.False(fighter.FighterReturnToStation(true));
+        Assert.False(fighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
 
         var enemyTile = cave.GetTile(new GridPoint(25, 19))
             ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
@@ -172,7 +172,7 @@ public sealed class TurretTests
     }
 
     [Fact]
-    public void TryRestoreCreatureToTileSystem_ReturnsHostedFighterToLastTrackedAccessTile()
+    public void TryRestoreCreatureLocomotion_ReturnsHostedFighterToLastTrackedAccessTile()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(1, 1));
         var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 18));
@@ -181,14 +181,13 @@ public sealed class TurretTests
 
         fighter.SetAssignedBuilding(turret);
         Assert.True(turret.Assign(fighter));
-        Assert.False(fighter.FighterReturnToStation(true));
-        Assert.False(fighter.IsTrackedInTileSystem);
+        Assert.False(fighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
+        Assert.False(fighter.IsLocomotionEnabled);
 
-        Assert.True(turret.TryRestoreCreatureToTileSystem(fighter));
+        Assert.True(turret.TryRestoreCreatureLocomotion(fighter));
 
-        Assert.True(fighter.IsTrackedInTileSystem);
+        Assert.True(fighter.IsLocomotionEnabled);
         Assert.Null(fighter.HostedBuilding);
-        Assert.Null(fighter.HostedWorldPosition);
         Assert.Equal(accessTile, fighter.Location);
         Assert.Same(fighter, cave.GetTrilobiteAtTileKey(accessTile.ToString()));
     }

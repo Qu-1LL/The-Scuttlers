@@ -119,7 +119,8 @@ public sealed class DebugToggleControlsTests
             () => playCount++);
         var viewport = new Point(1440, 900);
         var layout = DebugMenuLayout.Build(viewport);
-        var clickPoint = new Point(layout.VisualBottomRowBounds.Center.X, layout.VisualBottomRowBounds.Center.Y);
+        var rows = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 3, layout.ButtonGap);
+        var clickPoint = new Point(rows[0].Center.X, rows[0].Center.Y);
 
         var handled = controls.HandleClick(viewport, clickPoint, true, showRoleLabels, disableEnemySpawns, noCostBuildPlacement, infiniteDraft, revealMap);
 
@@ -129,6 +130,46 @@ public sealed class DebugToggleControlsTests
         Assert.False(noCostBuildPlacement);
         Assert.False(infiniteDraft);
         Assert.True(revealMap);
+        Assert.Equal(1, playCount);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void HandleClick_TogglesContinuousWorldDebugControls(int bottomRowIndex)
+    {
+        var showHitboxes = false;
+        var showZones = false;
+        var playCount = 0;
+        var controls = new DebugToggleControls(
+            static _ => { },
+            static _ => { },
+            static _ => { },
+            static _ => { },
+            static _ => { },
+            value => showHitboxes = value,
+            value => showZones = value,
+            () => playCount++);
+        var viewport = new Point(1440, 900);
+        var layout = DebugMenuLayout.Build(viewport);
+        var rows = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 3, layout.ButtonGap);
+        var clickPoint = rows[bottomRowIndex].Center;
+
+        var handled = controls.HandleClick(
+            viewport,
+            clickPoint,
+            debugMenuOpen: true,
+            showRoleLabels: false,
+            disableEnemySpawns: false,
+            noCostBuildPlacement: false,
+            infiniteDraft: false,
+            revealMap: false,
+            showHitboxes,
+            showZones);
+
+        Assert.True(handled);
+        Assert.Equal(bottomRowIndex == 1, showHitboxes);
+        Assert.Equal(bottomRowIndex == 2, showZones);
         Assert.Equal(1, playCount);
     }
 

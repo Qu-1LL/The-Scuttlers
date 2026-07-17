@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
 
@@ -21,7 +22,7 @@ public sealed class WorkerFleeBehaviorTests
             .Where(tile => MinDistanceToQueen(tile.Coordinates, queenFeedTiles) > 2)
             .FirstOrDefault(tile => reachableTiles.Any(candidate =>
                 candidate.Key != tile.Key &&
-                candidate.Trilobites.Count == 0 &&
+                !cave.HasCreatureInCell(candidate.Coordinates) &&
                 GridPoint.ManhattanDistance(tile.Coordinates, candidate.Coordinates) <= GameConstants.WorkerEnemyFleeRadius))
             ?? throw new InvalidOperationException("No worker tile with a nearby enemy candidate was available.");
 
@@ -32,7 +33,7 @@ public sealed class WorkerFleeBehaviorTests
         Assert.True(cave.Spawn(worker, workerTile));
 
         var enemyTile = reachableTiles
-            .Where(tile => tile.Key != workerTile.Key && tile.Trilobites.Count == 0)
+            .Where(tile => tile.Key != workerTile.Key && !cave.HasCreatureInCell(tile.Coordinates))
             .OrderBy(tile => GridPoint.ManhattanDistance(workerTile.Coordinates, tile.Coordinates))
             .First(tile => GridPoint.ManhattanDistance(workerTile.Coordinates, tile.Coordinates) <= GameConstants.WorkerEnemyFleeRadius);
         var enemy = new Enemy("Nearby Ant", enemyTile.Coordinates, session);
@@ -42,13 +43,21 @@ public sealed class WorkerFleeBehaviorTests
         cave.RefreshBfsField("enemy");
         var enemyDistance = cave.GetBfsFieldValue("enemy", worker.Location);
         var initialDistance = MinDistanceToQueen(worker.Location, queenFeedTiles);
+        var initialWorldDistance = MinWorldDistanceToQueen(worker, queen);
 
-        worker.Move();
+        for (var tick = 0; tick < 12 && MinWorldDistanceToQueen(worker, queen) >= initialWorldDistance; tick++)
+        {
+            worker.Move();
+            cave.AdvanceCreatureMovement();
+        }
 
         var nextDistance = MinDistanceToQueen(worker.Location, queenFeedTiles);
+        var nextWorldDistance = MinWorldDistanceToQueen(worker, queen);
         Assert.True(session.Danger);
         Assert.InRange(enemyDistance, 0, GameConstants.WorkerEnemyFleeRadius - 1);
-        Assert.True(nextDistance < initialDistance, $"Expected {assignment} to move closer to the queen. Before: {initialDistance}, after: {nextDistance}.");
+        Assert.True(
+            nextWorldDistance < initialWorldDistance,
+            $"Expected {assignment} to move closer to the queen. Cell distance before: {initialDistance}, after: {nextDistance}.");
     }
 
     [Fact]
@@ -92,5 +101,12 @@ public sealed class WorkerFleeBehaviorTests
     private static int MinDistanceToQueen(GridPoint location, IEnumerable<TriloGame.Game.Core.World.Tile> queenFeedTiles)
     {
         return queenFeedTiles.Min(tile => GridPoint.ManhattanDistance(location, tile.Coordinates));
+    }
+
+    private static long MinWorldDistanceToQueen(Creature creature, Queen queen)
+    {
+        var feedingZone = queen.InteractionZones.Single(zone =>
+            zone.Purpose == TriloGame.Game.Core.Interaction.InteractionZonePurpose.Feeding);
+        return feedingZone.SlotPositions.Min(position => (position - creature.Position).LengthSquared);
     }
 }

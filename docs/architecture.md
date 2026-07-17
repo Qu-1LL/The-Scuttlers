@@ -17,9 +17,15 @@ The project is currently a single MonoGame game assembly with layered modules in
   - cave generation is isolated in `Core/World/CaveGenerator.cs`; `Cave` owns world state and
     simulation-facing coordination rather than generation policy details
   - cave path queries that do not need to mutate world state live in `Core/Pathfinding`
-  - trilobite role dispatch is isolated behind `Core/Entities/TrilobiteRoleBehavior.cs`, with
-    role-specific behavior components such as `TrilobiteFighterBehavior.cs` owning extracted
-    state machines
+  - creature role work is represented by typed `CreatureTask` values; role and activity are typed
+    state, with the combat role controller and battle plan owning explicit fighter transitions
+    and deterministic army-level cohorts
+  - `Core/Movement` owns fixed-point continuous routes, environment-aware locomotion,
+    deterministic formations, and explicit impulse displacement
+  - terrain, buildings, topology, and coarse BFS remain cell based; moving bodies are not stored
+    on `Tile` and walking does not invalidate static terrain fields
+  - `Core/Interaction` owns rotated rectangular building zones, physical slots, and deterministic
+    30-tick reservation leases
 - `Runtime`
   - startup/bootstrap flow
   - simulation clock orchestration
@@ -84,6 +90,48 @@ should not remain the long-term home for new gameplay rules or reusable orchestr
 - `Runtime/Automation/GamePlayApi.cs`
 
 These form the current “golden path” for adding structure without destabilizing the whole game.
+
+## Continuous World Model
+
+- `WorldPoint` and `WorldVector` are authoritative deterministic coordinates with 16 subunits per
+  world pixel. Floating-point conversion is a rendering and external-API boundary only.
+- Every creature has a stable numeric ID, circular body, previous/current position, velocity,
+  desired velocity, typed role/activity, and persistent desired route.
+- `Creature.Location` is a read-only projection of `Position`; it is not mutable authority.
+- Creature locomotion collides with environment blockers only; creature bodies may overlap one
+  another. `ApplyImpulse` displaces only the target creature, and unresolved displacement remains
+  pending for later ticks.
+- Hosted creatures use the same authoritative position at a kinematic station anchor. Vehicles
+  remain separate world objects but block creature circles through the same clearance rules.
+- Point-route construction is capped at 32 per tick. Excess typed navigation tasks remain in
+  `Planning` and retry in stable creature-ID order.
+- Route following, arrival, and wall avoidance produce preferred velocity only; swept environment
+  collision remains authoritative.
+- `Core/Combat/CombatWorld` owns fixed-tick attack commands, centered creature-body hitboxes and
+  hurtboxes, circle, AABB, and capsule narrow phase tests, a uniform-grid broadphase, stable hit
+  events, and faction filtering. It resolves against final post-movement poses and emits shared
+  damage/audio events. Structure attacks retain a blocked-tile reach envelope, while creature
+  combat uses the same centered body shape for both sides.
+- `Core/Combat/CombatAgentController` consumes automatic 8x8 threat-sector directives and routes
+  fighters to the assigned enemy's live world pose before attacking. Pursuit routes refresh only
+  on a target identity or cell change and preserve the current movement phase. Fighters keep only
+  the colony `fighter` profession; named tactical subroles are not part of simulation state.
+- Enemies expose the same explicit combat lifecycle through `EnemyCombatState`, separating target
+  acquisition, colony pursuit, attacks, breaches, and recovery for runtime inspection and replay
+  diagnostics.
+- Combat target selection uses the spatial grid plus deterministic sector pressure and stable ID
+  tie-breaking. No attacker performs an army-wide scan during hit resolution.
+- `MiningStrikeSystem` owns the unchanged mining claim/reach/timing path. Mining strikes are
+  point-sampled at their rendered magenta point and never share combat hitbox state.
+- `MiningClaimAllocator` gives miners deterministic claims while allowing multiple miners to share
+  a mineable target, and each post rotates its mineable queue so autonomous and manual mining
+  orders keep round-robin pressure on the available work.
+- Trilobite role state machines start from an explicit idle state. Idle workers use the shared
+  deterministic idle movement and periodically sample queen-adjacent convene points before resuming
+  role work.
+- Creature carrier inventory may contain multiple resource types; older `Inventory.Type` callers
+  observe the first carried resource for compatibility, while deposit paths drain all carried
+  stacks into compatible storage.
 
 ## UI Rendering Notes
 

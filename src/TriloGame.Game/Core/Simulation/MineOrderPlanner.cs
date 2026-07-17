@@ -15,6 +15,7 @@ public static class MineOrderPlanner
         var activeMiners = miners
             .Where(miner => miner.Cave == cave && string.Equals(miner.Assignment, "miner", StringComparison.Ordinal))
             .Distinct()
+            .OrderBy(miner => miner.Id)
             .ToArray();
         if (activeMiners.Length == 0)
         {
@@ -45,55 +46,10 @@ public static class MineOrderPlanner
             return FinalizePlans(plans);
         }
 
-        var remaining = new List<ResolvedMineSelection>(resolvedSelections);
-        var cursors = activeMiners.ToDictionary(miner => miner, miner => miner.Location, ReferenceEqualityComparer.Instance);
-        while (remaining.Count > 0)
+        for (var selectionIndex = 0; selectionIndex < resolvedSelections.Count; selectionIndex++)
         {
-            var assignedThisRound = false;
-            foreach (var miner in activeMiners)
-            {
-                if (remaining.Count == 0)
-                {
-                    break;
-                }
-
-                var cursor = cursors[miner];
-                var bestIndex = -1;
-                var bestDistance = int.MaxValue;
-                string? bestKey = null;
-
-                for (var index = 0; index < remaining.Count; index++)
-                {
-                    var candidate = remaining[index];
-                    var distance = GridPoint.SquaredDistance(cursor, candidate.TargetTile.Coordinates);
-                    if (bestIndex >= 0 &&
-                        (distance > bestDistance ||
-                         (distance == bestDistance && string.CompareOrdinal(candidate.RequestedKey, bestKey) >= 0)))
-                    {
-                        continue;
-                    }
-
-                    bestIndex = index;
-                    bestDistance = distance;
-                    bestKey = candidate.RequestedKey;
-                }
-
-                if (bestIndex < 0)
-                {
-                    continue;
-                }
-
-                var selected = remaining[bestIndex];
-                remaining.RemoveAt(bestIndex);
-                plans[miner].Add(selected.RequestedKey);
-                cursors[miner] = selected.TargetTile.Coordinates;
-                assignedThisRound = true;
-            }
-
-            if (!assignedThisRound)
-            {
-                break;
-            }
+            var miner = activeMiners[selectionIndex % activeMiners.Length];
+            plans[miner].Add(resolvedSelections[selectionIndex].RequestedKey);
         }
 
         return FinalizePlans(plans);
@@ -168,11 +124,6 @@ public static class MineOrderPlanner
 
     public static GridPoint? GetNavigationTarget(Cave cave, Tile tile)
     {
-        if (tile.CreatureFits())
-        {
-            return tile.Coordinates;
-        }
-
         if (!Building.IsMineableType(tile.Base))
         {
             return null;

@@ -23,8 +23,13 @@ public static class GameAudioContentCatalog
         new(GameAudioCue.InvalidBranchPlacement, "Audio/Invalid"),
         new(GameAudioCue.UnlockNode, "Audio/UnlockNode"),
         new(GameAudioCue.VolumeSound, "Audio/Effects/VolumeSound"),
-        new(GameAudioCue.MiningPostFocus, "Audio/Effects/pickaxe"),
-        new(GameAudioCue.AlgaeFarmFocus, "Audio/Effects/mulch")
+        new(GameAudioCue.AlgaeFarmFocus, "Audio/Effects/mulch"),
+        new(GameAudioCue.RadarFocus, "Audio/Effects/RadarSound"),
+        new(GameAudioCue.MiningStrike, "Audio/Effects/pickaxe"),
+        new(GameAudioCue.CombatStrike, "Audio/Effects/OnAttack"),
+        new(GameAudioCue.HitAffect, "Audio/Effects/OnHitAffect"),
+        new(GameAudioCue.CreatureDeposit, "Audio/Effects/DepositSound"),
+        new(GameAudioCue.CreatureDeath, "Audio/Effects/CreatureDeath")
     ];
 
     public static IReadOnlyList<TrackRegistration> TrackRegistrations { get; } =

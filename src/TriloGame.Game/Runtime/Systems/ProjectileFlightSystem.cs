@@ -30,7 +30,7 @@ public sealed class ProjectileFlightSystem
                 continue;
             }
 
-            flight.Target.TakeDamage(flight.Projectile.Damage, flight.Source);
+            session.Combat.SubmitProjectileImpact(flight.Source, flight.Target, flight.Projectile.Damage);
             flights.RemoveAt(index);
             resolvedImpacts++;
         }

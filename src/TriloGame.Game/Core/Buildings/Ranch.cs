@@ -94,7 +94,7 @@ public sealed class Ranch : Building, IStorage
     {
         if (_plow?.Cave == cave)
         {
-            return _plow.PathPreview.Count == 0 && TryCompleteActivePlowCycle() ? 1 : 0;
+            return _plow.RouteCells.Count == 0 && TryCompleteActivePlowCycle() ? 1 : 0;
         }
 
         if (_waitingFarmer is null)
@@ -104,7 +104,7 @@ public sealed class Ranch : Building, IStorage
 
         if (!_assignments.Contains(_waitingFarmer) || Garage is null)
         {
-            ClearWaitingFarmerState(restoreToTileSystem: true);
+            ClearWaitingFarmerState(restoreLocomotion: true);
             return 0;
         }
 
@@ -166,7 +166,7 @@ public sealed class Ranch : Building, IStorage
         UntrackCreature(creature);
         if (ReferenceEquals(_waitingFarmer, creature))
         {
-            ClearWaitingFarmerState(restoreToTileSystem: true);
+            ClearWaitingFarmerState(restoreLocomotion: true);
         }
 
         if (_plow?.IsCreatureStationed(creature) == true)
@@ -216,11 +216,10 @@ public sealed class Ranch : Building, IStorage
         _waitingFarmer = farmer;
         _waitingFarmerRestoreLocation = farmer.Location;
         _garageWaitTicksRemaining = 20;
-        Cave.RemoveCreatureFromTileSystem(farmer);
-        farmer.Location = Garage.GetCenter();
+        Cave.DisableCreatureLocomotion(farmer);
         farmer.HostOnBuilding(Garage, GetGarageWorldCenter(Garage), drawBelowBuildings: true);
         farmer.IsVisible = true;
-        farmer.ClearActionQueue();
+        farmer.ClearTaskQueue();
         return true;
     }
 
@@ -584,7 +583,6 @@ public sealed class Ranch : Building, IStorage
         }
 
         var farmer = _waitingFarmer;
-        farmer.Location = _waitingFarmerRestoreLocation ?? farmer.Location;
         farmer.IsVisible = true;
         if (!_plow.StationCreature(farmer))
         {
@@ -1214,10 +1212,9 @@ public sealed class Ranch : Building, IStorage
         _waitingFarmer = farmer;
         _waitingFarmerRestoreLocation = restoreLocation;
         _garageWaitTicksRemaining = 20;
-        farmer.Location = restoreLocation;
         farmer.HostOnBuilding(garage, GetGarageWorldCenter(garage), drawBelowBuildings: true);
         farmer.IsVisible = true;
-        farmer.ClearActionQueue();
+        farmer.ClearTaskQueue();
         _plow.RemoveFromGame("ranchCycleComplete");
         return true;
     }
@@ -1325,7 +1322,7 @@ public sealed class Ranch : Building, IStorage
         _plowPathDirty = true;
     }
 
-    private void ClearWaitingFarmerState(bool restoreToTileSystem)
+    private void ClearWaitingFarmerState(bool restoreLocomotion)
     {
         if (_waitingFarmer is not { } farmer)
         {
@@ -1333,16 +1330,12 @@ public sealed class Ranch : Building, IStorage
         }
 
         farmer.IsVisible = true;
-        if (_waitingFarmerRestoreLocation is { } restoreLocation)
+        if (restoreLocomotion)
         {
-            farmer.Location = restoreLocation;
-        }
-
-        if (restoreToTileSystem)
-        {
-            if (Cave?.PlaceCreatureOnTile(farmer, farmer.Location, randomizeMovementOffset: false) != true)
+            var restoreLocation = _waitingFarmerRestoreLocation ?? farmer.Location;
+            if (Cave?.PlaceCreatureOnTile(farmer, restoreLocation) != true)
             {
-                farmer.LeaveTileSystem();
+                farmer.DisableLocomotion();
             }
         }
 

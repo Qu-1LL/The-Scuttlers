@@ -542,7 +542,7 @@ public sealed class BfsField
         {
             foreach (var creature in Cave.GetEnemyList())
             {
-                if (!creature.IsTrackedInTileSystem)
+                if (!creature.IsLocomotionEnabled)
                 {
                     continue;
                 }
@@ -562,7 +562,7 @@ public sealed class BfsField
         {
             foreach (var creature in Cave.GetTrilobiteList())
             {
-                if (!creature.IsTrackedInTileSystem)
+                if (!creature.IsLocomotionEnabled)
                 {
                     continue;
                 }
@@ -586,9 +586,10 @@ public sealed class BfsField
                 }
 
                 trackedBuildings.Add(building);
-                var isAlgaeFarm = string.Equals(building.Name, "Algae Farm", StringComparison.Ordinal) ||
-                                  string.Equals(building.GetType().Name, "AlgaeFarm", StringComparison.Ordinal);
-                AddBuildingTargets(building, isAlgaeFarm);
+                // Every colony building is a valid ant destination. Passable tiles inside
+                // an open-map building still need to be blocked as target seeds; otherwise
+                // the colony field has no route endpoint for that building.
+                AddBuildingTargets(building, blockPassableTiles: true);
             }
 
             foreach (var vehicle in Cave.GetVehicles())

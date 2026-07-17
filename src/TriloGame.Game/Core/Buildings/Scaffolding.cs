@@ -1,6 +1,7 @@
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -64,6 +65,37 @@ public sealed class Scaffolding : Building
     public bool ResourceComplete { get; private set; }
 
     public bool CompletionPending { get; private set; }
+
+    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions()
+    {
+        var width = DisplayBaseSize.X;
+        var height = DisplayBaseSize.Y;
+        return
+        [
+            CreateEdgeZone("North work edge", new GridPoint(0, -1), new GridPoint(width, 1), width, horizontal: true),
+            CreateEdgeZone("East work edge", new GridPoint(width, 0), new GridPoint(1, height), height, horizontal: false),
+            CreateEdgeZone("South work edge", new GridPoint(0, height), new GridPoint(width, 1), width, horizontal: true),
+            CreateEdgeZone("West work edge", new GridPoint(-1, 0), new GridPoint(1, height), height, horizontal: false)
+        ];
+    }
+
+    private static InteractionZoneDefinition CreateEdgeZone(
+        string name,
+        GridPoint origin,
+        GridPoint size,
+        int slotCount,
+        bool horizontal)
+    {
+        var slots = new GridPoint[slotCount];
+        for (var index = 0; index < slotCount; index++)
+        {
+            slots[index] = horizontal
+                ? new GridPoint(origin.X + index, origin.Y)
+                : new GridPoint(origin.X, origin.Y + index);
+        }
+
+        return new InteractionZoneDefinition(name, InteractionZonePurpose.Construction, origin, size, slots);
+    }
 
     public override int[][] RotateMap()
     {
@@ -347,7 +379,7 @@ public sealed class Scaffolding : Building
             return false;
         }
 
-        if (HasTrilobitesInConstructionArea())
+        if (Cave.HasCreatureOverlappingSolidCells(TargetBuilding, Location.Value))
         {
             CompletionPending = true;
             return false;
@@ -361,7 +393,10 @@ public sealed class Scaffolding : Building
         if (cave.ReplaceBuilding(this, TargetBuilding, location, source ?? "scaffoldingComplete"))
         {
             CompletionPending = false;
-            Session.RequestAudioCue(GameAudioCue.BuildingFinished);
+            Session.RequestAudioCue(
+                GameAudioCue.BuildingFinished,
+                WorldPoint.FromGridPoint(TargetBuilding.GetCenter()),
+                Math.Max(1f, TargetBuilding.Size.X * TargetBuilding.Size.Y));
             return true;
         }
 
@@ -562,19 +597,6 @@ public sealed class Scaffolding : Building
     }
 
     // Only live scaffold-owned tiles block completion; excluded cells stay out of the occupancy check.
-    private bool HasTrilobitesInConstructionArea()
-    {
-        foreach (var tile in TileArray)
-        {
-            if (ReferenceEquals(tile.Built, this) && tile.Trilobites.Count > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private static int BuildConstructionRequirement(IReadOnlyList<ResourceRequirement> recipeRequired)
     {
         var requiredWork = 0;

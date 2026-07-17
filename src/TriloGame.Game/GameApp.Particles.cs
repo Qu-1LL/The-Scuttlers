@@ -1,6 +1,10 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.World;
+using TriloGame.Game.Rendering;
 using TriloGame.Game.Rendering.Particles;
 using TriloGame.Game.Runtime.Automation;
 using TriloGame.Game.Shared.Math;
@@ -55,6 +59,8 @@ public sealed partial class GameApp
     private ParticleEmitter? _worldParticleEmitter;
     private Texture2D? _defaultParticleTexture;
     private Texture2D[] _deathMistTextures = [];
+    private readonly HashSet<int> _miningParticleHurtboxIds = [];
+    private readonly List<int> _miningParticleHurtboxIdsToRemove = [];
 
     private ParticleEmitter WorldParticleEmitter => _worldParticleEmitter ??= new ParticleEmitter(_worldParticleSystem);
 
@@ -71,7 +77,7 @@ public sealed partial class GameApp
 
     private void UpdateWorldParticles(GameTime gameTime)
     {
-        _worldParticleSystem.Update(gameTime);
+        _worldParticleSystem.Update(gameTime, _session.Cave);
     }
 
     private void DrawWorldParticles()
@@ -82,6 +88,117 @@ public sealed partial class GameApp
     private void ClearWorldParticles()
     {
         _worldParticleSystem.Clear();
+        _miningParticleHurtboxIds.Clear();
+        _miningParticleHurtboxIdsToRemove.Clear();
+    }
+
+    private void EmitMiningHitboxParticles(GameSession session)
+    {
+        var active = session.Mining.Active;
+        for (var index = 0; index < active.Count; index++)
+        {
+            var hurtbox = active[index];
+            if (hurtbox.TileKey is null ||
+                !_miningParticleHurtboxIds.Add(hurtbox.Id))
+            {
+                continue;
+            }
+
+            EmitMiningHitboxParticles(session, hurtbox);
+        }
+
+        _miningParticleHurtboxIdsToRemove.Clear();
+        foreach (var id in _miningParticleHurtboxIds)
+        {
+            if (!HasActiveMiningHurtbox(active, id))
+            {
+                _miningParticleHurtboxIdsToRemove.Add(id);
+            }
+        }
+
+        for (var index = 0; index < _miningParticleHurtboxIdsToRemove.Count; index++)
+        {
+            _miningParticleHurtboxIds.Remove(_miningParticleHurtboxIdsToRemove[index]);
+        }
+    }
+
+    private void EmitMiningHitboxParticles(GameSession session, MiningStrike hurtbox)
+    {
+        if (session.Cave?.GetTile(hurtbox.TileKey) is not { } tile ||
+            !TryGetMiningParticleTexture(tile, out var texture))
+        {
+            return;
+        }
+
+        var impact = ToParticleWorldPosition(hurtbox.Center);
+        var source = ToParticleWorldPosition(hurtbox.Source.Position);
+        WorldParticleEmitter.EmitMiningParticles(
+            new MiningParticleEmissionRequest
+            {
+                Texture = texture,
+                TextureSourceBounds = new Rectangle(0, 0, texture.Width, texture.Height),
+                WorldBounds = GetMiningHitParticleBounds(tile, source, impact),
+                ImpactPosition = impact,
+                Mode = MiningParticleEmissionMode.Hit,
+                Tint = Color.White
+            });
+    }
+
+    private bool TryGetMiningParticleTexture(Tile tile, out Texture2D texture)
+    {
+        var textureKey = WorldSceneRenderer.GetTileOverlayTextureKey(tile);
+        if (textureKey is null && string.Equals(tile.Base, "wall", StringComparison.Ordinal))
+        {
+            textureKey = "wall";
+        }
+
+        if (textureKey is not null && _rendering.Sprites.TryGet(textureKey, out texture!))
+        {
+            return true;
+        }
+
+        texture = null!;
+        return false;
+    }
+
+    private static ParticleWorldBounds GetMiningHitParticleBounds(Tile tile, Vector2 source, Vector2 impact)
+    {
+        var spawnCenter = tile.IsOreTile()
+            ? impact
+            : Vector2.Lerp(source, impact, 0.5f);
+
+        if (!tile.IsOreTile())
+        {
+            var awayFromImpact = source - impact;
+            if (awayFromImpact.LengthSquared() > 0.0001f)
+            {
+                awayFromImpact.Normalize();
+                spawnCenter += awayFromImpact;
+            }
+        }
+
+        return ParticleWorldBounds.Centered(spawnCenter, 24f, 24f);
+    }
+
+    private static Vector2 ToParticleWorldPosition(WorldPoint point)
+    {
+        return new Vector2(
+            point.X / (float)WorldUnits.UnitsPerPixel,
+            point.Y / (float)WorldUnits.UnitsPerPixel);
+    }
+
+    private static bool HasActiveMiningHurtbox(IReadOnlyList<MiningStrike> active, int id)
+    {
+        for (var index = 0; index < active.Count; index++)
+        {
+            var hurtbox = active[index];
+            if (hurtbox.Id == id)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private int EmitAdjacentTileSpray(GridPoint sourceTile)

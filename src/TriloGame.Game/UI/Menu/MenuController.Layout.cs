@@ -593,17 +593,28 @@ public sealed partial class MenuController
 
     private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IInventoryCarrier carrier)
     {
-        if (!carrier.HasInventory() ||
-            !carrier.Inventory.Type.HasValue ||
-            carrier.Inventory.Amount <= 0)
+        if (!carrier.HasInventory())
         {
             return [];
         }
 
-        return [new InventoryEntryData(
-            ItemCatalog.GetName(carrier.Inventory.Type.Value),
-            carrier.Inventory.Amount,
-            ItemCatalog.GetTextureKey(carrier.Inventory.Type.Value))];
+        var result = new List<InventoryEntryData>(carrier.Inventory.ResourceTypeCount);
+        for (var index = 0; index < carrier.Inventory.ResourceTypeCount; index++)
+        {
+            var resourceType = carrier.Inventory.GetResourceTypeAt(index);
+            var amount = carrier.Inventory.GetAmount(resourceType);
+            if (amount <= 0)
+            {
+                continue;
+            }
+
+            result.Add(new InventoryEntryData(
+                ItemCatalog.GetName(resourceType),
+                amount,
+                ItemCatalog.GetTextureKey(resourceType)));
+        }
+
+        return result;
     }
 
     private static string BuildSelectedDescriptionText(object? selectedObject)

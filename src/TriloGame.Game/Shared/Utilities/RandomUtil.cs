@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace TriloGame.Game.Shared.Utilities;
 
 public static class RandomUtil
@@ -40,15 +38,4 @@ public static class RandomUtil
         return (z * standardDeviation) + mean;
     }
 
-    // Pick a random world-space offset inside the requested radial band.
-    public static Vector2 NextMovementOffset(float minDistance, float maxDistance)
-    {
-        var safeMax = System.Math.Max(minDistance, maxDistance);
-        var angle = Shared.NextDouble() * System.Math.PI * 2d;
-        var distance = minDistance + (Shared.NextDouble() * (safeMax - minDistance));
-
-        return new Vector2(
-            (float)(System.Math.Cos(angle) * distance),
-            (float)(System.Math.Sin(angle) * distance));
-    }
 }

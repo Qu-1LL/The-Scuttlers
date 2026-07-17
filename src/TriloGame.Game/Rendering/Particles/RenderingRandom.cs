@@ -21,6 +21,13 @@ internal static class RenderingRandom
         return maxExclusive <= 0 ? 0 : Shared.Next(maxExclusive);
     }
 
+    public static int NextInt(int minInclusive, int maxInclusive)
+    {
+        var safeMin = Math.Min(minInclusive, maxInclusive);
+        var safeMax = Math.Max(minInclusive, maxInclusive);
+        return safeMin == safeMax ? safeMin : Shared.Next(safeMin, safeMax + 1);
+    }
+
     public static float NextUnit()
     {
         return (float)Shared.NextDouble();

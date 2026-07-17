@@ -108,9 +108,36 @@ public sealed partial class Cave
             {
                 return false;
             }
+
+            if (HasCreatureBodyInVehicleCell(vehicle, point))
+            {
+                return false;
+            }
         }
 
         return true;
+    }
+
+    private bool HasCreatureBodyInVehicleCell(Vehicle vehicle, GridPoint cell)
+    {
+        for (var index = 0; index < _trilobiteList.Count; index++)
+        {
+            var creature = _trilobiteList[index];
+            if (!creature.IsHostedOnVehicle(vehicle) && CircleOverlapsCell(creature, cell))
+            {
+                return true;
+            }
+        }
+
+        for (var index = 0; index < _enemyList.Count; index++)
+        {
+            if (CircleOverlapsCell(_enemyList[index], cell))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private List<Tile> BuildVehicleTileArray(Vehicle vehicle, GridPoint location)

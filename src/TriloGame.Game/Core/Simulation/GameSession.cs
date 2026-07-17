@@ -18,6 +18,11 @@ namespace TriloGame.Game.Core.Simulation;
 
 public sealed class GameSession
 {
+    private int _nextCreatureId = 1;
+    private int _nextWorldObjectId = 1;
+    private int _nextMovementCohortId = 1;
+    private readonly int[] _lastAudioCueTicks;
+
     public GameSession()
     {
         EventBus = new GameEventBus();
@@ -43,6 +48,10 @@ public sealed class GameSession
         Runtime = new GameSessionRuntimeState();
         TraitHandler = new TrilobiteTraitHandler(this);
         MiningPostMovementTelemetry = new MiningPostMovementTelemetry();
+        Combat = new CombatWorld();
+        Mining = new MiningStrikeSystem();
+        _lastAudioCueTicks = new int[Enum.GetValues<GameAudioCue>().Length];
+        Array.Fill(_lastAudioCueTicks, int.MinValue);
     }
 
     public GameEventBus EventBus { get; }
@@ -75,9 +84,31 @@ public sealed class GameSession
 
     public MiningPostMovementTelemetry MiningPostMovementTelemetry { get; }
 
+    public CombatWorld Combat { get; }
+
+    public MiningStrikeSystem Mining { get; }
+
+
     public event Action<GameAudioCue>? AudioCueRequested;
+    public event Action<AudioCueRequest>? AudioCuePlaybackRequested;
+    public event Action<CreatureDamagedEvent>? CreatureDamaged;
     public event Action<float>? ScreenShakeRequested;
     public event Action<DeathMistRequest>? DeathMistRequested;
+
+    public int AllocateCreatureId()
+    {
+        return _nextCreatureId++;
+    }
+
+    public int AllocateWorldObjectId()
+    {
+        return _nextWorldObjectId++;
+    }
+
+    public int AllocateMovementCohortId()
+    {
+        return _nextMovementCohortId++;
+    }
 
     public Action On(string eventName, Action<GameEventPayload> listener)
     {
@@ -104,6 +135,43 @@ public sealed class GameSession
     public void RequestAudioCue(GameAudioCue cue)
     {
         AudioCueRequested?.Invoke(cue);
+        AudioCuePlaybackRequested?.Invoke(new AudioCueRequest(cue));
+    }
+
+    public void RequestAudioCue(GameAudioCue cue, WorldPoint worldPosition, float footprintTiles)
+    {
+        AudioCueRequested?.Invoke(cue);
+        AudioCuePlaybackRequested?.Invoke(new AudioCueRequest(cue, worldPosition, footprintTiles));
+    }
+
+    public void RequestAudioCueOncePerTick(GameAudioCue cue)
+    {
+        var index = (int)cue;
+        if ((uint)index >= (uint)_lastAudioCueTicks.Length || _lastAudioCueTicks[index] == TickCount)
+        {
+            return;
+        }
+
+        _lastAudioCueTicks[index] = TickCount;
+        RequestAudioCue(cue);
+    }
+
+    public void RequestAudioCueOncePerTick(GameAudioCue cue, WorldPoint worldPosition, float footprintTiles)
+    {
+        var index = (int)cue;
+        if ((uint)index >= (uint)_lastAudioCueTicks.Length || _lastAudioCueTicks[index] == TickCount)
+        {
+            return;
+        }
+
+        _lastAudioCueTicks[index] = TickCount;
+        RequestAudioCue(cue, worldPosition, footprintTiles);
+    }
+
+    internal void NotifyCreatureDamaged(Entities.Creature creature, int amount, object? source)
+    {
+        Runtime.RestartDamageFlash(creature.Id);
+        CreatureDamaged?.Invoke(new CreatureDamagedEvent(creature.Id, amount, source, TickCount));
     }
 
     public void RequestScreenShake(float intensity)
@@ -536,3 +604,5 @@ public readonly record struct MineTileResult(
 {
     public static MineTileResult NotApplied => new(false, false, null, 0, false, null, 0, 0, 0);
 }
+
+public readonly record struct CreatureDamagedEvent(int CreatureId, int Amount, object? Source, int Tick);

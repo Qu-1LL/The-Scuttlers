@@ -9,6 +9,8 @@ public interface IVehicle
 {
     string Name { get; }
 
+    int Id { get; }
+
     string Description { get; }
 
     string TextureKey { get; }
@@ -35,7 +37,9 @@ public interface IVehicle
 
     IReadOnlyList<Tile> TileArray { get; }
 
-    IReadOnlyList<GridPoint> PathPreview { get; }
+    IReadOnlyList<GridPoint> RouteCells { get; }
+
+    Interaction.WorldRectangle GetWorldBounds();
 
     int GetDisplayRotationTurns();
 

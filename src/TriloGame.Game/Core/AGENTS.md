@@ -80,23 +80,39 @@ on the whole 2x2 patch.
   never requires non-soil tiles.
 - Keep the solver deterministic and mutation-driven; do not rerun it every tick.
 
-## Creature Tracking And Building Projections
+## Creature Bodies And Building Projections
 
-When adding buildings that care about nearby moving units, use the current projection/tracking
-pattern instead of adding per-tick radius scans.
+Creature `Position` is authoritative fixed-point world state. `Location`/`CurrentCell` are
+read-only coarse-cell projections. Never add creature ownership collections back to `Tile`.
+
+When adding buildings that care about nearby moving units, use cell-transition projection
+notifications or the continuous spatial query instead of adding per-tick full-world scans.
 
 - `Tile` owns a `Projections` list of buildings watching that tile.
 - `Building` owns a `ProjectedTiles` list for the tiles it currently watches.
 - Radius-based buildings should populate `ProjectedTiles` during `OnBuilt` from the building
   center using coordinate iteration plus distance checks, and clear those registrations during
   removal.
-- Tile occupancy transitions in `Cave` are the projection trigger point:
+- Creature cell transitions in `Cave` are the projection trigger point:
   - when a creature leaves a tile, buildings that are no longer covered should receive
     `TargetNoLongerInRadius(creature)`
   - when a creature enters a tile, newly covered buildings should receive
     `TargetInRadius(creature)`
-- Do not re-scan a full radius every tick when tile-transition projection hooks can answer the
+- Do not re-scan a full radius every tick when cell-transition projection hooks can answer the
   same question incrementally.
+
+Movement and interaction invariants:
+
+- terrain/building topology remains cell based; creatures and hosted bodies do not belong to tiles
+- creatures collide only with environment blockers; creature bodies may overlap one another
+- normal locomotion and explicit impulses do not push other creature bodies
+- interaction work requires a live slot reservation, exact slot position, and low speed
+- path construction may be deferred by the deterministic per-tick budget
+- keep reservations and state commits single threaded
+
+Run the strict 200-trilobite/50-ant reference-machine gates with
+`TRILO_ENFORCE_PERF_BUDGETS=1`; ordinary test runs still execute and report the benchmark without
+applying hardware-dependent timing assertions.
 
 For creature lifecycle cleanup, use the explicit tracking seam:
 

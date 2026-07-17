@@ -9,6 +9,8 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
@@ -106,7 +108,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     public GameApp()
     {
         _graphics = new GraphicsDeviceManager(this);
-        _sessionAudioBridge = new SessionAudioBridge(_audio);
+        _sessionAudioBridge = new SessionAudioBridge(_audio, () => _camera);
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
         _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
         _focusAudioSystem = new FocusAudioSystem(_audio);
@@ -116,6 +118,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             value => _session.Runtime.NoCostBuildPlacement = value,
             value => _infiniteDraft = value,
             SetFullMapVisibility,
+            value => _session.Runtime.ShowHitboxes = value,
+            value => _session.Runtime.ShowInteractionZones = value,
             PlayUiSelectSound);
         _roundManager.RoundStarted += HandleRoundStarted;
         _roundManager.RoundEnded += HandleRoundEnded;
@@ -313,6 +317,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     {
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
+        _session.Runtime.AdvancePresentation(gameTime.ElapsedGameTime.TotalMilliseconds);
         _camera.Update(gameTime);
         _worldSpriteEffects.Update(gameTime);
         UpdateMusic(gameTime);
@@ -591,10 +596,18 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
         if (_session.Cave is not null)
         {
-            _worldSceneRenderer.DrawWorldLayer(_rendering, _session, _worldSpriteEffects, Window.ClientBounds.Size, _showFullMapVisibility);
+            _worldSceneRenderer.DrawWorldLayer(
+                _rendering,
+                _session,
+                _worldSpriteEffects,
+                Window.ClientBounds.Size,
+                _showFullMapVisibility,
+                _session.Runtime.ShowHitboxes,
+                _simulationClock.InterpolationAlpha);
             DrawWorldParticles();
             DrawSelection();
             DrawFloatingPreview();
+            DrawContinuousWorldDebug(_session.Cave);
             DrawDebugOverlay(_session.Cave);
         }
 
@@ -603,6 +616,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (_session.Cave is not null)
         {
             DrawRoleLabels(_session.Cave);
+            DrawWorldDebugTooltip(_session.Cave);
             DrawMiningTileSelection();
             DrawSelectionBox();
         }
@@ -694,14 +708,19 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             endLocation,
             _buildingPlacementDragStart);
         var placedAny = false;
+        GridPoint? placedSoundLocation = null;
         foreach (var location in locations)
         {
-            placedAny |= TryPlaceBuildingAt(location);
+            if (TryPlaceBuildingAt(location))
+            {
+                placedAny = true;
+                placedSoundLocation ??= location;
+            }
         }
 
         if (placedAny)
         {
-            _audio.Play(GameAudioCue.BuildingPlace);
+            PlayBuildingPlacementSound(placedSoundLocation!.Value, _buildingPlacementCursor!.TargetBuilding);
             _buildingPlacementCursor!.RefreshAfterSuccessfulPlacement();
         }
     }
@@ -1103,7 +1122,9 @@ public sealed partial class GameApp
                 _session.Runtime.DisableEnemySpawns,
                 _session.Runtime.NoCostBuildPlacement,
                 _infiniteDraft,
-                _showFullMapVisibility))
+                _showFullMapVisibility,
+                _session.Runtime.ShowHitboxes,
+                _session.Runtime.ShowInteractionZones))
         {
             return;
         }
@@ -1345,7 +1366,7 @@ public sealed partial class GameApp
             ClearMiningTileSelection();
             if (TryPlaceBuildingAt(buildLocation))
             {
-                _audio.Play(GameAudioCue.BuildingPlace);
+                PlayBuildingPlacementSound(buildLocation, _buildingPlacementCursor!.TargetBuilding);
                 _buildingPlacementCursor!.RefreshAfterSuccessfulPlacement();
             }
 
@@ -1437,7 +1458,7 @@ public sealed partial class GameApp
 
         if (TryConsumePendingManualMove(tile.Key, out var pendingTargets))
         {
-            TryHandleManualMove(tile, pendingTargets);
+            TryHandleManualMove(_camera.ScreenToWorld(point), pendingTargets);
             return;
         }
 
@@ -1657,7 +1678,7 @@ public sealed partial class GameApp
         _pendingManualMoveTargets = [];
     }
 
-    private bool TryHandleManualMove(Tile tile, IEnumerable<Trilobite>? targets = null)
+    private bool TryHandleManualMove(Vector2 worldCenter, IEnumerable<Trilobite>? targets = null)
     {
         var moveTargets = (targets ?? _selectedTrilobites)
             .Where(trilobite => trilobite.Cave is not null)
@@ -1668,11 +1689,26 @@ public sealed partial class GameApp
             return false;
         }
 
-        var destination = GridPoint.Parse(tile.Key);
-        var movedAny = false;
-        foreach (var trilobite in moveTargets)
+        var cave = _session.Cave;
+        if (cave is null)
         {
-            movedAny = trilobite.NavigateTo(destination, trilobite.GetBehavior(), clearExisting: true) || movedAny;
+            return false;
+        }
+
+        var sharedDestination = ToWorldPoint(worldCenter);
+        var sharedDestinationCell = sharedDestination.ToGridPoint();
+        var assignments = CreatureFormationPlanner.Build(cave, moveTargets, sharedDestination);
+        var cohortId = _session.AllocateMovementCohortId();
+        var cohort = new MovementCohort(CreatureFaction.Colony, MovementGoalKind.ManualCommand, cohortId);
+        var movedAny = false;
+        for (var index = 0; index < assignments.Count; index++)
+        {
+            var assignment = assignments[index];
+            assignment.Creature.SetMovementCohort(cohort);
+            movedAny = assignment.Creature.NavigateToViaSharedRoute(
+                assignment.Destination,
+                sharedDestinationCell,
+                clearExisting: true) || movedAny;
         }
 
         return movedAny;
@@ -1776,21 +1812,197 @@ public sealed partial class GameApp
             return;
         }
 
-        foreach (var trilobite in cave.Trilobites)
+        foreach (var trilobite in cave.GetTrilobiteList())
         {
-            var position = GetCreatureScreenPosition(trilobite);
-            var label = GetAssignmentLabel(trilobite.Assignment);
-            var size = GumTextLayout.Measure(label, GumTextStyle.Debug);
-            var bounds = new Rectangle(
-                (int)MathF.Round(position.X - (size.X / 2f) - 8f),
-                (int)MathF.Round(position.Y - (TileConstants.TileHalfSize * _camera.CurrentScale) - size.Y - 14f),
-                (int)MathF.Round(size.X + 16f),
-                (int)MathF.Round(size.Y + 8f));
-
-            _gumUiRenderer.AddFilledRectangle(bounds, new Color(6, 12, 18, 210));
-            DrawScreenBorder(bounds, new Color(127, 179, 196), 1);
-            DrawScreenTextFittedCentered(label, bounds, new Color(230, 239, 245), _rendering.DebugFont, minScale: 0.72f);
+            DrawCreatureRoleLabel(trilobite);
         }
+
+        foreach (var enemy in cave.GetEnemyList())
+        {
+            DrawCreatureRoleLabel(enemy);
+        }
+    }
+
+    private void DrawCreatureRoleLabel(Creature creature)
+    {
+        if (!creature.IsVisible)
+        {
+            return;
+        }
+
+        var position = GetCreatureScreenPosition(creature);
+        var label = $"{GetAssignmentLabel(creature.Role)} | {creature.Activity}";
+        var size = GumTextLayout.Measure(label, GumTextStyle.Debug);
+        var radiusOnScreen = (creature.CollisionRadius / (float)WorldUnits.UnitsPerPixel) * _camera.CurrentScale;
+        var bounds = new Rectangle(
+            (int)MathF.Round(position.X - (size.X / 2f) - 8f),
+            (int)MathF.Round(position.Y - radiusOnScreen - size.Y - 10f),
+            (int)MathF.Round(size.X + 16f),
+            (int)MathF.Round(size.Y + 8f));
+
+        _gumUiRenderer.AddFilledRectangle(bounds, new Color(6, 12, 18, 210));
+        DrawScreenBorder(bounds, new Color(127, 179, 196), 1);
+        DrawScreenTextFittedCentered(label, bounds, new Color(230, 239, 245), _rendering.DebugFont, minScale: 0.72f);
+    }
+
+    private void DrawContinuousWorldDebug(Cave cave)
+    {
+        if (_session.Runtime.ShowInteractionZones)
+        {
+            var buildings = cave.GetBuildingList();
+            for (var buildingIndex = 0; buildingIndex < buildings.Count; buildingIndex++)
+            {
+                var zones = buildings[buildingIndex].InteractionZones;
+                for (var zoneIndex = 0; zoneIndex < zones.Count; zoneIndex++)
+                {
+                    DrawInteractionZone(zones[zoneIndex]);
+                }
+            }
+        }
+
+        if (_session.Runtime.ShowHitboxes)
+        {
+            DrawCreatureHitboxes(cave.GetTrilobiteList());
+            DrawCreatureHitboxes(cave.GetEnemyList());
+        }
+
+        if (!_showRoleLabels)
+        {
+            return;
+        }
+
+        foreach (var selected in _selectedTrilobites)
+        {
+            DrawDesiredRoute(selected);
+        }
+
+        if (_selectedObject is Creature selectedCreature &&
+            (selectedCreature is not Trilobite selectedTrilobite || !_selectedTrilobites.Contains(selectedTrilobite)))
+        {
+            DrawDesiredRoute(selectedCreature);
+        }
+
+        var pointerWorld = ToWorldPoint(_camera.ScreenToWorld(_input.MousePoint));
+        var hovered = WorldDebugInspector.FindNearestCreature(cave, pointerWorld);
+        if (hovered is not null &&
+            (hovered is not Trilobite hoveredTrilobite || !_selectedTrilobites.Contains(hoveredTrilobite)) &&
+            !ReferenceEquals(_selectedObject, hovered))
+        {
+            DrawDesiredRoute(hovered);
+        }
+    }
+
+    private void DrawCreatureHitboxes<T>(IReadOnlyList<T> creatures) where T : Creature
+    {
+        var lime = new Color(118, 255, 70, 235);
+        for (var index = 0; index < creatures.Count; index++)
+        {
+            var creature = creatures[index];
+            if (creature.IsVisible)
+            {
+                DrawWorldCircleOutline(
+                    GetCreatureWorldPosition(creature),
+                    creature.CollisionRadius / (float)WorldUnits.UnitsPerPixel,
+                    lime,
+                    2f);
+            }
+        }
+    }
+
+    private void DrawInteractionZone(InteractionZone zone)
+    {
+        var bounds = zone.WorldBounds;
+        var topLeft = _camera.WorldToScreen(new Vector2(
+            bounds.X / (float)WorldUnits.UnitsPerPixel,
+            bounds.Y / (float)WorldUnits.UnitsPerPixel));
+        var bottomRight = _camera.WorldToScreen(new Vector2(
+            bounds.Right / (float)WorldUnits.UnitsPerPixel,
+            bounds.Bottom / (float)WorldUnits.UnitsPerPixel));
+        var screenBounds = new Rectangle(
+            (int)MathF.Round(MathF.Min(topLeft.X, bottomRight.X)),
+            (int)MathF.Round(MathF.Min(topLeft.Y, bottomRight.Y)),
+            Math.Max(1, (int)MathF.Round(MathF.Abs(bottomRight.X - topLeft.X))),
+            Math.Max(1, (int)MathF.Round(MathF.Abs(bottomRight.Y - topLeft.Y))));
+        var cyan = new Color(58, 224, 239, 220);
+        _spriteBatch.Draw(_rendering.WhitePixel, screenBounds, new Color(58, 224, 239, 34));
+        DrawScreenLine(new Vector2(screenBounds.Left, screenBounds.Top), new Vector2(screenBounds.Right, screenBounds.Top), cyan, 2f);
+        DrawScreenLine(new Vector2(screenBounds.Right, screenBounds.Top), new Vector2(screenBounds.Right, screenBounds.Bottom), cyan, 2f);
+        DrawScreenLine(new Vector2(screenBounds.Right, screenBounds.Bottom), new Vector2(screenBounds.Left, screenBounds.Bottom), cyan, 2f);
+        DrawScreenLine(new Vector2(screenBounds.Left, screenBounds.Bottom), new Vector2(screenBounds.Left, screenBounds.Top), cyan, 2f);
+
+        for (var index = 0; index < zone.SlotPositions.Count; index++)
+        {
+            if (!zone.IsReserved(index))
+            {
+                continue;
+            }
+
+            var center = _camera.WorldToScreen(ToFrameworkVector(zone.SlotPositions[index].ToWorldPixels()));
+            var marker = new Rectangle((int)center.X - 5, (int)center.Y - 5, 10, 10);
+            _spriteBatch.Draw(_rendering.WhitePixel, marker, new Color(255, 187, 58, 230));
+        }
+    }
+
+    private void DrawDesiredRoute(Creature creature)
+    {
+        if (creature.Activity != CreatureActivity.Moving || creature.DesiredRouteIndex >= creature.DesiredRoute.Count)
+        {
+            return;
+        }
+
+        var previous = _camera.WorldToScreen(GetCreatureWorldPosition(creature));
+        var cyan = new Color(68, 224, 238, 230);
+        for (var index = creature.DesiredRouteIndex; index < creature.DesiredRoute.Count; index++)
+        {
+            var next = _camera.WorldToScreen(ToFrameworkVector(creature.DesiredRoute[index].ToWorldPixels()));
+            DrawScreenLine(previous, next, cyan, 2f);
+            previous = next;
+        }
+    }
+
+    private void DrawWorldDebugTooltip(Cave cave)
+    {
+        if (!_session.Runtime.ShowHitboxes && !_session.Runtime.ShowInteractionZones)
+        {
+            return;
+        }
+
+        var inspection = WorldDebugInspector.Inspect(
+            cave,
+            ToWorldPoint(_camera.ScreenToWorld(_input.MousePoint)),
+            _session.Runtime.ShowHitboxes,
+            _session.Runtime.ShowInteractionZones);
+        if (!inspection.HasValue)
+        {
+            return;
+        }
+
+        var lines = inspection.Tooltip.Split('\n');
+        var width = 0f;
+        var height = 0f;
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var size = GumTextLayout.Measure(lines[index], GumTextStyle.Compact);
+            width = MathF.Max(width, size.X);
+            height += size.Y;
+        }
+
+        var viewport = Window.ClientBounds.Size;
+        var bounds = new Rectangle(
+            Math.Clamp(_input.MousePoint.X + 14, 8, Math.Max(8, viewport.X - (int)width - 30)),
+            Math.Clamp(_input.MousePoint.Y + 14, 8, Math.Max(8, viewport.Y - (int)height - 26)),
+            (int)MathF.Ceiling(width) + 20,
+            (int)MathF.Ceiling(height) + 12);
+        _gumUiRenderer.AddFilledRectangle(bounds, new Color(5, 13, 19, 235));
+        _gumUiRenderer.AddRectangleOutline(bounds, new Color(117, 199, 217), 1);
+        _gumUiRenderer.AddText(
+            new Rectangle(bounds.X + 10, bounds.Y + 6, bounds.Width - 20, bounds.Height - 12),
+            inspection.Tooltip,
+            new Color(231, 243, 247),
+            HorizontalAlignment.Left,
+            VerticalAlignment.Top,
+            GumTextLayout.GetMetrics(GumTextStyle.Compact).FontSize,
+            maxLines: lines.Length);
     }
 
     private void DrawSelection()
@@ -2193,7 +2405,11 @@ public sealed partial class GameApp
                 _session.Runtime.TickProfiler.AverageMinerMsPerTrilobite,
                 _session.Runtime.TickProfiler.AverageBuilderMsPerTrilobite,
                 _session.Runtime.TickProfiler.AverageFarmerMsPerTrilobite,
-                _session.Runtime.TickProfiler.AverageFighterMsPerTrilobite));
+                _session.Runtime.TickProfiler.AverageFighterMsPerTrilobite,
+                _session.Combat.LastDiagnostics.IdleInDangerCount,
+                _session.Combat.LastDiagnostics.EnemyIdleInDangerCount,
+                _session.Combat.LastDiagnostics.RecoverIntentCount,
+                _session.Combat.LastDiagnostics.SilentIdleRecoveryCount));
     }
 
     private void DrawMainMenuDebugOverlay()
@@ -2284,6 +2500,8 @@ public sealed partial class GameApp
             _session.Runtime.NoCostBuildPlacement,
             _infiniteDraft,
             _showFullMapVisibility,
+            _session.Runtime.ShowHitboxes,
+            _session.Runtime.ShowInteractionZones,
             pointer);
         DrawWrappedScreenText(
             ["` closes this panel. F3 toggles metrics."],
@@ -2643,7 +2861,7 @@ public sealed partial class GameApp
         var spawnTile = queen.GetBirthTile()
             ?? cave.GetReachableTiles().FirstOrDefault(tile =>
                 tile.CreatureFits() &&
-                tile.EnemyOccupant is null &&
+                cave.GetEnemyAtTileKey(tile.Key) is null &&
                 !cave.HasBlockingSurfaceFeature(tile));
         if (spawnTile is null)
         {
@@ -2662,7 +2880,10 @@ public sealed partial class GameApp
             if (cave.Spawn(trilobite, spawnTile))
             {
                 trilobite.RestartBehavior();
-                _session.RequestAudioCue(GameAudioCue.TrilobiteBirth);
+                _session.RequestAudioCue(
+                    GameAudioCue.TrilobiteBirth,
+                    WorldPoint.FromGridPoint(spawnTile.Coordinates),
+                    AudioCueRequest.CreatureEffectFootprintTiles);
             }
         }
     }
@@ -2676,6 +2897,45 @@ public sealed partial class GameApp
         return new Rectangle(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
     }
 
+    private static bool IsCameraControlDragBlocked(bool dragging, bool buildPlacementDragActive)
+    {
+        return dragging && !buildPlacementDragActive;
+    }
+
+    private static bool IsManualMiningTileSelectable(
+        bool allowManualMining,
+        bool hasOpal,
+        string baseType,
+        bool isRevealed)
+    {
+        return allowManualMining &&
+               (hasOpal || !isRevealed || !string.Equals(baseType, "empty", StringComparison.Ordinal));
+    }
+
+    private static bool ShouldShowMiningTileHoverLabel(bool hasOpal, string baseType, bool isRevealed)
+    {
+        return isRevealed &&
+               (hasOpal || !string.Equals(baseType, "empty", StringComparison.Ordinal));
+    }
+
+    private static Scaffolding CreatePlacementScaffolding(
+        GameSession session,
+        Factory factory,
+        int displayRotationTurns)
+    {
+        var turns = ((displayRotationTurns % 4) + 4) % 4;
+        var target = factory.Build(session);
+        var scaffolding = new Scaffolding(session, target);
+        for (var turn = 0; turn < turns; turn++)
+        {
+            scaffolding.RotateMap();
+        }
+
+        scaffolding.SetDisplayRotationTurns(turns);
+        scaffolding.TargetBuilding.SetDisplayRotationTurns(turns);
+        return scaffolding;
+    }
+
     private IReadOnlyList<Trilobite> GetTrilobitesInScreenRectangle(Rectangle selection)
     {
         var cave = _session.Cave;
@@ -2687,7 +2947,7 @@ public sealed partial class GameApp
         _selectionResultBuffer.Clear();
         foreach (var trilobite in cave.GetTrilobiteList())
         {
-            if (trilobite.Cave == cave && selection.Intersects(GetCreatureHitBounds(trilobite)))
+            if (trilobite.Cave == cave && SelectionIntersectsCreature(selection, trilobite))
             {
                 _selectionResultBuffer.Add(trilobite);
             }
@@ -2751,12 +3011,26 @@ public sealed partial class GameApp
 
     private Vector2 GetCreatureWorldPosition(Creature creature)
     {
-        return ToFrameworkVector(creature.GetWorldPosition());
+        return ToFrameworkVector(creature.GetInterpolatedWorldPosition(_simulationClock.InterpolationAlpha));
     }
 
     private Vector2 GetCreatureScreenPosition(Creature creature)
     {
         return _camera.WorldToScreen(GetCreatureWorldPosition(creature));
+    }
+
+    private static string GetAssignmentLabel(CreatureRole role)
+    {
+        return role switch
+        {
+            CreatureRole.Unassigned => "Unassigned",
+            CreatureRole.Miner => "Miner",
+            CreatureRole.Builder => "Builder",
+            CreatureRole.Farmer => "Farmer",
+            CreatureRole.Fighter => "Fighter",
+            CreatureRole.Enemy => "Enemy",
+            _ => role.ToString()
+        };
     }
 
     private static string GetAssignmentLabel(string assignment)
@@ -2775,6 +3049,11 @@ public sealed partial class GameApp
     private static Vector2 ToFrameworkVector(System.Numerics.Vector2 value)
     {
         return new Vector2(value.X, value.Y);
+    }
+
+    private static WorldPoint ToWorldPoint(Vector2 value)
+    {
+        return WorldPoint.FromWorldPixels(new System.Numerics.Vector2(value.X, value.Y));
     }
 
     private string FormatPressedKeys()
@@ -2807,7 +3086,7 @@ public sealed partial class GameApp
 
     private static string FormatTickProfile(TickTimingSnapshot snapshot, string label)
     {
-        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobites {snapshot.TrilobiteMoveMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, miner {FormatRoleTimingSnapshot(snapshot.MinerTiming)}, builder {FormatRoleTimingSnapshot(snapshot.BuilderTiming)}, farmer {FormatRoleTimingSnapshot(snapshot.FarmerTiming)}, fighter {FormatRoleTimingSnapshot(snapshot.FighterTiming)}, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
+        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobite ai {snapshot.TrilobiteMoveMs:0.00} ms, movement {snapshot.CreatureMovementMs:0.00} ms, combat resolution {snapshot.CombatResolutionMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, miner {FormatRoleTimingSnapshot(snapshot.MinerTiming)}, builder {FormatRoleTimingSnapshot(snapshot.BuilderTiming)}, farmer {FormatRoleTimingSnapshot(snapshot.FarmerTiming)}, fighter {FormatRoleTimingSnapshot(snapshot.FighterTiming)}, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
     }
 
     private static string FormatRoleTimingSnapshot(RoleTimingSnapshot timing)
@@ -2932,17 +3211,23 @@ public sealed partial class GameApp
             return false;
         }
 
+        var worldPoint = ToWorldPoint(_camera.ScreenToWorld(point));
+        Trilobite? best = null;
+        var bestDistance = long.MaxValue;
         foreach (var candidate in cave.GetTrilobiteList())
         {
-            if (GetCreatureHitBounds(candidate).Contains(point))
+            var distance = (worldPoint - candidate.Position).LengthSquared;
+            var radius = candidate.CollisionRadius + candidate.SeparationPadding;
+            if (distance <= (long)radius * radius &&
+                (best is null || distance < bestDistance || (distance == bestDistance && candidate.Id < best.Id)))
             {
-                trilobite = candidate;
-                return true;
+                best = candidate;
+                bestDistance = distance;
             }
         }
 
-        trilobite = null!;
-        return false;
+        trilobite = best!;
+        return best is not null;
     }
 
     private bool TryHitCreature(Point point, out Creature creature)
@@ -2954,26 +3239,8 @@ public sealed partial class GameApp
             return false;
         }
 
-        foreach (var candidate in cave.GetTrilobiteList())
-        {
-            if (GetCreatureHitBounds(candidate).Contains(point))
-            {
-                creature = candidate;
-                return true;
-            }
-        }
-
-        foreach (var candidate in cave.GetEnemyList())
-        {
-            if (GetCreatureHitBounds(candidate).Contains(point))
-            {
-                creature = candidate;
-                return true;
-            }
-        }
-
-        creature = null!;
-        return false;
+        creature = WorldDebugInspector.FindNearestCreature(cave, ToWorldPoint(_camera.ScreenToWorld(point)))!;
+        return creature is not null;
     }
 
     private IEnumerable<Tile> GetCandidateTilesForScreenPoint(Point point, Cave cave)
@@ -3016,7 +3283,26 @@ public sealed partial class GameApp
 
     private Rectangle GetCreatureHitBounds(Creature creature)
     {
-        return GetTileHitBounds(creature.Location);
+        var radius = ((creature.CollisionRadius + creature.SeparationPadding) /
+                     (float)WorldUnits.UnitsPerPixel) * _camera.CurrentScale;
+        var center = GetCreatureScreenPosition(creature);
+        return new Rectangle(
+            (int)MathF.Floor(center.X - radius),
+            (int)MathF.Floor(center.Y - radius),
+            Math.Max(1, (int)MathF.Ceiling(radius * 2f)),
+            Math.Max(1, (int)MathF.Ceiling(radius * 2f)));
+    }
+
+    private bool SelectionIntersectsCreature(Rectangle selection, Creature creature)
+    {
+        var center = GetCreatureScreenPosition(creature);
+        var radius = ((creature.CollisionRadius + creature.SeparationPadding) /
+                     (float)WorldUnits.UnitsPerPixel) * _camera.CurrentScale;
+        var closestX = Math.Clamp(center.X, selection.Left, selection.Right);
+        var closestY = Math.Clamp(center.Y, selection.Top, selection.Bottom);
+        var dx = center.X - closestX;
+        var dy = center.Y - closestY;
+        return (dx * dx) + (dy * dy) <= radius * radius;
     }
 
     private Rectangle GetTileHitBounds(GridPoint tilePoint)
@@ -3061,7 +3347,7 @@ public sealed partial class GameApp
         }
 
         var occupiedKeys = cave.GetCreatures()
-            .Where(creature => creature.IsTrackedInTileSystem)
+            .Where(creature => creature.IsLocomotionEnabled)
             .Select(creature => creature.Location.ToString())
             .ToHashSet(StringComparer.Ordinal);
         var reachable = cave.GetReachableTiles().Where(tile => tile.CreatureFits() && !occupiedKeys.Contains(tile.Key)).ToList();

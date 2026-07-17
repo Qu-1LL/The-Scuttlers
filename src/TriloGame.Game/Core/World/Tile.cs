@@ -5,7 +5,6 @@ public sealed class Tile
     public const string CaveCrystalBase = "CaveCrystal";
 
     private readonly HashSet<Tile> _adjacent = [];
-    private readonly List<Entities.Trilobite> _trilobites = [];
     private readonly Dictionary<string, int> _droppedResources = new(StringComparer.Ordinal);
     private readonly List<Buildings.Building> _projections = [];
 
@@ -45,13 +44,9 @@ public sealed class Tile
 
     public Buildings.Building? Built { get; private set; }
 
-    public Entities.Enemy? EnemyOccupant { get; private set; }
-
     public bool CreatureCanFit { get; set; }
 
     public IReadOnlyCollection<Tile> Neighbors => _adjacent;
-
-    public IReadOnlyList<Entities.Trilobite> Trilobites => _trilobites;
 
     public IReadOnlyDictionary<string, int> DroppedResources => _droppedResources;
 
@@ -268,22 +263,6 @@ public sealed class Tile
         return creature is Entities.Enemy ? EnemyFits() : CreatureFits();
     }
 
-    public bool AddTrilobite(Entities.Trilobite trilobite)
-    {
-        if (_trilobites.Contains(trilobite))
-        {
-            return false;
-        }
-
-        _trilobites.Add(trilobite);
-        return true;
-    }
-
-    public bool RemoveTrilobite(Entities.Trilobite trilobite)
-    {
-        return _trilobites.Remove(trilobite);
-    }
-
     public bool AddProjection(Buildings.Building building)
     {
         for (var index = 0; index < _projections.Count; index++)
@@ -312,11 +291,6 @@ public sealed class Tile
         }
 
         return false;
-    }
-
-    public void SetEnemyOccupant(Entities.Enemy? enemy)
-    {
-        EnemyOccupant = enemy;
     }
 
     public Tile? GetRandomNeighbor()

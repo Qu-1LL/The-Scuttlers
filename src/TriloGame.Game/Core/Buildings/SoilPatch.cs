@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -8,6 +9,15 @@ namespace TriloGame.Game.Core.Buildings;
 public sealed class SoilPatch : Building, IBuildPlacementDragTarget
 {
     public static readonly GridPoint DefaultSize = new(2, 2);
+    private static readonly InteractionZoneDefinition[] WorkZones =
+    [
+        new(
+            "Soil work area",
+            InteractionZonePurpose.Work,
+            GridPoint.Zero,
+            DefaultSize,
+            [new GridPoint(0, 0), new GridPoint(1, 0), new GridPoint(0, 1), new GridPoint(1, 1)])
+    ];
     private readonly SoilTile[] _soilTiles;
 
     public SoilPatch(GameSession session)
@@ -49,6 +59,8 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
     public SoilArea? SoilArea { get; internal set; }
 
     public BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.FootprintGrid;
+
+    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => WorkZones;
 
     public GridPoint DragPlacementStep => DefaultSize;
 

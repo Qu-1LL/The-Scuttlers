@@ -15,6 +15,8 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
     private int _gen2Start;
     private double _enemyBfsMs;
     private double _trilobiteMoveMs;
+    private double _creatureMovementMs;
+    private double _actionHurtboxMs;
     private double _colonyBfsMs;
     private double _enemyMoveMs;
     private double _buildingTickMs;
@@ -38,6 +40,8 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
         _gen2Start = GC.CollectionCount(2);
         _enemyBfsMs = 0d;
         _trilobiteMoveMs = 0d;
+        _creatureMovementMs = 0d;
+        _actionHurtboxMs = 0d;
         _colonyBfsMs = 0d;
         _enemyMoveMs = 0d;
         _buildingTickMs = 0d;
@@ -79,6 +83,14 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
                 break;
             case TickPhase.EnemyMove:
                 _enemyMoveMs = elapsedMs;
+                break;
+            case TickPhase.CreatureMovement:
+                _creatureMovementMs = elapsedMs;
+                break;
+            case TickPhase.CombatResolution:
+                _actionHurtboxMs = elapsedMs;
+                break;
+            case TickPhase.MiningResolution:
                 break;
             case TickPhase.BuildingTick:
                 _buildingTickMs = elapsedMs;
@@ -133,6 +145,8 @@ internal sealed class TickProfilingObserver : ITickPhaseObserver
             Stopwatch.GetElapsedTime(_tickStart).TotalMilliseconds,
             _enemyBfsMs,
             _trilobiteMoveMs,
+            _creatureMovementMs,
+            _actionHurtboxMs,
             _colonyBfsMs,
             _enemyMoveMs,
             _buildingTickMs,

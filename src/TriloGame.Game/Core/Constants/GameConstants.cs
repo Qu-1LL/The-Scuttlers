@@ -47,7 +47,7 @@ public static class GameConstants
     public const double CaveFloorHoleInitialFillChance = 0.48d;
     public const float CaveBackgroundParallaxFactor = 0.16f;
     public const float CaveBackgroundScaleMultiplier = 1.3f;
-    public const int OreHitsPerYield = 5;
+    public const int OreHitsPerYield = 3;
     public const int MinOreHitsPerYield = OreHitsPerYield;
     public const int MaxOreHitsPerYield = OreHitsPerYield;
     public const int TrilobiteCarryCapacity = 5;

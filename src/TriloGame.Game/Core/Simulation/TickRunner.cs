@@ -45,6 +45,7 @@ public static class TickRunner
         }
 
         phaseObserver?.OnPhaseStarted(TickPhase.TrilobiteMove);
+        session.Combat.BeginTick(cave);
         var trilobiteBuffer = GetTrilobiteBuffer();
         CopySnapshot(trilobiteBuffer, cave.GetTrilobiteList());
         foreach (var creature in trilobiteBuffer)
@@ -71,6 +72,18 @@ public static class TickRunner
             }
             phaseObserver?.OnPhaseCompleted(TickPhase.EnemyMove);
         }
+
+        phaseObserver?.OnPhaseStarted(TickPhase.CreatureMovement);
+        cave.AdvanceCreatureMovement();
+        phaseObserver?.OnPhaseCompleted(TickPhase.CreatureMovement);
+
+        phaseObserver?.OnPhaseStarted(TickPhase.CombatResolution);
+        session.Combat.ResolveTick(session);
+        phaseObserver?.OnPhaseCompleted(TickPhase.CombatResolution);
+
+        phaseObserver?.OnPhaseStarted(TickPhase.MiningResolution);
+        session.Mining.Advance(session);
+        phaseObserver?.OnPhaseCompleted(TickPhase.MiningResolution);
 
         phaseObserver?.OnPhaseStarted(TickPhase.BuildingTick);
         var buildingBuffer = GetBuildingBuffer();

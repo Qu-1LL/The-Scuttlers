@@ -28,12 +28,7 @@ public readonly record struct NavigationTickMetrics(
     int TotalPathLength,
     int MaxPathLength,
     int RerouteCount,
-    int QueuedNavigationSteps,
-    int PathPreviewSampleCount,
-    int TotalPathPreviewLength,
-    int MaxPathPreviewLength,
-    int PathPreviewFrontRemovalCount,
-    int PathPreviewFrontRemovalLengthTotal)
+    int QueuedNavigationSteps)
 {
     public static NavigationTickMetrics Empty => default;
 
@@ -44,14 +39,6 @@ public readonly record struct NavigationTickMetrics(
     public double AverageDroppedResourceTilesScanned => DroppedResourceScanCount <= 0
         ? 0d
         : (double)DroppedResourceTilesScanned / DroppedResourceScanCount;
-
-    public double AveragePathPreviewLength => PathPreviewSampleCount <= 0
-        ? 0d
-        : (double)TotalPathPreviewLength / PathPreviewSampleCount;
-
-    public double AverageFrontRemovalLength => PathPreviewFrontRemovalCount <= 0
-        ? 0d
-        : (double)PathPreviewFrontRemovalLengthTotal / PathPreviewFrontRemovalCount;
 
     public bool HasData =>
         PointPathRequestCount > 0 ||
@@ -83,12 +70,7 @@ public readonly record struct NavigationTickMetrics(
             TotalPathLength + other.TotalPathLength,
             MaxPathLength + other.MaxPathLength,
             RerouteCount + other.RerouteCount,
-            QueuedNavigationSteps + other.QueuedNavigationSteps,
-            PathPreviewSampleCount + other.PathPreviewSampleCount,
-            TotalPathPreviewLength + other.TotalPathPreviewLength,
-            MaxPathPreviewLength + other.MaxPathPreviewLength,
-            PathPreviewFrontRemovalCount + other.PathPreviewFrontRemovalCount,
-            PathPreviewFrontRemovalLengthTotal + other.PathPreviewFrontRemovalLengthTotal);
+            QueuedNavigationSteps + other.QueuedNavigationSteps);
     }
 
     public NavigationTickMetrics Subtract(in NavigationTickMetrics other)
@@ -112,12 +94,7 @@ public readonly record struct NavigationTickMetrics(
             TotalPathLength - other.TotalPathLength,
             MaxPathLength - other.MaxPathLength,
             RerouteCount - other.RerouteCount,
-            QueuedNavigationSteps - other.QueuedNavigationSteps,
-            PathPreviewSampleCount - other.PathPreviewSampleCount,
-            TotalPathPreviewLength - other.TotalPathPreviewLength,
-            MaxPathPreviewLength - other.MaxPathPreviewLength,
-            PathPreviewFrontRemovalCount - other.PathPreviewFrontRemovalCount,
-            PathPreviewFrontRemovalLengthTotal - other.PathPreviewFrontRemovalLengthTotal);
+            QueuedNavigationSteps - other.QueuedNavigationSteps);
     }
 
     public NavigationTickMetrics Divide(int divisor)
@@ -146,12 +123,7 @@ public readonly record struct NavigationTickMetrics(
             TotalPathLength / divisor,
             MaxPathLength / divisor,
             RerouteCount / divisor,
-            QueuedNavigationSteps / divisor,
-            PathPreviewSampleCount / divisor,
-            TotalPathPreviewLength / divisor,
-            MaxPathPreviewLength / divisor,
-            PathPreviewFrontRemovalCount / divisor,
-            PathPreviewFrontRemovalLengthTotal / divisor);
+            QueuedNavigationSteps / divisor);
     }
 }
 
@@ -159,6 +131,8 @@ public readonly record struct TickTimingSnapshot(
     double TotalMs,
     double EnemyBfsMs,
     double TrilobiteMoveMs,
+    double CreatureMovementMs,
+    double CombatResolutionMs,
     double ColonyBfsMs,
     double EnemyMoveMs,
     double BuildingTickMs,
@@ -183,6 +157,8 @@ public readonly record struct TickTimingSnapshot(
         0d,
         0d,
         0d,
+        0d,
+        0d,
         0L,
         0,
         0,
@@ -199,7 +175,9 @@ public readonly record struct TickTimingSnapshot(
 
     public double TotalBfsMs => EnemyBfsMs + ColonyBfsMs;
 
-    public double MeasuredPhaseMs => EnemyBfsMs + TrilobiteMoveMs + ColonyBfsMs + EnemyMoveMs + BuildingTickMs;
+    public double MeasuredPhaseMs =>
+        EnemyBfsMs + TrilobiteMoveMs + CreatureMovementMs + CombatResolutionMs +
+        ColonyBfsMs + EnemyMoveMs + BuildingTickMs;
 
     public double OtherMs => System.Math.Max(0d, TotalMs - MeasuredPhaseMs);
 
@@ -241,6 +219,20 @@ public readonly record struct TickTimingSnapshot(
             ? $"iterating trilobites ({TrilobiteCount}) and running AI/movement"
             : "running trilobite AI/movement";
         var shortLabel = "tri AI/move";
+
+        if (CreatureMovementMs > dominantMs)
+        {
+            dominantMs = CreatureMovementMs;
+            detail = "advancing creature movement and collision";
+            shortLabel = "creature move";
+        }
+
+        if (CombatResolutionMs > dominantMs)
+        {
+            dominantMs = CombatResolutionMs;
+            detail = "resolving combat hitboxes and hurtboxes";
+            shortLabel = "combat";
+        }
 
         if (EnemyBfsMs > dominantMs)
         {
@@ -295,6 +287,8 @@ public sealed class TickProfiler
     private double _sumTotalMs;
     private double _sumEnemyBfsMs;
     private double _sumTrilobiteMoveMs;
+    private double _sumCreatureMovementMs;
+    private double _sumCombatResolutionMs;
     private double _sumColonyBfsMs;
     private double _sumEnemyMoveMs;
     private double _sumBuildingTickMs;
@@ -342,6 +336,8 @@ public sealed class TickProfiler
         _sumTotalMs += snapshot.TotalMs;
         _sumEnemyBfsMs += snapshot.EnemyBfsMs;
         _sumTrilobiteMoveMs += snapshot.TrilobiteMoveMs;
+        _sumCreatureMovementMs += snapshot.CreatureMovementMs;
+        _sumCombatResolutionMs += snapshot.CombatResolutionMs;
         _sumColonyBfsMs += snapshot.ColonyBfsMs;
         _sumEnemyMoveMs += snapshot.EnemyMoveMs;
         _sumBuildingTickMs += snapshot.BuildingTickMs;
@@ -369,6 +365,8 @@ public sealed class TickProfiler
         _sumTotalMs -= snapshot.TotalMs;
         _sumEnemyBfsMs -= snapshot.EnemyBfsMs;
         _sumTrilobiteMoveMs -= snapshot.TrilobiteMoveMs;
+        _sumCreatureMovementMs -= snapshot.CreatureMovementMs;
+        _sumCombatResolutionMs -= snapshot.CombatResolutionMs;
         _sumColonyBfsMs -= snapshot.ColonyBfsMs;
         _sumEnemyMoveMs -= snapshot.EnemyMoveMs;
         _sumBuildingTickMs -= snapshot.BuildingTickMs;
@@ -404,6 +402,8 @@ public sealed class TickProfiler
             _sumTotalMs / sampleCount,
             _sumEnemyBfsMs / sampleCount,
             _sumTrilobiteMoveMs / sampleCount,
+            _sumCreatureMovementMs / sampleCount,
+            _sumCombatResolutionMs / sampleCount,
             _sumColonyBfsMs / sampleCount,
             _sumEnemyMoveMs / sampleCount,
             _sumBuildingTickMs / sampleCount,
@@ -492,14 +492,9 @@ internal static class NavigationInstrumentation
         _current?.RecordNavigationReroute();
     }
 
-    public static void RecordQueuedNavigationSteps(int stepCount, int pathPreviewLength)
+    public static void RecordQueuedNavigationSteps(int stepCount)
     {
-        _current?.RecordQueuedNavigationSteps(stepCount, pathPreviewLength);
-    }
-
-    public static void RecordPathPreviewFrontRemoval(int pathPreviewLength)
-    {
-        _current?.RecordPathPreviewFrontRemoval(pathPreviewLength);
+        _current?.RecordQueuedNavigationSteps(stepCount);
     }
 
     private sealed class NavigationTickAccumulator
@@ -523,11 +518,6 @@ internal static class NavigationInstrumentation
         private int _maxPathLength;
         private int _rerouteCount;
         private int _queuedNavigationSteps;
-        private int _pathPreviewSampleCount;
-        private int _totalPathPreviewLength;
-        private int _maxPathPreviewLength;
-        private int _pathPreviewFrontRemovalCount;
-        private int _pathPreviewFrontRemovalLengthTotal;
 
         public void Reset()
         {
@@ -550,11 +540,6 @@ internal static class NavigationInstrumentation
             _maxPathLength = 0;
             _rerouteCount = 0;
             _queuedNavigationSteps = 0;
-            _pathPreviewSampleCount = 0;
-            _totalPathPreviewLength = 0;
-            _maxPathPreviewLength = 0;
-            _pathPreviewFrontRemovalCount = 0;
-            _pathPreviewFrontRemovalLengthTotal = 0;
         }
 
         public NavigationTickMetrics BuildSnapshot()
@@ -578,12 +563,7 @@ internal static class NavigationInstrumentation
                 _totalPathLength,
                 _maxPathLength,
                 _rerouteCount,
-                _queuedNavigationSteps,
-                _pathPreviewSampleCount,
-                _totalPathPreviewLength,
-                _maxPathPreviewLength,
-                _pathPreviewFrontRemovalCount,
-                _pathPreviewFrontRemovalLengthTotal);
+                _queuedNavigationSteps);
         }
 
         public void RecordPointPathRequest(int pathLength, long allocatedBytes)
@@ -627,19 +607,9 @@ internal static class NavigationInstrumentation
             _rerouteCount++;
         }
 
-        public void RecordQueuedNavigationSteps(int stepCount, int pathPreviewLength)
+        public void RecordQueuedNavigationSteps(int stepCount)
         {
             _queuedNavigationSteps += global::System.Math.Max(0, stepCount);
-            _pathPreviewSampleCount++;
-            _totalPathPreviewLength += global::System.Math.Max(0, pathPreviewLength);
-            _maxPathPreviewLength = global::System.Math.Max(_maxPathPreviewLength, pathPreviewLength);
-        }
-
-        public void RecordPathPreviewFrontRemoval(int pathPreviewLength)
-        {
-            _pathPreviewFrontRemovalCount++;
-            _pathPreviewFrontRemovalLengthTotal += global::System.Math.Max(0, pathPreviewLength);
-            _maxPathPreviewLength = global::System.Math.Max(_maxPathPreviewLength, pathPreviewLength);
         }
 
         private void RecordPathLength(int pathLength)

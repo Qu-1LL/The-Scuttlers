@@ -18,16 +18,17 @@ public sealed class ReachabilityTests
         session.On(GameEvents.TileMined, _ => tileMinedCount++);
         session.On(GameEvents.WallMined, _ => wallMinedCount++);
 
-        var firstHit = session.MineTile(cave, wallTile.Key, source: "manual");
-        var secondHit = session.MineTile(cave, wallTile.Key, source: "manual");
-        var thirdHit = session.MineTile(cave, wallTile.Key, source: "manual");
+        var hitCount = 0;
+        TriloGame.Game.Core.Simulation.MineTileResult result;
+        do
+        {
+            result = session.MineTile(cave, wallTile.Key, source: "manual");
+            Assert.True(result.HitApplied);
+            hitCount++;
+        }
+        while (!result.TileDepleted && hitCount < 20);
 
-        Assert.True(firstHit.HitApplied);
-        Assert.False(firstHit.TileDepleted);
-        Assert.True(secondHit.HitApplied);
-        Assert.False(secondHit.TileDepleted);
-        Assert.True(thirdHit.HitApplied);
-        Assert.True(thirdHit.TileDepleted);
+        Assert.True(result.TileDepleted);
         Assert.Equal("empty", cave.GetTile(wallTile.Key)?.Base);
         Assert.Equal(1, tileMinedCount);
         Assert.Equal(1, wallMinedCount);

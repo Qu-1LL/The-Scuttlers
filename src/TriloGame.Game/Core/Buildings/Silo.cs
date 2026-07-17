@@ -1,12 +1,18 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Silo : Building, IResourceStorage
 {
+    private static readonly IReadOnlyList<InteractionZoneDefinition> ZoneDefinitions =
+    [
+        new("Resource transfer", InteractionZonePurpose.ResourceTransfer, new GridPoint(0, -1), new GridPoint(2, 1),
+            [new GridPoint(0, -1), new GridPoint(1, -1)])
+    ];
     private readonly Dictionary<ResourceName, int> _inventory = new()
     {
         [ResourceName.Algae] = 0
@@ -24,6 +30,8 @@ public sealed class Silo : Building, IResourceStorage
     }
 
     public int Capacity { get; }
+
+    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => ZoneDefinitions;
 
     public IReadOnlyCollection<Silo> AdjacentSilos => _adjacentSilos;
 

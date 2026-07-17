@@ -6,7 +6,7 @@ namespace TriloGame.Tests.Entities;
 public sealed class CreatureNavigationTests
 {
     [Fact]
-    public void NavigateToBuilding_FollowsEquivalentPathOneStepAtATime()
+    public void NavigateToBuilding_FollowsSmoothedContinuousRouteToBuilding()
     {
         var (session, cave, _, post, _) = TestWorldFactory.CreateSessionWithMiningPostAndMiners(0);
         var spawnTile = cave.GetReachableTiles()
@@ -25,23 +25,18 @@ public sealed class CreatureNavigationTests
         Assert.NotNull(expectedPath);
         Assert.True(expectedPath.Count > 1);
 
-        trilobite.ClearActionQueue();
+        trilobite.ClearTaskQueue();
 
-        var pathIndex = 1;
         Assert.True(trilobite.NavigateToBuilding(post));
-        Assert.Equal(expectedPath[pathIndex], trilobite.Location);
-        Assert.Empty(trilobite.PathPreview);
+        Assert.NotEmpty(trilobite.DesiredRoute);
 
-        var guard = expectedPath.Count + 2;
-        while (!trilobite.IsOnPassableBuildingTile(post) && guard-- > 0)
+        var guard = expectedPath.Count * 4;
+        while (trilobite.HasActiveMovement && guard-- > 0)
         {
-            pathIndex++;
-            Assert.True(trilobite.NavigateToBuilding(post));
-            Assert.Equal(expectedPath[Math.Min(pathIndex, expectedPath.Count - 1)], trilobite.Location);
-            Assert.Empty(trilobite.PathPreview);
+            cave.AdvanceCreatureMovement();
         }
 
         Assert.True(trilobite.IsOnPassableBuildingTile(post));
-        Assert.Empty(trilobite.PathPreview);
+        Assert.False(trilobite.HasActiveMovement);
     }
 }

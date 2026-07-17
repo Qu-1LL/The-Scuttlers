@@ -16,16 +16,11 @@ internal sealed class TrilobiteBuildingAssignment
         Building = building;
     }
 
-    public void Release(Trilobite trilobite, bool restoreHostedCreatureToTileSystem, bool invalidateMineableQueue)
+    public void Release(Trilobite trilobite, bool restoreHostedCreatureLocomotion, bool invalidateMineableQueue)
     {
         switch (Building)
         {
             case MiningPost post:
-                if (invalidateMineableQueue)
-                {
-                    post.InvalidateMineableQueues();
-                }
-
                 post.RemoveAssignment(trilobite);
                 break;
             case AlgaeFarm farm:
@@ -37,13 +32,13 @@ internal sealed class TrilobiteBuildingAssignment
             case StationBuilding station:
                 if (ReferenceEquals(trilobite.HostedBuilding, station))
                 {
-                    if (restoreHostedCreatureToTileSystem)
+                    if (restoreHostedCreatureLocomotion)
                     {
-                        station.TryRestoreCreatureToTileSystem(trilobite);
+                        station.TryRestoreCreatureLocomotion(trilobite);
                     }
                     else
                     {
-                        trilobite.LeaveTileSystem();
+                        trilobite.DisableLocomotion();
                     }
                 }
 

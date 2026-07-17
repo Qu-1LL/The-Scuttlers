@@ -29,8 +29,7 @@ public sealed partial class Cave
         return string.Equals(holeTile.Base, "empty", StringComparison.Ordinal) &&
                holeTile.Built is null &&
                holeTile.CreatureFits() &&
-               holeTile.Trilobites.Count == 0 &&
-               holeTile.EnemyOccupant is null &&
+               !HasCreatureInCell(holeTile.Coordinates) &&
                !HasBlockingSurfaceFeature(holeTile);
     }
 
@@ -101,7 +100,7 @@ public sealed partial class Cave
         }
 
         _antHolesByTileKey[holeTile.Key] = antHole;
-        Session.RequestAudioCue(GameAudioCue.AntHoleSpawn);
+        Session.RequestAudioCue(GameAudioCue.AntHoleSpawn, WorldPoint.FromGridPoint(holeTile.Coordinates), 1f);
         return true;
     }
 
@@ -174,8 +173,7 @@ public sealed partial class Cave
             if (tile.CreatureFits() &&
                 string.Equals(tile.Base, "empty", StringComparison.Ordinal) &&
                 tile.Built is null &&
-                tile.Trilobites.Count == 0 &&
-                tile.EnemyOccupant is null &&
+                !HasCreatureInCell(tile.Coordinates) &&
                 !HasBlockingSurfaceFeature(tile) &&
                 !IsEnemySpawnBlockedTile(tile))
             {

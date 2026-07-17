@@ -24,6 +24,8 @@ public sealed class TickProfilerLogWriterTests
                 12.5d,
                 1d,
                 6d,
+                0.75d,
+                0.25d,
                 2d,
                 1.5d,
                 0.5d,
@@ -53,12 +55,7 @@ public sealed class TickProfilerLogWriterTests
                     48,
                     14,
                     3,
-                    20,
-                    5,
-                    45,
-                    12,
-                    4,
-                    18));
+                    20));
 
             TickProfilerLogWriter.WriteTick(session, snapshot);
             TickProfilerLogWriter.Shutdown();
@@ -75,6 +72,8 @@ public sealed class TickProfilerLogWriterTests
             Assert.Equal(42, root.GetProperty("TickCount").GetInt32());
             Assert.True(root.GetProperty("Danger").GetBoolean());
             Assert.Equal(12.5d, root.GetProperty("TotalMs").GetDouble());
+            Assert.Equal(0.75d, root.GetProperty("CreatureMovementMs").GetDouble());
+            Assert.Equal(0.25d, root.GetProperty("CombatResolutionMs").GetDouble());
 
             var navigation = root.GetProperty("Navigation");
             Assert.Equal(5, navigation.GetProperty("PointPathRequestCount").GetInt32());

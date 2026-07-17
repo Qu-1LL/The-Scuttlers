@@ -110,6 +110,11 @@ public abstract class StationBuilding : Building, IStationBuilding
         }
 
         Cave?.SyncStationAssignmentCount(this, _assignedStationIndices.Count);
+        if (ReferenceEquals(creature.ReservedZone?.Owner, this))
+        {
+            creature.ReleaseInteractionReservation();
+        }
+
         return true;
     }
 
@@ -134,7 +139,8 @@ public abstract class StationBuilding : Building, IStationBuilding
             }
 
             var tile = Cave?.GetTile(tileLocation);
-            if (tile is null || !tile.CreatureFits() || Cave?.IsTileReachable(tile) != true || tile.EnemyOccupant is not null)
+            if (tile is null || !tile.CreatureFits() || Cave?.IsTileReachable(tile) != true ||
+                Cave.GetEnemyAtTileKey(tile.Key) is not null)
             {
                 continue;
             }
@@ -162,7 +168,7 @@ public abstract class StationBuilding : Building, IStationBuilding
 
     public virtual bool IsCreatureAtNavigationTarget(Creature creature)
     {
-        return creature.IsTrackedInTileSystem &&
+        return creature.IsLocomotionEnabled &&
                TryGetAssignedStationTile(creature, out var assignedTile) &&
                creature.Location == assignedTile;
     }
@@ -174,12 +180,18 @@ public abstract class StationBuilding : Building, IStationBuilding
 
     public virtual bool TryStationCreature(Creature creature)
     {
-        return IsCreatureStationed(creature);
+        if (!IsCreatureStationed(creature))
+        {
+            return false;
+        }
+
+        creature.SetActivity(CreatureActivity.Stationed);
+        return true;
     }
 
-    public virtual bool TryRestoreCreatureToTileSystem(Creature creature)
+    public virtual bool TryRestoreCreatureLocomotion(Creature creature)
     {
-        return creature.IsTrackedInTileSystem;
+        return creature.IsLocomotionEnabled;
     }
 
     public virtual bool TryGetAssignedWorldPosition(Creature creature, out Vector2 worldPosition)

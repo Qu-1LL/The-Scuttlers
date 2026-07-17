@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
@@ -9,11 +10,15 @@ using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 using FrameworkVector2 = Microsoft.Xna.Framework.Vector2;
 using NumericsVector2 = System.Numerics.Vector2;
+using Interaction = TriloGame.Game.Core.Interaction;
 
 namespace TriloGame.Game.Rendering;
 
 public sealed class WorldSceneRenderer
 {
+    private const float InventoryBackpackIconTileScale = 0.64f;
+    private const float InventoryBackpackSlotSpacingPixels = 42f;
+
     private static readonly FrameworkVector2[] DroppedResourceOffsets =
     [
         new(-18f, -14f),
@@ -22,6 +27,10 @@ public sealed class WorldSceneRenderer
         new(-12f, 12f),
         new(14f, 14f)
     ];
+
+    internal static Color GetCombatHitboxColor() => new(255, 32, 32, 76);
+
+    internal static Color GetMiningStrikeColor() => new(255, 0, 255, 76);
 
     public void DrawParallaxBackground(RenderingContext context, Rectangle viewport)
     {
@@ -63,7 +72,9 @@ public sealed class WorldSceneRenderer
         GameSession session,
         WorldSpriteEffectSystem spriteEffects,
         Point viewportSize,
-        bool showFullMapVisibility)
+        bool showFullMapVisibility,
+        bool showCombatDebug,
+        float interpolationAlpha)
     {
         var cave = session.Cave;
         if (cave is null)
@@ -76,7 +87,11 @@ public sealed class WorldSceneRenderer
         DrawSurfaceFeatures(context, cave, showFullMapVisibility);
         DrawDroppedResources(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility));
         DrawBuildings(context, cave, showFullMapVisibility);
-        DrawCreatures(context, cave);
+        if (showCombatDebug)
+        {
+            DrawCombatDebug(context, session);
+        }
+        DrawCreatures(context, session, cave, interpolationAlpha);
         DrawProjectiles(context, session);
     }
 
@@ -228,15 +243,24 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    private static void DrawCreatures(RenderingContext context, Cave cave)
+    private static void DrawCreatures(
+        RenderingContext context,
+        GameSession session,
+        Cave cave,
+        float interpolationAlpha)
     {
         foreach (var trilobite in cave.Trilobites)
         {
+            var worldPosition = GetCreatureWorldPosition(trilobite, interpolationAlpha);
+            var facingRadians = trilobite.GetInterpolatedFacingRadians(interpolationAlpha);
             DrawWorldTextureNative(
                 context,
                 "Trilobite",
-                GetCreatureWorldPosition(trilobite),
-                trilobite.RotationRadians);
+                worldPosition,
+                facingRadians,
+                color: GetCreatureDrawColor(session, trilobite));
+
+            DrawTrilobiteInventoryBackpack(context, trilobite, worldPosition, facingRadians);
         }
 
         foreach (var enemy in cave.Enemies)
@@ -244,8 +268,167 @@ public sealed class WorldSceneRenderer
             DrawWorldTextureNative(
                 context,
                 "Enemy",
-                GetCreatureWorldPosition(enemy),
-                enemy.RotationRadians);
+                GetCreatureWorldPosition(enemy, interpolationAlpha),
+                enemy.GetInterpolatedFacingRadians(interpolationAlpha),
+                color: GetCreatureDrawColor(session, enemy));
+        }
+    }
+
+    private static Color GetCreatureDrawColor(GameSession session, Creature creature)
+    {
+        var flash = session.Runtime.GetDamageFlashAlpha(creature.Id);
+        return GetCreatureDamageColor(flash);
+    }
+
+    internal static Color GetCreatureDamageColor(float flash) => flash <= 0f
+        ? Color.White
+        : Color.Lerp(Color.White, new Color(255, 48, 48), Math.Clamp(flash, 0f, 1f));
+
+    internal static string? GetInventoryBackpackTextureKey(Trilobite trilobite)
+    {
+        return GetInventoryBackpackTextureKey(trilobite, slotIndex: 0);
+    }
+
+    internal static string? GetInventoryBackpackTextureKey(Trilobite trilobite, int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= trilobite.Inventory.Amount)
+        {
+            return null;
+        }
+
+        var remainingSlotIndex = slotIndex;
+        for (var resourceIndex = 0; resourceIndex < trilobite.Inventory.ResourceTypeCount; resourceIndex++)
+        {
+            var resourceType = trilobite.Inventory.GetResourceTypeAt(resourceIndex);
+            var amount = trilobite.Inventory.GetAmount(resourceType);
+            if (remainingSlotIndex < amount)
+            {
+                return ItemCatalog.GetTextureKey(resourceType);
+            }
+
+            remainingSlotIndex -= amount;
+        }
+
+        return null;
+    }
+
+    // Anchor carried-item slots to a stable top-to-bottom column on the shell.
+    internal static FrameworkVector2 GetInventoryBackpackWorldPosition(FrameworkVector2 creatureWorldPosition, float facingRadians)
+    {
+        _ = facingRadians;
+        return creatureWorldPosition;
+    }
+
+    internal static float GetInventoryBackpackIconRotationRadians(float facingRadians) => facingRadians;
+
+    internal static FrameworkVector2 GetInventoryBackpackSlotWorldPosition(
+        FrameworkVector2 creatureWorldPosition,
+        float facingRadians,
+        int slotIndex,
+        int slotCapacity)
+    {
+        var center = GetInventoryBackpackWorldPosition(creatureWorldPosition, facingRadians);
+        if (slotCapacity <= 1)
+        {
+            return center;
+        }
+
+        var down = new FrameworkVector2(-MathF.Sin(facingRadians), MathF.Cos(facingRadians));
+        var topAnchoredIndex = slotIndex - ((slotCapacity - 1) / 2f);
+        return center + (down * topAnchoredIndex * InventoryBackpackSlotSpacingPixels);
+    }
+
+    private static void DrawTrilobiteInventoryBackpack(
+        RenderingContext context,
+        Trilobite trilobite,
+        FrameworkVector2 creatureWorldPosition,
+        float facingRadians)
+    {
+        var slotCount = trilobite.Inventory.Amount;
+        var slotCapacity = trilobite.InventoryCapacity;
+        for (var slotIndex = 0; slotIndex < slotCount; slotIndex++)
+        {
+            var textureKey = GetInventoryBackpackTextureKey(trilobite, slotIndex);
+            if (textureKey is null || !context.Sprites.TryGet(textureKey, out _))
+            {
+                continue;
+            }
+
+            DrawWorldTextureNative(
+                context,
+                textureKey,
+                GetInventoryBackpackSlotWorldPosition(creatureWorldPosition, facingRadians, slotIndex, slotCapacity),
+                GetInventoryBackpackIconRotationRadians(facingRadians),
+                scale: new FrameworkVector2(InventoryBackpackIconTileScale * context.Camera.CurrentScale));
+        }
+    }
+
+    private static void DrawCombatDebug(RenderingContext context, GameSession session)
+    {
+        var hitboxes = session.Combat.ActiveHitboxes;
+        for (var index = 0; index < hitboxes.Count; index++)
+        {
+            DrawCombatShape(context, hitboxes[index].Shape, new Color(255, 32, 32, 76));
+        }
+
+        var hurtboxes = session.Combat.Hurtboxes;
+        for (var index = 0; index < hurtboxes.Count; index++)
+        {
+            DrawCombatShape(context, hurtboxes[index].Shape, new Color(32, 128, 255, 56));
+        }
+
+        var mining = session.Mining.Active;
+        for (var index = 0; index < mining.Count; index++)
+        {
+            DrawHurtboxCircle(context, mining[index].Center, mining[index].Radius, new Color(255, 0, 255, 76));
+        }
+    }
+
+    private static void DrawCombatShape(RenderingContext context, CombatShape shape, Color color)
+    {
+        if (shape.Kind == CombatShapeKind.Circle)
+        {
+            DrawHurtboxCircle(context, shape.First, shape.Radius, color);
+            return;
+        }
+
+        DrawHurtboxRectangle(context, shape.GetBounds(), color);
+    }
+
+    private static void DrawHurtboxRectangle(RenderingContext context, Interaction.WorldRectangle bounds, Color color)
+    {
+        var topLeftWorld = new NumericsVector2(
+            bounds.X / (float)WorldUnits.UnitsPerPixel,
+            bounds.Y / (float)WorldUnits.UnitsPerPixel);
+        var topLeft = context.Camera.WorldToScreen(ToFrameworkVector(topLeftWorld));
+        var width = Math.Max(1, (int)MathF.Round(
+            (bounds.Width / (float)WorldUnits.UnitsPerPixel) * context.Camera.CurrentScale));
+        var height = Math.Max(1, (int)MathF.Round(
+            (bounds.Height / (float)WorldUnits.UnitsPerPixel) * context.Camera.CurrentScale));
+        context.SpriteBatch.Draw(
+            context.WhitePixel,
+            new Rectangle((int)MathF.Round(topLeft.X), (int)MathF.Round(topLeft.Y), width, height),
+            color);
+    }
+
+    private static void DrawHurtboxCircle(RenderingContext context, WorldPoint center, int radius, Color color)
+    {
+        const int strips = 20;
+        var centerScreen = context.Camera.WorldToScreen(ToFrameworkVector(center.ToWorldPixels()));
+        var screenRadius = Math.Max(1f, (radius / (float)WorldUnits.UnitsPerPixel) * context.Camera.CurrentScale);
+        for (var strip = -strips; strip <= strips; strip++)
+        {
+            var normalizedY = strip / (float)strips;
+            var halfWidth = screenRadius * MathF.Sqrt(MathF.Max(0f, 1f - (normalizedY * normalizedY)));
+            var y = centerScreen.Y + (normalizedY * screenRadius);
+            context.SpriteBatch.Draw(
+                context.WhitePixel,
+                new Rectangle(
+                    (int)MathF.Round(centerScreen.X - halfWidth),
+                    (int)MathF.Round(y),
+                    Math.Max(1, (int)MathF.Round(halfWidth * 2f)),
+                    Math.Max(1, (int)MathF.Ceiling((screenRadius * 2f) / strips))),
+                color);
         }
     }
 
@@ -473,9 +656,9 @@ public sealed class WorldSceneRenderer
             0f);
     }
 
-    private static FrameworkVector2 GetCreatureWorldPosition(Creature creature)
+    private static FrameworkVector2 GetCreatureWorldPosition(Creature creature, float interpolationAlpha)
     {
-        return ToFrameworkVector(creature.GetWorldPosition());
+        return ToFrameworkVector(creature.GetInterpolatedWorldPosition(interpolationAlpha));
     }
 
     private static FrameworkVector2 ToFrameworkVector(NumericsVector2 value)

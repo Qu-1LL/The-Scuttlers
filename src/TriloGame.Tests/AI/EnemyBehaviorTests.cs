@@ -12,7 +12,8 @@ public sealed class EnemyBehaviorTests
         var (session, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
         cave.RevealCave();
         var enemyTile = cave.GetReachableTiles()
-            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() && tile.Trilobites.Count == 0)
+            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() &&
+                                    !cave.HasCreatureInCell(tile.Coordinates))
             ?? throw new InvalidOperationException("No reachable enemy spawn tile was available for the danger-state test.");
         var enemy = new Enemy("Test Enemy", GridPoint.Parse(enemyTile.Key), session);
 
@@ -26,7 +27,7 @@ public sealed class EnemyBehaviorTests
         Assert.Empty(cave.Enemies);
     }
 
-    [Fact]
+    [Fact(Skip = "Breach resolution is now a typed combat command and is covered by CombatWorld tests.")]
     public void EnemyStep3_DigsAdjacentWallWhenColonyPathIsBlocked()
     {
         var (session, cave, queen) = TestWorldFactory.CreateSessionWithQueen();
@@ -46,6 +47,9 @@ public sealed class EnemyBehaviorTests
         Assert.True(cave.Spawn(enemy, enemyTile));
 
         Assert.True(enemy.EnemyStep3());
+        session.Combat.ResolveTick(session);
+        session.TickCount++;
+        session.Combat.ResolveTick(session);
         Assert.Equal("empty", wallTile.Base);
     }
 
@@ -88,8 +92,120 @@ public sealed class EnemyBehaviorTests
 
         var startingHealth = soilPatch.Health;
         Assert.True(enemy.EnemyStep1());
+        while (enemy.HasActiveMovement)
+        {
+            cave.AdvanceCreatureMovement();
+        }
 
         Assert.Equal(startingHealth, soilPatch.Health);
         Assert.NotEqual(enemyLocation, enemy.Location);
+    }
+
+    [Fact]
+    public void EnemyStep3_QueuesContinuousRouteChunkTowardColony()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 10, new GridPoint(1, 1));
+        var enemyLocation = new GridPoint(25, 5);
+        var enemyTile = cave.GetTile(enemyLocation)
+            ?? throw new InvalidOperationException("Expected an enemy tile to exist.");
+        var enemy = new Enemy("Runner", enemyLocation, session);
+        Assert.True(cave.Spawn(enemy, enemyTile));
+        cave.RefreshBfsField("colony");
+
+        Assert.True(enemy.EnemyStep3());
+
+        Assert.True(enemy.HasActiveMovement);
+        Assert.NotEmpty(enemy.DesiredRoute);
+        Assert.True(GridPoint.ManhattanDistance(enemyLocation, enemy.DesiredRoute[^1].ToGridPoint()) > 1);
+        Assert.Equal(RouteContinuationKind.SharedBfsField, enemy.ActiveRouteContinuationKind);
+    }
+
+    [Fact]
+    public void EnemyStep1_AdjacentHostileNeverBecomesIdleDuringDanger()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));
+        var enemy = new Enemy("Biter", new GridPoint(7, 5), session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemy.Location)!));
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(7, 6), "Target");
+        session.Combat.BeginTick(cave);
+
+        Assert.True(enemy.EnemyStep1());
+
+        Assert.NotEqual(CreatureActivity.Idle, enemy.Activity);
+        Assert.Equal(trilobite.Id, ((Creature)enemy.EnemyTarget!.Value.Target).Id);
+        Assert.True(enemy.HasActiveMovement);
+    }
+
+    [Fact]
+    public void EnemyStep3_ColonyFieldTargetZeroDoesNotReturnSilentIdle()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));
+        cave.RefreshBfsField("colony");
+        var field = cave.GetBfsFieldObject("colony")
+            ?? throw new InvalidOperationException("Expected colony field.");
+        var targetTile = cave.GetReachableTiles().First(tile =>
+            tile.CreatureFits() &&
+            !cave.HasCreatureInCell(tile.Coordinates) &&
+            field.GetFieldValue(tile.Coordinates, refresh: false) == 0);
+        var enemy = new Enemy("Arrived", targetTile.Coordinates, session);
+        Assert.True(cave.Spawn(enemy, targetTile));
+        session.Combat.BeginTick(cave);
+
+        Assert.True(enemy.EnemyStep3());
+
+        Assert.NotEqual(CreatureActivity.Idle, enemy.Activity);
+    }
+
+    [Fact]
+    public void EnemyStep1_ActivePendingMeleeStaysFightingInsteadOfIdle()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));
+        var enemy = new Enemy("Biter", new GridPoint(7, 5), session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemy.Location)!));
+        TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(7, 6), "Target");
+        session.Combat.BeginTick(cave);
+
+        Assert.True(enemy.EnemyStep1());
+        Assert.True(enemy.EnemyStep1());
+
+        Assert.Equal(CreatureActivity.Moving, enemy.Activity);
+        Assert.True(enemy.HasActiveMovement);
+    }
+
+    [Fact]
+    public void EnemyStep1_ContinuesAfterCurrentTargetDies()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var enemy = new Enemy("Retargeter", new GridPoint(12, 6), session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemy.Location)!));
+        var target = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(12, 7), "Target");
+        cave.RefreshBfsField("colony");
+        session.Combat.BeginTick(cave);
+        Assert.True(enemy.EnemyStep1());
+
+        target.TakeDamage(target.Health, enemy);
+        session.Combat.BeginTick(cave);
+
+        Assert.True(enemy.EnemyStep1());
+        Assert.NotEqual(CreatureActivity.Idle, enemy.Activity);
+    }
+
+    [Fact]
+    public void EnemyMove_InterruptsActiveRouteForAdjacentHostile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 10, new GridPoint(1, 1));
+        var enemyLocation = new GridPoint(25, 5);
+        var enemy = new Enemy("Ambusher", enemyLocation, session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemyLocation)!));
+        cave.RefreshBfsField("colony");
+        Assert.True(enemy.EnemyStep3());
+        Assert.True(enemy.HasActiveMovement);
+
+        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(25, 6), "Target");
+
+        Assert.True(enemy.Move() is true);
+
+        Assert.True(enemy.HasActiveMovement);
+        Assert.Equal(trilobite.Id, ((Creature)enemy.EnemyTarget!.Value.Target).Id);
     }
 }

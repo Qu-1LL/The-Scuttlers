@@ -59,7 +59,7 @@ public sealed class ScaffoldingTests
         Assert.True(cave.Build(scaffolding, buildLocation));
         Assert.Equal(buildLocation, trilobite.Location);
         Assert.Same(scaffolding, cave.GetTile(buildLocation)!.Built);
-        Assert.Contains(trilobite, cave.GetTile(buildLocation)!.Trilobites);
+        Assert.Same(trilobite, cave.GetTrilobiteAtTileKey(buildLocation.ToString()));
     }
 
     [Fact]
@@ -80,7 +80,11 @@ public sealed class ScaffoldingTests
         Assert.Contains(scaffolding, cave.Buildings);
         Assert.DoesNotContain(targetBuilding, cave.Buildings);
 
-        TickRunner.RunTick(session);
+        var guard = 20;
+        while (cave.Buildings.Contains(scaffolding) && guard-- > 0)
+        {
+            TickRunner.RunTick(session);
+        }
 
         Assert.DoesNotContain(scaffolding, cave.Buildings);
         Assert.Contains(targetBuilding, cave.Buildings);

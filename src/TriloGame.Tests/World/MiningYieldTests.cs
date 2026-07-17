@@ -17,7 +17,7 @@ public sealed class MiningYieldTests
         var oreTiles = cave.GetTiles().Where(tile => tile.IsOreTile()).ToArray();
 
         Assert.NotEmpty(oreTiles);
-        Assert.Equal(500d, GameConstants.OreHitsPerYield * GameConstants.GameTimePerSimulationTickMs);
+        Assert.Equal(300d, GameConstants.OreHitsPerYield * GameConstants.GameTimePerSimulationTickMs);
         Assert.All(oreTiles, tile =>
         {
             Assert.InRange(tile.ResourceYield, GameConstants.MinOreYield, GameConstants.MaxOreYield);
@@ -39,6 +39,22 @@ public sealed class MiningYieldTests
         Assert.Equal(ResourceName.Lumenite, trilobite.Inventory.Type);
         Assert.Equal(GameConstants.TrilobiteCarryCapacity, trilobite.Inventory.Amount);
         Assert.Equal(0, trilobite.GetInventorySpace());
+    }
+
+    [Fact]
+    public void TrilobiteInventory_CanCarryMultipleResourceTypes()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var trilobite = new Trilobite("Mixed Carrier", new GridPoint(0, 0), session);
+
+        Assert.Equal(2, trilobite.AddToInventory(ResourceName.Lumenite, 2));
+        Assert.Equal(3, trilobite.AddToInventory(ResourceName.Malachite, 3));
+
+        Assert.True(trilobite.HasInventory());
+        Assert.Equal(5, trilobite.Inventory.Amount);
+        Assert.Equal(2, trilobite.Inventory.GetAmount(ResourceName.Lumenite));
+        Assert.Equal(3, trilobite.Inventory.GetAmount(ResourceName.Malachite));
+        Assert.Equal(GameConstants.TrilobiteCarryCapacity - 5, trilobite.GetInventorySpace());
     }
 
     [Fact]

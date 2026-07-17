@@ -264,7 +264,6 @@ internal static class TestWorldFactory
                 var tile = cave.AddTile(key);
                 tile.SetBase("empty");
                 tile.SetBuilt(null);
-                tile.SetEnemyOccupant(null);
                 tile.CreatureCanFit = true;
 
                 if (x > 0)

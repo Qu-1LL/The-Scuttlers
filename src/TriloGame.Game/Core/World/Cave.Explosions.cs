@@ -1,4 +1,3 @@
-using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Audio;
@@ -10,7 +9,7 @@ public sealed partial class Cave
 {
     public void TriggerDeathExplosion(Trilobite source, object? deathSource = null)
     {
-        var origin = !source.IsTrackedInTileSystem && source.HostedBuilding is not null
+        var origin = !source.IsLocomotionEnabled && source.HostedBuilding is not null
             ? source.HostedBuilding.GetCenter()
             : source.Location;
         var originTileKey = origin.ToString();
@@ -21,31 +20,7 @@ public sealed partial class Cave
         }
 
         Session.RequestScreenShake(GameConstants.ExplosiveTraitScreenShakeIntensity);
-        Session.RequestAudioCue(GameAudioCue.TrilobiteExplosion);
         Session.RequestDeathMist(origin, GameConstants.ExplosiveTraitBlastRadius);
-
-        var buildingsToDestroy = new HashSet<Building>();
-        var creaturesToKill = new HashSet<Creature>();
-        foreach (var tile in affectedTiles)
-        {
-            if (tile.Built is not null)
-            {
-                buildingsToDestroy.Add(tile.Built);
-            }
-
-            foreach (var trilobite in tile.Trilobites)
-            {
-                if (!ReferenceEquals(trilobite, source) && trilobite.Cave == this)
-                {
-                    creaturesToKill.Add(trilobite);
-                }
-            }
-
-            if (tile.EnemyOccupant is { Cave: not null } enemy && enemy.Cave == this)
-            {
-                creaturesToKill.Add(enemy);
-            }
-        }
 
         var changedTileKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var tile in affectedTiles)
@@ -59,25 +34,16 @@ public sealed partial class Cave
             RefreshExplosionTerrain(changedTileKeys);
         }
 
-        foreach (var creature in creaturesToKill.ToArray())
-        {
-            if (creature.Cave != this || creature.Health <= 0)
-            {
-                continue;
-            }
-
-            creature.TakeDamage(creature.Health, source);
-        }
-
-        foreach (var building in buildingsToDestroy.ToArray())
-        {
-            if (building.Cave != this || building.Health <= 0)
-            {
-                continue;
-            }
-
-            building.TakeDamage(building.Health, source);
-        }
+        Session.Combat.SubmitExplosion(
+            source,
+            WorldPoint.FromGridPoint(origin),
+            GameConstants.ExplosiveTraitBlastRadius * WorldUnits.UnitsPerTile,
+            int.MaxValue);
+        Session.Combat.ResolveImmediateExplosions(Session);
+        Session.RequestAudioCue(
+            GameAudioCue.TrilobiteExplosion,
+            WorldPoint.FromGridPoint(origin),
+            AudioCueRequest.CreatureEffectFootprintTiles);
     }
 
     private List<Tile> GetExplosionTiles(GridPoint center, int radius)

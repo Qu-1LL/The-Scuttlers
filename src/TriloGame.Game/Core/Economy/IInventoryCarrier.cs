@@ -14,5 +14,7 @@ public interface IInventoryCarrier
 
     int RemoveFromInventory(int amount);
 
+    int RemoveFromInventory(ResourceName resourceType, int amount);
+
     void ClearInventory();
 }
