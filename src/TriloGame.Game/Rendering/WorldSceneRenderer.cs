@@ -282,7 +282,7 @@ public sealed class WorldSceneRenderer
 
     internal static Color GetCreatureDamageColor(float flash) => flash <= 0f
         ? Color.White
-        : Color.Lerp(Color.White, new Color(255, 48, 48), Math.Clamp(flash, 0f, 1f));
+        : Color.Lerp(Color.White, Color.Red, Math.Clamp(flash, 0f, 1f));
 
     internal static string? GetInventoryBackpackTextureKey(Trilobite trilobite)
     {

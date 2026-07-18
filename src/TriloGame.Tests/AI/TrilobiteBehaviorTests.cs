@@ -72,56 +72,53 @@ public sealed class TrilobiteBehaviorTests
         }
 
         Assert.True(startedIdleMove);
+        Assert.Equal(IdleBehaviorState.WanderNearAnchor, trilobite.IdleState);
+        Assert.Equal(MovementGoalKind.Idle, trilobite.MovementCohort.GoalKind);
         Assert.NotEqual(startingPosition, trilobite.IdleDestination ?? trilobite.Position);
     }
 
     [Fact]
-    public void IdleQueenConvene_IsLimitedToOneQuarterOfTrilobites()
+    public void FighterIdleMovement_IsNotInterruptedWhenDangerIsClear()
     {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 14, new GridPoint(1, 1));
-        var conveneEligible = 0;
-        const int trilobiteCount = 8;
-        for (var index = 0; index < trilobiteCount; index++)
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(5, 1));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 7), "Fighter", "fighter");
+
+        for (var tick = 0; tick < 140 && !fighter.HasActiveMovement; tick++)
         {
-            var trilobite = TestWorldFactory.SpawnTrilobite(
-                cave,
-                session,
-                new GridPoint(10, 7),
-                $"Idle Trilobite {index}");
-            if (trilobite.UsesQueenConveneIdlePattern)
+            fighter.Move();
+            if (!fighter.HasActiveMovement)
             {
-                conveneEligible++;
+                cave.AdvanceCreatureMovement();
             }
         }
 
-        Assert.Equal(trilobiteCount / 4, conveneEligible);
+        Assert.True(fighter.HasActiveMovement);
+        Assert.Equal(MovementGoalKind.Idle, fighter.MovementCohort.GoalKind);
+        Assert.False(session.Danger);
+        var moveResult = fighter.Move();
+
+        Assert.Null(moveResult);
+        Assert.True(fighter.HasActiveMovement);
     }
 
     [Fact]
-    public void NonConveneIdleTrilobiteNearQueenSpreadsOutward()
+    public void FighterCombatRoute_IsCancelledWhenDangerEnds()
     {
-        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 18, new GridPoint(8, 8));
-        var spawnTile = queen.GetFeedTiles().First(tile => tile.CreatureFits());
-        var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, spawnTile.Coordinates, "Idle Wanderer");
-        Assert.False(trilobite.UsesQueenConveneIdlePattern);
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 7), "Fighter", "fighter");
+        var enemy = new Enemy("Target", new GridPoint(18, 7), session);
 
-        var queenCenter = WorldPoint.FromGridPoint(queen.GetCenter());
-        var startingDistance = (trilobite.Position - queenCenter).LengthSquared;
-        WorldPoint? destination = null;
-        for (var tick = 0; tick < 150; tick++)
-        {
-            trilobite.Move();
-            if (trilobite.IdleDestination is { } idleDestination)
-            {
-                destination = idleDestination;
-                break;
-            }
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemy.Location)!));
+        Assert.True(fighter.RunRoleState(FighterState.MoveToTarget));
+        Assert.True(fighter.HasActiveMovement);
+        Assert.Equal(MovementGoalKind.Combat, fighter.MovementCohort.GoalKind);
 
-            cave.AdvanceCreatureMovement();
-        }
+        Assert.True(cave.RemoveCreature(enemy));
+        fighter.Move();
 
-        Assert.NotNull(destination);
-        Assert.True((destination.Value - queenCenter).LengthSquared > startingDistance);
+        Assert.False(fighter.HasActiveMovement);
+        Assert.Equal(MovementGoalKind.None, fighter.MovementCohort.GoalKind);
+        Assert.Null(fighter.FighterTarget);
     }
 
     [Fact]

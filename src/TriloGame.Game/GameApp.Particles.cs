@@ -55,9 +55,32 @@ public sealed partial class GameApp
         MaxRotationSpeed = 0.18f,
         BlendMode = ParticleBlendMode.Alpha
     };
+    private readonly ParticleSpraySettings _bloodParticleSettings = new()
+    {
+        ParticlesPerTile = 36,
+        MinLifetimeSeconds = 2f,
+        MaxLifetimeSeconds = 2f,
+        MinSpeed = 630f,
+        MaxSpeed = 1500f,
+        DriftAmount = 80f,
+        Drag = 0f,
+        GroundFriction = 3.5f,
+        SpawnJitterPixels = 16f,
+        StartScale = 2.2f,
+        EndScale = 3.6f,
+        StartColor = new Color(0x78, 0, 0, 255),
+        EndColor = new Color(0x78, 0, 0, 255),
+        FadeOutFraction = 0f,
+        DirectionalSpreadRadians = MathHelper.ToRadians(180f),
+        MinRotationSpeed = 0f,
+        MaxRotationSpeed = 0f,
+        CollidesWithTiles = true,
+        BlendMode = ParticleBlendMode.Alpha
+    };
 
     private ParticleEmitter? _worldParticleEmitter;
     private Texture2D? _defaultParticleTexture;
+    private Texture2D? _solidBloodParticleTexture;
     private Texture2D[] _deathMistTextures = [];
     private readonly HashSet<int> _miningParticleHurtboxIds = [];
     private readonly List<int> _miningParticleHurtboxIdsToRemove = [];
@@ -67,6 +90,7 @@ public sealed partial class GameApp
     private void InitializeWorldParticles()
     {
         _defaultParticleTexture = CreateDefaultParticleTexture(GraphicsDevice);
+        _solidBloodParticleTexture = CreateSolidParticleTexture(GraphicsDevice);
         _deathMistTextures =
         [
             Content.Load<Texture2D>("Textures/HealingMist1"),
@@ -234,6 +258,31 @@ public sealed partial class GameApp
                 WorldParticleEmitter.EmitBurst(tileCenter, Vector2.Zero, texture, _deathMistSettings, _deathMistSettings.ParticlesPerTile);
             }
         }
+    }
+
+    private void EmitCreatureDeathParticles(CreatureDeathParticleRequest request)
+    {
+        if (_solidBloodParticleTexture is null)
+        {
+            return;
+        }
+
+        WorldParticleEmitter.EmitBurst(
+            request.Origin.ToWorldPixels(),
+            Vector2.Zero,
+            _solidBloodParticleTexture,
+            _bloodParticleSettings,
+            _bloodParticleSettings.ParticlesPerTile);
+    }
+
+    private static Texture2D CreateSolidParticleTexture(GraphicsDevice graphicsDevice)
+    {
+        const int size = 18;
+        var texture = new Texture2D(graphicsDevice, size, size);
+        var data = new Color[size * size];
+        Array.Fill(data, Color.White);
+        texture.SetData(data);
+        return texture;
     }
 
     private static Texture2D CreateDefaultParticleTexture(GraphicsDevice graphicsDevice)

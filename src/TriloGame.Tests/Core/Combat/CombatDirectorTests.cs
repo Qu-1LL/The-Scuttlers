@@ -50,4 +50,35 @@ public sealed class CombatDirectorTests
         Assert.Equal(lowDirective with { AssignmentVersion = lowAgain.AssignmentVersion }, lowAgain);
         Assert.Equal(highDirective with { AssignmentVersion = highAgain.AssignmentVersion }, highAgain);
     }
+
+    [Fact]
+    public void ThreatAssignments_BalanceFightersAcrossLiveAnts()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 24, new GridPoint(4, 4));
+        var fighters = new[]
+        {
+            TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(10, 10), "First", "fighter"),
+            TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(11, 10), "Second", "fighter"),
+            TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(12, 10), "Third", "fighter"),
+            TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(13, 10), "Fourth", "fighter")
+        };
+        var firstAnt = new Enemy("First Ant", new GridPoint(18, 10), session);
+        var secondAnt = new Enemy("Second Ant", new GridPoint(24, 10), session);
+        Assert.True(cave.Spawn(firstAnt, cave.GetTile(firstAnt.Location)!));
+        Assert.True(cave.Spawn(secondAnt, cave.GetTile(secondAnt.Location)!));
+
+        session.Combat.BeginTick(cave);
+
+        var firstAssignments = 0;
+        var secondAssignments = 0;
+        for (var index = 0; index < fighters.Length; index++)
+        {
+            var directive = session.Combat.Directives[fighters[index].Id];
+            if (directive.TargetId == firstAnt.Id) firstAssignments++;
+            if (directive.TargetId == secondAnt.Id) secondAssignments++;
+        }
+
+        Assert.Equal(2, firstAssignments);
+        Assert.Equal(2, secondAssignments);
+    }
 }

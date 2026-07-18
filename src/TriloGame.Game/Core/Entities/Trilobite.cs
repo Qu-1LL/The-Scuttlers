@@ -447,6 +447,18 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     protected override bool CanUseIdleMovement => Role != CreatureRole.Enemy;
 
+    // Keep every trilobite profession on the same idle algorithm while biasing it toward assigned work.
+    protected override bool TryGetIdleAnchor(out WorldPoint anchor)
+    {
+        if (AssignedBuilding is { Location: not null } building && ReferenceEquals(building.Cave, Cave))
+        {
+            anchor = WorldPoint.FromGridPoint(building.GetCenter());
+            return true;
+        }
+
+        return base.TryGetIdleAnchor(out anchor);
+    }
+
     internal void StartUnassignedRoleBehavior()
     {
         ClearFighterTarget();
@@ -516,7 +528,13 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     protected override bool TryInterruptActiveMovement()
     {
-        return IsFighter() && _combatAgentController.RefreshActivePursuit(this);
+        if (!IsFighter() ||
+            (!Session.Danger && MovementCohort.GoalKind != MovementGoalKind.Combat))
+        {
+            return false;
+        }
+
+        return _combatAgentController.RefreshActivePursuit(this);
     }
 
     // Idle trilobites should step off scaffolding so finished builds can complete without prolonged blocking.

@@ -25,6 +25,8 @@ public sealed class CombatWorld
     private readonly CombatSpatialGrid _grid = new();
     private readonly Dictionary<int, CombatDirective> _directives = [];
     private readonly List<Enemy> _enemyCandidates = [];
+    private readonly List<Enemy> _assignmentEnemies = [];
+    private readonly List<int> _assignmentLoads = [];
     private readonly List<Trilobite> _fighterCandidates = [];
     private readonly List<SectorScore> _sectors = [];
     private readonly List<CombatHurtbox> _hitCandidates = [];
@@ -153,6 +155,23 @@ public sealed class CombatWorld
     {
         var maximumDistance = GetCombatRadius(source) + GetCombatRadius(target);
         return (source.Position - target.Position).LengthSquared <= (long)maximumDistance * maximumDistance;
+    }
+
+    // Stop attackers at the edge of the combat body instead of routing them through the target center.
+    internal static WorldPoint GetMeleeEngagementPoint(Creature source, Creature target)
+    {
+        var direction = source.Position - target.Position;
+        if (direction.IsZero)
+        {
+            direction = source.FacingDirection;
+            if (direction.IsZero)
+            {
+                direction = new WorldVector(WorldUnits.UnitsPerPixel, 0);
+            }
+        }
+
+        var standOffDistance = GetCombatRadius(source) + GetCombatRadius(target);
+        return target.Position + direction.WithMagnitude(standOffDistance);
     }
 
     public void BeginTick(Cave cave)
@@ -603,16 +622,35 @@ public sealed class CombatWorld
         _directives.Clear();
         _assignmentVersion++;
         _sectors.Clear();
+        _assignmentEnemies.Clear();
+        _assignmentLoads.Clear();
         var sectors = _sectors;
         var enemies = cave.GetEnemyList();
         for (var index = 0; index < enemies.Count; index++)
         {
             var enemy = enemies[index];
             if (enemy.Health <= 0) continue;
+            _assignmentEnemies.Add(enemy);
+            _assignmentLoads.Add(0);
             var cell = enemy.CurrentCell;
             var sector = SectorId(cell);
             var score = 1000 - Math.Min(800, Math.Abs(cell.X) + Math.Abs(cell.Y)) + (enemy.Id % 7);
             AddSector(sectors, sector, score, cell);
+        }
+        for (var index = 1; index < _assignmentEnemies.Count; index++)
+        {
+            var enemy = _assignmentEnemies[index];
+            var load = _assignmentLoads[index];
+            var insert = index - 1;
+            while (insert >= 0 && _assignmentEnemies[insert].Id > enemy.Id)
+            {
+                _assignmentEnemies[insert + 1] = _assignmentEnemies[insert];
+                _assignmentLoads[insert + 1] = _assignmentLoads[insert];
+                insert--;
+            }
+
+            _assignmentEnemies[insert + 1] = enemy;
+            _assignmentLoads[insert + 1] = load;
         }
         sectors.Sort(static (left, right) => right.Score != left.Score ? right.Score.CompareTo(left.Score) : left.SectorId.CompareTo(right.SectorId));
         _fighterCandidates.Clear();
@@ -627,17 +665,45 @@ public sealed class CombatWorld
         for (var fighterIndex = 0; fighterIndex < _fighterCandidates.Count; fighterIndex++)
         {
             var fighter = _fighterCandidates[fighterIndex];
-            var chosen = sectors.Count == 0 ? new SectorScore(SectorId(fighter.CurrentCell), 0, fighter.CurrentCell) : sectors[fighterIndex % sectors.Count];
+            var chosen = sectors.Count == 0
+                ? new SectorScore(SectorId(fighter.CurrentCell), 0, fighter.CurrentCell)
+                : sectors[fighterIndex % sectors.Count];
             var targetId = 0;
+            var destination = WorldPoint.FromGridPoint(chosen.Center);
+            var bestEnemyIndex = -1;
+            var bestLoad = int.MaxValue;
             var bestDistance = long.MaxValue;
-            for (var enemyIndex = 0; enemyIndex < enemies.Count; enemyIndex++)
+            for (var enemyIndex = 0; enemyIndex < _assignmentEnemies.Count; enemyIndex++)
             {
-                var enemy = enemies[enemyIndex];
-                if (enemy.Health <= 0 || SectorId(enemy.CurrentCell) != chosen.SectorId) continue;
+                var enemy = _assignmentEnemies[enemyIndex];
+                var load = _assignmentLoads[enemyIndex];
                 var distance = (enemy.Position - fighter.Position).LengthSquared;
-                if (distance < bestDistance || (distance == bestDistance && enemy.Id < targetId)) { bestDistance = distance; targetId = enemy.Id; }
+                if (load < bestLoad ||
+                    (load == bestLoad && (distance < bestDistance ||
+                        (distance == bestDistance && (bestEnemyIndex < 0 || enemy.Id < _assignmentEnemies[bestEnemyIndex].Id)))))
+                {
+                    bestEnemyIndex = enemyIndex;
+                    bestLoad = load;
+                    bestDistance = distance;
+                }
             }
-            _directives[fighter.Id] = new CombatDirective(fighter.Id, chosen.SectorId, targetId == 0 ? CombatDirectiveKind.Advance : CombatDirectiveKind.Engage, WorldPoint.FromGridPoint(chosen.Center), targetId, _assignmentVersion);
+
+            if (bestEnemyIndex >= 0)
+            {
+                var enemy = _assignmentEnemies[bestEnemyIndex];
+                _assignmentLoads[bestEnemyIndex]++;
+                chosen = new SectorScore(SectorId(enemy.CurrentCell), 0, enemy.CurrentCell);
+                targetId = enemy.Id;
+                destination = WorldPoint.FromGridPoint(enemy.CurrentCell);
+            }
+
+            _directives[fighter.Id] = new CombatDirective(
+                fighter.Id,
+                chosen.SectorId,
+                targetId == 0 ? CombatDirectiveKind.Advance : CombatDirectiveKind.Engage,
+                destination,
+                targetId,
+                _assignmentVersion);
         }
     }
 

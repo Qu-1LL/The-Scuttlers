@@ -94,6 +94,7 @@ public sealed class GameSession
     public event Action<CreatureDamagedEvent>? CreatureDamaged;
     public event Action<float>? ScreenShakeRequested;
     public event Action<DeathMistRequest>? DeathMistRequested;
+    public event Action<CreatureDeathParticleRequest>? CreatureDeathParticlesRequested;
 
     public int AllocateCreatureId()
     {
@@ -192,6 +193,11 @@ public sealed class GameSession
         }
 
         DeathMistRequested?.Invoke(new DeathMistRequest(originTile, radius));
+    }
+
+    public void RequestCreatureDeathParticles(WorldPoint origin)
+    {
+        CreatureDeathParticlesRequested?.Invoke(new CreatureDeathParticleRequest(origin));
     }
 
     private void HandleStorageInventoryChanged(GameEventPayload payload)

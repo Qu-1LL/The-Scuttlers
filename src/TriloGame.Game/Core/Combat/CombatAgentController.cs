@@ -17,7 +17,12 @@ internal sealed class CombatAgentController
         {
             fighter.ClearFighterTarget();
             ClearPursuitTracking();
-            return fighter.AdvanceFighterReturnToStation(true);
+            if (fighter.FighterState is FighterState.SelectStation or FighterState.ReturnToStation)
+            {
+                return fighter.AdvanceFighterReturnToStation(true);
+            }
+
+            return fighter.AdvanceSharedIdleBehavior();
         }
 
         // Turret crews remain hosted so the building can own its reload cadence;
@@ -54,7 +59,16 @@ internal sealed class CombatAgentController
             return false;
         }
 
-        return fighter.NavigateTo(directive.Destination);
+        var started = fighter.NavigateTo(directive.Destination);
+        if (started && fighter.HasActiveMovement)
+        {
+            fighter.SetMovementCohort(new MovementCohort(
+                CreatureFaction.Colony,
+                MovementGoalKind.Combat,
+                directive.TargetId != 0 ? directive.TargetId : directive.SectorId));
+        }
+
+        return started;
     }
 
     // Revalidate active fighter routes before movement can consume another stale waypoint.
@@ -67,10 +81,17 @@ internal sealed class CombatAgentController
 
         if (!fighter.Session.Danger)
         {
+            var wasCombatRoute = fighter.MovementCohort.GoalKind == MovementGoalKind.Combat;
             fighter.ClearFighterTarget();
             ClearPursuitTracking();
             fighter.ClearTaskQueue();
-            return true;
+            if (wasCombatRoute)
+            {
+                // Drop stale pursuit routes when danger ends; idle, station, and manual routes continue normally.
+                fighter.CancelMovement();
+            }
+
+            return false;
         }
 
         if (fighter.IsHostedOnBuilding() && fighter.HostedBuilding is Turret)
@@ -92,8 +113,8 @@ internal sealed class CombatAgentController
         {
             fighter.SetFighterTarget(target);
             TrackTarget(target);
-            var routeStarted = StartPursuitRoute(fighter, target);
-            return !routeStarted || !fighter.HasActiveMovement;
+            StartPursuitRoute(fighter, target);
+            return !fighter.HasActiveMovement;
         }
 
         if (CombatWorld.CanMeleeReach(fighter, CombatTargetRef.For(target)))
@@ -109,8 +130,8 @@ internal sealed class CombatAgentController
         {
             TrackTarget(target);
             fighter.SetActivity(CreatureActivity.Fighting);
-            var routeStarted = StartPursuitRoute(fighter, target);
-            return !routeStarted || !fighter.HasActiveMovement;
+            StartPursuitRoute(fighter, target);
+            return !fighter.HasActiveMovement;
         }
 
         return false;
@@ -122,11 +143,22 @@ internal sealed class CombatAgentController
         _trackedTargetCell = target.CurrentCell;
     }
 
-    // Replace a stale pursuit route before the movement phase, while preserving this tick's movement.
+    // Replace a stale pursuit route without discarding the fighter's current movement momentum.
     private static bool StartPursuitRoute(Trilobite fighter, Enemy target)
     {
-        fighter.ClearTaskQueue();
-        return fighter.NavigateTo(target.Position, clearExisting: true);
+        var engagementPoint = CombatWorld.GetMeleeEngagementPoint(fighter, target);
+        var started = fighter.HasActiveMovement
+            ? fighter.TryReplaceActiveCombatRoute(engagementPoint)
+            : fighter.NavigateTo(engagementPoint, clearExisting: true);
+        if (started && fighter.HasActiveMovement)
+        {
+            fighter.SetMovementCohort(new MovementCohort(
+                CreatureFaction.Colony,
+                MovementGoalKind.Combat,
+                target.Id));
+        }
+
+        return started;
     }
 
     private void ClearPursuitTracking()

@@ -14,11 +14,13 @@ namespace TriloGame.Game.Core.Entities;
 public class Creature
 {
     private const int InteractionArrivalTolerancePixels = 12;
-    private const int QueenConveneIdleModulo = 4;
-    private const int IdleCandidateAttempts = 12;
-    private const int IdleMinimumRestTicks = 28;
-    private const int IdleRestTickRange = 73;
-    private const int IdleQueenSpreadRadiusTiles = 5;
+    private const int IdleCandidateAttempts = 8;
+    private const int IdleMinimumRestTicks = 10;
+    private const int IdleRestTickRange = 31;
+    private const int IdleWanderChancePercent = 30;
+    private const int IdleWanderRadiusTiles = 2;
+    private const int IdleAnchorSnapRadiusTiles = 4;
+    private const int IdleMaximumFallbackPathCells = 4;
     internal const int RouteRefillLowWatermark = 3;
     internal const int RouteRefillChunkCells = 10;
     private readonly Queue<CreatureTask> _tasks = new();
@@ -41,8 +43,11 @@ public class Creature
     private string? _routeContinuationSharedFieldName;
     private Building? _routeContinuationBuilding;
     private WorldPoint? _idleDestination;
+    private WorldPoint _idleAnchor;
+    private bool _hasIdleAnchor;
     private int _idleRestTicks;
     private int _idleCycle;
+    private IdleBehaviorState _idleState;
 
     public Creature(
         string name,
@@ -73,6 +78,7 @@ public class Creature
         FacingDirection = PreviousFacing;
         MovementCohort = MovementCohort.None;
         _idleRestTicks = GetIdleRestTicks(0);
+        _idleState = IdleBehaviorState.StationaryIdle;
         RotationRadians = 0f;
         IsLocomotionEnabled = true;
         IsVisible = true;
@@ -126,9 +132,11 @@ public class Creature
 
     public WorldPoint? IdleDestination => _idleDestination;
 
-    public int IdleRestTicks => _idleRestTicks;
+    public WorldPoint? IdleAnchor => _hasIdleAnchor ? _idleAnchor : null;
 
-    internal bool UsesQueenConveneIdlePattern => Role != CreatureRole.Enemy && (Id % QueenConveneIdleModulo) == 0;
+    public IdleBehaviorState IdleState => _idleState;
+
+    public int IdleRestTicks => _idleRestTicks;
 
     public WorldPoint? MovementTarget { get; private set; }
 
@@ -173,6 +181,7 @@ public class Creature
                 CancelMovement();
                 ReleaseInteractionReservation();
                 ClearBfsTraversal();
+                ResetIdleState();
             }
 
             _assignment = assignment;
@@ -424,6 +433,7 @@ public class Creature
         if (Health <= 0)
         {
             Health = 0;
+            Session.RequestCreatureDeathParticles(Position);
             Session.RequestAudioCueOncePerTick(
                 GameAudioCue.CreatureDeath,
                 Position,
@@ -562,6 +572,50 @@ public class Creature
         }
 
         BeginMovement(_activeRoute[0]);
+        return true;
+    }
+
+    // Replace only a live combat route so target tracking does not reset movement momentum.
+    internal bool TryReplaceActiveCombatRoute(WorldPoint exactDestination)
+    {
+        if (!EnsureReadyForNavigation() || Cave is null)
+        {
+            return false;
+        }
+
+        var path = BuildNavigationPathChunkToPoint(
+            exactDestination.ToGridPoint(),
+            Location,
+            RouteRefillChunkCells,
+            out var reachedDestination);
+        if (path is null || _routeBuildDeferred)
+        {
+            return false;
+        }
+
+        WorldPoint? exactTarget = reachedDestination ? exactDestination : null;
+        if (path.Count < 2 && exactTarget is null)
+        {
+            return false;
+        }
+
+        var route = ContinuousRoutePlanner.Build(Cave, this, path, exactTarget);
+        if (route.Count == 0)
+        {
+            return false;
+        }
+
+        var currentVelocity = Velocity;
+        _tasks.Clear();
+        ReleaseInteractionReservation();
+        ClearBfsTraversal();
+        if (!BeginRoute(route))
+        {
+            return false;
+        }
+
+        ArmPointRouteContinuation(exactDestination.ToGridPoint(), exactDestination);
+        Velocity = currentVelocity;
         return true;
     }
 
@@ -767,91 +821,171 @@ public class Creature
 
             _idleDestination = null;
             _idleRestTicks = GetIdleRestTicks(_idleCycle);
+            _idleState = IdleBehaviorState.StationaryIdle;
+            _hasIdleAnchor = false;
             Activity = CreatureActivity.Idle;
             return true;
         }
 
-        if (_idleRestTicks-- > 0)
+        if (_idleRestTicks > 0)
         {
+            _idleRestTicks--;
+            RefreshIdleAnchor();
+            FaceIdleAnchor();
+            _idleState = IdleBehaviorState.StationaryIdle;
             Activity = CreatureActivity.Idle;
             return true;
         }
 
-        if (TryBeginQueenConveneIdleMove())
+        RefreshIdleAnchor();
+        _idleCycle++;
+        var maxWanderDistance = (long)IdleWanderRadiusTiles * WorldUnits.UnitsPerTile;
+
+        // Most idle decisions remain stationary; the remainder get one short local move.
+        var wanderBucket = PositiveModulo(
+            GetIdleSample(_idleCycle, 211) + (_idleCycle * 31) + (Id * 17),
+            100);
+        if (wanderBucket >= IdleWanderChancePercent)
         {
+            _idleRestTicks = GetIdleRestTicks(_idleCycle);
+            _idleState = IdleBehaviorState.StationaryIdle;
+            Activity = CreatureActivity.Idle;
             return true;
         }
 
+        var directionStart = PositiveModulo(GetIdleSample(_idleCycle, 1), IdleDirections.Length);
         for (var attempt = 0; attempt < IdleCandidateAttempts; attempt++)
         {
             var sample = GetIdleSample(_idleCycle, attempt + 1);
-            var distance = (WorldUnits.UnitsPerTile / 2) + (((sample >> 4) & 3) * (WorldUnits.UnitsPerTile / 2));
-            var direction = GetIdleDirection(sample, attempt);
-            var candidate = Position + new WorldVector(
+            var distance = (WorldUnits.UnitsPerTile / 2) +
+                           (PositiveModulo(sample >> 4, 4) * (WorldUnits.UnitsPerTile / 2));
+            // Walk the deterministic direction ring so map edges still get a valid local option.
+            var direction = IdleDirections[PositiveModulo(directionStart + attempt, IdleDirections.Length)];
+            var candidate = _idleAnchor + new WorldVector(
                 (int)(((long)direction.X * distance) / 1000),
                 (int)(((long)direction.Y * distance) / 1000));
-            if (!Cave.CanCreatureOccupyWorldPosition(this, candidate))
+            if ((candidate - _idleAnchor).LengthSquared > maxWanderDistance * maxWanderDistance ||
+                (candidate - Position).LengthSquared < (long)WorldUnits.FromPixels(2) * WorldUnits.FromPixels(2) ||
+                !Cave.CanCreatureOccupyWorldPosition(this, candidate))
             {
                 continue;
             }
 
-            _idleCycle++;
-            if (NavigateTo(candidate, clearExisting: false))
+            if (TryBeginIdleLocalMove(candidate))
             {
-                SetMovementCohort(new MovementCohort(
-                    CreatureFaction.Colony,
-                    MovementGoalKind.Idle,
-                    unchecked((Id * 397) ^ _idleCycle)));
-                _idleDestination = candidate;
                 return true;
             }
         }
 
-        _idleCycle++;
         _idleRestTicks = GetIdleRestTicks(_idleCycle);
+        _idleState = IdleBehaviorState.StationaryIdle;
+        Activity = CreatureActivity.Idle;
         return true;
     }
 
-    private bool TryBeginQueenConveneIdleMove()
+    // Allow role controllers to enter the exact same idle-wander path as the base move loop.
+    internal bool AdvanceSharedIdleBehavior()
     {
-        if (!UsesQueenConveneIdlePattern || _idleCycle == 0 || (_idleCycle % 7) != 0 ||
-            Cave?.GetQueenBuilding() is not { } queen)
+        return TryAdvanceIdleBehavior();
+    }
+
+    private bool TryBeginIdleLocalMove(WorldPoint candidate)
+    {
+        if (Cave is null)
         {
             return false;
         }
 
-        var queenCenter = WorldPoint.FromGridPoint(queen.GetCenter());
-        for (var attempt = 0; attempt < 8; attempt++)
+        if (Cave.HasClearStaticSweep(this, Position, candidate))
         {
-            var direction = IdleDirections[(Id + _idleCycle + attempt) % IdleDirections.Length];
-            var distance = WorldUnits.UnitsPerTile * 2;
-            var candidate = queenCenter + new WorldVector(
-                (int)(((long)direction.X * distance) / 1000),
-                (int)(((long)direction.Y * distance) / 1000));
-            if (!Cave.CanCreatureOccupyWorldPosition(this, candidate))
-            {
-                continue;
-            }
-
-            _idleCycle++;
-            if (NavigateTo(candidate, clearExisting: false))
-            {
-                SetMovementCohort(new MovementCohort(
-                    CreatureFaction.Colony,
-                    MovementGoalKind.Idle,
-                    unchecked((Id * 397) ^ _idleCycle)));
-                _idleDestination = candidate;
-                return true;
-            }
+            return BeginIdleDirectMove(candidate);
         }
 
-        return false;
+        var path = Cave.BuildDirectPathToPoint(Location, candidate.ToGridPoint());
+        if (path is null || path.Count < 2 || path.Count - 1 > IdleMaximumFallbackPathCells)
+        {
+            return false;
+        }
+
+        var route = ContinuousRoutePlanner.Build(Cave, this, path, candidate);
+        if (route.Count == 0 || !BeginRoute(route))
+        {
+            return false;
+        }
+
+        NavigationInstrumentation.RecordQueuedNavigationSteps(route.Count);
+        ClearRouteContinuation();
+        SetIdleMovementState(candidate);
+        return true;
     }
 
     private void ResetIdleBehavior()
     {
         _idleDestination = null;
         _idleRestTicks = GetIdleRestTicks(_idleCycle);
+        _idleState = IdleBehaviorState.StationaryIdle;
+        _hasIdleAnchor = false;
+    }
+
+    private void ResetIdleState()
+    {
+        _idleDestination = null;
+        _idleAnchor = default;
+        _hasIdleAnchor = false;
+        _idleState = IdleBehaviorState.StationaryIdle;
+        _idleRestTicks = GetIdleRestTicks(_idleCycle);
+    }
+
+    private void RefreshIdleAnchor()
+    {
+        if (!TryGetIdleAnchor(out var anchor))
+        {
+            anchor = Position;
+        }
+
+        var maxAnchorDistance = (long)IdleAnchorSnapRadiusTiles * WorldUnits.UnitsPerTile;
+        if ((anchor - Position).LengthSquared > maxAnchorDistance * maxAnchorDistance)
+        {
+            anchor = Position;
+        }
+
+        _idleAnchor = anchor;
+        _hasIdleAnchor = true;
+    }
+
+    private void FaceIdleAnchor()
+    {
+        if (_hasIdleAnchor)
+        {
+            Face(_idleAnchor - Position);
+        }
+    }
+
+    private bool BeginIdleDirectMove(WorldPoint candidate)
+    {
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        _activeRoute.Add(candidate);
+        ClearRouteContinuation();
+        BeginMovement(candidate);
+        SetIdleMovementState(candidate);
+        return true;
+    }
+
+    private void SetIdleMovementState(WorldPoint candidate)
+    {
+        SetMovementCohort(new MovementCohort(
+            CreatureFaction.Colony,
+            MovementGoalKind.Idle,
+            unchecked((Id * 397) ^ _idleCycle)));
+        _idleDestination = candidate;
+        _idleState = IdleBehaviorState.WanderNearAnchor;
+    }
+
+    protected virtual bool TryGetIdleAnchor(out WorldPoint anchor)
+    {
+        anchor = Position;
+        return true;
     }
 
     protected virtual bool CanUseIdleMovement => Role == CreatureRole.Unassigned;
@@ -871,50 +1005,6 @@ public class Creature
             sample ^= sample >> 16;
             return sample & int.MaxValue;
         }
-    }
-
-    private WorldVector GetIdleDirection(int sample, int attempt)
-    {
-        if (!UsesQueenConveneIdlePattern && TryGetQueenAvoidanceDirection(sample, attempt, out var direction))
-        {
-            return direction;
-        }
-
-        return IdleDirections[PositiveModulo(sample, IdleDirections.Length)];
-    }
-
-    private bool TryGetQueenAvoidanceDirection(int sample, int attempt, out WorldVector direction)
-    {
-        direction = WorldVector.Zero;
-        if (Cave?.GetQueenBuilding() is not { } queen)
-        {
-            return false;
-        }
-
-        var queenCenter = WorldPoint.FromGridPoint(queen.GetCenter());
-        var awayFromQueen = Position - queenCenter;
-        if (awayFromQueen.IsZero ||
-            awayFromQueen.LengthSquared > (long)IdleQueenSpreadRadiusTiles * IdleQueenSpreadRadiusTiles * WorldUnits.UnitsPerTile * WorldUnits.UnitsPerTile)
-        {
-            return false;
-        }
-
-        var closestIndex = 0;
-        var bestDot = long.MinValue;
-        for (var index = 0; index < IdleDirections.Length; index++)
-        {
-            var candidate = IdleDirections[index];
-            var dot = ((long)candidate.X * awayFromQueen.X) + ((long)candidate.Y * awayFromQueen.Y);
-            if (dot > bestDot)
-            {
-                bestDot = dot;
-                closestIndex = index;
-            }
-        }
-
-        var spreadOffset = PositiveModulo(attempt + (sample >> 8), 5) - 2;
-        direction = IdleDirections[PositiveModulo(closestIndex + spreadOffset, IdleDirections.Length)];
-        return true;
     }
 
     private static int PositiveModulo(int value, int modulo)

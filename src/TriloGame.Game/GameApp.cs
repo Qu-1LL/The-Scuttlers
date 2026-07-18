@@ -110,7 +110,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _graphics = new GraphicsDeviceManager(this);
         _sessionAudioBridge = new SessionAudioBridge(_audio, () => _camera);
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
-        _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
+        _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist, EmitCreatureDeathParticles);
         _focusAudioSystem = new FocusAudioSystem(_audio);
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,

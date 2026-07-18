@@ -5,6 +5,7 @@ using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Rendering;
 using TriloGame.Game.Shared.Math;
+using TriloGame.Game.Shared.State;
 
 namespace TriloGame.Tests.Rendering;
 
@@ -24,7 +25,17 @@ public sealed class CreatureFeedbackRenderingTests
     public void DamageFlash_TintsCreatureRedAndReturnsToWhite()
     {
         Assert.Equal(Color.White, WorldSceneRenderer.GetCreatureDamageColor(0f));
-        Assert.Equal(new Color(255, 48, 48), WorldSceneRenderer.GetCreatureDamageColor(1f));
+        Assert.Equal(Color.Red, WorldSceneRenderer.GetCreatureDamageColor(1f));
+    }
+
+    [Fact]
+    public void DamageFlash_UsesBoostedOpacityDuringFalloff()
+    {
+        var runtime = new GameSessionRuntimeState();
+        runtime.RestartDamageFlash(creatureId: 7);
+        runtime.AdvancePresentation(GameSessionRuntimeState.DamageFlashDurationMs / 2d);
+
+        Assert.Equal(0.675f, runtime.GetDamageFlashAlpha(7), precision: 3);
     }
 
     [Fact]

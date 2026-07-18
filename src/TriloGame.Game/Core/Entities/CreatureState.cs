@@ -29,6 +29,12 @@ public enum CreatureActivity
     Brooding
 }
 
+public enum IdleBehaviorState
+{
+    StationaryIdle,
+    WanderNearAnchor
+}
+
 public enum CreatureFaction
 {
     Colony,

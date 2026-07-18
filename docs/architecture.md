@@ -113,22 +113,29 @@ These form the current “golden path” for adding structure without destabiliz
   damage/audio events. Structure attacks retain a blocked-tile reach envelope, while creature
   combat uses the same centered body shape for both sides.
 - `Core/Combat/CombatAgentController` consumes automatic 8x8 threat-sector directives and routes
-  fighters to the assigned enemy's live world pose before attacking. Pursuit routes refresh only
-  on a target identity or cell change and preserve the current movement phase. Fighters keep only
-  the colony `fighter` profession; named tactical subroles are not part of simulation state.
+  fighters to a deterministic stand-off point on the assigned enemy's live world pose before
+  attacking. Pursuit routes refresh only on a target identity or cell change, replacing future
+  waypoints while preserving current movement momentum. Fighters keep only the colony `fighter`
+  profession; named tactical subroles are not part of simulation state. When danger is clear,
+  fighters use the same deterministic idle-wander routine as every other mobile trilobite.
 - Enemies expose the same explicit combat lifecycle through `EnemyCombatState`, separating target
   acquisition, colony pursuit, attacks, breaches, and recovery for runtime inspection and replay
   diagnostics.
-- Combat target selection uses the spatial grid plus deterministic sector pressure and stable ID
-  tie-breaking. No attacker performs an army-wide scan during hit resolution.
+- Combat target selection uses deterministic live-ant load balancing: fighters are processed by
+  stable creature ID, assigned to the least-loaded ant, and use distance then ant ID as tie-breaks.
+  Threat sectors remain the fallback advance plan, while the spatial grid handles actual target
+  acquisition and hit resolution. No attacker performs an army-wide scan during hit resolution.
+- Creature death publishes a shared render request; the session particle bridge turns it into a
+  red two-second burst using the existing particle system's high-velocity friction and tile-collision
+  support.
 - `MiningStrikeSystem` owns the unchanged mining claim/reach/timing path. Mining strikes are
   point-sampled at their rendered magenta point and never share combat hitbox state.
 - `MiningClaimAllocator` gives miners deterministic claims while allowing multiple miners to share
   a mineable target, and each post rotates its mineable queue so autonomous and manual mining
   orders keep round-robin pressure on the available work.
-- Trilobite role state machines start from an explicit idle state. Idle workers use the shared
-  deterministic idle movement and periodically sample queen-adjacent convene points before resuming
-  role work.
+- Trilobite role state machines start from an explicit idle state. All mobile trilobite professions
+  use the same deterministic layered idle routine: mostly stationary pauses followed by short,
+  anchor-biased local moves that prefer clear direct steering and bound fallback pathfinding.
 - Creature carrier inventory may contain multiple resource types; older `Inventory.Type` callers
   observe the first carried resource for compatibility, while deposit paths drain all carried
   stacks into compatible storage.

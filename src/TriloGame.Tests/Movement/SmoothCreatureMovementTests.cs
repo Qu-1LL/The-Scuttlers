@@ -55,15 +55,36 @@ public sealed class SmoothCreatureMovementTests
         creature.Assignment = "unassigned";
         var anchor = creature.Position;
 
-        for (var tick = 0; tick < 70 && !creature.IdleDestination.HasValue; tick++)
+        for (var tick = 0; tick < 140 && !creature.IdleDestination.HasValue; tick++)
         {
             creature.Move();
         }
 
         Assert.True(creature.IdleDestination.HasValue);
         Assert.InRange((creature.IdleDestination.Value - anchor).Length,
-            WorldUnits.UnitsPerTile - WorldUnits.UnitsPerPixel,
+            (WorldUnits.UnitsPerTile / 2) - WorldUnits.UnitsPerPixel,
             WorldUnits.UnitsPerTile * 2);
         Assert.Equal(MovementGoalKind.Idle, creature.MovementCohort.GoalKind);
+    }
+
+    [Fact]
+    public void IdleMovement_UsesNormalFullAcceleration()
+    {
+        var (_, cave, _, creature) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
+        creature.Assignment = "unassigned";
+
+        for (var tick = 0; tick < 140 && !creature.HasActiveMovement; tick++)
+        {
+            creature.Move();
+            if (!creature.HasActiveMovement)
+            {
+                cave.AdvanceCreatureMovement();
+            }
+        }
+
+        Assert.True(creature.HasActiveMovement);
+        cave.AdvanceCreatureMovement();
+
+        Assert.Equal(creature.BaseSpeed, creature.Velocity.Length);
     }
 }

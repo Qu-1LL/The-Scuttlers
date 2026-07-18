@@ -77,8 +77,11 @@ public sealed class CreatureMovementSystem
         var preferred = routeVelocity +
                         wallAvoidance.ClampMagnitude(creature.BaseSpeed / 3);
         preferred = preferred.ClampMagnitude(creature.BaseSpeed);
+        var accelerationLimit = creature.MovementCohort.GoalKind == MovementGoalKind.Idle
+            ? creature.BaseSpeed
+            : Math.Max(1, creature.BaseSpeed / 2);
         var acceleration = (preferred - creature.Velocity).ClampMagnitude(
-            Math.Max(1, creature.BaseSpeed / 2));
+            accelerationLimit);
         return (creature.Velocity + acceleration).ClampMagnitude(creature.BaseSpeed);
     }
 

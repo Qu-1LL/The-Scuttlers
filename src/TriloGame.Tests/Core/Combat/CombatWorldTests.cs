@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Shared.Math;
+using TriloGame.Game.Shared.State;
 
 namespace TriloGame.Tests.Core.Combat;
 
@@ -20,6 +21,22 @@ public sealed class CombatWorldTests
         var capsule = CombatShape.Capsule(new WorldPoint(0, 0), new WorldPoint(100, 0), 10);
         Assert.True(capsule.Intersects(CombatShape.Circle(new WorldPoint(50, 20), 10)));
         Assert.False(capsule.Intersects(CombatShape.Circle(new WorldPoint(50, 21), 9)));
+    }
+
+    [Fact]
+    public void CreatureDeath_RaisesRenderParticleRequestBeforeRemoval()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 16, new GridPoint(4, 4));
+        var creature = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(8, 8), "Victim", "fighter");
+        var expectedOrigin = creature.Position;
+        CreatureDeathParticleRequest? request = null;
+        session.CreatureDeathParticlesRequested += value => request = value;
+
+        creature.TakeDamage(creature.Health);
+
+        Assert.True(request.HasValue);
+        Assert.Equal(expectedOrigin, request.Value.Origin);
+        Assert.DoesNotContain(creature, cave.Trilobites);
     }
 
     [Fact]
@@ -103,6 +120,8 @@ public sealed class CombatWorldTests
 
         Assert.True(enemy.Health < enemy.MaxHealth);
         Assert.Same(enemy, fighter.FighterTarget);
+        var bodyDistance = (fighter.Position - enemy.Position).Length;
+        Assert.True(bodyDistance >= fighter.CollisionRadius + enemy.CollisionRadius);
     }
 
     [Fact]
@@ -121,8 +140,11 @@ public sealed class CombatWorldTests
         session.TickCount++;
         session.Combat.BeginTick(cave);
         var positionBeforeRefresh = fighter.Position;
+        var velocityBeforeRefresh = fighter.Velocity;
+        Assert.NotEqual(WorldVector.Zero, velocityBeforeRefresh);
 
         fighter.Move();
+        Assert.Equal(velocityBeforeRefresh, fighter.Velocity);
         cave.AdvanceCreatureMovement();
 
         Assert.Same(enemy, fighter.FighterTarget);

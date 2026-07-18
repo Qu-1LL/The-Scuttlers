@@ -350,4 +350,31 @@ public sealed class ParticleEmitterTests
         Assert.Equal(0, emitted);
         Assert.Equal(0, system.ActiveCount);
     }
+
+    [Fact]
+    public void EmitBurst_CanCreateFastFrictionalWallCollidingParticles()
+    {
+        var system = new ParticleSystem(maxParticles: 4);
+        var emitter = new ParticleEmitter(system);
+        var settings = new ParticleSpraySettings
+        {
+            MinLifetimeSeconds = 2f,
+            MaxLifetimeSeconds = 2f,
+            MinSpeed = 420f,
+            MaxSpeed = 420f,
+            DriftAmount = 0f,
+            GroundFriction = 3.5f,
+            CollidesWithTiles = true
+        };
+
+        Assert.Equal(4, emitter.EmitBurst(Vector2.Zero, Vector2.Zero, null!, settings, 4));
+
+        foreach (ref readonly var particle in system.ActiveParticles)
+        {
+            Assert.Equal(2f, particle.LifetimeSeconds);
+            Assert.Equal(3.5f, particle.GroundFriction);
+            Assert.True(particle.UseTileCollision);
+            Assert.Equal(420f, particle.Velocity.Length(), precision: 3);
+        }
+    }
 }

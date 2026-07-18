@@ -82,17 +82,24 @@ preferred-velocity work is intentionally deferred until profiling shows the sing
 cannot meet its budget; reservations, environment collisions, and commits must remain ordered.
 
 Combat planning is prepared at the start of the creature-move phase. `CombatWorld` scores fixed
-8x8 threat sectors, creates intercept slots, assigns fighters in stable creature-ID order, and
-directs enemies to advance, engage, breach, retarget, or recover. Fighters pursue the assigned
-enemy's current world pose rather than the sector center, refresh routes on deterministic cell
-changes without skipping the movement phase, and ants acquire nearby trilobites from
+8x8 threat sectors, creates intercept slots, assigns live ants in stable creature-ID order using
+least-load then nearest-distance balancing, and directs enemies to advance, engage, breach, retarget,
+or recover. Fighters pursue a stand-off point based on the assigned enemy's current world pose
+rather than the sector center, replace future waypoints on deterministic cell changes without
+resetting movement momentum or skipping the movement phase, and ants acquire nearby trilobites from
 the combat hurtbox grid before falling back to the colony field. The existing mining states and
 mining order path are not consulted or modified by combat planning.
 
+When danger is false, the fighter controller clears combat tracking and enters the same shared
+anchor-biased idle routine used by every mobile trilobite profession instead of using a separate
+profession-specific wander pattern.
+
 `GameSessionRuntimeState` observes typed creature-damaged events and owns the presentation-only
-150 ms red flash. Repeated damage restarts the flash without making wall-clock time part of the
-simulation. The renderer uses the simulation clock's interpolation alpha for both creature
-position and shortest-arc facing.
+150 ms red flash with boosted opacity. Repeated damage restarts the flash without making wall-clock
+time part of the simulation. Creature death publishes a separate render request consumed by the
+session particle bridge; the world particle system emits a fixed two-second red burst with high
+initial velocity, ground friction, and tile collision. The renderer uses the simulation clock's
+interpolation alpha for both creature position and shortest-arc facing.
 
 ### Preferred future direction
 

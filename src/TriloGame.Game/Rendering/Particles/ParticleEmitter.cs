@@ -277,7 +277,15 @@ public sealed class ParticleEmitter
             settings.FadeOutFraction,
             RenderingRandom.NextRange(0f, MathF.Tau),
             RenderingRandom.NextRange(settings.MinRotationSpeed, settings.MaxRotationSpeed),
-            settings.BlendMode);
+            settings.BlendMode,
+            settings.GroundFriction,
+            0f,
+            0f,
+            0f,
+            false,
+            false,
+            0f,
+            settings.CollidesWithTiles);
 
         return _particleSystem.TryAdd(particle);
     }

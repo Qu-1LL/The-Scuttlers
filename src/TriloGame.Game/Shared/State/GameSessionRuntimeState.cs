@@ -6,6 +6,7 @@ namespace TriloGame.Game.Shared.State;
 public sealed class GameSessionRuntimeState
 {
     public const double DamageFlashDurationMs = 150d;
+    public const float DamageFlashOpacityMultiplier = 1.35f;
     private int _nextDebugEnemyId = 1;
     private int _nextDebugTrilobiteId = 1;
 
@@ -37,7 +38,10 @@ public sealed class GameSessionRuntimeState
     public float GetDamageFlashAlpha(int creatureId)
     {
         return _damageFlashRemainingMs.TryGetValue(creatureId, out var remaining)
-            ? (float)System.Math.Clamp(remaining / DamageFlashDurationMs, 0d, 1d)
+            ? (float)System.Math.Clamp(
+                (remaining / DamageFlashDurationMs) * DamageFlashOpacityMultiplier,
+                0d,
+                1d)
             : 0f;
     }
 

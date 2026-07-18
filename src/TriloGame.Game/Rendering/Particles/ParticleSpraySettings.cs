@@ -20,6 +20,10 @@ public sealed class ParticleSpraySettings
 
     public float Drag { get; set; } = 4f;
 
+    public float GroundFriction { get; set; }
+
+    public bool CollidesWithTiles { get; set; }
+
     public float BrownianMotion { get; set; }
 
     public float SpawnJitterPixels { get; set; } = 6f;
