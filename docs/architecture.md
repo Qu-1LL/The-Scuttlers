@@ -91,6 +91,10 @@ Per-building traversal navigation is split from the legacy synchronous `BfsField
 - Smooth creature routes consume bounded coarse path chunks from those published snapshots, then
   follow their existing fixed-point continuous movement. Generic building navigation terminates on
   a snapshot tile with distance `0`, including exterior access tiles for solid-footprint buildings.
+- A building field seeds every walkable interaction-zone slot at distance `0` by default.
+  `NavigateToInteractionZone` reserves capacity in the requested zone, then follows that shared
+  building field instead of creating a destination-specific point BFS. Spawn-only and hosted-only
+  slots explicitly opt out of field seeding.
 - Building selection no longer maintains separate ownership BFS fields. Nearest-building queries
   compare the corresponding per-building traversal fields, and assignment candidate lists are
   ordered directly by those distances.

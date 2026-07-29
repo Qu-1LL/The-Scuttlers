@@ -469,7 +469,33 @@ public sealed class BfsField
 
     private void AddBuildingSeedIds(Building? building)
     {
-        if (building is null || building.TileArray.Count == 0)
+        var cave = Cave;
+        if (building is null || cave is null || building.TileArray.Count == 0)
+        {
+            return;
+        }
+
+        var hasNavigationTargets = false;
+        for (var zoneIndex = 0; zoneIndex < building.InteractionZones.Count; zoneIndex++)
+        {
+            var zone = building.InteractionZones[zoneIndex];
+            if (!zone.IsNavigationTarget)
+            {
+                continue;
+            }
+
+            hasNavigationTargets = true;
+            for (var slotIndex = 0; slotIndex < zone.SlotPositions.Count; slotIndex++)
+            {
+                var tile = cave.GetTile(zone.SlotPositions[slotIndex].ToGridPoint());
+                if (tile is not null && IsTilePassableToField(tile) && _covered[tile.Id])
+                {
+                    AddSeed(tile);
+                }
+            }
+        }
+
+        if (hasNavigationTargets)
         {
             return;
         }

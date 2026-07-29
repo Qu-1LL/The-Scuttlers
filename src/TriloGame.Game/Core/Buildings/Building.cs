@@ -297,6 +297,37 @@ public class Building
             return seeds;
         }
 
+        // Interaction slots are the arrival contract for a building field.  Fall back to the
+        // legacy footprint rules only for buildings that do not define any walkable zone.
+        var seen = new HashSet<int>();
+        var hasNavigationTargets = false;
+        for (var zoneIndex = 0; zoneIndex < _interactionZones.Count; zoneIndex++)
+        {
+            var zone = _interactionZones[zoneIndex];
+            if (!zone.IsNavigationTarget)
+            {
+                continue;
+            }
+
+            hasNavigationTargets = true;
+            for (var slotIndex = 0; slotIndex < zone.SlotPositions.Count; slotIndex++)
+            {
+                var tile = cave.GetTile(zone.SlotPositions[slotIndex].ToGridPoint());
+                if (tile is not null &&
+                    tile.CreatureFits() &&
+                    cave.IsTileReachable(tile) &&
+                    seen.Add(tile.Id))
+                {
+                    seeds.Add(tile);
+                }
+            }
+        }
+
+        if (hasNavigationTargets)
+        {
+            return seeds;
+        }
+
         if (NavigationSeedMode == BuildingNavigationSeedMode.InteriorPassableOwnedTiles)
         {
             foreach (var tile in TileArray)
@@ -310,7 +341,6 @@ public class Building
             return seeds;
         }
 
-        var seen = new HashSet<int>();
         foreach (var tile in TileArray)
         {
             if (!ReferenceEquals(tile.Built, this))
@@ -431,7 +461,8 @@ public class Building
             definition.Name,
             definition.Purpose,
             bounds,
-            slots);
+            slots,
+            definition.IsNavigationTarget);
     }
 
     private GridPoint TransformLocalCell(GridPoint point)

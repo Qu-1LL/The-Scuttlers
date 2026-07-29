@@ -16,7 +16,7 @@ public sealed class Queen : Building
         new("Feeding", InteractionZonePurpose.Feeding, new GridPoint(0, 0), new GridPoint(3, 1),
             [new GridPoint(0, 0), new GridPoint(1, 0), new GridPoint(2, 0)]),
         new("Brood emergence", InteractionZonePurpose.Brooding, new GridPoint(0, 2), new GridPoint(3, 1),
-            [new GridPoint(0, 2), new GridPoint(1, 2), new GridPoint(2, 2)])
+            [new GridPoint(0, 2), new GridPoint(1, 2), new GridPoint(2, 2)], IsNavigationTarget: false)
     ];
     private List<World.Tile>? _feedTilesCache;
     private HashSet<string>? _feedTileKeysCache;

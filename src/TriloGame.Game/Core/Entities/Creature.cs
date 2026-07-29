@@ -355,14 +355,35 @@ public class Creature
 
     public bool IsAtReservedInteractionSlot()
     {
-        if (!TryGetReservedZonePosition(out var target))
+        if (ReservedZone is not { } zone || !ReservedZoneSlot.HasValue)
         {
             return false;
         }
 
+        // A reservation claims capacity for the purpose; a shared building field may terminate
+        // on any walkable zone with that purpose (for example, any scaffold work edge).
         var tolerance = WorldUnits.FromPixels(InteractionArrivalTolerancePixels);
-        return (Position - target).LengthSquared <= (long)tolerance * tolerance &&
-               Velocity.Length <= BaseSpeed;
+        var toleranceSquared = (long)tolerance * tolerance;
+        var zones = zone.Owner.InteractionZones;
+        for (var zoneIndex = 0; zoneIndex < zones.Count; zoneIndex++)
+        {
+            var candidateZone = zones[zoneIndex];
+            if (candidateZone.Purpose != zone.Purpose || !candidateZone.IsNavigationTarget)
+            {
+                continue;
+            }
+
+            for (var slotIndex = 0; slotIndex < candidateZone.SlotPositions.Count; slotIndex++)
+            {
+                if ((Position - candidateZone.SlotPositions[slotIndex]).LengthSquared <= toleranceSquared &&
+                    Velocity.Length <= BaseSpeed)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public bool TryMoveInteractionReservation(GridPoint targetCell)
@@ -1805,29 +1826,21 @@ public class Creature
             ClearTaskQueue();
         }
 
-        if (!building.TryGetInteractionZone(purpose, out var zone) || !TryReserveInteractionZone(zone))
+        if (!building.TryGetInteractionZone(purpose, out var zone) ||
+            !zone.IsNavigationTarget ||
+            !TryReserveInteractionZone(zone))
         {
             return false;
         }
 
-        if (!TryGetReservedZonePosition(out var target))
+        if (IsAtReservedInteractionSlot())
         {
-            ReleaseInteractionReservation();
-            return false;
-        }
-
-        var targetCell = target.ToGridPoint();
-        if (CurrentCell == targetCell)
-        {
-            if (Position != target)
-            {
-                BeginMovement(target);
-            }
-
             return true;
         }
 
-        if (NavigateTo(targetCell, clearExisting: false))
+        // All walkable interaction slots are zeroes in the building field, so this avoids
+        // allocating a destination-specific point field for each reservation.
+        if (NavigateToBuilding(building, clearExisting: false))
         {
             return true;
         }

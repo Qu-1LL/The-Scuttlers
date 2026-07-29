@@ -51,8 +51,15 @@ public sealed class AsyncBuildingNavigationTests
         var snapshot = WaitForSnapshot(maintenance, scaffolding);
 
         var footprintIds = scaffolding.TileArray.Select(tile => tile.Id).ToHashSet();
+        var expectedSeedIds = scaffolding.InteractionZones
+            .Where(zone => zone.IsNavigationTarget)
+            .SelectMany(zone => zone.SlotPositions)
+            .Select(position => cave.GetTile(position.ToGridPoint())!.Id)
+            .Distinct()
+            .ToHashSet();
         Assert.Equal(BuildingNavigationSeedMode.AdjacentExteriorPassableTiles, snapshot.SeedMode);
         Assert.NotEmpty(snapshot.SeedTileIds);
+        Assert.Equal(expectedSeedIds, snapshot.SeedTileIds.ToHashSet());
         Assert.All(snapshot.SeedTileIds, seedId => Assert.DoesNotContain(seedId, footprintIds));
         Assert.All(snapshot.SeedTileIds, seedId => Assert.Equal(0, snapshot.GetDistance(seedId)));
     }

@@ -91,6 +91,9 @@ and mutable repair buffers; it never reads live `Cave`, `Tile`, `Building`, or `
 
 There are no maintained per-type building-ownership BFS fields. Queries such as nearest mining post,
 algae farm, barracks, or turret compare the corresponding buildings' own navigation snapshots.
+Each walkable interaction-zone slot is seeded at distance zero in that building's shared field,
+so ordinary interaction movement consumes the published field rather than requesting a point BFS.
+Spawn-only and hosted-only slots opt out explicitly because no walking creature should arrive there.
 
 The main thread sends one complete immutable topology mirror at session attach. Later topology
 mutations send only changed tile records, changed neighbor records, dirty tile ids, and—when a

@@ -34,7 +34,8 @@ public sealed record InteractionZoneDefinition(
     InteractionZonePurpose Purpose,
     GridPoint Origin,
     GridPoint Size,
-    IReadOnlyList<GridPoint> Slots);
+    IReadOnlyList<GridPoint> Slots,
+    bool IsNavigationTarget = true);
 
 public readonly record struct ZoneReservation(
     int CreatureId,
@@ -53,13 +54,15 @@ public sealed class InteractionZone
         string name,
         InteractionZonePurpose purpose,
         WorldRectangle worldBounds,
-        IReadOnlyList<WorldPoint> slotPositions)
+        IReadOnlyList<WorldPoint> slotPositions,
+        bool isNavigationTarget)
     {
         Id = id;
         Owner = owner;
         Name = name;
         Purpose = purpose;
         WorldBounds = worldBounds;
+        IsNavigationTarget = isNavigationTarget;
         _slotPositions = slotPositions.ToArray();
         _reservations = new ZoneReservation?[_slotPositions.Length];
     }
@@ -73,6 +76,9 @@ public sealed class InteractionZone
     public InteractionZonePurpose Purpose { get; }
 
     public WorldRectangle WorldBounds { get; }
+
+    // Navigation fields seed walkable player-interaction slots, not spawn or hosted-only slots.
+    public bool IsNavigationTarget { get; }
 
     public IReadOnlyList<WorldPoint> SlotPositions => _slotPositions;
 

@@ -39,7 +39,8 @@ public sealed class Turret : StationBuilding
             InteractionZonePurpose.Station,
             new GridPoint(0, 0),
             new GridPoint(3, 3),
-            [new GridPoint(1, 1), new GridPoint(2, 2)]),
+            [new GridPoint(1, 1), new GridPoint(2, 2)],
+            IsNavigationTarget: false),
         new(
             "Approach",
             InteractionZonePurpose.Approach,

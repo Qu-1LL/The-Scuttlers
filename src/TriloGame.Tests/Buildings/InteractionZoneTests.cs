@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Buildings;
@@ -51,6 +52,46 @@ public sealed class InteractionZoneTests
         feeder.SetWorldPosition(target + new WorldVector(WorldUnits.FromPixels(10), 0), snapPrevious: true);
 
         Assert.True(feeder.IsAtReservedInteractionSlot());
+    }
+
+    [Fact]
+    public void BuildingField_SeedsWalkableInteractionZonesAndNotBroodSpawnSlots()
+    {
+        var (_, _, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(12, 12, new GridPoint(4, 4));
+        var feeding = Assert.Single(queen.InteractionZones, zone => zone.Purpose == InteractionZonePurpose.Feeding);
+        var brooding = Assert.Single(queen.InteractionZones, zone => zone.Purpose == InteractionZonePurpose.Brooding);
+
+        queen.BfsField.Rebuild();
+
+        Assert.True(feeding.IsNavigationTarget);
+        Assert.False(brooding.IsNavigationTarget);
+        Assert.All(feeding.SlotPositions, position =>
+            Assert.Equal(0, queen.BfsField.GetFieldValue(position.ToGridPoint(), refresh: false)));
+        Assert.All(brooding.SlotPositions, position =>
+            Assert.NotEqual(0, queen.BfsField.GetFieldValue(position.ToGridPoint(), refresh: false)));
+    }
+
+    [Fact]
+    public void NavigateToInteractionZone_UsesBuildingFieldInsteadOfPointBfs()
+    {
+        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(16, 14, new GridPoint(6, 6));
+        var feeder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(1, 10), "Feeder");
+
+        NavigationInstrumentation.BeginTick();
+        Assert.True(feeder.NavigateToInteractionZone(queen, InteractionZonePurpose.Feeding));
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(0, navigation.PointPathRequestCount);
+        Assert.Equal(0, navigation.BuildPointBfsFieldCallCount);
+
+        var guard = 256;
+        while (feeder.HasActiveMovement && guard-- > 0)
+        {
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        Assert.True(queen.CanBeFedBy(feeder));
     }
 
     [Fact]
