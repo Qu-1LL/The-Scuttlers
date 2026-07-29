@@ -442,7 +442,7 @@ public sealed class TrilobiteBuildingAssignmentTests
 
         scaffold.ClearPublishedNavigationField();
 
-        Assert.False(builder.BuilderStep4());
+        Assert.False(builder.NavigateToBuilding(scaffold));
         Assert.Equal(5, builder.Inventory.Amount);
 
         builder.Move();

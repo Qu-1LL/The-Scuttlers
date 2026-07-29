@@ -1759,15 +1759,35 @@ public class Creature
             Session.MiningPostMovementTelemetry.RecordMovementFieldAccess(miningPostForTelemetry.RuntimeId);
         }
 
+        var cave = Cave;
+        var usesAsyncField = cave?.UsesAsyncBuildingNavigationField(building) == true;
+
         // A newly placed async building waits for its first immutable field instead of falling
         // back to its footprint origin or treating the still-pending target as unreachable.
-        if (Cave?.UsesAsyncBuildingNavigationField(building) == true &&
-            building.PublishedNavigationField is null)
+        if (usesAsyncField && building.PublishedNavigationField is null)
         {
             return false;
         }
 
-        return TryBeginBuildingFieldRoute(building, clearExisting);
+        if (usesAsyncField)
+        {
+            return TryBeginBuildingFieldRoute(building, clearExisting);
+        }
+
+        var field = GetBuildingNavigationField(building);
+        if (field is null)
+        {
+            return false;
+        }
+
+        var kind = building is MiningPost ? RouteContinuationKind.MiningPostField : RouteContinuationKind.BuildingField;
+        if (TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting))
+        {
+            return true;
+        }
+
+        field.Rebuild();
+        return TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting: false);
     }
 
     public bool NavigateToInteractionZone(
