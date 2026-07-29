@@ -1759,6 +1759,14 @@ public class Creature
             Session.MiningPostMovementTelemetry.RecordMovementFieldAccess(miningPostForTelemetry.RuntimeId);
         }
 
+        // A newly placed async building waits for its first immutable field instead of falling
+        // back to its footprint origin or treating the still-pending target as unreachable.
+        if (Cave?.UsesAsyncBuildingNavigationField(building) == true &&
+            building.PublishedNavigationField is null)
+        {
+            return false;
+        }
+
         return TryBeginBuildingFieldRoute(building, clearExisting);
     }
 

@@ -55,6 +55,11 @@ public sealed class Scaffolding : Building
 
     public override bool MaintainsNavigationField => true;
 
+    // Builders work from the exterior ring; the scaffold footprint is the construction target,
+    // not a location they need to occupy while delivering materials or applying work.
+    public override BuildingNavigationSeedMode NavigationSeedMode =>
+        BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+
     public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public IReadOnlyList<ResourceRequirement> RecipeRequired { get; }

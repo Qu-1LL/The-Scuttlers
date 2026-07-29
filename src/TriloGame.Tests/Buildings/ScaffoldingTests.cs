@@ -49,6 +49,26 @@ public sealed class ScaffoldingTests
     }
 
     [Fact]
+    public void ScaffoldingNavigation_SeedsAdjacentExteriorTilesInsteadOfItsFootprint()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        var location = new GridPoint(8, 4);
+
+        Assert.True(cave.Build(scaffolding, location));
+        scaffolding.BfsField.Rebuild();
+
+        var passableFootprint = scaffolding.TileArray.Where(tile => tile.CreatureFits()).ToArray();
+        var seeds = scaffolding.GetNavigationSeedTiles(cave);
+
+        Assert.NotEmpty(passableFootprint);
+        Assert.NotEmpty(seeds);
+        Assert.All(seeds, tile => Assert.NotSame(scaffolding, tile.Built));
+        Assert.All(seeds, tile => Assert.Equal(0, scaffolding.BfsField.GetFieldValue(tile.Coordinates, refresh: false)));
+        Assert.All(passableFootprint, tile => Assert.True(scaffolding.BfsField.GetFieldValue(tile.Coordinates, refresh: false) > 0));
+    }
+
+    [Fact]
     public void ScaffoldingPlacement_AllowsTrilobiteAlreadyOnFootprint()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(1, 1));

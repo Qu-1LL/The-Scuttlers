@@ -40,6 +40,24 @@ public sealed class AsyncBuildingNavigationTests
     }
 
     [Fact]
+    public void ScaffoldingSnapshot_SeedsAdjacentExteriorTiles()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        using var maintenance = new BuildingBfsFieldMaintenanceSystem();
+        maintenance.Attach(session);
+
+        var scaffolding = new Scaffolding(session, new Storage(session));
+        Assert.True(cave.Build(scaffolding, new GridPoint(12, 6)));
+        var snapshot = WaitForSnapshot(maintenance, scaffolding);
+
+        var footprintIds = scaffolding.TileArray.Select(tile => tile.Id).ToHashSet();
+        Assert.Equal(BuildingNavigationSeedMode.AdjacentExteriorPassableTiles, snapshot.SeedMode);
+        Assert.NotEmpty(snapshot.SeedTileIds);
+        Assert.All(snapshot.SeedTileIds, seedId => Assert.DoesNotContain(seedId, footprintIds));
+        Assert.All(snapshot.SeedTileIds, seedId => Assert.Equal(0, snapshot.GetDistance(seedId)));
+    }
+
+    [Fact]
     public void TopologyRepairUsesIncrementalPasses_WithoutFallbackRebuild()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
