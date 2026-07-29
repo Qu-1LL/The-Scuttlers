@@ -97,8 +97,9 @@ mutations send only changed tile records, changed neighbor records, dirty tile i
 building is placed, removed, or replaced—the current async building descriptor set. Initial fields
 use a full flood, while later changes use decrease waves followed by invalidation/repair waves.
 Main-thread reads use only the last published field snapshot and return unreachable semantics until
-a first snapshot exists. Navigation actions treat that unpublished state as temporary and retry
-rather than invoking an unreachable fallback. Scaffolding uses adjacent exterior passable tiles as
+a first snapshot exists. Smooth building-navigation callers treat that unpublished state as pending
+and retry on their next behavior update rather than invoking an unreachable fallback. Scaffolding
+uses adjacent exterior passable tiles as
 its distance-zero work ring; builders do not need to enter the scaffold footprint. Scaffold
 replacement carries the prior snapshot when the footprint is trustworthy, then repairs changed seed
 rings incrementally.

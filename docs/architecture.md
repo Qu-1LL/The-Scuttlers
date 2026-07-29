@@ -88,6 +88,9 @@ Per-building traversal navigation is split from the legacy synchronous `BfsField
   per-building traversal-field set.
 - Mining-post movement uses the general per-building field path. Its compatibility telemetry is
   retained, but there is no separate mining-post movement-field cache.
+- Smooth creature routes consume bounded coarse path chunks from those published snapshots, then
+  follow their existing fixed-point continuous movement. Generic building navigation terminates on
+  a snapshot tile with distance `0`, including exterior access tiles for solid-footprint buildings.
 - Building selection no longer maintains separate ownership BFS fields. Nearest-building queries
   compare the corresponding per-building traversal fields, and assignment candidate lists are
   ordered directly by those distances.
