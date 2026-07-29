@@ -474,6 +474,26 @@ public sealed class BfsField
             return;
         }
 
+        if (building.NavigationSeedMode == BuildingNavigationSeedMode.AdjacentExteriorPassableTiles)
+        {
+            foreach (var tile in building.TileArray)
+            {
+                foreach (var neighbor in tile.Neighbors)
+                {
+                    if (ReferenceEquals(neighbor.Built, building) ||
+                        !IsTilePassableToField(neighbor) ||
+                        !_covered[neighbor.Id])
+                    {
+                        continue;
+                    }
+
+                    AddSeed(neighbor);
+                }
+            }
+
+            return;
+        }
+
         foreach (var tile in building.TileArray)
         {
             if (ReferenceEquals(tile.Built, building) && IsTilePassableToField(tile) && _covered[tile.Id])

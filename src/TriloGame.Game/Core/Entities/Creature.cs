@@ -666,6 +666,15 @@ public class Creature
 
         if (cave.UsesAsyncBuildingNavigationField(building))
         {
+            // A newly placed or recently changed async field may not have published its first
+            // snapshot yet. Keep the action alive until that temporary state resolves instead of
+            // treating it as unreachable and sending a builder's carried materials back.
+            if (building.PublishedNavigationField is null)
+            {
+                EnqueueAction(() => NavigateToBuilding(building, fallbackFn, clearExisting: false));
+                return false;
+            }
+
             if (cave.GetBuildingNavigationDistance(building, Location) == 0)
             {
                 return true;

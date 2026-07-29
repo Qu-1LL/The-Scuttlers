@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
+using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.AI;
@@ -409,6 +410,36 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
         Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Chitinstone, 0));
         Assert.False(builder.HasInventory());
+    }
+
+    [Fact]
+    public void BuilderKeepsCarriedMaterialsWhileScaffoldFieldIsWaitingToPublish()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        using var maintenance = new BuildingBfsFieldMaintenanceSystem();
+        maintenance.Attach(session);
+
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
+        Assert.Equal(5, post.Deposit(ResourceName.Sandstone, 5));
+
+        var scaffold = new Scaffolding(session, new Storage(session));
+        Assert.True(cave.Build(scaffold, new GridPoint(14, 6)));
+
+        var postTile = post.TileArray.First(tile => tile.CreatureFits());
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, postTile.Coordinates, "Builder", "builder");
+        builder.SetAssignedBuilding(scaffold);
+        scaffold.Assign(builder);
+        Assert.Equal(5, builder.AddToInventory(ResourceName.Sandstone, 5));
+
+        scaffold.ClearPublishedNavigationField();
+
+        Assert.False(builder.BuilderStep4());
+        Assert.Equal(5, builder.Inventory.Amount);
+
+        builder.Move();
+
+        Assert.Equal(5, builder.Inventory.Amount);
+        Assert.Equal(5, post.GetStoredAmount(ResourceName.Sandstone));
     }
 
     [Fact]
