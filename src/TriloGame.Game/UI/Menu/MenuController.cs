@@ -393,6 +393,12 @@ public sealed partial class MenuController
                 return MenuInteractionResult.ConsumedWithSelectSound;
             }
 
+            if (SelectedObject is Scaffolding scaffolding &&
+                layout.BuildFirstSelectedBounds?.Contains(point) == true)
+            {
+                return MenuInteractionResult.WithSelectSound(scaffolding.ToggleBuildFirst());
+            }
+
             if (layout.DeleteSelectedBounds.Contains(point))
             {
                 return MenuInteractionResult.WithSelectSound(DeleteSelectedObject());

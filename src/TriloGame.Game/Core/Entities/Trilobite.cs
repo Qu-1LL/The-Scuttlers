@@ -13,13 +13,11 @@ namespace TriloGame.Game.Core.Entities;
 public sealed partial class Trilobite : Creature, IInventoryCarrier
 {
     private readonly TrilobiteBuildingAssignment _buildingAssignment = new();
-    private readonly CombatAgentController _combatAgentController = new();
     private readonly List<string> _manualMineTileKeys = [];
     private bool _fleeingToQueen;
     private MineTileResult? _pendingMiningStrikeResult;
-    private GridPoint? _farmerHarvestTarget;
-    private bool _fighterPreferAssignedStation = true;
     private bool _depositInventoryBeforeRole;
+    private int _builderRetryAfterTick;
 
     public Trilobite(string name, GridPoint location, GameSession session)
         : base(name, location, session, CreatureMovementProfile.Trilobite)
@@ -288,42 +286,20 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         };
     }
 
-    private bool AdvanceFarmerRole()
-    {
-        return FarmerState switch
-        {
-            FarmerState.Idle => AdvanceFarmerSelectFarm(),
-            FarmerState.SelectFarm => AdvanceFarmerSelectFarm(),
-            FarmerState.MoveToFarmSlot => AdvanceFarmerMoveToFarmSlot(),
-            FarmerState.Harvest => _farmerHarvestTarget.HasValue
-                ? AdvanceFarmerHarvest(_farmerHarvestTarget.Value)
-                : QueueFarmerState(FarmerState.MoveToFarmSlot, WorkerRoleFailureReason.TargetInvalid, result: false),
-            FarmerState.MoveToQueen => AdvanceFarmerMoveToQueen(),
-            FarmerState.FeedQueen => AdvanceFarmerFeedQueen(),
-            FarmerState.WaitForFarm => QueueFarmerState(FarmerState.Idle, WorkerRoleFailureReason.NoWork, result: false),
-            _ => QueueFarmerState(FarmerState.Idle, WorkerRoleFailureReason.TargetInvalid, result: false)
-        };
-    }
-
     private bool AdvanceBuilderRole()
     {
         return BuilderState switch
         {
-            BuilderState.Idle => AdvanceBuilderSelectScaffold(),
+            BuilderState.Idle => AdvanceBuilderIdle(),
             BuilderState.SelectScaffold => AdvanceBuilderSelectScaffold(),
-            BuilderState.ReserveMaterial => AdvanceBuilderReserveMaterial(),
-            BuilderState.MoveToSource or BuilderState.WithdrawMaterial => AdvanceBuilderWithdrawMaterial(),
-            BuilderState.MoveToScaffold or BuilderState.DepositMaterial => AdvanceBuilderDepositMaterial(),
+            BuilderState.SelectSource => AdvanceBuilderSelectSource(),
+            BuilderState.MoveToSource => AdvanceBuilderMoveToSource(),
+            BuilderState.WithdrawMaterial => AdvanceBuilderWithdrawMaterial(),
+            BuilderState.MoveToScaffold => AdvanceBuilderMoveToScaffold(),
+            BuilderState.DepositMaterial => AdvanceBuilderDepositMaterial(),
             BuilderState.BuildScaffold => AdvanceBuilderBuildScaffold(),
-            BuilderState.DepositExtraInventory => AdvanceBuilderDepositExtraInventory(),
-            BuilderState.WaitForMaterials => QueueBuilderState(BuilderState.Idle, WorkerRoleFailureReason.NoWork, result: false),
             _ => QueueBuilderState(BuilderState.Idle, WorkerRoleFailureReason.TargetInvalid, result: false)
         };
-    }
-
-    private bool AdvanceFighterRole()
-    {
-        return _combatAgentController.Advance(this);
     }
 
     private bool StartUnassignedBehavior()
@@ -540,7 +516,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     // Idle trilobites should step off scaffolding so finished builds can complete without prolonged blocking.
     private void TryLeaveScaffoldingWhileIdle()
     {
-        if (QueuedTaskCount > 0 || Cave is null || !IsLocomotionEnabled)
+        if ((QueuedTaskCount > 0 && !(IsBuilder() && BuilderState == BuilderState.Idle)) ||
+            Cave is null ||
+            !IsLocomotionEnabled)
         {
             return;
         }
@@ -741,23 +719,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return false;
     }
 
-    public int FeedQueenAlgae(Queen queen)
-    {
-        if (!HasInventory() || Inventory.Type != ResourceName.Algae)
-        {
-            return 0;
-        }
-
-        var result = queen.FeedAlgae(Inventory.Amount, this, Cave);
-        if (result.Accepted <= 0)
-        {
-            return 0;
-        }
-
-        RemoveFromInventory(result.Accepted);
-        return result.Accepted;
-    }
-
     public Building? GetAssignedBuilding() => AssignedBuilding;
 
     public AlgaeFarm? GetAssignedAlgaeFarm() => AssignedBuilding as AlgaeFarm;
@@ -805,11 +766,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                (HostedBuilding as StationBuilding)?.TryRestoreCreatureLocomotion(this) == true;
     }
 
-    internal bool TryStationAtFighterStation(StationBuilding station)
-    {
-        return station.TryStationCreature(this);
-    }
-
     public void ClearBuilderSourcePost(bool releaseReservation = true)
     {
         if (releaseReservation && BuilderSourcePost is not null)
@@ -825,781 +781,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     {
         BuilderSourceBuilding = sourceBuilding;
         BuilderSourcePost = sourceBuilding as MiningPost;
-    }
-
-    public void ClearFighterTarget()
-    {
-        if (FighterTarget is null)
-        {
-            return;
-        }
-
-        FighterTarget = null;
-    }
-
-    internal void SetFighterTarget(Enemy? target)
-    {
-        if (ReferenceEquals(FighterTarget, target))
-        {
-            return;
-        }
-
-        FighterTarget = target;
-    }
-
-    internal bool HasValidFighterTarget()
-    {
-        return FighterTarget is { Health: > 0 } target && ReferenceEquals(target.Cave, Cave);
-    }
-
-    internal bool CanReachFighterTarget()
-    {
-        return HasValidFighterTarget() &&
-               CombatWorld.CanMeleeReach(this, Combat.CombatTargetRef.For(FighterTarget!));
-    }
-
-    public IReadOnlyList<Barracks> GetBarracksBuildings()
-    {
-        return Cave?.GetBarracksList() ?? [];
-    }
-
-    public IReadOnlyList<Turret> GetTurretBuildings()
-    {
-        return Cave?.GetTurretList() ?? [];
-    }
-
-    public IReadOnlyList<StationBuilding> GetFighterStationBuildings()
-    {
-        return Cave?.GetFighterStations() ?? [];
-    }
-
-    public StationBuilding? GetFighterStationAtLocation(GridPoint? location = null)
-    {
-        if (location is null && HostedBuilding is StationBuilding hostedStation)
-        {
-            return hostedStation;
-        }
-
-        var checkLocation = location ?? Location;
-        return GetFighterStationBuildings()
-            .Where(station => IsAtFighterStationNavigationTarget(station, checkLocation))
-            .OrderByDescending(station => station.FighterAssignmentPriority)
-            .ThenBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal)
-            .FirstOrDefault();
-    }
-
-    public Barracks? GetBarracksAtLocation(GridPoint? location = null)
-    {
-        return GetFighterStationAtLocation(location) as Barracks;
-    }
-
-    private static string GetOwnedBuildingSelectionKey(Building? building)
-    {
-        return building?.Location?.ToString() ?? building?.Name ?? string.Empty;
-    }
-
-    private bool IsAtFighterStationNavigationTarget(StationBuilding station, GridPoint location)
-    {
-        if (Cave is null)
-        {
-            return false;
-        }
-
-        return station switch
-        {
-            Turret turret => Cave.GetTile(location.ToString()) is { } tile &&
-                             tile.Neighbors.Any(neighbor => ReferenceEquals(neighbor.Built, turret)),
-            _ => IsOnPassableBuildingTile(station, location)
-        };
-    }
-
-    private bool IsSelectableStation(StationBuilding? station, ISet<StationBuilding>? excludedStations = null)
-    {
-        return station is not null &&
-               station.Location is not null &&
-               station.TileArray.Count > 0 &&
-               station.CanAssign(this) &&
-               excludedStations?.Contains(station) != true;
-    }
-
-    private bool IsStationedAtFighterStation(StationBuilding station)
-    {
-        return station.IsCreatureStationed(this);
-    }
-
-    private bool CanReachFighterStation(StationBuilding station)
-    {
-        return Cave is not null &&
-               (IsStationedAtFighterStation(station) ||
-                station.IsCreatureAtNavigationTarget(this) ||
-                station switch
-                {
-                    Turret turret => ReferenceEquals(Cave.GetNearestTurret(Location), turret),
-                    Barracks barracks => ReferenceEquals(Cave.GetNearestBarracks(Location), barracks),
-                    _ => false
-                } ||
-                Cave.GetBuildingBfsFieldValue(station, Location) != int.MaxValue);
-    }
-
-    private bool ShouldBalanceFighterStationAssignments(StationBuilding? preferredStation)
-    {
-        return preferredStation is null || (Cave?.ShouldRebalanceFighterStationAssignments(preferredStation) ?? false);
-    }
-
-    private IEnumerable<TStation> EnumerateStationTypeCandidates<TStation>(
-        int priority,
-        TStation? nearestStation,
-        Func<TStation, IReadOnlyCollection<TStation>> getAdjacentStations,
-        IEnumerable<TStation> allStations,
-        ISet<StationBuilding> excludedStations,
-        ISet<StationBuilding> visited)
-        where TStation : StationBuilding
-    {
-        var queue = new Queue<TStation>();
-        if (IsSelectableStation(nearestStation, excludedStations) &&
-            nearestStation!.FighterAssignmentPriority == priority &&
-            visited.Add(nearestStation))
-        {
-            queue.Enqueue(nearestStation);
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            yield return current;
-
-            foreach (var neighbor in getAdjacentStations(current))
-            {
-                if (IsSelectableStation(neighbor, excludedStations) &&
-                    neighbor.FighterAssignmentPriority == priority &&
-                    visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
-            }
-        }
-
-        foreach (var station in allStations
-                     .Where(station => IsSelectableStation(station, excludedStations) &&
-                                       station.FighterAssignmentPriority == priority)
-                     .OrderBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal))
-        {
-            if (visited.Add(station))
-            {
-                yield return station;
-            }
-        }
-    }
-
-    private IEnumerable<StationBuilding> EnumerateFighterStationCandidates(int priority, StationBuilding? preferredStation = null, ISet<StationBuilding>? excludedStations = null)
-    {
-        if (Cave is null)
-        {
-            yield break;
-        }
-
-        excludedStations ??= new HashSet<StationBuilding>();
-        var visited = new HashSet<StationBuilding>();
-
-        if (IsSelectableStation(preferredStation, excludedStations) &&
-            preferredStation!.FighterAssignmentPriority == priority &&
-            visited.Add(preferredStation))
-        {
-            yield return preferredStation;
-        }
-
-        foreach (var turret in EnumerateStationTypeCandidates(
-                     priority,
-                     Cave.GetNearestTurret(Location),
-                     Cave.GetAdjacentTurrets,
-                     GetTurretBuildings(),
-                     excludedStations,
-                     visited))
-        {
-            yield return turret;
-        }
-
-        foreach (var barracks in EnumerateStationTypeCandidates(
-                     priority,
-                     Cave.GetNearestBarracks(Location),
-                     Cave.GetAdjacentBarracks,
-                     GetBarracksBuildings(),
-                     excludedStations,
-                     visited))
-        {
-            yield return barracks;
-        }
-    }
-
-    public List<StationBuilding> GetFighterStationPriorityList()
-    {
-        var prioritizedStations = new List<StationBuilding>();
-        var visited = new HashSet<StationBuilding>();
-        foreach (var priority in GetFighterStationBuildings()
-                     .Select(station => station.FighterAssignmentPriority)
-                     .Distinct()
-                     .OrderByDescending(priority => priority))
-        {
-            foreach (var station in EnumerateFighterStationCandidates(priority, GetAssignedFighterStation(), visited))
-            {
-                if (!CanReachFighterStation(station) || !visited.Add(station))
-                {
-                    continue;
-                }
-
-                prioritizedStations.Add(station);
-            }
-        }
-
-        return prioritizedStations;
-    }
-
-    internal StationBuilding? SelectFighterStation(StationBuilding? preferredStation = null, ISet<StationBuilding>? excludedStations = null)
-    {
-        excludedStations ??= new HashSet<StationBuilding>();
-        foreach (var priority in GetFighterStationBuildings()
-                     .Where(station => IsSelectableStation(station, excludedStations))
-                     .Select(station => station.FighterAssignmentPriority)
-                     .Distinct()
-                     .OrderByDescending(priority => priority))
-        {
-            var shouldBalanceAssignments = ShouldBalanceFighterStationAssignments(
-                preferredStation is not null && preferredStation.FighterAssignmentPriority == priority
-                    ? preferredStation
-                    : null);
-            StationBuilding? bestStation = null;
-            var bestCount = int.MaxValue;
-
-            foreach (var station in EnumerateFighterStationCandidates(
-                         priority,
-                         shouldBalanceAssignments ? null : preferredStation,
-                         excludedStations))
-            {
-                if (!CanReachFighterStation(station))
-                {
-                    continue;
-                }
-
-                if (!shouldBalanceAssignments)
-                {
-                    return station;
-                }
-
-                var assignmentCount = Cave?.GetStationAssignmentCount(station) ?? int.MaxValue;
-                if (bestStation is null || assignmentCount < bestCount)
-                {
-                    bestStation = station;
-                    bestCount = assignmentCount;
-                }
-            }
-
-            if (bestStation is not null)
-            {
-                return bestStation;
-            }
-        }
-
-        return null;
-    }
-
-    public List<Barracks> GetBarracksPriorityList()
-    {
-        return GetFighterStationPriorityList()
-            .OfType<Barracks>()
-            .ToList();
-    }
-
-    internal Barracks? SelectBarracks(Barracks? preferredBarracks = null, ISet<Barracks>? excludedBarracks = null)
-    {
-        HashSet<StationBuilding>? excludedStations = null;
-        if (excludedBarracks is not null)
-        {
-            excludedStations = [];
-            foreach (var barracks in excludedBarracks)
-            {
-                excludedStations.Add(barracks);
-            }
-        }
-
-        return SelectFighterStation(preferredBarracks, excludedStations) as Barracks;
-    }
-
-    internal Turret? SelectTurret(Turret? preferredTurret = null, ISet<Turret>? excludedTurrets = null)
-    {
-        HashSet<StationBuilding>? excludedStations = null;
-        if (excludedTurrets is not null)
-        {
-            excludedStations = [];
-            foreach (var turret in excludedTurrets)
-            {
-                excludedStations.Add(turret);
-            }
-        }
-
-        return SelectFighterStation(preferredTurret, excludedStations) as Turret;
-    }
-
-    public IReadOnlyList<Enemy> GetEnemyCreatures()
-    {
-        return Cave?.GetEnemyList() ?? [];
-    }
-
-    public Enemy? GetReachableEnemy()
-    {
-        return Session.Combat.FindDirectedEnemy(this) ?? Session.Combat.FindReachableEnemy(this);
-    }
-
-    public bool QueueFighterPath(IReadOnlyList<GridPoint> path, string? mode = null, bool clearExisting = true)
-    {
-        if (path.Count < 2)
-        {
-            FighterPathMode = null;
-            return path.Count > 0;
-        }
-
-        FighterPathMode = mode;
-        return clearExisting ? QueueMovePath(path) : AppendMovePath(path);
-    }
-
-    public bool TryNavigateToFighterStation(ISet<StationBuilding>? excludedStations = null, bool preferAssignedStation = true)
-    {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        excludedStations ??= new HashSet<StationBuilding>();
-        var preferredStation = preferAssignedStation ? GetAssignedFighterStation() : null;
-        var station = SelectFighterStation(preferredStation, excludedStations);
-        if (station is null)
-        {
-            return false;
-        }
-
-        if (!station.CanAssign(this))
-        {
-            excludedStations.Add(station);
-            return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
-        }
-
-        SetAssignedBuilding(station);
-        if (!station.Assign(this))
-        {
-            ReleaseAssignedBuilding();
-            excludedStations.Add(station);
-            return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
-        }
-
-        if (TryStationAtFighterStation(station))
-        {
-            return false;
-        }
-
-        var purpose = station is Turret
-            ? InteractionZonePurpose.Approach
-            : InteractionZonePurpose.Station;
-        FighterPathMode = "station";
-        if (NavigateToInteractionZone(station, purpose))
-        {
-            return true;
-        }
-
-        ReleaseAssignedBuilding();
-        excludedStations.Add(station);
-        return TryNavigateToFighterStation(excludedStations, preferAssignedStation: false);
-    }
-
-    public bool TryNavigateBarracks(ISet<Barracks>? excludedBarracks = null, bool preferAssignedBarracks = true)
-    {
-        HashSet<StationBuilding>? excludedStations = null;
-        if (excludedBarracks is not null)
-        {
-            excludedStations = [];
-            foreach (var barracks in excludedBarracks)
-            {
-                excludedStations.Add(barracks);
-            }
-        }
-
-        return TryNavigateToFighterStation(excludedStations, preferAssignedBarracks);
-    }
-
-    internal bool AdvanceFighterReturnToStation(bool preferAssignedStation = true)
-    {
-        if (!EnsureFighterState())
-        {
-            return false;
-        }
-
-        var assignedStation = GetAssignedFighterStation();
-        var shouldRebalanceAssignedStation = ShouldBalanceFighterStationAssignments(assignedStation);
-        if (preferAssignedStation && assignedStation is not null)
-        {
-            var retainedAssignedStation = assignedStation.Assign(this);
-            if (retainedAssignedStation && !shouldRebalanceAssignedStation && TryStationAtFighterStation(assignedStation))
-            {
-                return false;
-            }
-        }
-
-        if (preferAssignedStation)
-        {
-            var currentStation = GetFighterStationAtLocation();
-            if (currentStation is not null && currentStation.CanAssign(this))
-            {
-                SetAssignedBuilding(currentStation);
-                currentStation.Assign(this);
-                if (!ShouldBalanceFighterStationAssignments(currentStation) && TryStationAtFighterStation(currentStation))
-                {
-                    return false;
-                }
-            }
-        }
-
-        if (SelectFighterStation(preferAssignedStation ? assignedStation : null) is null)
-        {
-            if (!preferAssignedStation)
-            {
-                ReleaseAssignedBuilding();
-            }
-
-            return false;
-        }
-
-        return TryNavigateToFighterStation(preferAssignedStation: preferAssignedStation);
-    }
-
-    public bool FighterReturnToBarracks(bool preferAssignedBarracks = true)
-    {
-        return AdvanceFighterReturnToStation(preferAssignedBarracks);
-    }
-
-    public List<AlgaeFarm> GetAlgaeFarmPriorityList()
-    {
-        return EnumerateAlgaeFarmCandidates(GetAssignedAlgaeFarm())
-            .Where(CanReachAlgaeFarm)
-            .ToList();
-    }
-
-    private bool CanSearchForAlgaeFarm(AlgaeFarm? preferredFarm = null)
-    {
-        return Cave is not null &&
-               ((preferredFarm is not null && preferredFarm.HasAssignmentSlot(this)) || Cave.HasOpenAlgaeFarms);
-    }
-
-    private bool IsSelectableAlgaeFarm(AlgaeFarm? farm, ISet<AlgaeFarm>? excludedFarms = null)
-    {
-        return farm is not null &&
-               farm.Location is not null &&
-               farm.TileArray.Count > 0 &&
-               farm.HasAssignmentSlot(this) &&
-               excludedFarms?.Contains(farm) != true;
-    }
-
-    private bool CanReachAlgaeFarm(AlgaeFarm farm)
-    {
-        return Cave is not null &&
-               (farm.IsLocationOnFarm(Location) ||
-                ReferenceEquals(Cave.GetNearestAlgaeFarm(Location), farm) ||
-                Cave.GetBuildingBfsFieldValue(farm, Location) != int.MaxValue);
-    }
-
-    private IEnumerable<AlgaeFarm> EnumerateAlgaeFarmCandidates(AlgaeFarm? preferredFarm = null, ISet<AlgaeFarm>? excludedFarms = null)
-    {
-        if (Cave is null)
-        {
-            yield break;
-        }
-
-        excludedFarms ??= new HashSet<AlgaeFarm>();
-        var visited = new HashSet<AlgaeFarm>();
-
-        if (IsSelectableAlgaeFarm(preferredFarm, excludedFarms) && visited.Add(preferredFarm!))
-        {
-            yield return preferredFarm!;
-        }
-
-        if (!CanSearchForAlgaeFarm(preferredFarm))
-        {
-            yield break;
-        }
-
-        var nearestFarm = Cave.GetNearestAlgaeFarm(Location);
-        var queue = new Queue<AlgaeFarm>();
-        if (IsSelectableAlgaeFarm(nearestFarm, excludedFarms) && visited.Add(nearestFarm!))
-        {
-            queue.Enqueue(nearestFarm!);
-        }
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            yield return current;
-
-            foreach (var neighbor in Cave.GetAdjacentAlgaeFarms(current))
-            {
-                if (IsSelectableAlgaeFarm(neighbor, excludedFarms) && visited.Add(neighbor))
-                {
-                    queue.Enqueue(neighbor);
-                }
-            }
-        }
-
-        if (visited.Count > 0)
-        {
-            yield break;
-        }
-
-        foreach (var farm in GetAlgaeFarms()
-                     .Where(farm => IsSelectableAlgaeFarm(farm, excludedFarms))
-                     .OrderBy(farm => GetOwnedBuildingSelectionKey(farm), StringComparer.Ordinal))
-        {
-            if (visited.Add(farm))
-            {
-                yield return farm;
-            }
-        }
-    }
-
-    internal AlgaeFarm? SelectAlgaeFarm(AlgaeFarm? preferredFarm = null, ISet<AlgaeFarm>? excludedFarms = null)
-    {
-        foreach (var farm in EnumerateAlgaeFarmCandidates(preferredFarm, excludedFarms))
-        {
-            if (CanReachAlgaeFarm(farm))
-            {
-                return farm;
-            }
-        }
-
-        return null;
-    }
-
-    public bool TryNavigateAlgaeFarms(ISet<AlgaeFarm>? excludedFarms = null)
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        excludedFarms ??= new HashSet<AlgaeFarm>();
-        var farm = SelectAlgaeFarm(GetAssignedAlgaeFarm(), excludedFarms);
-        if (farm is null)
-        {
-            ReleaseAssignedBuilding();
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        SetAssignedBuilding(farm);
-        if (!farm.Assign(this))
-        {
-            ReleaseAssignedBuilding();
-            excludedFarms.Add(farm);
-            return TryNavigateAlgaeFarms(excludedFarms);
-        }
-
-        if (ReservedZone is { Purpose: InteractionZonePurpose.Work } reservedWorkZone &&
-            ReferenceEquals(reservedWorkZone.Owner, farm) &&
-            IsAtReservedInteractionSlot())
-        {
-            return AdvanceFarmerMoveToFarmSlot();
-        }
-
-        if (!NavigateToInteractionZone(farm, InteractionZonePurpose.Work))
-        {
-            ReleaseAssignedBuilding();
-            excludedFarms.Add(farm);
-            return TryNavigateAlgaeFarms(excludedFarms);
-        }
-
-        QueueFarmerState(FarmerState.MoveToFarmSlot);
-        return true;
-    }
-
-    private bool AdvanceFarmerSelectFarm()
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        if (HasInventory())
-        {
-            if (Inventory.Type == ResourceName.Algae)
-            {
-                return AdvanceFarmerMoveToQueen();
-            }
-
-            ClearInventory();
-        }
-
-        if (SelectAlgaeFarm(GetAssignedAlgaeFarm()) is null)
-        {
-            ReleaseAssignedBuilding();
-            return false;
-        }
-
-        return TryNavigateAlgaeFarms();
-    }
-
-    private bool AdvanceFarmerMoveToFarmSlot()
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        var farm = GetAssignedAlgaeFarm();
-        if (farm is null)
-        {
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.Work } workZone ||
-            !ReferenceEquals(workZone.Owner, farm) ||
-            !IsAtReservedInteractionSlot())
-        {
-            if (!NavigateToInteractionZone(farm, InteractionZonePurpose.Work))
-            {
-                ReleaseAssignedBuilding();
-                QueueFarmerState(FarmerState.SelectFarm);
-                return false;
-            }
-
-            QueueFarmerState(FarmerState.MoveToFarmSlot);
-            return true;
-        }
-
-        var nextLocation = farm.GetNextTraversalLocation(Location);
-        if (nextLocation is null)
-        {
-            ReleaseAssignedBuilding();
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        if (!TryMoveInteractionReservation(nextLocation.Value))
-        {
-            QueueFarmerState(FarmerState.MoveToFarmSlot);
-            return false;
-        }
-
-        QueueFarmerHarvest(nextLocation.Value);
-        return true;
-    }
-
-    private bool AdvanceFarmerHarvest(GridPoint nextLocation)
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        var farm = GetAssignedAlgaeFarm();
-        if (farm is null)
-        {
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        if (!IsAtReservedInteractionSlot() || CurrentCell != nextLocation)
-        {
-            QueueFarmerState(FarmerState.MoveToFarmSlot);
-            return false;
-        }
-
-        SetActivity(CreatureActivity.Working);
-        if (!farm.TryHarvest(this))
-        {
-            QueueFarmerState(FarmerState.MoveToFarmSlot);
-            return true;
-        }
-
-        ClearTaskQueue();
-        return AdvanceFarmerMoveToQueen();
-    }
-
-    private bool AdvanceFarmerMoveToQueen()
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        if (!HasInventory() || Inventory.Type != ResourceName.Algae)
-        {
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        var queen = GetQueen();
-        if (queen is null)
-        {
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        if (queen.CanBeFedBy(this))
-        {
-            return AdvanceFarmerFeedQueen();
-        }
-
-        ClearTaskQueue();
-        if (!NavigateToInteractionZone(queen, InteractionZonePurpose.Feeding, clearExisting: false))
-        {
-            QueueFarmerState(FarmerState.MoveToQueen);
-            return false;
-        }
-
-        QueueFarmerState(FarmerState.FeedQueen);
-        return true;
-    }
-
-    private bool AdvanceFarmerMoveToQueenStep(GridPoint nextLocation)
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        var moved = PerformMove(nextLocation);
-        if (!moved)
-        {
-            return AdvanceFarmerMoveToQueen();
-        }
-
-        return true;
-    }
-
-    private bool AdvanceFarmerFeedQueen()
-    {
-        if (!EnsureFarmerState())
-        {
-            return false;
-        }
-
-        var queen = GetQueen();
-        if (queen is null)
-        {
-            QueueFarmerState(FarmerState.SelectFarm);
-            return false;
-        }
-
-        if (!queen.CanBeFedBy(this))
-        {
-            return AdvanceFarmerMoveToQueen();
-        }
-
-        SetActivity(CreatureActivity.Feeding);
-        var fed = FeedQueenAlgae(queen);
-        if (fed <= 0)
-        {
-            QueueFarmerState(FarmerState.MoveToQueen);
-            return false;
-        }
-
-        return AdvanceFarmerSelectFarm();
     }
 
     public IReadOnlyList<MiningPost> GetMiningPosts()
@@ -1686,18 +867,12 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     private bool CanSearchForMiningPost(MiningPost? preferredPost = null)
     {
-        return Cave is not null &&
-               ((preferredPost is not null && preferredPost.GetInventorySpace() > 0 && preferredPost.HasAnyClaimableMineable(Cave)) ||
-                Cave.HasAvailableMiningPostAssignments);
+        return Cave is not null && HasReachableMiningPostWork(preferredPost);
     }
 
     private bool WaitForMiningAssignmentAvailability(MiningPost? currentPost = null)
     {
-        if (Cave is null ||
-            Cave.HasAvailableMiningPostAssignments ||
-            (currentPost is not null &&
-             currentPost.GetInventorySpace() > 0 &&
-             currentPost.HasClaimableMineableFor(Cave, this, carriedResource: null)))
+        if (Cave is null || HasReachableMiningPostWork(currentPost))
         {
             return false;
         }
@@ -1712,6 +887,34 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         return true;
+    }
+
+    private bool HasReachableMiningPostWork(MiningPost? preferredPost = null)
+    {
+        if (Cave is null)
+        {
+            return false;
+        }
+
+        var posts = Cave.GetMiningPosts();
+        for (var index = 0; index < posts.Count; index++)
+        {
+            var post = posts[index];
+            if (post.GetInventorySpace() <= 0 || !CanReachMiningPostArea(post))
+            {
+                continue;
+            }
+
+            if (HasManualMineOrders() || post.HasClaimableMineableFor(Cave, this, carriedResource: null))
+            {
+                return true;
+            }
+        }
+
+        return preferredPost is not null &&
+               preferredPost.GetInventorySpace() > 0 &&
+               CanReachMiningPostArea(preferredPost) &&
+               preferredPost.HasClaimableMineableFor(Cave, this, carriedResource: null);
     }
 
     private bool HasMiningWorkBlockedOnlyByStorage()
@@ -1917,21 +1120,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             ReleaseAssignedBuilding();
         }
 
-        if (GetAssignedMiningPost() is null && Cave is not null && !Cave.HasAvailableMiningPostAssignments)
-        {
-            ReleaseAssignedBuilding();
-            if (HasMiningWorkBlockedOnlyByStorage())
-            {
-                QueueMinerState(MinerState.WaitForStorage, WorkerRoleFailureReason.NoStorage);
-            }
-            else
-            {
-                QueueMinerState(MinerState.WaitForWork, WorkerRoleFailureReason.NoWork);
-            }
-
-            return false;
-        }
-
         excludedPosts ??= new HashSet<MiningPost>();
         var post = SelectMiningPostForMining(excludedPosts);
         if (post is null)
@@ -1986,7 +1174,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             }
         }
 
-        if (Cave is null || !Cave.HasAvailableMiningPostAssignments)
+        if (Cave is null || !HasReachableMiningPostWork())
         {
             ReleaseAssignedBuilding();
             LastRoleFailure = HasMiningWorkBlockedOnlyByStorage()
@@ -2540,107 +1728,118 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return Cave.GetScaffoldingList().Where(scaffold => scaffold.IsInProgress()).ToList();
     }
 
-    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromMiningPosts(
-        Scaffolding scaffold,
-        IReadOnlyList<ScaffoldRequirementNeed> neededRequirements,
-        IEnumerable<MiningPost> candidatePosts,
-        bool orderedCandidates = false)
-    {
-        if (orderedCandidates)
-        {
-            LastMiningPostSelectionMetrics = new MiningPostSelectionMetrics
-            {
-                Purpose = "builder-supply-ordered"
-            };
-        }
-
-        foreach (var post in candidatePosts)
-        {
-            if (orderedCandidates && LastMiningPostSelectionMetrics is not null)
-            {
-                LastMiningPostSelectionMetrics.CandidateCount++;
-            }
-
-            if (!CanReachMiningPostInventory(post))
-            {
-                continue;
-            }
-
-            foreach (var neededRequirement in neededRequirements)
-            {
-                var reserveAmount = System.Math.Min(InventoryCapacity, neededRequirement.Amount);
-                var resourceMatch = post.FindAvailableResource(neededRequirement.Requirement, reserveAmount, this);
-                if (resourceMatch is not null)
-                {
-                    return (
-                        post,
-                        post,
-                        neededRequirement.RequirementIndex,
-                        neededRequirement.Requirement,
-                        resourceMatch.Value.ResourceType,
-                        resourceMatch.Value.Amount);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionFromStorageBuildings(
-        Scaffolding scaffold,
-        IReadOnlyList<ScaffoldRequirementNeed> neededRequirements)
+    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(Scaffolding scaffold)
     {
         if (Cave is null)
         {
             return null;
         }
 
-        foreach (var building in Cave.GetBuildingList()
-                     .Where(building => building is not MiningPost && building is IResourceStorage)
-                     .OrderBy(building => Cave.GetBuildingBfsFieldValue(building, Location))
-                     .ThenBy(building => building.Location is null ? int.MaxValue : GridPoint.SquaredDistance(Location, building.Location.Value))
-                     .ThenBy(GetOwnedBuildingSelectionKey, StringComparer.Ordinal))
-        {
-            if (building is not IResourceStorage storage || !CanReachResourceStorage(building))
-            {
-                continue;
-            }
-
-            foreach (var neededRequirement in neededRequirements)
-            {
-                var reserveAmount = System.Math.Min(InventoryCapacity, neededRequirement.Amount);
-                var resourceMatch = storage.FindStoredResource(neededRequirement.Requirement, reserveAmount);
-                if (resourceMatch is not null)
-                {
-                    return (
-                        building,
-                        storage,
-                        neededRequirement.RequirementIndex,
-                        neededRequirement.Requirement,
-                        resourceMatch.Value.ResourceType,
-                        resourceMatch.Value.Amount);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    public (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(Scaffolding scaffold, IReadOnlyList<MiningPost>? orderedPosts = null)
-    {
-        var neededRequirements = scaffold.GetNeededRequirements(true, this);
-        if (neededRequirements.Count == 0)
+        var needs = scaffold.GetNeededRequirements(includeReservations: true, excludeCreature: this);
+        if (needs.Count == 0)
         {
             return null;
         }
 
-        if (orderedPosts is not null)
+        Building? bestBuilding = null;
+        IResourceStorage? bestStorage = null;
+        ResourceStorageMatch bestMatch = default;
+        ResourceRequirement? bestRequirement = null;
+        var bestDistance = int.MaxValue;
+        var bestBuildingId = int.MaxValue;
+        var bestRequirementIndex = int.MaxValue;
+        var metrics = new MiningPostSelectionMetrics
         {
-            return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededRequirements, orderedPosts, orderedCandidates: true);
+            Purpose = "builder-supply"
+        };
+        LastMiningPostSelectionMetrics = metrics;
+
+        // Treat every resource storage as one source pool and choose the nearest
+        // reachable compatible source with deterministic building-ID tie breaks.
+        foreach (var building in Cave.GetBuildingList())
+        {
+            if (building is not IResourceStorage storage ||
+                building.Cave != Cave ||
+                building.Location is null ||
+                building.Health <= 0 ||
+                !CanReachResourceStorage(building))
+            {
+                continue;
+            }
+
+            var distance = Cave.GetBuildingBfsFieldValue(building, Location);
+            if (distance == int.MaxValue ||
+                distance > bestDistance ||
+                (distance == bestDistance && building.Id >= bestBuildingId))
+            {
+                continue;
+            }
+
+            for (var index = 0; index < needs.Count; index++)
+            {
+                var need = needs[index];
+                var amount = Math.Min(InventoryCapacity, need.Amount);
+                var match = storage is MiningPost post
+                    ? post.FindAvailableResource(need.Requirement, amount, this)
+                    : storage.FindStoredResource(need.Requirement, amount);
+                if (!match.HasValue)
+                {
+                    continue;
+                }
+
+                bestBuilding = building;
+                bestStorage = storage;
+                bestMatch = match.Value;
+                bestRequirement = need.Requirement;
+                bestDistance = distance;
+                bestBuildingId = building.Id;
+                bestRequirementIndex = need.RequirementIndex;
+                break;
+            }
         }
 
-        return GetBuilderSupplyOptionFromMiningPosts(scaffold, neededRequirements, EnumerateMiningPostCandidates("builder-supply")) ??
-               GetBuilderSupplyOptionFromStorageBuildings(scaffold, neededRequirements);
+        return bestBuilding is null
+            ? null
+            : CompleteBuilderSupplySelection(
+                bestBuilding,
+                bestStorage!,
+                bestRequirementIndex,
+                bestRequirement!,
+                bestMatch,
+                metrics);
+    }
+
+    private (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount) CompleteBuilderSupplySelection(
+        Building building,
+        IResourceStorage storage,
+        int requirementIndex,
+        ResourceRequirement requirement,
+        ResourceStorageMatch match,
+        MiningPostSelectionMetrics metrics)
+    {
+        if (building is MiningPost selectedPost && Cave is not null)
+        {
+            var posts = Cave.GetMiningPosts();
+            metrics.CandidateCount = 0;
+            for (var index = 0; index < posts.Count; index++)
+            {
+                metrics.CandidateCount++;
+                if (ReferenceEquals(posts[index], selectedPost))
+                {
+                    break;
+                }
+            }
+        }
+
+        metrics.UsedAdjacencyFallback = metrics.CandidateCount > 1;
+        return (building, storage, requirementIndex, requirement, match.ResourceType, match.Amount);
+    }
+
+    public (Building SourceBuilding, IResourceStorage Storage, int RequirementIndex, ResourceRequirement Requirement, ResourceName ResourceType, int Amount)? GetBuilderSupplyOptionForScaffold(
+        Scaffolding scaffold,
+        IReadOnlyList<MiningPost>? orderedPosts = null)
+    {
+        return GetBuilderSupplyOptionForScaffold(scaffold);
     }
 
     private bool CanReachResourceStorage(Building building)
@@ -2648,7 +1847,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return Cave is not null &&
                building.Location is not null &&
                building.TileArray.Count > 0 &&
-               (IsAtResourceStorageSource(building) || Cave.GetBuildingBfsFieldValue(building, Location) != int.MaxValue);
+               Cave.GetBuildingBfsFieldValue(building, Location) != int.MaxValue;
     }
 
     private bool IsAtResourceStorageSource(Building building)
@@ -2660,14 +1859,14 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     public bool CanActOnScaffold(Scaffolding scaffold)
     {
-        if (!scaffold.IsInProgress())
+        if (!scaffold.IsInProgress() || !CanReachScaffolding(scaffold))
         {
             return false;
         }
 
-        if (!CanReachScaffolding(scaffold))
+        if (scaffold.GetAssignments().Contains(this))
         {
-            return false;
+            return true;
         }
 
         if (HasInventory())
@@ -2675,77 +1874,142 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return scaffold.NeedsResource(Inventory.Type!.Value);
         }
 
-        if (scaffold.GetMaterialReservation(this) is not null && BuilderSourceBuilding is not null)
+        if (scaffold.IsRecipeComplete())
         {
-            return true;
+            return scaffold.NeedsConstructionWork() && scaffold.GetAssignments().Count == 0;
         }
 
-        if (!scaffold.IsRecipeComplete())
-        {
-            return GetBuilderSupplyOptionForScaffold(scaffold) is not null;
-        }
-
-        if (scaffold.NeedsConstructionWork())
-        {
-            return true;
-        }
-
-        return scaffold.IsConstructionComplete() && !scaffold.CompletionPending;
+        return scaffold.CanAssignBuilder(this, InventoryCapacity) &&
+               GetBuilderSupplyOptionForScaffold(scaffold).HasValue;
     }
 
-    public List<Scaffolding> GetScaffoldingPriorityList(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
+    public List<Scaffolding> GetScaffoldingPriorityList(
+        bool actionableOnly = false,
+        IEnumerable<Scaffolding>? excludeScaffolds = null)
     {
         var excluded = excludeScaffolds?.ToHashSet() ?? [];
-        return GetScaffoldingBuildings()
-            .Where(scaffold =>
-                !excluded.Contains(scaffold) &&
-                (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) != int.MaxValue &&
-                (!actionableOnly || CanActOnScaffold(scaffold)))
-            .OrderBy(scaffold => scaffold.GetVolume())
-            .ThenBy(scaffold => Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue)
-            .ThenBy(scaffold => scaffold.Location is null ? int.MaxValue : GridPoint.SquaredDistance(Location, scaffold.Location.Value))
-            .ToList();
+        var result = new List<Scaffolding>();
+        if (Cave is null)
+        {
+            return result;
+        }
+
+        var scaffolds = Cave.GetScaffoldingList();
+        for (var index = 0; index < scaffolds.Count; index++)
+        {
+            var scaffold = scaffolds[index];
+            if (excluded.Contains(scaffold) ||
+                !scaffold.IsInProgress() ||
+                !CanReachScaffolding(scaffold) ||
+                (actionableOnly && !CanActOnScaffold(scaffold)))
+            {
+                continue;
+            }
+
+            result.Add(scaffold);
+        }
+
+        result.Sort(static (left, right) =>
+        {
+            if (left.BuildFirst != right.BuildFirst)
+            {
+                return left.BuildFirst ? -1 : 1;
+            }
+
+            return left.Id.CompareTo(right.Id);
+        });
+        return result;
     }
 
-    private Scaffolding? GetBestScaffolding(bool actionableOnly = false, ISet<Scaffolding>? excludedScaffolds = null)
+    private Scaffolding? GetBestScaffolding(
+        bool actionableOnly = false,
+        ISet<Scaffolding>? excludedScaffolds = null)
     {
-        Scaffolding? bestScaffold = null;
-        var bestVolume = int.MaxValue;
-        var bestBfs = int.MaxValue;
-        var bestDistance = int.MaxValue;
-        string? bestKey = null;
-
-        foreach (var scaffold in GetScaffoldingBuildings())
+        Scaffolding? best = null;
+        if (Cave is null)
         {
-            if (excludedScaffolds?.Contains(scaffold) == true)
+            return null;
+        }
+
+        var scaffolds = Cave.GetScaffoldingList();
+        for (var index = 0; index < scaffolds.Count; index++)
+        {
+            var scaffold = scaffolds[index];
+            if (excludedScaffolds?.Contains(scaffold) == true ||
+                !scaffold.IsInProgress() ||
+                !CanReachScaffolding(scaffold) ||
+                (actionableOnly && !CanActOnScaffold(scaffold)))
             {
                 continue;
             }
 
-            var bfsValue = Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue;
-            if (bfsValue == int.MaxValue || (actionableOnly && !CanActOnScaffold(scaffold)))
+            if (best is null ||
+                (scaffold.BuildFirst && !best.BuildFirst) ||
+                (scaffold.BuildFirst == best.BuildFirst && scaffold.Id < best.Id))
             {
-                continue;
-            }
-
-            var volume = scaffold.GetVolume();
-            var distance = scaffold.Location is null ? int.MaxValue : GridPoint.SquaredDistance(Location, scaffold.Location.Value);
-            var tieKey = scaffold.Location?.ToString() ?? scaffold.Name;
-            if (bestScaffold is null ||
-                volume < bestVolume ||
-                (volume == bestVolume && bfsValue < bestBfs) ||
-                (volume == bestVolume && bfsValue == bestBfs && distance < bestDistance) ||
-                (volume == bestVolume && bfsValue == bestBfs && distance == bestDistance && string.CompareOrdinal(tieKey, bestKey) < 0))
-            {
-                bestScaffold = scaffold;
-                bestVolume = volume;
-                bestBfs = bfsValue;
-                bestDistance = distance;
-                bestKey = tieKey;
+                best = scaffold;
             }
         }
 
-        return bestScaffold;
+        return best;
+    }
+
+    private bool HasHigherPriorityActionableScaffold(Scaffolding current)
+    {
+        if (Cave is null || current.BuildFirst)
+        {
+            return false;
+        }
+
+        var scaffolds = Cave.GetScaffoldingList();
+        for (var index = 0; index < scaffolds.Count; index++)
+        {
+            var candidate = scaffolds[index];
+            if (!candidate.BuildFirst ||
+                !candidate.IsInProgress() ||
+                !CanReachScaffolding(candidate) ||
+                !CanActOnScaffold(candidate))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public Scaffolding? EnsureBuilderAssignment(
+        bool actionableOnly = false,
+        IEnumerable<Scaffolding>? excludeScaffolds = null)
+    {
+        var excluded = excludeScaffolds?.ToHashSet() ?? [];
+        var current = GetAssignedScaffolding();
+        if (current is not null &&
+            current.IsInProgress() &&
+            !excluded.Contains(current) &&
+            CanReachScaffolding(current) &&
+            (!actionableOnly || CanActOnScaffold(current)) &&
+            !HasHigherPriorityActionableScaffold(current))
+        {
+            current.Assign(this);
+            return current;
+        }
+
+        if (current is not null)
+        {
+            ReleaseAssignedBuilding();
+        }
+
+        var scaffold = GetBestScaffolding(actionableOnly, excluded);
+        if (scaffold is null || !scaffold.CanAssignBuilder(this, InventoryCapacity))
+        {
+            return null;
+        }
+
+        SetAssignedBuilding(scaffold);
+        scaffold.Assign(this);
+        return scaffold;
     }
 
     public List<MiningPost> GetBuilderMiningPostPriorityList()
@@ -2765,75 +2029,31 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) != int.MaxValue;
     }
 
-    public Scaffolding? EnsureBuilderAssignment(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
+    private bool QueueBuilderIdle(WorkerRoleFailureReason failure)
     {
-        var excluded = excludeScaffolds?.ToHashSet() ?? [];
-        var assignedScaffold = GetAssignedScaffolding();
-        if (assignedScaffold is not null &&
-            assignedScaffold.IsInProgress() &&
-            CanReachScaffolding(assignedScaffold) &&
-            !excluded.Contains(assignedScaffold) &&
-            (!actionableOnly || CanActOnScaffold(assignedScaffold)))
-        {
-            assignedScaffold.Assign(this);
-            return assignedScaffold;
-        }
-
-        if (assignedScaffold is not null)
-        {
-            ReleaseAssignedBuilding();
-        }
-
-        var scaffold = GetBestScaffolding(actionableOnly, excluded);
-        if (scaffold is null)
-        {
-            ReleaseAssignedBuilding();
-            return null;
-        }
-
-        SetAssignedBuilding(scaffold);
-        scaffold.Assign(this);
-        return scaffold;
+        ReleaseInteractionReservation();
+        ReleaseAssignedBuilding();
+        _builderRetryAfterTick = Session.TickCount + InteractionZone.ReservationLeaseTicks;
+        var result = QueueBuilderState(BuilderState.Idle, failure, result: false);
+        TryLeaveScaffoldingWhileIdle();
+        return result;
     }
 
-    private bool AdvanceBuilderDepositExtraInventory()
+    private bool AdvanceBuilderIdle()
     {
         if (!EnsureBuilderState())
         {
             return false;
         }
 
-        if (!HasInventory())
+        if (Session.TickCount < _builderRetryAfterTick)
         {
-            return AdvanceBuilderSelectScaffold();
-        }
-
-        var post = SelectMiningPostForInventoryDeposit();
-        if (post is null)
-        {
+            SetActivity(CreatureActivity.Idle);
             return false;
         }
 
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.ResourceTransfer } transferZone ||
-            !ReferenceEquals(transferZone.Owner, post) ||
-            !IsAtReservedInteractionSlot())
-        {
-            if (!NavigateToInteractionZone(post, InteractionZonePurpose.ResourceTransfer))
-            {
-                return false;
-            }
-
-            QueueBuilderState(BuilderState.DepositExtraInventory);
-            return true;
-        }
-
-        if (!TryDepositCarrierInventory(post, out _))
-        {
-            QueueBuilderState(BuilderState.WaitForMaterials, WorkerRoleFailureReason.NoStorage, result: false);
-            return false;
-        }
-
-        return HasInventory() ? AdvanceBuilderDepositExtraInventory() : AdvanceBuilderSelectScaffold();
+        QueueBuilderState(BuilderState.SelectScaffold);
+        return AdvanceBuilderSelectScaffold();
     }
 
     private bool AdvanceBuilderSelectScaffold()
@@ -2843,63 +2063,45 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        var scaffold = EnsureBuilderAssignment(true);
-        if (scaffold is null)
+        var current = GetAssignedScaffolding();
+        if (current?.CompletionPending == true)
         {
-            return HasInventory() ? AdvanceBuilderDepositExtraInventory() : false;
+            return LeaveCompletedScaffold(current);
         }
 
-        var scaffoldReservation = scaffold.GetMaterialReservation(this);
-        var sourceBuilding = BuilderSourceBuilding;
-        var postReservation = BuilderSourcePost?.GetMaterialReservation(this);
+        var scaffold = EnsureBuilderAssignment(actionableOnly: true);
+        if (scaffold is null)
+        {
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoWork);
+        }
 
         if (HasInventory())
         {
-            if (scaffold.NeedsResource(Inventory.Type!.Value))
-            {
-                return AdvanceBuilderDepositMaterial();
-            }
-
-            scaffold.ReleaseMaterialReservation(this);
-            return AdvanceBuilderDepositExtraInventory();
+            QueueBuilderState(BuilderState.MoveToScaffold);
+            return AdvanceBuilderMoveToScaffold();
         }
 
-        if (scaffoldReservation is not null &&
-            sourceBuilding is not null &&
-            (BuilderSourcePost is null || postReservation is not null))
+        if (scaffold.NeedsAnyResource())
         {
-            return AdvanceBuilderWithdrawMaterial();
+            QueueBuilderState(BuilderState.SelectSource);
+            return AdvanceBuilderSelectSource();
         }
 
-        if (scaffoldReservation is not null && sourceBuilding is null)
+        if (scaffold.NeedsConstructionWork())
         {
-            scaffold.ReleaseMaterialReservation(this);
-        }
-        else if (scaffoldReservation is null && sourceBuilding is not null)
-        {
-            ClearBuilderSourcePost();
+            QueueBuilderState(BuilderState.MoveToScaffold);
+            return AdvanceBuilderMoveToScaffold();
         }
 
-        if (scaffold.NeedsAnyResource(true, this) && AdvanceBuilderReserveMaterial())
+        if (scaffold.TryCompleteConstruction(this))
         {
             return true;
         }
 
-        if (scaffold.IsRecipeComplete() && scaffold.NeedsConstructionWork())
-        {
-            return AdvanceBuilderBuildScaffold();
-        }
-
-        if (scaffold.IsRecipeComplete() && scaffold.IsConstructionComplete() && scaffold.TryCompleteConstruction(this))
-        {
-            return true;
-        }
-
-        ReleaseAssignedBuilding();
-        return false;
+        return LeaveCompletedScaffold(scaffold);
     }
 
-    private bool AdvanceBuilderReserveMaterial()
+    private bool AdvanceBuilderSelectSource()
     {
         if (!EnsureBuilderState())
         {
@@ -2907,58 +2109,108 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         var scaffold = GetAssignedScaffolding();
-        if (scaffold is null)
+        if (scaffold is null || !scaffold.IsInProgress())
         {
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
         }
 
-        var supplyOption = GetBuilderSupplyOptionForScaffold(scaffold);
-        if (supplyOption is null)
+        if (HasInventory())
         {
-            return false;
+            return AdvanceBuilderMoveToScaffold();
         }
 
-        var scaffoldReserved = scaffold.ReserveMaterial(
+        var option = GetBuilderSupplyOptionForScaffold(scaffold);
+        if (!option.HasValue)
+        {
+            scaffold.ReleaseMaterialReservation(this);
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoStorage);
+        }
+
+        var supply = option.Value;
+        var reserved = scaffold.ReserveMaterial(
             this,
-            supplyOption.Value.RequirementIndex,
-            supplyOption.Value.ResourceType,
-            supplyOption.Value.Amount);
-        if (scaffoldReserved <= 0)
+            supply.RequirementIndex,
+            supply.ResourceType,
+            Math.Min(InventoryCapacity, supply.Amount));
+        if (reserved <= 0)
         {
-            return false;
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoStorage);
         }
 
-        if (supplyOption.Value.SourceBuilding is MiningPost sourcePost)
+        if (supply.SourceBuilding is MiningPost sourcePost)
         {
-            var postReserved = sourcePost.ReserveMaterial(this, supplyOption.Value.ResourceType, scaffoldReserved);
-            if (postReserved != scaffoldReserved)
+            var sourceReserved = sourcePost.ReserveMaterial(this, supply.ResourceType, reserved);
+            if (sourceReserved != reserved)
             {
                 scaffold.ReleaseMaterialReservation(this);
                 sourcePost.ReleaseMaterialReservation(this);
-                return false;
+                return QueueBuilderIdle(WorkerRoleFailureReason.NoStorage);
             }
         }
 
-        SetBuilderSource(supplyOption.Value.SourceBuilding);
-
-        if (IsAtResourceStorageSource(supplyOption.Value.SourceBuilding))
+        SetBuilderSource(supply.SourceBuilding);
+        if (IsAtResourceStorageSource(supply.SourceBuilding))
         {
+            QueueBuilderState(BuilderState.WithdrawMaterial);
             return AdvanceBuilderWithdrawMaterial();
         }
 
         if (!NavigateToInteractionZone(
-                supplyOption.Value.SourceBuilding,
-                InteractionZonePurpose.ResourceTransfer))
+                supply.SourceBuilding,
+                InteractionZonePurpose.ResourceTransfer,
+                streamFromBuildingField: true))
         {
             scaffold.ReleaseMaterialReservation(this);
             ClearBuilderSourcePost();
-            QueueBuilderState(BuilderState.SelectScaffold);
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoReachablePath);
+        }
+
+        QueueBuilderState(BuilderState.MoveToSource);
+        return true;
+    }
+
+    private bool AdvanceBuilderMoveToSource()
+    {
+        if (!EnsureBuilderState())
+        {
             return false;
         }
 
+        if (HasActiveMovement)
+        {
+            return true;
+        }
+
+        if (HasInventory())
+        {
+            return AdvanceBuilderMoveToScaffold();
+        }
+
+        var source = BuilderSourceBuilding as IResourceStorage;
+        var scaffold = GetAssignedScaffolding();
+        if (source is null || scaffold is null || scaffold.GetMaterialReservation(this) is null)
+        {
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
+        }
+
+        if (!IsAtResourceStorageSource(BuilderSourceBuilding!))
+        {
+            if (!NavigateToInteractionZone(
+                    BuilderSourceBuilding!,
+                    InteractionZonePurpose.ResourceTransfer,
+                    streamFromBuildingField: true))
+            {
+                scaffold.ReleaseMaterialReservation(this);
+                ClearBuilderSourcePost();
+                return QueueBuilderIdle(WorkerRoleFailureReason.NoReachablePath);
+            }
+
+            QueueBuilderState(BuilderState.MoveToSource);
+            return true;
+        }
+
         QueueBuilderState(BuilderState.WithdrawMaterial);
-        return true;
+        return AdvanceBuilderWithdrawMaterial();
     }
 
     private bool AdvanceBuilderWithdrawMaterial()
@@ -2969,72 +2221,135 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         var scaffold = GetAssignedScaffolding();
-        var sourceBuilding = BuilderSourceBuilding;
-        var storage = sourceBuilding as IResourceStorage;
-        var scaffoldReservation = scaffold?.GetMaterialReservation(this);
-        var postReservation = BuilderSourcePost?.GetMaterialReservation(this);
-
-        if (scaffold is null ||
-            sourceBuilding is null ||
-            storage is null ||
-            scaffoldReservation is null ||
-            (BuilderSourcePost is not null &&
-             (postReservation is null || scaffoldReservation.Value.ResourceType != postReservation.ResourceType)))
+        var source = BuilderSourceBuilding as IResourceStorage;
+        var reservation = scaffold?.GetMaterialReservation(this);
+        if (scaffold is null || source is null || reservation is null)
         {
-            scaffold?.ReleaseMaterialReservation(this);
-            ClearBuilderSourcePost();
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
         }
 
         if (HasInventory())
         {
-            return AdvanceBuilderDepositMaterial();
+            return AdvanceBuilderMoveToScaffold();
         }
 
-        if (!IsAtResourceStorageSource(sourceBuilding))
+        if (!IsAtResourceStorageSource(BuilderSourceBuilding!))
         {
-            if (!NavigateToInteractionZone(sourceBuilding, InteractionZonePurpose.ResourceTransfer))
-            {
-                scaffold.ReleaseMaterialReservation(this);
-                ClearBuilderSourcePost();
-                QueueBuilderState(BuilderState.SelectScaffold);
-                return false;
-            }
+            QueueBuilderState(BuilderState.MoveToSource);
+            return AdvanceBuilderMoveToSource();
+        }
 
-            QueueBuilderState(BuilderState.WithdrawMaterial);
+        SetActivity(CreatureActivity.Hauling);
+        var requested = Math.Min(GetInventorySpace(), reservation.Value.Amount);
+        var withdrawn = BuilderSourcePost is not null
+            ? BuilderSourcePost.WithdrawReservedMaterial(this, requested)?.Amount ?? 0
+            : source.Withdraw(reservation.Value.ResourceType, requested);
+        if (withdrawn <= 0)
+        {
+            scaffold.ReleaseMaterialReservation(this);
+            ClearBuilderSourcePost();
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoStorage);
+        }
+
+        if (withdrawn < requested)
+        {
+            scaffold.ReleaseMaterialReservation(this);
+            scaffold.ReserveMaterial(
+                this,
+                reservation.Value.RequirementIndex,
+                reservation.Value.ResourceType,
+                withdrawn);
+        }
+
+        if (AddToInventory(reservation.Value.ResourceType, withdrawn) != withdrawn)
+        {
+            source.Deposit(reservation.Value.ResourceType, withdrawn);
+            scaffold.ReleaseMaterialReservation(this);
+            ClearBuilderSourcePost();
+            return QueueBuilderIdle(WorkerRoleFailureReason.InventoryBlocked);
+        }
+
+        ClearBuilderSourcePost();
+        ReleaseInteractionReservation();
+        QueueBuilderState(BuilderState.MoveToScaffold);
+        return AdvanceBuilderMoveToScaffold();
+    }
+
+    private bool AdvanceBuilderMoveToScaffold()
+    {
+        if (!EnsureBuilderState())
+        {
+            return false;
+        }
+
+        if (HasActiveMovement)
+        {
             return true;
         }
 
-        var activeScaffoldReservation = scaffoldReservation.Value;
-        var requestedAmount = System.Math.Min(GetInventorySpace(), activeScaffoldReservation.Amount);
-        var withdrawnResourceType = activeScaffoldReservation.ResourceType;
-        SetActivity(CreatureActivity.Hauling);
-        var withdrawnAmount = BuilderSourcePost is not null
-            ? BuilderSourcePost.WithdrawReservedMaterial(this, requestedAmount)?.Amount ?? 0
-            : storage.Withdraw(withdrawnResourceType, requestedAmount);
-
-        if (withdrawnAmount <= 0)
+        var scaffold = GetAssignedScaffolding();
+        if (scaffold is null || !scaffold.IsInProgress())
         {
-            scaffold.ReleaseMaterialReservation(this);
-            ClearBuilderSourcePost();
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
         }
 
-        if (AddToInventory(withdrawnResourceType, withdrawnAmount) != withdrawnAmount)
+        if (!HasInventory())
         {
-            storage.Deposit(withdrawnResourceType, withdrawnAmount);
-            scaffold.ReleaseMaterialReservation(this);
-            ClearBuilderSourcePost();
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
+            if (scaffold.NeedsAnyResource())
+            {
+                QueueBuilderState(BuilderState.SelectSource);
+                return AdvanceBuilderSelectSource();
+            }
+
+            if (scaffold.NeedsConstructionWork())
+            {
+                if (ReservedZone is { Purpose: InteractionZonePurpose.Construction } workZone &&
+                    ReferenceEquals(workZone.Owner, scaffold) &&
+                    IsAtReservedInteractionSlot())
+                {
+                    QueueBuilderState(BuilderState.BuildScaffold);
+                    return AdvanceBuilderBuildScaffold();
+                }
+
+                if (!NavigateToInteractionZone(
+                        scaffold,
+                        InteractionZonePurpose.Construction,
+                        streamFromBuildingField: true))
+                {
+                    return QueueBuilderIdle(WorkerRoleFailureReason.NoReachablePath);
+                }
+
+                QueueBuilderState(BuilderState.MoveToScaffold);
+                return true;
+            }
+
+            return LeaveCompletedScaffold(scaffold);
         }
 
-        BuilderSourcePost = null;
-        BuilderSourceBuilding = null;
-        ReleaseInteractionReservation();
-        return AdvanceBuilderDepositMaterial();
+        if (!scaffold.NeedsResource(Inventory.Type!.Value))
+        {
+            QueueBuilderState(BuilderState.SelectScaffold);
+            return AdvanceBuilderSelectScaffold();
+        }
+
+        if (ReservedZone is { Purpose: InteractionZonePurpose.Construction } constructionZone &&
+            ReferenceEquals(constructionZone.Owner, scaffold) &&
+            IsAtReservedInteractionSlot())
+        {
+            QueueBuilderState(BuilderState.DepositMaterial);
+            return AdvanceBuilderDepositMaterial();
+        }
+
+        if (!NavigateToInteractionZone(
+                scaffold,
+                InteractionZonePurpose.Construction,
+                streamFromBuildingField: true))
+        {
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoReachablePath);
+        }
+
+        QueueBuilderState(BuilderState.MoveToScaffold);
+        return true;
     }
 
     private bool AdvanceBuilderDepositMaterial()
@@ -3045,46 +2360,28 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         var scaffold = GetAssignedScaffolding();
-        if (!HasInventory())
+        if (scaffold is null || !HasInventory())
         {
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
-        }
-
-        if (scaffold is null || !scaffold.IsInProgress())
-        {
-            return AdvanceBuilderDepositExtraInventory();
-        }
-
-        if (!scaffold.NeedsResource(Inventory.Type!.Value))
-        {
-            scaffold.ReleaseMaterialReservation(this);
-            return AdvanceBuilderDepositExtraInventory();
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
         }
 
         if (ReservedZone is not { Purpose: InteractionZonePurpose.Construction } deliveryZone ||
             !ReferenceEquals(deliveryZone.Owner, scaffold) ||
             !IsAtReservedInteractionSlot())
         {
-            if (!NavigateToInteractionZone(scaffold, InteractionZonePurpose.Construction))
-            {
-                scaffold.ReleaseMaterialReservation(this);
-                QueueBuilderState(BuilderState.DepositExtraInventory);
-                return false;
-            }
-
-            QueueBuilderState(BuilderState.DepositMaterial);
-            return true;
+            QueueBuilderState(BuilderState.MoveToScaffold);
+            return AdvanceBuilderMoveToScaffold();
         }
 
         if (!TryDepositCarrierInventory(scaffold, out _))
         {
             scaffold.ReleaseMaterialReservation(this);
-            QueueBuilderState(BuilderState.DepositExtraInventory, WorkerRoleFailureReason.NoStorage, result: false);
-            return false;
+            QueueBuilderState(BuilderState.SelectScaffold);
+            return AdvanceBuilderSelectScaffold();
         }
 
-        return HasInventory() ? AdvanceBuilderDepositExtraInventory() : AdvanceBuilderSelectScaffold();
+        QueueBuilderState(BuilderState.SelectScaffold);
+        return AdvanceBuilderSelectScaffold();
     }
 
     private bool AdvanceBuilderBuildScaffold()
@@ -3097,8 +2394,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         var scaffold = GetAssignedScaffolding();
         if (scaffold is null || !scaffold.IsInProgress())
         {
-            ReleaseAssignedBuilding();
-            return false;
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
         }
 
         if (HasInventory())
@@ -3108,27 +2404,21 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
         if (!scaffold.IsRecipeComplete())
         {
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
+            QueueBuilderState(BuilderState.SelectSource);
+            return AdvanceBuilderSelectSource();
         }
 
-        if (!scaffold.NeedsConstructionWork())
+        if (scaffold.CompletionPending || !scaffold.NeedsConstructionWork())
         {
-            return AdvanceBuilderSelectScaffold();
+            return LeaveCompletedScaffold(scaffold);
         }
 
         if (ReservedZone is not { Purpose: InteractionZonePurpose.Construction } workZone ||
             !ReferenceEquals(workZone.Owner, scaffold) ||
             !IsAtReservedInteractionSlot())
         {
-            if (!NavigateToInteractionZone(scaffold, InteractionZonePurpose.Construction))
-            {
-                QueueBuilderState(BuilderState.SelectScaffold);
-                return false;
-            }
-
-            QueueBuilderState(BuilderState.BuildScaffold);
-            return true;
+            QueueBuilderState(BuilderState.MoveToScaffold);
+            return AdvanceBuilderMoveToScaffold();
         }
 
         SetActivity(CreatureActivity.Working);
@@ -3136,7 +2426,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         if (worked <= 0)
         {
             QueueBuilderState(BuilderState.SelectScaffold);
-            return false;
+            return AdvanceBuilderSelectScaffold();
         }
 
         if (!scaffold.NeedsConstructionWork() && scaffold.CompletionPending)
@@ -3151,8 +2441,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     {
         if (Cave is null)
         {
-            QueueBuilderState(BuilderState.SelectScaffold);
-            return true;
+            return QueueBuilderIdle(WorkerRoleFailureReason.TargetInvalid);
         }
 
         GridPoint? bestLocation = null;
@@ -3185,12 +2474,21 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return true;
         }
 
+        if (Location == bestLocation.Value)
+        {
+            CancelMovement();
+            ReleaseInteractionReservation();
+            QueueBuilderState(BuilderState.SelectScaffold);
+            return true;
+        }
+
         if (!NavigateTo(bestLocation.Value))
         {
-            return false;
+            return QueueBuilderIdle(WorkerRoleFailureReason.NoReachablePath);
         }
 
         QueueBuilderState(BuilderState.SelectScaffold);
         return true;
     }
+
 }

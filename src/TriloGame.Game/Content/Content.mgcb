@@ -5,13 +5,18 @@
 /intermediateDir:obj/$(Platform)
 /platform:DesktopGL
 /config:
-/profile:Reach
+/profile:HiDef
 /compress:False
 
 #-------------------------------- References --------------------------------#
 
 
 #---------------------------------- Content ---------------------------------#
+
+#begin Effects/RadianceCascade.fx
+/importer:EffectImporter
+/processor:EffectProcessor
+/build:Effects/RadianceCascade.fx
 
 #begin Fonts/UiFont.spritefont
 /importer:FontDescriptionImporter
@@ -232,6 +237,21 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Silo.png
+
+#begin Textures/Water1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Water1.png
+
+#begin Textures/Water2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Water2.png
+
+#begin Textures/Water3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Water3.png
 
 #begin Textures/SoilTile_0.png
 /importer:TextureImporter

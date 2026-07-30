@@ -1,8 +1,8 @@
-using Gum.Forms;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using MonoGameGum;
+using Gum;
+using Gum.Forms;
 using RenderingLibrary.Graphics;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
@@ -14,6 +14,7 @@ using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
+using TriloGame.Game.Rendering.Lighting;
 using TriloGame.Game.Runtime.Automation;
 using TriloGame.Game.Runtime.Bootstrap;
 using TriloGame.Game.Runtime.Systems;
@@ -53,6 +54,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly CameraController _camera = new();
     private readonly WorldSpriteEffectSystem _worldSpriteEffects = new();
     private readonly WorldSceneRenderer _worldSceneRenderer = new();
+    private RadianceCascadeRenderer? _lightingRenderer;
     private readonly MainMenuOverlayRenderer _mainMenuOverlayRenderer = new();
     private readonly MenuController _menu = new();
     private readonly SettingsMenuController _settingsMenu = new();
@@ -107,7 +109,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     public GameApp()
     {
-        _graphics = new GraphicsDeviceManager(this);
+        _graphics = new GraphicsDeviceManager(this)
+        {
+            // The radiance cascade lighting pipeline needs floating-point render targets and
+            // longer shader programs than the Reach profile (MonoGame's default) allows.
+            GraphicsProfile = GraphicsProfile.HiDef
+        };
         _sessionAudioBridge = new SessionAudioBridge(_audio, () => _camera);
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
         _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist, EmitCreatureDeathParticles);
@@ -234,13 +241,14 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _graphics.PreferredBackBufferWidth = 1440;
         _graphics.PreferredBackBufferHeight = 900;
         _graphics.ApplyChanges();
-        GumUi.Initialize(this, DefaultVisualsVersion.V2);
+        GumUi.Initialize(this, DefaultVisualsVersion.V3);
         MonoGameAndGum.Renderables.ShapeRenderer.Self.Initialize(GraphicsDevice, Content);
         _gumUiRenderer = new GumUiRenderer();
         _trilodexCatalogViewport = new GumRenderTargetViewport(GraphicsDevice, _gumUiRenderer.Root);
         _camera.SetViewport(Window.ClientBounds.Width, Window.ClientBounds.Height);
         StartNewGame();
         ReturnToMainMenu();
+
         base.Initialize();
     }
 
@@ -281,6 +289,24 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
         RegisterTexture(sprites, "Garage", "Textures/Garage");
         RegisterTexture(sprites, "Silo", "Textures/Silo");
+        // Animated water shown through gaps in the cave floor. Registered optionally so the game
+        // still starts before the art exists; the animation is only registered for frames that
+        // actually loaded, and DrawWaterTiles skips anything unregistered.
+        var waterFrames = new List<string>();
+        foreach (var frame in new[] { "Water1", "Water2", "Water3" })
+        {
+            if (TryRegisterOptionalTexture(sprites, frame, $"Textures/{frame}"))
+            {
+                waterFrames.Add(frame);
+            }
+        }
+
+        if (waterFrames.Count > 0)
+        {
+            _worldSpriteEffects.RegisterTileAnimation(
+                WorldSceneRenderer.WaterAnimationKey,
+                new TileAnimationEffect(waterFrames, 0.45f));
+        }
         RegisterTexture(sprites, "SoilTile_0", "Textures/SoilTile_0");
         RegisterTexture(sprites, "SoilTile_Algae_1", "Textures/SoilTile_Algae_1");
         RegisterTexture(sprites, "SoilTile_Algae_2", "Textures/SoilTile_Algae_2");
@@ -307,6 +333,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             Sprites = sprites,
             Camera = _camera
         };
+        _lightingRenderer = new RadianceCascadeRenderer(
+            GraphicsDevice,
+            Content.Load<Effect>("Effects/RadianceCascade"));
+        _lightingRenderer.RegisterOreLightColors(sprites);
         InitializeWorldParticles();
 
         GameAudioContentCatalog.RegisterCues(Content, _audio);
@@ -356,6 +386,12 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         if (!_menu.IsRenamingSelectedTrilobite && _input.KeyPressed(Keys.F3))
         {
             _debugMetricsOverlayVisible = !_debugMetricsOverlayVisible;
+            PlayUiSelectSound();
+        }
+
+        if (!_menu.IsRenamingSelectedTrilobite && _input.KeyPressed(Keys.F4))
+        {
+            _lightingRenderer?.CycleDebugMode();
             PlayUiSelectSound();
         }
 
@@ -592,26 +628,25 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             _spriteBatch.End();
         }
 
-        _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
-
         if (_session.Cave is not null)
         {
-            _worldSceneRenderer.DrawWorldLayer(
+            _lightingRenderer?.RenderWorld(
                 _rendering,
+                _worldSceneRenderer,
                 _session,
                 _worldSpriteEffects,
                 Window.ClientBounds.Size,
                 _showFullMapVisibility,
                 _session.Runtime.ShowHitboxes,
                 _simulationClock.InterpolationAlpha);
+            _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
             DrawWorldParticles();
             DrawSelection();
             DrawFloatingPreview();
             DrawContinuousWorldDebug(_session.Cave);
             DrawDebugOverlay(_session.Cave);
+            _spriteBatch.End();
         }
-
-        _spriteBatch.End();
         _gumUiRenderer.BeginFrame(Window.ClientBounds.Size);
         if (_session.Cave is not null)
         {
@@ -3321,6 +3356,21 @@ public sealed partial class GameApp
         sprites.Register(key, Content.Load<Texture2D>(assetName));
     }
 
+    // For art that may not be present yet. Callers must tolerate the key being unregistered:
+    // renderers check Sprites.TryGet before drawing.
+    private bool TryRegisterOptionalTexture(SpriteFactory sprites, string key, string assetName)
+    {
+        try
+        {
+            sprites.Register(key, Content.Load<Texture2D>(assetName));
+            return true;
+        }
+        catch (Microsoft.Xna.Framework.Content.ContentLoadException)
+        {
+            return false;
+        }
+    }
+
     private void HandleViewportResize()
     {
         if (Window.ClientBounds.Width <= 0 || Window.ClientBounds.Height <= 0)
@@ -3391,6 +3441,7 @@ public sealed partial class GameApp
         if (disposing)
         {
             _trilodexCatalogViewport?.Dispose();
+            _lightingRenderer?.Dispose();
         }
 
         base.Dispose(disposing);

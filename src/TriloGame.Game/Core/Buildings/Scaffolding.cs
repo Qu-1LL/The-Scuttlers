@@ -66,6 +66,8 @@ public sealed class Scaffolding : Building
 
     public bool CompletionPending { get; private set; }
 
+    public bool BuildFirst { get; private set; }
+
     protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions()
     {
         var width = DisplayBaseSize.X;
@@ -115,6 +117,45 @@ public sealed class Scaffolding : Building
     public void RemoveAssignment(Creature creature) => _assignments.Remove(creature);
 
     public int GetVolume() => _assignments.Count;
+
+    public bool ToggleBuildFirst()
+    {
+        if (!IsInProgress())
+        {
+            return false;
+        }
+
+        BuildFirst = !BuildFirst;
+        return true;
+    }
+
+    public int GetRequiredBuilderCount(int carryCapacity)
+    {
+        if (!IsInProgress())
+        {
+            return 0;
+        }
+
+        if (!NeedsAnyResource())
+        {
+            return NeedsConstructionWork() ? 1 : 0;
+        }
+
+        var remaining = 0;
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            remaining += GetRemainingRequirement(index);
+        }
+
+        return Math.Max(1, (remaining + Math.Max(1, carryCapacity) - 1) / Math.Max(1, carryCapacity));
+    }
+
+    public bool CanAssignBuilder(Creature creature, int carryCapacity)
+    {
+        return IsInProgress() &&
+               (_assignments.Contains(creature) ||
+                _assignments.Count < GetRequiredBuilderCount(carryCapacity));
+    }
 
     public int GetTotalDepositedAmount()
     {

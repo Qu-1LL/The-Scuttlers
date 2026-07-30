@@ -7,6 +7,7 @@ using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
+using TriloGame.Game.Rendering.Lighting;
 using TriloGame.Game.Shared.Math;
 using FrameworkVector2 = Microsoft.Xna.Framework.Vector2;
 using NumericsVector2 = System.Numerics.Vector2;
@@ -16,6 +17,15 @@ namespace TriloGame.Game.Rendering;
 
 public sealed class WorldSceneRenderer
 {
+    // Animation name registered on WorldSpriteEffectSystem; resolves to Water1/Water2/Water3.
+    public const string WaterAnimationKey = "Water";
+
+    private static readonly Color WaterAlbedoColor = new(
+        OreLightSettings.WaterAlbedo,
+        OreLightSettings.WaterAlbedo,
+        OreLightSettings.WaterAlbedo,
+        1f);
+
     private const float InventoryBackpackIconTileScale = 0.64f;
     private const float InventoryBackpackSlotSpacingPixels = 42f;
 
@@ -82,10 +92,41 @@ public sealed class WorldSceneRenderer
             return;
         }
 
-        DrawFloorTiles(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility));
-        DrawTileOverlays(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility), spriteEffects);
+        var visibleTiles = new List<Tile>();
+        CollectVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility, visibleTiles);
+        DrawWorldLayer(
+            context,
+            session,
+            spriteEffects,
+            showFullMapVisibility,
+            showCombatDebug,
+            interpolationAlpha,
+            visibleTiles);
+    }
+
+    // Render all world layers from one camera cull so lighting and scene pixels share tile coverage.
+    public void DrawWorldLayer(
+        RenderingContext context,
+        GameSession session,
+        WorldSpriteEffectSystem spriteEffects,
+        bool showFullMapVisibility,
+        bool showCombatDebug,
+        float interpolationAlpha,
+        IReadOnlyList<Tile> visibleTiles)
+    {
+        var cave = session.Cave;
+        if (cave is null)
+        {
+            return;
+        }
+
+        // Water sits below the floor: it is what shows through gaps in the cave floor, so it must
+        // be laid down before the floor tiles that surround (and partially overlap) it.
+        DrawWaterTiles(context, visibleTiles, spriteEffects);
+        DrawFloorTiles(context, visibleTiles);
+        DrawTileOverlays(context, visibleTiles, spriteEffects);
         DrawSurfaceFeatures(context, cave, showFullMapVisibility);
-        DrawDroppedResources(context, EnumerateVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility));
+        DrawDroppedResources(context, visibleTiles);
         DrawBuildings(context, cave, showFullMapVisibility);
         if (showCombatDebug)
         {
@@ -93,6 +134,135 @@ public sealed class WorldSceneRenderer
         }
         DrawCreatures(context, session, cave, interpolationAlpha);
         DrawProjectiles(context, session);
+    }
+
+    // Short casters only (creatures). Their texture alpha becomes the shadow silhouette, so light
+    // stops on the drawn sprite rather than on the whole tile square.
+    public void DrawEntityOccluderLayer(
+        RenderingContext context,
+        Cave cave,
+        float interpolationAlpha)
+    {
+        foreach (var trilobite in cave.Trilobites)
+        {
+            DrawWorldTextureNative(
+                context,
+                "Trilobite",
+                GetCreatureWorldPosition(trilobite, interpolationAlpha),
+                trilobite.GetInterpolatedFacingRadians(interpolationAlpha),
+                color: Color.White);
+        }
+
+        foreach (var enemy in cave.Enemies)
+        {
+            DrawWorldTextureNative(
+                context,
+                "Enemy",
+                GetCreatureWorldPosition(enemy, interpolationAlpha),
+                enemy.GetInterpolatedFacingRadians(interpolationAlpha),
+                color: Color.White);
+        }
+    }
+
+    // Silhouette of open water for the composite's specular sheen. Uses a flat white quad rather
+    // than the animated frame: the sheen only needs to know where water is, and using the frame
+    // would make the highlight flicker with the animation.
+    public void DrawWaterMaskLayer(RenderingContext context, IReadOnlyList<Tile> visibleTiles)
+    {
+        if (!context.Sprites.TryGet("empty", out _))
+        {
+            return;
+        }
+
+        foreach (var tile in visibleTiles)
+        {
+            if (tile.IsWater())
+            {
+                DrawTileTexture(context, "empty", tile.Coordinates, 0f, Color.White);
+            }
+        }
+    }
+
+    // Full-height casters go in their own mask so the shader can occlude with them at any
+    // distance, while the short mask above only shades what is close behind its casters.
+    public void DrawTallOccluderLayer(RenderingContext context, IReadOnlyList<Tile> occludingTiles)
+    {
+        foreach (var tile in occludingTiles)
+        {
+            if (!LightingTileClassifier.GetOccluderHeight(tile).IsFullHeight())
+            {
+                continue;
+            }
+
+            var textureKey = tile.Base == "wall"
+                ? "wall"
+                : GetTileOverlayTextureKey(tile) ?? tile.Base;
+            if (!context.Sprites.TryGet(textureKey, out _))
+            {
+                continue;
+            }
+
+            DrawTileTexture(
+                context,
+                textureKey,
+                tile.Coordinates,
+                tile.Base == "wall" ? 0f : GetTileOverlayRotationRadians(tile),
+                Color.White);
+        }
+    }
+
+    public void DrawEmissiveLayer(
+        RenderingContext context,
+        IReadOnlyList<OreLightEmitter> emitters,
+        Texture2D lightTexture)
+    {
+        var origin = new FrameworkVector2(lightTexture.Width / 2f, lightTexture.Height / 2f);
+        for (var index = 0; index < emitters.Count; index++)
+        {
+            var emitter = emitters[index];
+            var center = context.Camera.WorldToScreen(emitter.WorldPosition);
+            // Each deposit's own colour, so the direct glow matches the cascade light it seeds.
+            var lightColor = emitter.LightColor.ToVector4();
+            lightColor *= Math.Clamp(emitter.Intensity, 0f, 1f);
+            lightColor.W = 1f;
+            var diameter = TileConstants.TileSize * context.Camera.CurrentScale * OreLightSettings.OreRadiusTiles * 2f;
+            var scale = Math.Max(0.01f, diameter / lightTexture.Width);
+            context.SpriteBatch.Draw(
+                lightTexture,
+                center,
+                sourceRectangle: null,
+                new Color(lightColor),
+                rotation: 0f,
+                origin,
+                scale,
+                SpriteEffects.None,
+                layerDepth: 0f);
+        }
+    }
+
+    private static void DrawWaterTiles(
+        RenderingContext context,
+        IEnumerable<Tile> visibleTiles,
+        WorldSpriteEffectSystem spriteEffects)
+    {
+        foreach (var tile in visibleTiles)
+        {
+            if (!tile.IsWater())
+            {
+                continue;
+            }
+
+            // Per-tile phase offset so the surface does not flip every frame in unison.
+            var textureKey = spriteEffects.GetAnimatedTextureKey(
+                WaterAnimationKey,
+                GetWorldSpritePhaseOffsetSeconds(WaterAnimationKey, tile.Coordinates));
+            if (context.Sprites.TryGet(textureKey, out _))
+            {
+                // Dimmed to its albedo: water is mostly a mirror, so its own texture should only
+                // be faintly readable and the reflected light in the composite should dominate.
+                DrawTileTexture(context, textureKey, tile.Coordinates, 0f, WaterAlbedoColor);
+            }
+        }
     }
 
     private static void DrawFloorTiles(RenderingContext context, IEnumerable<Tile> visibleTiles)
@@ -492,6 +662,11 @@ public sealed class WorldSceneRenderer
         return (hash % 1000) / 1000f;
     }
 
+    internal static bool IsLightBlockingTile(Tile tile)
+    {
+        return LightingTileClassifier.BlocksLight(tile);
+    }
+
     internal static float GetTileOverlayRotationRadians(Tile tile)
     {
         if (!tile.IsOreTile() && !tile.IsCaveCrystal())
@@ -538,6 +713,20 @@ public sealed class WorldSceneRenderer
 
                 yield return tile!;
             }
+        }
+    }
+
+    public static void CollectVisibleTiles(
+        Cave cave,
+        CameraController camera,
+        Point viewportSize,
+        bool showFullMapVisibility,
+        List<Tile> destination)
+    {
+        destination.Clear();
+        foreach (var tile in EnumerateVisibleTiles(cave, camera, viewportSize, showFullMapVisibility))
+        {
+            destination.Add(tile);
         }
     }
 

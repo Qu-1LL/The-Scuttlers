@@ -1,7 +1,7 @@
 using Gum.Wireframe;
+using Gum;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using MonoGameGum;
 
 namespace TriloGame.Game.UI.Gum;
 

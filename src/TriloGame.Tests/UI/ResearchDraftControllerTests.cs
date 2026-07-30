@@ -1,5 +1,5 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Progression;
@@ -640,12 +640,12 @@ public sealed class ResearchDraftControllerTests
         controller.Draw(viewport, session, draftSystem, gumUi, treeBackgroundTexture: null);
 
         var cyanOutlines = gumUi.Root.Children
-            .OfType<RoundedRectangleRuntime>()
+            .OfType<RectangleRuntime>()
             .Where(shape =>
                 !shape.IsFilled &&
-                shape.Color.R == 105 &&
-                shape.Color.G == 226 &&
-                shape.Color.B == 239)
+                shape.StrokeColor.R == 105 &&
+                shape.StrokeColor.G == 226 &&
+                shape.StrokeColor.B == 239)
             .ToArray();
         Assert.Equal(2, cyanOutlines.Length);
     }

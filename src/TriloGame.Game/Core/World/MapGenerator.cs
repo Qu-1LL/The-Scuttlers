@@ -57,6 +57,11 @@ public sealed partial class MapGenerator
 
         var pattern = GetGenerationPattern(method);
         pattern.Generate(this, cave);
+
+        // Every pattern gets water-filled gaps in the floor. This lives here rather than inside the
+        // individual patterns so no generation method can silently ship without them - which is
+        // exactly what happened while this pass existed only in the unused CaveGenerator.
+        CaveGenerator.GenerateFloorHoles(cave);
     }
 
     // Convert the reusable Perlin noise map into a live cave while preserving the cleaned map topology.

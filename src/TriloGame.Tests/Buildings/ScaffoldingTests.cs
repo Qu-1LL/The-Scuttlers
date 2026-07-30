@@ -9,6 +9,25 @@ namespace TriloGame.Tests.Buildings;
 public sealed class ScaffoldingTests
 {
     [Fact]
+    public void BuildFirst_TogglesOnlyWhileScaffoldingIsInProgress()
+    {
+        var (session, _, _) = TestWorldFactory.CreateSessionWithQueen();
+        var scaffolding = new Scaffolding(session, new Storage(session));
+
+        Assert.False(scaffolding.BuildFirst);
+        Assert.True(scaffolding.ToggleBuildFirst());
+        Assert.True(scaffolding.BuildFirst);
+        Assert.True(scaffolding.ToggleBuildFirst());
+        Assert.False(scaffolding.BuildFirst);
+
+        CompleteScaffolding(scaffolding);
+
+        Assert.False(scaffolding.IsInProgress());
+        Assert.False(scaffolding.ToggleBuildFirst());
+        Assert.False(scaffolding.BuildFirst);
+    }
+
+    [Fact]
     public void CompletedScaffolding_ReplacesItselfWithTargetBuilding()
     {
         var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();

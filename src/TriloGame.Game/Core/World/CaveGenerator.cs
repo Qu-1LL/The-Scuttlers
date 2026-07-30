@@ -245,7 +245,8 @@ internal sealed class CaveGenerator
         GeneratedTileSpriteRotation.AssignOreRotation(tile);
     }
 
-    private static void GenerateFloorHoles(Cave cave)
+    // Called by MapGenerator (the live generator) as well as this one.
+    internal static void GenerateFloorHoles(Cave cave)
     {
         var candidates = new List<Tile>();
         foreach (var tile in cave.GetTiles())
@@ -303,7 +304,8 @@ internal sealed class CaveGenerator
 
     internal static bool[,] BuildCellularFloorHoleShape(int width, int height)
     {
-        if (width < GameConstants.CaveFloorHoleMinClusterSize || height < GameConstants.CaveFloorHoleMinClusterSize)
+        if (width < GameConstants.CaveFloorHoleMinimumShapeSize ||
+            height < GameConstants.CaveFloorHoleMinimumShapeSize)
         {
             throw new ArgumentOutOfRangeException(nameof(width), "Floor-hole cellular masks must be at least 3x3.");
         }
