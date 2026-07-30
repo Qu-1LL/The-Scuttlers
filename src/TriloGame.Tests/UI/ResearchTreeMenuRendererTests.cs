@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 using Gum.Wireframe;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Runtime.Bootstrap;
@@ -221,7 +221,7 @@ public sealed class ResearchTreeMenuRendererTests
         ResearchTreeMenuRenderer.Draw(gumUi, session, model, Point.Zero);
 
         Assert.DoesNotContain(
-            gumUi.Root.Children.OfType<RoundedRectangleRuntime>(),
+            gumUi.Root.Children.OfType<RectangleRuntime>().Where(shape => shape.CornerRadius > 0),
             shape =>
                 (int)shape.X == cardFrameBounds.X &&
                 (int)shape.Y == cardFrameBounds.Y &&
@@ -292,14 +292,14 @@ public sealed class ResearchTreeMenuRendererTests
         ResearchTreeMenuRenderer.Draw(gumUi, session, model, Point.Zero);
 
         var redOverlayIndex = FindChildIndex(gumUi, child =>
-            child is ColoredRectangleRuntime rectangle &&
-            rectangle.Color == Color.Red &&
+            child is RectangleRuntime rectangle &&
+            rectangle.FillColor == Color.Red &&
             (int)rectangle.X == treeFrameBounds.X &&
             (int)rectangle.Y == treeFrameBounds.Y &&
             (int)rectangle.Width == treeFrameBounds.Width &&
             (int)rectangle.Height == treeFrameBounds.Height);
         var outlineIndex = FindChildIndex(gumUi, child =>
-            child is RoundedRectangleRuntime shape &&
+            child is RectangleRuntime shape &&
             !shape.IsFilled &&
             (int)shape.X == treeFrameBounds.X &&
             (int)shape.Y == treeFrameBounds.Y &&
@@ -308,7 +308,7 @@ public sealed class ResearchTreeMenuRendererTests
 
         Assert.True(redOverlayIndex >= 0);
         Assert.True(outlineIndex > redOverlayIndex);
-        var outline = Assert.IsType<RoundedRectangleRuntime>(gumUi.Root.Children[outlineIndex]);
+        var outline = Assert.IsType<RectangleRuntime>(gumUi.Root.Children[outlineIndex]);
         Assert.False(outline.IsFilled);
         Assert.Equal(treeFrameBounds.X, outline.X);
         Assert.Equal(treeFrameBounds.Y, outline.Y);
@@ -382,14 +382,14 @@ public sealed class ResearchTreeMenuRendererTests
         ResearchTreeMenuRenderer.Draw(gumUi, session, model, Point.Zero);
 
         var treeFillIndex = FindChildIndex(gumUi, child =>
-            child is RoundedRectangleRuntime shape &&
+            child is RectangleRuntime shape &&
             shape.IsFilled &&
             (int)shape.X == treeFrameBounds.X &&
             (int)shape.Y == treeFrameBounds.Y &&
             (int)shape.Width == treeFrameBounds.Width &&
             (int)shape.Height == treeFrameBounds.Height);
         var modalSurfaceIndex = FindChildIndex(gumUi, child =>
-            child is ColoredRectangleRuntime rectangle &&
+            child is RectangleRuntime rectangle &&
             (int)rectangle.X == panelBounds.X &&
             (int)rectangle.Y == panelBounds.Y &&
             (int)rectangle.Width == panelBounds.Width &&
@@ -397,8 +397,8 @@ public sealed class ResearchTreeMenuRendererTests
 
         Assert.True(treeFillIndex >= 0);
         Assert.True(modalSurfaceIndex > treeFillIndex);
-        var modalSurface = Assert.IsType<ColoredRectangleRuntime>(gumUi.Root.Children[modalSurfaceIndex]);
-        Assert.Equal(255, modalSurface.Color.A);
+        var modalSurface = Assert.IsType<RectangleRuntime>(gumUi.Root.Children[modalSurfaceIndex]);
+        Assert.Equal(255, modalSurface.FillColor.A);
     }
 
     [Fact]
@@ -494,15 +494,16 @@ public sealed class ResearchTreeMenuRendererTests
         var nodeRadius = ResearchTreeUiRenderer.CalculateDetailNodeRadius(zoom);
         var maxNodeDiameter = (nodeRadius + ResearchTreeUiRenderer.CalculateDetailNodeBorderThickness(nodeRadius)) * 2;
         var nodeSizes = gumUi.Root.Children
-            .OfType<RoundedRectangleRuntime>()
-            .Where(shape => shape.IsFilled && shape.Width <= maxNodeDiameter && shape.Height <= maxNodeDiameter)
+            .OfType<RectangleRuntime>()
+            .Where(shape => shape.IsFilled && shape.StrokeWidth > 0f && shape.Width <= maxNodeDiameter && shape.Height <= maxNodeDiameter)
             .Select(shape => (Width: (int)shape.Width, Height: (int)shape.Height))
             .OrderBy(size => size.Width)
             .ThenBy(size => size.Height)
             .ToList();
         var connectorThicknesses = gumUi.Root.Children
-            .OfType<ColoredRectangleRuntime>()
+            .OfType<RectangleRuntime>()
             .Where(shape =>
+                shape.StrokeWidth == 0f &&
                 shape.Height == ResearchTreeUiRenderer.DetailConnectorThickness &&
                 shape.Width > ResearchTreeUiRenderer.DetailConnectorThickness)
             .Select(shape => (int)shape.Height)

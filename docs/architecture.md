@@ -68,6 +68,10 @@ The project is currently a single MonoGame game assembly with layered modules in
   - world-scene rendering, including parallax background and cave tile/entity layers
   - soil-patch rendering draws per-tile crop sprites in the world layer instead of collapsing the
     patch to one building sprite
+  - `Rendering/Lighting` owns the presentation-only radiance cascade pipeline; it renders the world
+    into camera-space targets, uploads a world-space tile grid for terrain/reveal/building/emission
+    queries, preserves creature sprite alpha as dynamic silhouettes for shadows, and derives
+    emissive sources only from intact ore tiles
 - `Audio`
   - cue registration, playback, and audio-specific runtime systems
 - `Shared`
@@ -133,6 +137,12 @@ These form the current “golden path” for adding structure without destabiliz
 - `MiningClaimAllocator` gives miners deterministic claims while allowing multiple miners to share
   a mineable target, and each post rotates its mineable queue so autonomous and manual mining
   orders keep round-robin pressure on the available work.
+- Builder role execution uses explicit idle, scaffold selection, source selection, withdrawal,
+  delivery, and construction phases. Remaining recipe volume divided by carry capacity determines
+  staffing, Build First scaffolds take priority, and building creation order is the stable tie-breaker.
+  Building navigation fields handle the approach while reserved interaction zones handle the final
+  transfer, preventing repeated point-path requests and haul/deposit loops when several builders
+  share a source.
 - Trilobite role state machines start from an explicit idle state. All mobile trilobite professions
   use the same deterministic layered idle routine: mostly stationary pauses followed by short,
   anchor-biased local moves that prefer clear direct steering and bound fallback pathfinding.
@@ -156,6 +166,22 @@ These form the current “golden path” for adding structure without destabiliz
   for routine sizing because it softens text and makes nearby surfaces look inconsistent.
 - Treat MonoGame `SpriteBatch.DrawString` as a world-space/debug-only tool unless the text is
   intentionally attached to the game world rather than the UI.
+- World lighting is presentation-only. The radiance cascade shader is applied before the world
+  debug/selection overlays and before the Gum frame; no shader or lighting render target is applied
+  to Gum panels, controls, HUD, menus, research screens, or UI text.
+- Radiance Cascade inputs are built from one camera cull per frame. A render-only world-space tile
+  grid encodes blocker, known/revealed, and ore-emission channels; unrevealed and out-of-map cells
+  are opaque to rays, while full-map mode includes known open cells. Completed building footprints
+  block light and scaffolding does not. Creature silhouettes remain in a camera-space dynamic
+  occluder target. Packed cascades halve probe density and double ray density on each axis per level,
+  merge from the far cascade toward cascade 0, and reduce cascade 0 into the lighting field used for
+  composition. Cascade count is derived from the light-buffer diagonal and clamped for the supported
+  render budget.
+- Intact ore deposits are the only light sources. All ore types use the shared warm ore light;
+  Lumenite's existing presentation pulse modulates its intensity. Cave crystals, buildings,
+  creatures, particles, dropped resources, and simulation rules do not emit light.
+- Solid non-empty tiles and building footprints block light. Creature sprites block light by their
+  alpha silhouette, but creatures remain non-emissive.
 - Short UI sound cues are routed through a shared `AudioService`, while gameplay systems
   request sounds indirectly through `GameSession.AudioCueRequested`.
 - Managed crash handling is routed through a shared crash reporter that writes timestamped

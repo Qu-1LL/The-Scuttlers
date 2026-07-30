@@ -38,13 +38,20 @@ public static class GameConstants
     public const int CaveCrystalTileDivisor = 180;
     public const int CaveCrystalHitsRequired = 3;
     public const int CaveFloorHoleProtectedRadius = 8;
-    public const int CaveFloorHoleMinTileCount = 18;
-    public const int CaveFloorHoleMaxTileCount = 48;
-    public const int CaveFloorHoleTileDivisor = 210;
-    public const int CaveFloorHoleMinClusterSize = 3;
-    public const int CaveFloorHoleMaxClusterSize = 6;
+    // Water bodies. Sized to read as lakes rather than puddles: each cluster is a cellular blob
+    // up to CaveFloorHoleMaxClusterSize on a side, and the tile budget decides how much floods.
+    public const int CaveFloorHoleMinTileCount = 120;
+    public const int CaveFloorHoleMaxTileCount = 340;
+    public const int CaveFloorHoleTileDivisor = 40;
+    public const int CaveFloorHoleMinClusterSize = 7;
+    // Structural floor of the cellular mask, independent of the tuning above: the generator forces
+    // a 3x3 core, so a mask smaller than that cannot be built. Kept separate because tying the
+    // guard to MinClusterSize made raising that tuning value reject legitimate 3x3..6x6 masks.
+    public const int CaveFloorHoleMinimumShapeSize = 3;
+    public const int CaveFloorHoleMaxClusterSize = 14;
     public const int CaveFloorHoleCellularPasses = 2;
-    public const double CaveFloorHoleInitialFillChance = 0.48d;
+    // Higher fill chance stops the cellular pass eroding large blobs into scattered specks.
+    public const double CaveFloorHoleInitialFillChance = 0.58d;
     public const float CaveBackgroundParallaxFactor = 0.16f;
     public const float CaveBackgroundScaleMultiplier = 1.3f;
     public const int OreHitsPerYield = 3;

@@ -3,15 +3,15 @@ using Gum.DataTypes;
 using Gum.Wireframe;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using RenderingLibrary.Graphics;
 
 namespace TriloGame.Game.UI.Gum;
 
 public sealed class GumUiRenderer
 {
-    private readonly List<ColoredRectangleRuntime> _filledRectangles = [];
-    private readonly List<RoundedRectangleRuntime> _roundedRectangles = [];
+    private readonly List<RectangleRuntime> _filledRectangles = [];
+    private readonly List<RectangleRuntime> _roundedRectangles = [];
     private readonly List<TextRuntime> _texts = [];
     private readonly List<SpriteRuntime> _sprites = [];
     private readonly List<ContainerRuntime> _clippingContainers = [];
@@ -35,7 +35,7 @@ public sealed class GumUiRenderer
         ConfigureElement(Root);
         if (addToManagers)
         {
-            Root.AddToManagers();
+            Root.AddToRoot();
         }
     }
 
@@ -100,7 +100,9 @@ public sealed class GumUiRenderer
         rectangle.Y = bounds.Y;
         rectangle.Width = bounds.Width;
         rectangle.Height = bounds.Height;
-        rectangle.Color = color;
+        rectangle.FillColor = color;
+        rectangle.IsFilled = true;
+        rectangle.StrokeWidth = 0f;
         rectangle.Rotation = 0f;
         parent.Children.Add(rectangle);
     }
@@ -131,7 +133,8 @@ public sealed class GumUiRenderer
         rectangle.Y = bounds.Y;
         rectangle.Width = bounds.Width;
         rectangle.Height = bounds.Height;
-        rectangle.Color = color;
+        rectangle.FillColor = color;
+        rectangle.StrokeColor = color;
         GumRoundedRectangleRuntimeShape.Apply(
             rectangle,
             Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2),
@@ -158,7 +161,7 @@ public sealed class GumUiRenderer
         rectangle.Y = bounds.Y;
         rectangle.Width = bounds.Width;
         rectangle.Height = bounds.Height;
-        rectangle.Color = color;
+        rectangle.StrokeColor = color;
         GumRoundedRectangleRuntimeShape.Apply(
             rectangle,
             Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2),
@@ -231,7 +234,9 @@ public sealed class GumUiRenderer
         rectangle.Y = layout.Y;
         rectangle.Width = layout.Width;
         rectangle.Height = layout.Height;
-        rectangle.Color = color;
+        rectangle.FillColor = color;
+        rectangle.IsFilled = true;
+        rectangle.StrokeWidth = 0f;
         rectangle.Rotation = layout.Rotation;
         parent.Children.Add(rectangle);
     }
@@ -385,7 +390,8 @@ public sealed class GumUiRenderer
         rectangle.Y = bounds.Y;
         rectangle.Width = bounds.Width;
         rectangle.Height = bounds.Height;
-        rectangle.Color = color;
+        rectangle.FillColor = color;
+        rectangle.StrokeColor = color;
         GumRoundedRectangleRuntimeShape.Apply(
             rectangle,
             Math.Clamp(radius, 0, Math.Min(bounds.Width, bounds.Height) / 2),
@@ -394,11 +400,11 @@ public sealed class GumUiRenderer
         parent.Children.Add(rectangle);
     }
 
-    private ColoredRectangleRuntime GetFilledRectangle(int index)
+    private RectangleRuntime GetFilledRectangle(int index)
     {
         while (_filledRectangles.Count <= index)
         {
-            var rectangle = new ColoredRectangleRuntime
+            var rectangle = new RectangleRuntime
             {
                 Visible = false
             };
@@ -409,11 +415,11 @@ public sealed class GumUiRenderer
         return _filledRectangles[index];
     }
 
-    private RoundedRectangleRuntime GetRoundedRectangle(int index)
+    private RectangleRuntime GetRoundedRectangle(int index)
     {
         while (_roundedRectangles.Count <= index)
         {
-            var rectangle = new RoundedRectangleRuntime
+            var rectangle = new RectangleRuntime
             {
                 Visible = false
             };
@@ -474,12 +480,7 @@ public sealed class GumUiRenderer
         ConfigureElement((GraphicalUiElement)container);
     }
 
-    private static void ConfigureElement(ColoredRectangleRuntime rectangle)
-    {
-        ConfigureElement((GraphicalUiElement)rectangle);
-    }
-
-    private static void ConfigureElement(RoundedRectangleRuntime rectangle)
+    private static void ConfigureElement(RectangleRuntime rectangle)
     {
         ConfigureElement((GraphicalUiElement)rectangle);
     }

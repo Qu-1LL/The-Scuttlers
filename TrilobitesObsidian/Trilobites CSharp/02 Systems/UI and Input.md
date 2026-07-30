@@ -123,7 +123,7 @@ That means this note overlaps heavily with [[Rendering]] and [[Build Content and
 `GumShapePool.cs`:
 
 - owns a `ContainerRuntime`
-- pools `RoundedRectangleRuntime` objects
+- pools unified `RectangleRuntime` objects for both filled and stroked rounded shapes
 - exposes `BeginFrame()` and `EndFrame()`
 - lets `GameApp` and `MenuController` request rounded rectangles each frame
 

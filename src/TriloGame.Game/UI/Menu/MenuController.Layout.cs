@@ -156,6 +156,17 @@ public sealed partial class MenuController
             selectedBounds.Bottom - (int)MathF.Round(68f * selectedScale),
             Math.Min((int)MathF.Round(240f * buildingScale), selectedBounds.Width - 32),
             (int)MathF.Round(50f * selectedScale));
+        Rectangle? buildFirstSelectedBounds = null;
+        if (SelectedObject is Scaffolding)
+        {
+            var buildFirstHeight = (int)MathF.Round(50f * selectedScale);
+            var buildFirstGap = (int)MathF.Round(8f * selectedScale);
+            buildFirstSelectedBounds = new Rectangle(
+                deleteSelectedBounds.X,
+                deleteSelectedBounds.Y - buildFirstGap - buildFirstHeight,
+                deleteSelectedBounds.Width,
+                buildFirstHeight);
+        }
 
         if (SelectedObject is Trilobite selectedTrilobite)
         {
@@ -242,7 +253,8 @@ public sealed partial class MenuController
             selectedRecipeText = BuildScaffoldingRecipeText(scaffolding);
 
             var selectedBodyTop = selectedRecipeBounds.Value.Bottom + recipeGap;
-            var bodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(10f * selectedScale);
+            var actionTop = buildFirstSelectedBounds?.Y ?? deleteSelectedBounds.Y;
+            var bodyBottom = actionTop - (int)MathF.Round(10f * selectedScale);
             var bodyHeight = Math.Max(96, bodyBottom - selectedBodyTop);
             var inventoryDescriptionGap = (int)MathF.Round(12f * selectedScale);
             var minimumInventoryHeight = Math.Max(72, (int)MathF.Round(86f * selectedScale));
@@ -276,7 +288,7 @@ public sealed partial class MenuController
                 selectedBounds.X + 16,
                 selectedInventoryFrameBounds.Value.Bottom + inventoryDescriptionGap,
                 selectedBounds.Width - 32,
-                Math.Max(48, deleteSelectedBounds.Y - selectedInventoryFrameBounds.Value.Bottom - inventoryDescriptionGap));
+                Math.Max(48, actionTop - selectedInventoryFrameBounds.Value.Bottom - inventoryDescriptionGap));
             selectedDescriptionLayout = GumScrollableText.Build(
                 selectedDescriptionViewportBounds,
                 BuildSelectedDescriptionText(scaffolding),
@@ -406,6 +418,7 @@ public sealed partial class MenuController
             selectedInventoryScrollbarThumbBounds,
             selectedDescriptionLayout,
             deleteSelectedBounds,
+            buildFirstSelectedBounds,
             assignmentFilters,
             assignmentActiveBounds,
             assignmentActiveViewportBounds,
@@ -808,6 +821,7 @@ public sealed partial class MenuController
         Rectangle? SelectedInventoryScrollbarThumbBounds,
         GumScrollableTextLayout SelectedDescriptionLayout,
         Rectangle DeleteSelectedBounds,
+        Rectangle? BuildFirstSelectedBounds,
         IReadOnlyList<LabeledRect> AssignmentFilters,
         Rectangle AssignmentActiveBounds,
         Rectangle AssignmentActiveViewportBounds,

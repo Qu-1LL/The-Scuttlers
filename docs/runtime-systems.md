@@ -50,6 +50,12 @@ management inside `GameApp`.
   - keeps the host from manually relaying simulation audio cues
 - `Runtime/Automation/GamePlayApi.cs`
   - exposes a programmatic play/test command surface
+- `Rendering/Lighting`
+  - remains outside deterministic runtime orchestration
+  - consumes the current cave tile state at draw time through a world-space tile grid containing
+    blocker, reveal, and ore-emission channels, plus a camera-space dynamic entity occluder
+  - performs packed Radiance Cascade raymarch, reverse merge, and cascade-0 reduction without
+    changing simulation ticks, replay state, or gameplay rules
 - `Shared/State/GameSessionRuntimeState.cs`
   - groups runtime/debug state such as tick profiling, debug enemy naming, and simulation toggles
 
@@ -93,6 +99,23 @@ mining order path are not consulted or modified by combat planning.
 When danger is false, the fighter controller clears combat tracking and enters the same shared
 anchor-biased idle routine used by every mobile trilobite profession instead of using a separate
 profession-specific wander pattern.
+
+Miners validate actual claimable ore rather than relying only on outpost capacity or assignment
+availability. When an assigned outpost is exhausted, the miner releases that assignment and scans
+reachable outposts for the next one with mineable work; a miner waits only when no reachable post
+has both room and valid work.
+
+Builders are idle by default and use a small explicit pipeline: select a prioritized scaffold,
+select the nearest reachable storage that can satisfy its next requirement, move to that source,
+withdraw one carry-sized batch, deliver it to the scaffold, and perform construction. A scaffold's
+required builder count is derived from remaining recipe volume and carry capacity, so assignments
+do not overstaff a job. Build First scaffolds are selected before normal scaffolds, with stable
+creation order as the deterministic tie-breaker; completed scaffolding is removed after builders
+leave its footprint.
+Long approaches to sources and scaffolds stream through cached building navigation fields; exact
+interaction-zone routing is resolved only near the destination. Builders retain no extra haul loop:
+they release stale assignments and return to the shared stationary/local idle routine when no
+actionable scaffold or compatible resource source exists, then retry after a short lease interval.
 
 `GameSessionRuntimeState` observes typed creature-damaged events and owns the presentation-only
 150 ms red flash with boosted opacity. Repeated damage restarts the flash without making wall-clock

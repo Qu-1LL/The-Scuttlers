@@ -1,5 +1,5 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Tests.UI;
@@ -71,19 +71,19 @@ public sealed class GumUiRendererTests
     }
 
     [Fact]
-    public void AddFilledRectangle_UsesSolidColoredRectangleRuntime()
+    public void AddFilledRectangle_UsesFilledRectangleRuntime()
     {
         var renderer = new GumUiRenderer(addToManagers: false);
         renderer.BeginFrame(new Point(800, 600));
 
         renderer.AddFilledRectangle(new Rectangle(10, 12, 40, 24), Color.CornflowerBlue);
 
-        var rectangle = Assert.IsType<ColoredRectangleRuntime>(renderer.Root.Children[^1]);
+        var rectangle = Assert.IsType<RectangleRuntime>(renderer.Root.Children[^1]);
         Assert.Equal(10, rectangle.X);
         Assert.Equal(12, rectangle.Y);
         Assert.Equal(40, rectangle.Width);
         Assert.Equal(24, rectangle.Height);
-        Assert.Equal(Color.CornflowerBlue, rectangle.Color);
+        Assert.Equal(Color.CornflowerBlue, rectangle.FillColor);
     }
 
     [Fact]
@@ -96,13 +96,13 @@ public sealed class GumUiRendererTests
         var border = new Color(77, 122, 140);
         renderer.AddRoundedFrame(new Rectangle(10, 12, 200, 80), fill, border, thickness: 3, radius: 16);
 
-        var filledRectangle = Assert.IsType<RoundedRectangleRuntime>(renderer.Root.Children[^2]);
-        var outline = Assert.IsType<RoundedRectangleRuntime>(renderer.Root.Children[^1]);
+        var filledRectangle = Assert.IsType<RectangleRuntime>(renderer.Root.Children[^2]);
+        var outline = Assert.IsType<RectangleRuntime>(renderer.Root.Children[^1]);
         Assert.True(filledRectangle.IsFilled);
-        Assert.Equal(fill, filledRectangle.Color);
+        Assert.Equal(fill, filledRectangle.FillColor);
         Assert.Equal(16, filledRectangle.CornerRadius);
         Assert.False(outline.IsFilled);
-        Assert.Equal(border, outline.Color);
+        Assert.Equal(border, outline.StrokeColor);
         Assert.Equal(3, outline.StrokeWidth);
         Assert.Equal(16, outline.CornerRadius);
     }

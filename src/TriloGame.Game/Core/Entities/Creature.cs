@@ -1665,7 +1665,8 @@ public class Creature
     public bool NavigateToInteractionZone(
         Building building,
         InteractionZonePurpose purpose,
-        bool clearExisting = true)
+        bool clearExisting = true,
+        bool streamFromBuildingField = false)
     {
         if (!EnsureReadyForNavigation())
         {
@@ -1696,6 +1697,14 @@ public class Creature
                 BeginMovement(target);
             }
 
+            return true;
+        }
+
+        // Use the cached building field for long approaches, then switch to the exact
+        // reserved slot once the creature reaches the building's navigation envelope.
+        if (streamFromBuildingField && !IsAtBuildingNavigationTarget(building) &&
+            NavigateToBuilding(building, clearExisting: false))
+        {
             return true;
         }
 

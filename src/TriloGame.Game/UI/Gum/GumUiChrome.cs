@@ -1,5 +1,5 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 
 namespace TriloGame.Game.UI.Gum;
 

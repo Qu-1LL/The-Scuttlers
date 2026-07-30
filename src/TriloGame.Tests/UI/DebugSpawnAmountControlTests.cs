@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using TriloGame.Game.UI.Debug;
 using TriloGame.Game.UI.Gum;
 

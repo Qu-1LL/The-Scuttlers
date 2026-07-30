@@ -87,14 +87,12 @@ public enum BuilderState
 {
     Idle,
     SelectScaffold,
-    ReserveMaterial,
+    SelectSource,
     MoveToSource,
     WithdrawMaterial,
     MoveToScaffold,
     DepositMaterial,
     BuildScaffold,
-    DepositExtraInventory,
-    WaitForMaterials
 }
 
 public enum FighterState

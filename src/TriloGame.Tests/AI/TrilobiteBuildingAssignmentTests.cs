@@ -2,14 +2,202 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.AI;
 
 public sealed class TrilobiteBuildingAssignmentTests
 {
+    [Fact]
+    public void BuilderAssignment_UsesBuildFirstBeforeCreationOrder()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 14, new GridPoint(1, 1));
+        var firstScaffold = new Scaffolding(session, new Storage(session));
+        var priorityScaffold = new Scaffolding(session, new Storage(session));
+        Assert.True(cave.Build(firstScaffold, new GridPoint(8, 6)));
+        Assert.True(cave.Build(priorityScaffold, new GridPoint(18, 6)));
+
+        var firstRequirement = firstScaffold.GetRemainingRequirement(ResourceName.Sandstone);
+        var priorityRequirement = priorityScaffold.GetRemainingRequirement(ResourceName.Sandstone);
+        Assert.Equal(firstRequirement, firstScaffold.Deposit(ResourceName.Sandstone, firstRequirement));
+        Assert.Equal(priorityRequirement, priorityScaffold.Deposit(ResourceName.Sandstone, priorityRequirement));
+        Assert.True(priorityScaffold.ToggleBuildFirst());
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
+
+        Assert.Same(priorityScaffold, builder.EnsureBuilderAssignment(true));
+        Assert.Contains(builder, priorityScaffold.GetAssignments());
+        Assert.DoesNotContain(builder, firstScaffold.GetAssignments());
+    }
+
+    [Fact]
+    public void BuilderSupplySelection_UsesNearestCompatibleStorage()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(1, 1));
+        var nearStorage = new Storage(session);
+        var farStorage = new Storage(session);
+        Assert.True(cave.Build(nearStorage, new GridPoint(10, 6)));
+        Assert.True(cave.Build(farStorage, new GridPoint(24, 6)));
+        Assert.Equal(10, nearStorage.Deposit(ResourceName.Sandstone, 10));
+        Assert.Equal(10, farStorage.Deposit(ResourceName.Sandstone, 10));
+
+        var scaffold = new Scaffolding(
+            session,
+            new Storage(session),
+            [ResourceRequirement.ForResource(ResourceName.Sandstone, 10)]);
+        Assert.True(cave.Build(scaffold, new GridPoint(16, 10)));
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(8, 10), "Builder", "builder");
+
+        var supply = builder.GetBuilderSupplyOptionForScaffold(scaffold);
+
+        Assert.NotNull(supply);
+        Assert.Same(nearStorage, supply.Value.SourceBuilding);
+        Assert.Equal(ResourceName.Sandstone, supply.Value.ResourceType);
+        Assert.Equal(builder.InventoryCapacity, supply.Value.Amount);
+    }
+
+    [Fact]
+    public void BuilderAssignment_UsesCarryCapacityToLimitScaffoldStaffing()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(1, 1));
+        var scaffold = new Scaffolding(
+            session,
+            new Storage(session),
+            [ResourceRequirement.ForResource(ResourceName.Sandstone, 40)]);
+        Assert.True(cave.Build(scaffold, new GridPoint(18, 6)));
+
+        var builders = new List<Trilobite>(9);
+        for (var index = 0; index < builders.Capacity; index++)
+        {
+            builders.Add(TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(4 + index, 10),
+                $"Builder {index}",
+                "builder"));
+        }
+
+        var requiredBuilderCount = (40 + builders[0].InventoryCapacity - 1) / builders[0].InventoryCapacity;
+        Assert.Equal(requiredBuilderCount, scaffold.GetRequiredBuilderCount(builders[0].InventoryCapacity));
+        for (var index = 0; index < requiredBuilderCount; index++)
+        {
+            Assert.True(scaffold.CanAssignBuilder(builders[index], builders[index].InventoryCapacity));
+            scaffold.Assign(builders[index]);
+        }
+
+        Assert.False(scaffold.CanAssignBuilder(builders[requiredBuilderCount], builders[requiredBuilderCount].InventoryCapacity));
+        Assert.True(scaffold.CanAssignBuilder(builders[0], builders[0].InventoryCapacity));
+    }
+
+    [Fact]
+    public void BuilderLongApproach_UsesBuildingFieldAndExplicitSourceMovementState()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(34, 16, new GridPoint(1, 1));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 6));
+        Assert.Equal(10, post.Deposit(ResourceName.Sandstone, 10));
+        var scaffold = new Scaffolding(
+            session,
+            new Storage(session),
+            [ResourceRequirement.ForResource(ResourceName.Sandstone, 10)]);
+        Assert.True(cave.Build(scaffold, new GridPoint(24, 6)));
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(10, 12), "Builder", "builder");
+
+        NavigationInstrumentation.BeginTick();
+        Assert.True(builder.RunRoleState(BuilderState.Idle));
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(BuilderState.MoveToSource, builder.BuilderState);
+        Assert.True(builder.HasActiveMovement);
+        Assert.NotEmpty(builder.DesiredRoute);
+        Assert.Equal(0, navigation.PointPathRequestCount);
+    }
+
+    [Fact]
+    public void BuilderWithoutMaterials_RetainsSharedIdleMovementAndResumesWhenStockArrives()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 16, new GridPoint(1, 1));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 6));
+        var scaffold = new Scaffolding(
+            session,
+            new Storage(session),
+            [ResourceRequirement.ForResource(ResourceName.Sandstone, 10)]);
+        Assert.True(cave.Build(scaffold, new GridPoint(22, 6)));
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(12, 11), "Waiting Builder", "builder");
+        builder.RestartBehavior();
+
+        for (var tick = 0; tick < InteractionZone.ReservationLeaseTicks && builder.BuilderState != BuilderState.Idle; tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.Equal(BuilderState.Idle, builder.BuilderState);
+
+        var startedIdleMove = false;
+        for (var tick = 0; tick < 120; tick++)
+        {
+            TickRunner.RunTick(session);
+            startedIdleMove |= builder.MovementCohort.GoalKind == MovementGoalKind.Idle ||
+                               builder.IdleState == IdleBehaviorState.WanderNearAnchor;
+        }
+
+        Assert.True(startedIdleMove);
+
+        Assert.Equal(10, post.Deposit(ResourceName.Sandstone, 10));
+        for (var tick = 0; tick < 300 && cave.GetScaffoldingList().Contains(scaffold); tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
+        Assert.Contains(cave.GetBuildingList().OfType<Storage>(), storage => storage.Location == new GridPoint(22, 6));
+    }
+
+    [Fact]
+    public void MultipleBuilders_CompleteScaffoldWithoutReturningToSourcePostLoop()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(42, 18, new GridPoint(1, 1));
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 6));
+        Assert.Equal(40, post.Deposit(ResourceName.Sandstone, 40));
+        var scaffold = new Scaffolding(
+            session,
+            new Storage(session),
+            [ResourceRequirement.ForResource(ResourceName.Sandstone, 40)]);
+        var scaffoldLocation = new GridPoint(28, 6);
+        Assert.True(cave.Build(scaffold, scaffoldLocation));
+
+        var builders = new List<Trilobite>(4);
+        for (var index = 0; index < 4; index++)
+        {
+            var builder = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(10 + index, 11),
+                $"Builder {index}",
+                "builder");
+            builder.RestartBehavior();
+            builders.Add(builder);
+        }
+
+        for (var tick = 0; tick < 600 && cave.GetScaffoldingList().Contains(scaffold); tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
+        Assert.Contains(cave.GetBuildingList().OfType<Storage>(), storage => storage.Location == scaffoldLocation);
+        foreach (var builder in builders)
+        {
+            Assert.False(builder.HasInventory(), $"{builder.Name} retained inventory in {builder.BuilderState}.");
+            Assert.NotEqual(BuilderState.WithdrawMaterial, builder.BuilderState);
+            Assert.NotEqual(BuilderState.DepositMaterial, builder.BuilderState);
+            Assert.NotSame(post, builder.BuilderSourceBuilding);
+        }
+    }
+
     [Fact]
     public void FarmerSelection_FallsBackToAdjacentOpenFarm_WhenNearestFarmIsFull()
     {

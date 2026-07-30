@@ -301,6 +301,19 @@ public sealed partial class MenuController
             DrawScrollbar(context, layout.SelectedDescriptionLayout.ScrollbarTrackBounds, layout.SelectedDescriptionLayout.ScrollbarThumbBounds);
         }
 
+        if (SelectedObject is Scaffolding scaffolding &&
+            layout.BuildFirstSelectedBounds is { } buildFirstBounds)
+        {
+            var buildFirstHovered = buildFirstBounds.Contains(_pointerPoint);
+            DrawButton(
+                context,
+                buildFirstBounds,
+                scaffolding.BuildFirst ? "Build First (On)" : "Build First",
+                buildFirstHovered ? new Color(83, 133, 104) : new Color(65, 108, 84),
+                buildFirstHovered ? new Color(194, 239, 203) : new Color(171, 220, 181),
+                Color.White);
+        }
+
         var hovered = layout.DeleteSelectedBounds.Contains(_pointerPoint);
         DrawButton(
             context,

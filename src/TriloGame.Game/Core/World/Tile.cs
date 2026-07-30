@@ -149,6 +149,14 @@ public sealed class Tile
 
     public bool IsCaveCrystal() => string.Equals(Base, CaveCrystalBase, StringComparison.Ordinal);
 
+    // A gap in the cave floor, which is rendered as water beneath the floor level. Creatures
+    // cannot enter one (CreatureFits already requires HasFloorCover), and a building placed over
+    // the gap bridges it, so a covered gap is no longer open water.
+    public bool IsWater() =>
+        !HasFloorCover &&
+        Built is null &&
+        string.Equals(Base, "empty", StringComparison.Ordinal);
+
     public static bool IsResourcelessBreakableBase(string tileBase)
     {
         return string.Equals(tileBase, "wall", StringComparison.Ordinal) ||

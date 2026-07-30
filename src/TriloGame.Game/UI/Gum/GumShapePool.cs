@@ -1,11 +1,11 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 
 namespace TriloGame.Game.UI.Gum;
 
 public sealed class GumShapePool
 {
-    private readonly List<RoundedRectangleRuntime> _roundedShapes = [];
+    private readonly List<RectangleRuntime> _roundedShapes = [];
     private int _roundedShapeCount;
 
     public ContainerRuntime Container { get; } = new();
@@ -36,15 +36,16 @@ public sealed class GumShapePool
         shape.Y = bounds.Y;
         shape.Width = bounds.Width;
         shape.Height = bounds.Height;
-        shape.Color = color;
+        shape.FillColor = color;
+        shape.StrokeColor = color;
         GumRoundedRectangleRuntimeShape.Apply(shape, radius, isFilled, strokeWidth);
     }
 
-    private RoundedRectangleRuntime GetRoundedShape(int index)
+    private RectangleRuntime GetRoundedShape(int index)
     {
         while (_roundedShapes.Count <= index)
         {
-            var shape = new RoundedRectangleRuntime
+            var shape = new RectangleRuntime
             {
                 Visible = false
             };
