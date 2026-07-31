@@ -33,6 +33,7 @@ public sealed partial class Cave : Graph
     private readonly Dictionary<StationBuilding, int> _fighterStationAssignmentCounts = [];
     private readonly CreatureMovementSystem _creatureMovementSystem;
     private readonly PointRouteFieldCache _pointRouteFieldCache;
+    private readonly TraversalSearchWorkspace _pathSearchWorkspace = new();
     private int _pointRouteBudgetTick = -1;
     private int _pointRouteBuildCount;
     private Queen? _queenBuilding;
@@ -948,6 +949,32 @@ public sealed partial class Cave : Graph
         {
             builtBuildings[index].ClearPendingNavigationFieldInheritance();
         }
+
+        WakeBuildersForNewScaffolding(builtBuildings);
+    }
+
+    // New construction wakes only builders that do not already have valid scaffold work.
+    private void WakeBuildersForNewScaffolding(IReadOnlyList<Building> builtBuildings)
+    {
+        var containsScaffolding = false;
+        for (var index = 0; index < builtBuildings.Count; index++)
+        {
+            if (builtBuildings[index] is Scaffolding)
+            {
+                containsScaffolding = true;
+                break;
+            }
+        }
+
+        if (!containsScaffolding)
+        {
+            return;
+        }
+
+        for (var index = 0; index < _trilobiteList.Count; index++)
+        {
+            _trilobiteList[index].WakeForNewScaffolding();
+        }
     }
 
     public bool RemoveBuilding(Building building, object? source = null)
@@ -1013,6 +1040,11 @@ public sealed partial class Cave : Graph
             if (creature is Trilobite assignedTrilobite && ReferenceEquals(assignedTrilobite.GetAssignedBuilding(), building))
             {
                 assignedTrilobite.ReleaseAssignedBuilding();
+                if (building is Scaffolding)
+                {
+                    assignedTrilobite.WakeForScaffoldAvailability();
+                }
+
                 creatureWasAffected = true;
             }
 
@@ -1782,6 +1814,8 @@ public sealed partial class Cave
     }
 
     internal int PointRouteFieldCacheCount => _pointRouteFieldCache.Count;
+    internal TraversalSearchWorkspace PathSearchWorkspace => _pathSearchWorkspace;
+
 
     public List<GridPoint>? BuildPathToNearestEmptyTile(GridPoint startLocation)
     {
@@ -1796,6 +1830,20 @@ public sealed partial class Cave
     {
         return CavePathfinder.BuildPathToNearestMineableType(this, startLocation, post, mineableType, reservedTileKeys);
     }
+    public MineablePathResult? BuildPathToNearestTrackedMineableApproach(
+        Trilobite miner,
+        MiningPost post,
+        ResourceName? requiredResource)
+    {
+        return CavePathfinder.BuildPathToNearestTrackedMineableApproach(this, miner, post, requiredResource);
+    }
+
+    // Find a route to a mineable's valid adjacent working tile in the same search that validates reachability.
+    public List<GridPoint>? BuildPathToMineableApproach(Trilobite miner, Tile target)
+    {
+        return CavePathfinder.BuildPathToMineableApproach(this, miner, target);
+    }
+
 
     public Dictionary<string, int>? BuildPointBfsField(GridPoint destination)
     {

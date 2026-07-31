@@ -1826,9 +1826,7 @@ public class Creature
             ClearTaskQueue();
         }
 
-        if (!building.TryGetInteractionZone(purpose, out var zone) ||
-            !zone.IsNavigationTarget ||
-            !TryReserveInteractionZone(zone))
+        if (!TryReserveAvailableInteractionZone(building, purpose))
         {
             return false;
         }
@@ -1846,6 +1844,39 @@ public class Creature
         }
 
         ReleaseInteractionReservation();
+        return false;
+    }
+
+    // Reserve any usable edge for the requested purpose so multi-edge buildings do not bottleneck on their first zone.
+    private bool TryReserveAvailableInteractionZone(Building building, InteractionZonePurpose purpose)
+    {
+        if (ReservedZone is { } currentZone &&
+            ReferenceEquals(currentZone.Owner, building) &&
+            currentZone.Purpose == purpose &&
+            currentZone.IsNavigationTarget &&
+            ReservedZoneSlot is { } currentSlot &&
+            currentZone.TryRenew(this, Session.TickCount, currentSlot))
+        {
+            return true;
+        }
+
+        ReleaseInteractionReservation();
+        var zones = building.InteractionZones;
+        for (var index = 0; index < zones.Count; index++)
+        {
+            var zone = zones[index];
+            if (zone.Purpose != purpose || !zone.IsNavigationTarget ||
+                !zone.TryReserve(this, Session.TickCount, out var slotIndex))
+            {
+                continue;
+            }
+
+            ReservedZone = zone;
+            ReservedZoneSlot = slotIndex;
+            return true;
+        }
+
+        Activity = CreatureActivity.WaitingForSlot;
         return false;
     }
 

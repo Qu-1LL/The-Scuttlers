@@ -57,11 +57,11 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     {
         ActiveMiningClaim = claim;
         PendingMineTileKey = claim.TileKey;
-        PendingMinePath = null;
+        PendingMinePath = claim.Route;
         PendingManualMineSelectionKey = manualSelectionKey;
     }
 
-    private List<GridPoint>? PendingMinePath { get; set; }
+    private IReadOnlyList<GridPoint>? PendingMinePath { get; set; }
 
     public Enemy? FighterTarget { get; private set; }
 
@@ -789,6 +789,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             PendingMineTileKey = null;
             PendingManualMineSelectionKey = null;
             ActiveMiningClaim = null;
+            PendingMinePath = null;
             return;
         }
 
@@ -797,6 +798,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         PendingMineTileKey = null;
         PendingManualMineSelectionKey = null;
         ActiveMiningClaim = null;
+        PendingMinePath = null;
     }
 
     protected override bool EnsureReadyForNavigation()
@@ -825,6 +827,35 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     {
         BuilderSourceBuilding = sourceBuilding;
         BuilderSourcePost = sourceBuilding as MiningPost;
+    }
+
+    // Resume the generic scaffold-selection pass without disturbing an active route or reservation.
+    internal void WakeForScaffoldAvailability()
+    {
+        if (Role != CreatureRole.Builder)
+        {
+            return;
+        }
+
+        BuilderState = BuilderState.SelectScaffold;
+        LastRoleFailure = WorkerRoleFailureReason.None;
+    }
+
+    // A new scaffold only wakes builders that are not already committed to valid scaffold work.
+    internal void WakeForNewScaffolding()
+    {
+        if (Role != CreatureRole.Builder)
+        {
+            return;
+        }
+
+        var assignedScaffold = GetAssignedScaffolding();
+        if (assignedScaffold is not null && assignedScaffold.IsInProgress())
+        {
+            return;
+        }
+
+        WakeForScaffoldAvailability();
     }
 
     public void ClearFighterTarget()
@@ -2122,29 +2153,27 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
+        var path = PendingMinePath;
         PendingMinePath = null;
         if (MiningStrikeSystem.CanMineReach(this, targetTile.Key))
         {
             return AdvanceMinerMineClaim();
         }
 
-        var approachPoint = ActiveMiningClaim?.ApproachPoint ?? WorldPoint.FromGridPoint(navTarget.Value);
-        if (NavigateTo(approachPoint))
-        {
-            QueueMinerState(MinerState.MineClaim);
-            return true;
-        }
-
-        var path = PendingMinePath;
-        PendingMinePath = null;
         if (path is null || path.Count == 0 || path[0] != Location || path[^1] != navTarget.Value)
         {
-            path = Cave?.BuildDirectPathToPoint(Location, navTarget.Value);
+            path = Cave?.BuildPathToMineableApproach(this, targetTile);
             if (path is null)
             {
                 ResetPendingMineTarget(true);
                 QueueMinerState(MinerState.SelectPost);
                 return false;
+            }
+
+            navTarget = path[^1];
+            if (ActiveMiningClaim is { } claim)
+            {
+                ActiveMiningClaim = claim with { ApproachPoint = WorldPoint.FromGridPoint(navTarget.Value), Route = path };
             }
         }
 

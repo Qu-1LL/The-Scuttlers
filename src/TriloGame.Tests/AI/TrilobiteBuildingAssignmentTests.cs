@@ -399,6 +399,30 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void NewScaffolding_WakesOnlyBuildersWithoutActiveScaffoldWork()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(1, 1));
+        var waitingBuilder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 8), "Waiting Builder", "builder");
+        var activeScaffold = new Scaffolding(session, new SoilPatch(session));
+
+        Assert.True(cave.Build(activeScaffold, new GridPoint(12, 6)));
+        waitingBuilder.RunRoleState(BuilderState.WaitForMaterials);
+        Assert.Equal(BuilderState.Idle, waitingBuilder.BuilderState);
+
+        var activeBuilder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(10, 8), "Active Builder", "builder");
+        activeBuilder.SetAssignedBuilding(activeScaffold);
+        activeScaffold.Assign(activeBuilder);
+        Assert.Contains(activeBuilder, activeScaffold.GetAssignments());
+
+        var newScaffold = new Scaffolding(session, new SoilPatch(session));
+        Assert.True(cave.Build(newScaffold, new GridPoint(20, 6)));
+
+        Assert.Equal(BuilderState.SelectScaffold, waitingBuilder.BuilderState);
+        Assert.Same(activeScaffold, activeBuilder.GetAssignedScaffolding());
+        Assert.Equal(BuilderState.Idle, activeBuilder.BuilderState);
+    }
+
+    [Fact]
     public void BuilderBuildsSoilPatchUsingOrganicResourceFromReachableMiningPost()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
@@ -419,6 +443,38 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
         Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Chitinstone, 0));
         Assert.False(builder.HasInventory());
+    }
+
+    [Fact]
+    public void BuilderCompletesSequentialScaffoldsUsingStorageMaterials()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(1, 1));
+        var storage = new Storage(session);
+        Assert.True(cave.Build(storage, new GridPoint(6, 6)));
+        Assert.Equal(2, storage.Deposit(ResourceName.Chitinstone, 2));
+
+        var recipe = new[] { ResourceRequirement.ForResource(ResourceName.Chitinstone, 1) };
+        var firstLocation = new GridPoint(12, 6);
+        var secondLocation = new GridPoint(20, 6);
+        var firstScaffold = new Scaffolding(session, new SoilPatch(session), recipe);
+        var secondScaffold = new Scaffolding(session, new SoilPatch(session), recipe);
+        Assert.True(cave.Build(firstScaffold, firstLocation));
+        Assert.True(cave.Build(secondScaffold, secondLocation));
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(9, 6), "Builder", "builder");
+        builder.RestartBehavior();
+
+        for (var tick = 0; tick < 240 && cave.GetSoilPatches().Count < 2; tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.DoesNotContain(firstScaffold, cave.GetScaffoldingList());
+        Assert.DoesNotContain(secondScaffold, cave.GetScaffoldingList());
+        Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == firstLocation);
+        Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == secondLocation);
+        Assert.Equal(0, storage.GetStoredAmount(ResourceName.Chitinstone));
+        Assert.Equal(BuilderState.SelectScaffold, builder.BuilderState);
     }
 
     [Fact]

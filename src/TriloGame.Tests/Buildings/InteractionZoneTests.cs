@@ -95,6 +95,30 @@ public sealed class InteractionZoneTests
     }
 
     [Fact]
+    public void NavigateToInteractionZone_WhenFirstScaffoldEdgeIsFull_ReservesAnotherConstructionEdge()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 14, new GridPoint(1, 1));
+        var scaffold = new Scaffolding(session, new Storage(session));
+        Assert.True(cave.Build(scaffold, new GridPoint(8, 6)));
+
+        var constructionZones = scaffold.InteractionZones
+            .Where(zone => zone.Purpose == InteractionZonePurpose.Construction)
+            .ToArray();
+        var northEdge = constructionZones[0];
+        var firstNorthWorker = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 5), "North one");
+        var secondNorthWorker = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 5), "North two");
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 9), "Builder");
+
+        Assert.True(northEdge.TryReserve(firstNorthWorker, session.TickCount, out _));
+        Assert.True(northEdge.TryReserve(secondNorthWorker, session.TickCount, out _));
+        Assert.Equal(northEdge.Capacity, northEdge.OccupiedCount);
+
+        Assert.True(builder.NavigateToInteractionZone(scaffold, InteractionZonePurpose.Construction));
+        Assert.NotSame(northEdge, builder.ReservedZone);
+        Assert.Equal(InteractionZonePurpose.Construction, builder.ReservedZone?.Purpose);
+    }
+
+    [Fact]
     public void MiningPost_ProvidesNineResourceTransferSlots()
     {
         var (session, cave) = TestWorldFactory.CreateRectangularSession(14, 14);

@@ -24,6 +24,7 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
     private readonly Dictionary<Creature, string?> _assignments = [];
     private readonly Dictionary<Creature, ResourceReservation> _materialReservations = [];
     private readonly Dictionary<string, List<string>> _mineableQueues = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _trackedMineableTileKeys = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _mineableQueueHeads = new(StringComparer.Ordinal);
     private readonly List<string> _mineableTypes = [];
     private readonly HashSet<string> _dirtyMineableTileKeys = new(StringComparer.Ordinal);
@@ -281,6 +282,44 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
             .ToHashSet(StringComparer.Ordinal);
     }
 
+    // The mineable queues are also the post's authoritative target index for route searches.
+    internal bool IsTrackedMineableTarget(World.Tile tile, ResourceName? requiredResource)
+    {
+        return _trackedMineableTileKeys.Contains(tile.Key) &&
+               Building.IsMineableType(tile.Base) &&
+               IsMineableTypeCompatibleWithResource(tile.Base, requiredResource);
+    }
+
+    internal bool HasUnassignedTrackedMineableTarget(World.Cave cave, Creature creature, ResourceName? requiredResource)
+    {
+        foreach (var tileKey in _trackedMineableTileKeys)
+        {
+            var tile = cave.GetTile(tileKey);
+            if (tile is not null &&
+                IsTrackedMineableTarget(tile, requiredResource) &&
+                !IsTargetAssignedToOther(creature, tileKey))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal bool IsTargetAssignedToOther(Creature creature, string tileKey)
+    {
+        foreach (var assignment in _assignments)
+        {
+            if (!ReferenceEquals(assignment.Key, creature) &&
+                string.Equals(assignment.Value, tileKey, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public int GetVolume() => _assignments.Count;
 
     public override void OnBuilt(World.Cave cave)
@@ -395,6 +434,7 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
         var grouped = new Dictionary<string, List<(string Key, int Dist)>>(StringComparer.Ordinal);
 
         _mineableQueues.Clear();
+        _trackedMineableTileKeys.Clear();
         _mineableQueueHeads.Clear();
         _mineableTypes.Clear();
         _mineableTypeCursor = 0;
@@ -415,6 +455,7 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
             }
 
             queue.Add((tile.Key, distance));
+            _trackedMineableTileKeys.Add(tile.Key);
             if (string.Equals(tile.Base, "wall", StringComparison.Ordinal))
             {
                 _revealedWallTileKeys.Add(tile.Key);
@@ -524,6 +565,7 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
 
     private void RemoveTileFromQueues(string tileKey)
     {
+        _trackedMineableTileKeys.Remove(tileKey);
         for (var index = _mineableTypes.Count - 1; index >= 0; index--)
         {
             var type = _mineableTypes[index];
@@ -556,6 +598,7 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
 
     private void InsertTileIntoQueue(string type, string tileKey, int distance)
     {
+        _trackedMineableTileKeys.Add(tileKey);
         if (!_mineableQueues.TryGetValue(type, out var queue))
         {
             queue = [];
