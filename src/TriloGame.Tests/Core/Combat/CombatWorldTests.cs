@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.State;
 
@@ -197,5 +198,54 @@ public sealed class CombatWorldTests
         Assert.Same(secondEnemy, fighter.FighterTarget);
         fighter.Move();
         Assert.True(fighter.HasActiveMovement);
+    }
+
+    [Fact]
+    public void FighterPursuit_UsesTheSharedEnemyFieldAtRange_ThenClosesForMelee()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 16, GridPoint.Zero);
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 8), "Fighter", "fighter");
+        var enemy = new Enemy("Distant Target", new GridPoint(24, 8), session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemy.Location)!));
+        cave.RefreshBfsField("enemy");
+
+        NavigationInstrumentation.BeginTick();
+        session.Combat.BeginTick(cave);
+        Assert.True(fighter.Move() is true);
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(0, navigation.PointPathRequestCount);
+        Assert.Equal(0, navigation.BuildPointBfsFieldCallCount);
+        Assert.Equal(RouteContinuationKind.SharedBfsField, fighter.ActiveRouteContinuationKind);
+
+        for (var tick = 0; tick < 100 && enemy.Health == enemy.MaxHealth; tick++)
+        {
+            session.TickCount++;
+            cave.RefreshBfsField("enemy");
+            session.Combat.BeginTick(cave);
+            fighter.Move();
+            cave.AdvanceCreatureMovement();
+            session.Combat.ResolveTick(session);
+        }
+
+        Assert.True(enemy.Health < enemy.MaxHealth);
+    }
+
+    [Fact]
+    public void EnemyPursuit_UsesDirectNearbyApproachWithoutCreatingAPointField()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, GridPoint.Zero);
+        var enemy = new Enemy("Hunter", new GridPoint(14, 8), session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemy.Location)!));
+        TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(17, 8), "Target");
+
+        NavigationInstrumentation.BeginTick();
+        session.Combat.BeginTick(cave);
+        Assert.True(enemy.Move() is true);
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(0, navigation.PointPathRequestCount);
+        Assert.Equal(0, navigation.BuildPointBfsFieldCallCount);
+        Assert.True(enemy.HasActiveMovement);
     }
 }

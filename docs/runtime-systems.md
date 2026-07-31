@@ -119,10 +119,10 @@ cannot meet its budget; reservations, environment collisions, and commits must r
 Combat planning is prepared at the start of the creature-move phase. `CombatWorld` scores fixed
 8x8 threat sectors, creates intercept slots, assigns live ants in stable creature-ID order using
 least-load then nearest-distance balancing, and directs enemies to advance, engage, breach, retarget,
-or recover. Fighters pursue a stand-off point based on the assigned enemy's current world pose
-rather than the sector center, replace future waypoints on deterministic cell changes without
-resetting movement momentum or skipping the movement phase, and ants acquire nearby trilobites from
-the combat hurtbox grid before falling back to the colony field. The existing mining states and
+or recover. Fighters use the shared enemy field for long travel, then pursue a stand-off point based on the
+assigned enemy's current world pose rather than the sector center once they are nearby. The final
+approach preserves movement momentum without creating destination-specific point fields, and ants
+acquire nearby trilobites from the combat hurtbox grid before falling back to the colony field. The existing mining states and
 mining order path are not consulted or modified by combat planning.
 
 When danger is false, the fighter controller clears combat tracking and enters the same shared

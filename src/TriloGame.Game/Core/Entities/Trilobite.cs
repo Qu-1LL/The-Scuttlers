@@ -323,6 +323,13 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     private bool AdvanceFighterRole()
     {
+        if (FighterState == FighterState.Idle &&
+            Cave is { } cave &&
+            (cave.GetTurretList().Count > 0 || cave.GetBarracksList().Count > 0))
+        {
+            WakeForFighterStationAvailability();
+        }
+
         return _combatAgentController.Advance(this);
     }
 
@@ -476,6 +483,11 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     protected override bool TryInterruptQueuedTask()
     {
+        if (TryHoldAssignedFighterStation())
+        {
+            return true;
+        }
+
         if (!ShouldFleeFromNearbyEnemy())
         {
             if (_fleeingToQueen)
@@ -528,6 +540,11 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     protected override bool TryInterruptActiveMovement()
     {
+        if (TryHoldAssignedFighterStation())
+        {
+            return true;
+        }
+
         if (!IsFighter() ||
             (!Session.Danger && MovementCohort.GoalKind != MovementGoalKind.Combat))
         {
@@ -535,6 +552,22 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         return _combatAgentController.RefreshActivePursuit(this);
+    }
+
+    // Dock at an assigned station on arrival; turret crews also board while danger is active.
+    private bool TryHoldAssignedFighterStation()
+    {
+        if (!IsFighter() || !IsLocomotionEnabled)
+        {
+            return false;
+        }
+
+        var station = GetAssignedFighterStation();
+        return station is not null &&
+               (!Session.Danger || station is Turret) &&
+               !ShouldBalanceFighterStationAssignments(station) &&
+               station.IsCreatureAtNavigationTarget(this) &&
+               TryStationAtFighterStation(station);
     }
 
     // Idle trilobites should step off scaffolding so finished builds can complete without prolonged blocking.
@@ -858,6 +891,18 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         WakeForScaffoldAvailability();
     }
 
+    // A newly available station restarts only fighters that are currently idling.
+    internal void WakeForFighterStationAvailability()
+    {
+        if (Role != CreatureRole.Fighter || FighterState != FighterState.Idle)
+        {
+            return;
+        }
+
+        FighterState = FighterState.SelectStation;
+        LastRoleFailure = WorkerRoleFailureReason.None;
+    }
+
     public void ClearFighterTarget()
     {
         if (FighterTarget is null)
@@ -963,25 +1008,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                excludedStations?.Contains(station) != true;
     }
 
-    private bool IsStationedAtFighterStation(StationBuilding station)
-    {
-        return station.IsCreatureStationed(this);
-    }
-
-    private bool CanReachFighterStation(StationBuilding station)
-    {
-        return Cave is not null &&
-               (IsStationedAtFighterStation(station) ||
-                station.IsCreatureAtNavigationTarget(this) ||
-                station switch
-                {
-                    Turret turret => ReferenceEquals(Cave.GetNearestTurret(Location), turret),
-                    Barracks barracks => ReferenceEquals(Cave.GetNearestBarracks(Location), barracks),
-                    _ => false
-                } ||
-                Cave.GetBuildingBfsFieldValue(station, Location) != int.MaxValue);
-    }
-
     private bool ShouldBalanceFighterStationAssignments(StationBuilding? preferredStation)
     {
         return preferredStation is null || (Cave?.ShouldRebalanceFighterStationAssignments(preferredStation) ?? false);
@@ -1071,7 +1097,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         {
             foreach (var station in EnumerateFighterStationCandidates(priority, GetAssignedFighterStation(), visited))
             {
-                if (!CanReachFighterStation(station) || !visited.Add(station))
+                if (!visited.Add(station))
                 {
                     continue;
                 }
@@ -1104,11 +1130,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                          shouldBalanceAssignments ? null : preferredStation,
                          excludedStations))
             {
-                if (!CanReachFighterStation(station))
-                {
-                    continue;
-                }
-
                 if (!shouldBalanceAssignments)
                 {
                     return station;
@@ -1224,13 +1245,21 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        var purpose = station is Turret
-            ? InteractionZonePurpose.Approach
-            : InteractionZonePurpose.Station;
         FighterPathMode = "station";
-        if (NavigateToInteractionZone(station, purpose))
+        var startedNavigation = station is Turret
+            ? NavigateToInteractionZone(station, InteractionZonePurpose.Approach)
+            : NavigateToBuilding(station);
+        if (startedNavigation)
         {
             return true;
+        }
+
+        // The worker publishes the first field after construction. Keep the deterministic
+        // assignment while that field is pending instead of falling back to a lower-priority home.
+        if (Cave?.UsesAsyncBuildingNavigationField(station) == true &&
+            station.PublishedNavigationField is null)
+        {
+            return false;
         }
 
         ReleaseAssignedBuilding();

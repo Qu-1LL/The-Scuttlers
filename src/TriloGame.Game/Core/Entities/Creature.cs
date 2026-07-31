@@ -596,48 +596,50 @@ public class Creature
         return true;
     }
 
-    // Replace only a live combat route so target tracking does not reset movement momentum.
-    internal bool TryReplaceActiveCombatRoute(WorldPoint exactDestination)
+    // Chase a nearby combat target directly so a moving target does not create a full point field per cell change.
+    internal bool TryBeginOrReplaceDirectCombatRoute(WorldPoint destination, int maximumDistance)
     {
-        if (!EnsureReadyForNavigation() || Cave is null)
+        if (!EnsureReadyForNavigation() ||
+            Cave is null ||
+            maximumDistance <= 0 ||
+            (destination - Position).LengthSquared > (long)maximumDistance * maximumDistance ||
+            !Cave.HasClearStaticSweep(this, Position, destination))
         {
             return false;
         }
 
-        var path = BuildNavigationPathChunkToPoint(
-            exactDestination.ToGridPoint(),
-            Location,
-            RouteRefillChunkCells,
-            out var reachedDestination);
-        if (path is null || _routeBuildDeferred)
-        {
-            return false;
-        }
-
-        WorldPoint? exactTarget = reachedDestination ? exactDestination : null;
-        if (path.Count < 2 && exactTarget is null)
-        {
-            return false;
-        }
-
-        var route = ContinuousRoutePlanner.Build(Cave, this, path, exactTarget);
-        if (route.Count == 0)
-        {
-            return false;
-        }
-
+        var preserveMomentum = HasActiveMovement;
         var currentVelocity = Velocity;
-        _tasks.Clear();
+        ClearTaskQueue();
         ReleaseInteractionReservation();
         ClearBfsTraversal();
-        if (!BeginRoute(route))
+        ClearRouteContinuation();
+        _activeRoute.Clear();
+        _activeRouteIndex = 0;
+        _activeRoute.Add(destination);
+        BeginMovement(destination);
+        if (preserveMomentum)
+        {
+            Velocity = currentVelocity;
+        }
+
+        return true;
+    }
+
+    // Continue an existing shared field route instead of rebuilding it whenever a moving combat target changes cells.
+    internal bool TryBeginOrContinueSharedFieldRoute(string fieldName)
+    {
+        if (!EnsureReadyForNavigation() || Cave?.GetBfsFieldObject(fieldName) is not { } field)
         {
             return false;
         }
 
-        ArmPointRouteContinuation(exactDestination.ToGridPoint(), exactDestination);
-        Velocity = currentVelocity;
-        return true;
+        if (HasActiveMovement && IsStreamingSharedFieldRoute(fieldName))
+        {
+            return true;
+        }
+
+        return BeginStreamingSharedFieldRoute(field, fieldName, clearExisting: true);
     }
 
     private bool AppendRoute(IReadOnlyList<WorldPoint> route)
@@ -755,7 +757,7 @@ public class Creature
 
     internal bool HasStreamingRouteContinuation => _routeContinuationKind != RouteContinuationKind.None;
 
-    protected bool IsStreamingSharedFieldRoute(string sharedFieldName)
+    internal bool IsStreamingSharedFieldRoute(string sharedFieldName)
     {
         return _routeContinuationKind == RouteContinuationKind.SharedBfsField &&
                string.Equals(_routeContinuationSharedFieldName, sharedFieldName, StringComparison.Ordinal);

@@ -951,6 +951,7 @@ public sealed partial class Cave : Graph
         }
 
         WakeBuildersForNewScaffolding(builtBuildings);
+        WakeFightersForNewStations(builtBuildings);
     }
 
     // New construction wakes only builders that do not already have valid scaffold work.
@@ -974,6 +975,30 @@ public sealed partial class Cave : Graph
         for (var index = 0; index < _trilobiteList.Count; index++)
         {
             _trilobiteList[index].WakeForNewScaffolding();
+        }
+    }
+
+    // Newly constructed stations prompt idle fighters to select an available post on their next turn.
+    private void WakeFightersForNewStations(IReadOnlyList<Building> builtBuildings)
+    {
+        var containsFighterStation = false;
+        for (var index = 0; index < builtBuildings.Count; index++)
+        {
+            if (builtBuildings[index] is StationBuilding)
+            {
+                containsFighterStation = true;
+                break;
+            }
+        }
+
+        if (!containsFighterStation)
+        {
+            return;
+        }
+
+        for (var index = 0; index < _trilobiteList.Count; index++)
+        {
+            _trilobiteList[index].WakeForFighterStationAvailability();
         }
     }
 

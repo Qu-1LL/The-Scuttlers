@@ -158,6 +158,13 @@ public sealed class Turret : StationBuilding
             return false;
         }
 
+        if (creature.ReservedZone is { Purpose: InteractionZonePurpose.Approach } approachZone &&
+            ReferenceEquals(approachZone.Owner, this) &&
+            creature.IsAtReservedInteractionSlot())
+        {
+            return true;
+        }
+
         var currentTile = Cave.GetTile(creature.Location);
         return currentTile is not null &&
                currentTile.Neighbors.Any(neighbor => ReferenceEquals(neighbor.Built, this));
@@ -265,6 +272,7 @@ public sealed class Turret : StationBuilding
         if (ReferenceEquals(Target, creature))
         {
             SetTarget(null);
+            AcquireInitialTarget();
         }
     }
 
@@ -273,6 +281,7 @@ public sealed class Turret : StationBuilding
         if (ReferenceEquals(Target, creature))
         {
             SetTarget(null);
+            AcquireInitialTarget();
         }
     }
 
@@ -281,6 +290,11 @@ public sealed class Turret : StationBuilding
         if (Target is not null && (Target.Health <= 0 || !ReferenceEquals(Target.Cave, cave)))
         {
             SetTarget(null);
+        }
+
+        if (Target is null)
+        {
+            AcquireInitialTarget();
         }
 
         var shotsFired = 0;

@@ -81,6 +81,24 @@ public sealed class TurretTests
     }
 
     [Fact]
+    public void TargetDeath_RetargetsAnotherEnemyAlreadyInsideTheProjectionRadius()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(1, 1));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 18));
+        var farEnemy = new Enemy("Far Enemy", new GridPoint(28, 19), session);
+        var nearEnemy = new Enemy("Near Enemy", new GridPoint(22, 19), session);
+
+        Assert.True(cave.Spawn(farEnemy, cave.GetTile(farEnemy.Location)!));
+        Assert.True(cave.Spawn(nearEnemy, cave.GetTile(nearEnemy.Location)!));
+        Assert.Same(nearEnemy, turret.Target);
+
+        nearEnemy.TakeDamage(nearEnemy.Health, "test");
+
+        Assert.Same(farEnemy, turret.Target);
+        Assert.Contains(turret, farEnemy.TrackedBy);
+    }
+
+    [Fact]
     public void StationedFighters_FireRockProjectilesEveryFiveTicks()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(40, 40, new GridPoint(1, 1));

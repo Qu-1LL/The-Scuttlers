@@ -37,13 +37,16 @@ public abstract class StationBuilding : Building, IStationBuilding
 
     public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
-    public int Capacity => _stations.Length;
+    public virtual int Capacity => AllowsSharedStationSlots ? int.MaxValue : _stations.Length;
 
     public int FighterAssignmentPriority { get; }
 
     public IReadOnlyCollection<Creature> Assignments => _assignedStationIndices.Keys;
 
     protected virtual bool TracksAssignments => false;
+
+    // Some stations are an organizational home rather than a finite set of physical berths.
+    protected virtual bool AllowsSharedStationSlots => false;
 
     public bool HasAssignmentSlot(Creature? creature = null)
     {
@@ -81,25 +84,56 @@ public abstract class StationBuilding : Building, IStationBuilding
             return true;
         }
 
-        var occupiedIndices = _assignedStationIndices.Values.ToHashSet();
-        for (var stationIndex = 0; stationIndex < _stations.Length; stationIndex++)
+        var stationIndex = FindAvailableStationIndex();
+        if (stationIndex < 0)
         {
-            if (occupiedIndices.Contains(stationIndex))
+            return false;
+        }
+
+        _assignedStationIndices[creature] = stationIndex;
+        if (TracksAssignments)
+        {
+            TrackCreature(creature);
+        }
+
+        Cave?.SyncStationAssignmentCount(this, _assignedStationIndices.Count);
+        return true;
+    }
+
+    // Allocate a free berth, or the least-shared berth for organizational stations such as barracks.
+    private int FindAvailableStationIndex()
+    {
+        if (_stations.Length == 0)
+        {
+            return -1;
+        }
+
+        var usage = new int[_stations.Length];
+        foreach (var assignedIndex in _assignedStationIndices.Values)
+        {
+            if (assignedIndex >= 0 && assignedIndex < usage.Length)
+            {
+                usage[assignedIndex]++;
+            }
+        }
+
+        var bestIndex = -1;
+        var bestUsage = int.MaxValue;
+        for (var stationIndex = 0; stationIndex < usage.Length; stationIndex++)
+        {
+            if (!AllowsSharedStationSlots && usage[stationIndex] > 0)
             {
                 continue;
             }
 
-            _assignedStationIndices[creature] = stationIndex;
-            if (TracksAssignments)
+            if (usage[stationIndex] < bestUsage)
             {
-                TrackCreature(creature);
+                bestIndex = stationIndex;
+                bestUsage = usage[stationIndex];
             }
-
-            Cave?.SyncStationAssignmentCount(this, _assignedStationIndices.Count);
-            return true;
         }
 
-        return false;
+        return bestIndex;
     }
 
     public virtual bool RemoveAssignment(Creature creature)

@@ -130,6 +130,57 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void NewFighterStation_WakesIdleFightersToSelectAndAssign()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
+        var firstFighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Fighter A", "fighter");
+        var secondFighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 8), "Fighter B", "fighter");
+
+        Assert.Equal(FighterState.Idle, firstFighter.FighterState);
+        Assert.Equal(FighterState.Idle, secondFighter.FighterState);
+
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+
+        Assert.Equal(FighterState.SelectStation, firstFighter.FighterState);
+        Assert.Equal(FighterState.SelectStation, secondFighter.FighterState);
+        Assert.True(firstFighter.RunRole());
+        Assert.Same(turret, firstFighter.GetAssignedFighterStation());
+
+        var guard = 120;
+        while (!firstFighter.IsHostedOnBuilding(turret) && guard-- > 0)
+        {
+            firstFighter.Move();
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        Assert.True(firstFighter.IsHostedOnBuilding(turret));
+    }
+
+    [Fact]
+    public void FighterStartingAfterTurretExists_SelectsAndStationsAtIt()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Fighter", "fighter");
+
+        Assert.Equal(FighterState.Idle, fighter.FighterState);
+        Assert.True(fighter.Move() is true);
+        Assert.Equal(FighterState.SelectStation, fighter.FighterState);
+        Assert.Same(turret, fighter.GetAssignedFighterStation());
+
+        var guard = 120;
+        while (fighter.HasActiveMovement && guard-- > 0)
+        {
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        fighter.Move();
+        Assert.True(fighter.IsHostedOnBuilding(turret));
+    }
+
+    [Fact]
     public void FighterSelection_FallsBackToBarracks_WhenAllTurretsAreFull()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(13, 0));
@@ -146,6 +197,194 @@ public sealed class TrilobiteBuildingAssignmentTests
         var selectedStation = fallbackFighter.SelectFighterStation();
 
         Assert.Same(barracks, selectedStation);
+    }
+
+    [Fact]
+    public void FighterSelection_FillsTurretSlotsBeforeAssigningBarracks()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(48, 18, new GridPoint(22, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(38, 8));
+        var firstTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(16, 8));
+        var secondTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(26, 8));
+        var fighters = new List<Trilobite>();
+
+        for (var index = 0; index < 5; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(4 + (index * 2), 14),
+                $"Fighter {index}",
+                "fighter");
+            fighters.Add(fighter);
+            Assert.True(fighter.RunRoleState(FighterState.SelectStation));
+        }
+
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[firstTurret]);
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[secondTurret]);
+        Assert.Equal(1, cave.GetBarracksAssignmentCounts()[barracks]);
+        Assert.Same(barracks, fighters[4].GetAssignedFighterStation());
+    }
+
+    [Fact]
+    public void BarracksAssignments_AreUnlimitedAndSplitEvenly()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(64, 24, new GridPoint(30, 0));
+        var leftBarracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(8, 8));
+        var rightBarracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(48, 8));
+        var fighters = new List<Trilobite>();
+
+        for (var index = 0; index < 21; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + ((index % 16) * 3), 18 + (index / 16)),
+                $"Fighter {index}",
+                "fighter");
+            fighters.Add(fighter);
+            Assert.True(fighter.RunRoleState(FighterState.SelectStation));
+        }
+
+        var leftCount = cave.GetBarracksAssignmentCounts()[leftBarracks];
+        var rightCount = cave.GetBarracksAssignmentCounts()[rightBarracks];
+        Assert.Equal(int.MaxValue, leftBarracks.Capacity);
+        Assert.Equal(21, leftCount + rightCount);
+        Assert.True(Math.Abs(leftCount - rightCount) <= 1);
+        Assert.All(fighters, fighter => Assert.NotNull(fighter.GetAssignedBarracks()));
+    }
+
+    [Fact]
+    public void FighterSelection_KeepsTurretAssignmentWhileAsyncFieldIsPending()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(14, 0));
+        using var maintenance = new BuildingBfsFieldMaintenanceSystem();
+        maintenance.Attach(session);
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(24, 6));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        turret.ClearPublishedNavigationField();
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Fighter", "fighter");
+
+        Assert.False(fighter.RunRoleState(FighterState.SelectStation));
+
+        Assert.Equal(FighterState.SelectStation, fighter.FighterState);
+        Assert.Same(turret, fighter.GetAssignedFighterStation());
+        Assert.True(turret.IsAssigned(fighter));
+        Assert.False(barracks.IsAssigned(fighter));
+    }
+
+    [Fact]
+    public void BarracksAssignments_SpreadAcrossLeastOccupiedStationSlots()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(14, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(14, 6));
+        var slotCounts = new int[barracks.Stations.Count];
+
+        for (var index = 0; index < 17; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + (index % 12), 13),
+                $"Fighter {index}",
+                "fighter");
+            fighter.SetAssignedBuilding(barracks);
+            Assert.True(barracks.Assign(fighter));
+            slotCounts[barracks.GetAssignedStationIndex(fighter)!.Value]++;
+        }
+
+        Assert.Equal(3, slotCounts.Max());
+        Assert.Equal(2, slotCounts.Min());
+    }
+
+    [Fact]
+    public void ArrivingBarracksFighter_WalksToItsLeastOccupiedAssignedStationSlot()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(14, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(14, 6));
+        var targetSlot = new GridPoint(14, 6);
+
+        for (var index = 0; index < barracks.Stations.Count; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + index, 13),
+                $"Reserved {index}",
+                "fighter");
+            fighter.SetAssignedBuilding(barracks);
+            Assert.True(barracks.Assign(fighter));
+        }
+
+        var arrivingFighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(16, 8), "Arriving", "fighter");
+        arrivingFighter.SetAssignedBuilding(barracks);
+        Assert.True(barracks.Assign(arrivingFighter));
+        Assert.Equal(0, barracks.GetAssignedStationIndex(arrivingFighter));
+
+        Assert.False(arrivingFighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
+        var guard = 20;
+        while (arrivingFighter.Activity != CreatureActivity.Stationed && guard-- > 0)
+        {
+            cave.AdvanceCreatureMovement();
+            arrivingFighter.Move();
+        }
+
+        Assert.True(guard > 0);
+        Assert.Equal(targetSlot, arrivingFighter.Location);
+        Assert.Equal(CreatureActivity.Stationed, arrivingFighter.Activity);
+    }
+
+    [Fact]
+    public void FighterAtTurretApproach_DocksEvenWhenDangerIsActive()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(14, 0));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(18, 5), "Fighter", "fighter");
+        fighter.SetAssignedBuilding(turret);
+        Assert.True(turret.Assign(fighter));
+        session.Danger = true;
+
+        fighter.Move();
+
+        Assert.True(fighter.IsHostedOnBuilding(turret));
+        Assert.False(fighter.IsLocomotionEnabled);
+    }
+
+    [Fact]
+    public void Fighters_FillAndDockEachTurretWhenMultipleTurretsExist()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(56, 20, new GridPoint(26, 0));
+        var firstTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(12, 6));
+        var secondTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(26, 6));
+        var thirdTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(40, 6));
+        var fighters = new List<Trilobite>();
+
+        for (var index = 0; index < 6; index++)
+        {
+            fighters.Add(TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + (index * 2), 14),
+                $"Fighter {index}",
+                "fighter"));
+        }
+
+        var guard = 180;
+        while (fighters.Any(fighter => !fighter.IsHostedOnBuilding()) && guard-- > 0)
+        {
+            for (var index = 0; index < fighters.Count; index++)
+            {
+                fighters[index].Move();
+            }
+
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        Assert.All(fighters, fighter => Assert.True(fighter.IsHostedOnBuilding()));
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[firstTurret]);
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[secondTurret]);
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[thirdTurret]);
     }
 
     [Fact]

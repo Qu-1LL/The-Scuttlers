@@ -143,9 +143,10 @@ These form the current “golden path” for adding structure without destabiliz
   damage/audio events. Structure attacks retain a blocked-tile reach envelope, while creature
   combat uses the same centered body shape for both sides.
 - `Core/Combat/CombatAgentController` consumes automatic 8x8 threat-sector directives and routes
-  fighters to a deterministic stand-off point on the assigned enemy's live world pose before
-  attacking. Pursuit routes refresh only on a target identity or cell change, replacing future
-  waypoints while preserving current movement momentum. Fighters keep only the colony `fighter`
+  fighters through the once-per-tick shared enemy field for long travel, then directly to a
+  deterministic stand-off point on the assigned enemy's live world pose before attacking. This
+  avoids destination-specific point BFS fields while preserving momentum during nearby retargeting.
+  Fighters keep only the colony `fighter`
   profession; named tactical subroles are not part of simulation state. When danger is clear,
   fighters use the same deterministic idle-wander routine as every other mobile trilobite.
 - Enemies expose the same explicit combat lifecycle through `EnemyCombatState`, separating target
