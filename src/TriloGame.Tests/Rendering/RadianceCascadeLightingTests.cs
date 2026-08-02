@@ -508,6 +508,50 @@ public sealed class RadianceCascadeLightingTests
         }
     }
 
+    // The water warp texture is sampled with AddressU/V = Wrap and scrolled continuously in two
+    // directions, so it has to tile. A seam would not read as a static artefact - it would sweep
+    // across every lake once per wrap, which is far more obvious and far harder to attribute.
+    [Fact]
+    public void WaterNoiseTexture_TilesWithoutASeam()
+    {
+        const int size = 128;
+        var data = RadianceCascadeRenderer.CreateWaterNoiseData(size);
+
+        Assert.Equal(size * size, data.Length);
+
+        // Opposite edges must be close, since wrapping puts them adjacent. The lattice is
+        // interpolated so they are not identical, but a genuine seam shows up as a large step.
+        var worstColumn = 0;
+        var worstRow = 0;
+        for (var i = 0; i < size; i++)
+        {
+            worstColumn = Math.Max(worstColumn, Math.Abs(data[(i * size) + 0].R - data[(i * size) + size - 1].R));
+            worstRow = Math.Max(worstRow, Math.Abs(data[i].R - data[((size - 1) * size) + i].R));
+        }
+
+        // One lattice step across the finest octave is 128/16 = 8 texels, so neighbouring texels can
+        // legitimately differ by an eighth of the range; a seam would be far larger than that.
+        Assert.True(worstColumn < 48, $"left and right edges do not wrap, worst step {worstColumn}");
+        Assert.True(worstRow < 48, $"top and bottom edges do not wrap, worst step {worstRow}");
+    }
+
+    // Flat noise would leave the wavefronts perfectly straight, which is the look the warp exists to
+    // break up - so assert it actually has structure rather than just existing.
+    [Fact]
+    public void WaterNoiseTexture_HasUsableContrast()
+    {
+        var data = RadianceCascadeRenderer.CreateWaterNoiseData(128);
+        var min = 255;
+        var max = 0;
+        foreach (var texel in data)
+        {
+            min = Math.Min(min, texel.R);
+            max = Math.Max(max, texel.R);
+        }
+
+        Assert.True(max - min > 100, $"noise is too flat to bend a wavefront, range {min}..{max}");
+    }
+
     // The bug coverage weighting shipped with the first time: EncodeCell resolves a tile's height
     // through Tile.Built, so the terrain pass writes an occluding building's whole rectangular
     // footprint before the coverage pass runs. Combining the two with a maximum let that rectangle

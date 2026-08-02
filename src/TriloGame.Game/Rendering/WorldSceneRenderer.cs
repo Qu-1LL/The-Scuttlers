@@ -37,6 +37,9 @@ public sealed class WorldSceneRenderer
         OreLightSettings.Ambient,
         1f);
 
+    // Alpha carries the water silhouette; the colour channels are reserved for disturbance.
+    private static readonly Color WaterMaskSilhouetteColor = new(0f, 0f, 0f, 1f);
+
     private const float InventoryBackpackIconTileScale = 0.64f;
     private const float InventoryBackpackSlotSpacingPixels = 42f;
 
@@ -207,9 +210,13 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    // Silhouette of open water for the composite's specular sheen. Uses a flat white quad rather
-    // than the animated frame: the sheen only needs to know where water is, and using the frame
-    // would make the highlight flicker with the animation.
+    // Silhouette of open water. Uses a flat quad rather than the animated frame: the surface shader
+    // only needs to know WHERE water is, and using the frame would make the whole effect flicker
+    // with the tile animation.
+    //
+    // Drawn black with full alpha, not white. Only the alpha is the silhouette; the colour channels
+    // of this target carry local disturbance, added afterwards by DrawWaterDisturbanceLayer, and
+    // writing white here would saturate them before that pass ever ran.
     public void DrawWaterMaskLayer(RenderingContext context, IReadOnlyList<Tile> visibleTiles)
     {
         if (!context.Sprites.TryGet("empty", out _))
@@ -221,9 +228,84 @@ public sealed class WorldSceneRenderer
         {
             if (tile.IsWater())
             {
-                DrawTileTexture(context, "empty", tile.Coordinates, 0f, Color.White);
+                DrawTileTexture(context, "empty", tile.Coordinates, 0f, WaterMaskSilhouetteColor);
             }
         }
+    }
+
+    // Local disturbance from things moving through the water.
+    //
+    // Global wave layers alone leave creatures sliding across the surface without touching it, which
+    // reads as them hovering over a painting. This marks where the surface is being disturbed.
+    //
+    // Drawn as a plain radial falloff rather than as rings. The shader derives the rings by feeding
+    // the falloff's VALUE to a sine - the value is a monotonic function of distance from the centre,
+    // so a sine of it is a set of concentric rings - which means the centre position never has to
+    // reach the shader. That is what allows any number of sources instead of however many a uniform
+    // array could carry.
+    public void DrawWaterDisturbanceLayer(
+        RenderingContext context,
+        Cave cave,
+        Texture2D falloffTexture,
+        float interpolationAlpha)
+    {
+        var origin = new FrameworkVector2(falloffTexture.Width / 2f, falloffTexture.Height / 2f);
+        var diameter = TileConstants.TileSize * context.Camera.CurrentScale
+            * OreLightSettings.WaterDisturbanceRadiusTiles * 2f;
+        var scale = MathF.Max(0.01f, diameter / falloffTexture.Width);
+        var color = new Color(
+            OreLightSettings.WaterDisturbanceStrength,
+            OreLightSettings.WaterDisturbanceStrength,
+            OreLightSettings.WaterDisturbanceStrength,
+            OreLightSettings.WaterDisturbanceStrength);
+
+        foreach (var trilobite in cave.Trilobites)
+        {
+            DrawWaterDisturbance(context, cave, falloffTexture, trilobite, interpolationAlpha, origin, scale, color);
+        }
+
+        foreach (var enemy in cave.Enemies)
+        {
+            DrawWaterDisturbance(context, cave, falloffTexture, enemy, interpolationAlpha, origin, scale, color);
+        }
+    }
+
+    private static void DrawWaterDisturbance(
+        RenderingContext context,
+        Cave cave,
+        Texture2D falloffTexture,
+        Creature creature,
+        float interpolationAlpha,
+        FrameworkVector2 origin,
+        float scale,
+        Color color)
+    {
+        var worldPosition = GetCreatureWorldPosition(creature, interpolationAlpha);
+        if (!IsOverWater(cave, worldPosition))
+        {
+            return;
+        }
+
+        context.SpriteBatch.Draw(
+            falloffTexture,
+            context.Camera.WorldToScreen(worldPosition),
+            sourceRectangle: null,
+            color,
+            rotation: 0f,
+            origin,
+            scale,
+            SpriteEffects.None,
+            layerDepth: 0f);
+    }
+
+    // Resolved through the same world-to-tile rounding the lighting grid and the shader both use, so
+    // a creature counts as being over water on exactly the tiles that are drawn as water.
+    internal static bool IsOverWater(Cave cave, FrameworkVector2 worldPosition)
+    {
+        var tile = cave.GetTile(new GridPoint(
+            LightingTileGridLayout.ToTileCoordinate(worldPosition.X),
+            LightingTileGridLayout.ToTileCoordinate(worldPosition.Y)));
+        return tile is not null && tile.IsWater();
     }
 
     // Full-height casters go in their own mask so the shader can occlude with them at any
@@ -503,14 +585,16 @@ public sealed class WorldSceneRenderer
                 continue;
             }
 
-            // Per-tile phase offset so the surface does not flip every frame in unison.
+            // Every water tile shares one animation phase, so the whole surface steps through its
+            // frames together. GetWorldSpritePhaseOffsetSeconds returns 0 for water deliberately -
+            // see the note there.
             var textureKey = spriteEffects.GetAnimatedTextureKey(
                 WaterAnimationKey,
                 GetWorldSpritePhaseOffsetSeconds(WaterAnimationKey, tile.Coordinates));
             if (context.Sprites.TryGet(textureKey, out _))
             {
-                // Dimmed to its albedo: water is mostly a mirror, so its own texture should only
-                // be faintly readable and the reflected light in the composite should dominate.
+                // Dimmed to its albedo: water is partly a mirror, so its own texture should stay
+                // subdued and the reflection and albedo banding in the composite should carry it.
                 DrawTileTexture(context, textureKey, tile.Coordinates, 0f, WaterAlbedoColor);
             }
         }
@@ -909,6 +993,16 @@ public sealed class WorldSceneRenderer
         return tile.IsOreTile() ? tile.Base : null;
     }
 
+    // Per-tile animation phase, so a field of animated tiles does not step through its frames in
+    // unison. Lumenite only.
+    //
+    // WATER IS DELIBERATELY EXCLUDED and gets 0 back, so a lake changes frame as one surface rather
+    // than as a field of independently flickering tiles. Offsetting it per tile was tried and is
+    // worse: the frames differ enough that neighbouring tiles stop lining up, so the tile grid
+    // itself becomes visible in the water. A whole lake moving together reads as one body; a lake
+    // where every tile animates on its own reads as a checkerboard.
+    //
+    // Everything else is a static sprite, where a phase offset would do nothing either way.
     internal static float GetWorldSpritePhaseOffsetSeconds(string textureKey, GridPoint coordinates)
     {
         if (!string.Equals(textureKey, OreType.LUMENITE.Name, StringComparison.Ordinal))

@@ -16,6 +16,7 @@ Texture2D PreviousCascadeTexture;
 Texture2D LightingTexture;
 Texture2D EmissiveTexture;
 Texture2D WaterMaskTexture;
+Texture2D WaterNoiseTexture;
 
 sampler2D TextureSampler = sampler_state
 {
@@ -85,6 +86,19 @@ sampler2D WaterMaskSampler = sampler_state
     Texture = <WaterMaskTexture>;
     AddressU = Clamp;
     AddressV = Clamp;
+    MinFilter = Linear;
+    MagFilter = Linear;
+    MipFilter = None;
+};
+
+// WRAP, unlike every other sampler here, and that is the whole point of it: the water surface
+// scrolls this texture continuously in two directions to warp its wavefronts, so it has to tile
+// seamlessly or a hard seam would sweep across every lake once per wrap.
+sampler2D WaterNoiseSampler = sampler_state
+{
+    Texture = <WaterNoiseTexture>;
+    AddressU = Wrap;
+    AddressV = Wrap;
     MinFilter = Linear;
     MagFilter = Linear;
     MipFilter = None;
@@ -192,12 +206,44 @@ float WaterSheenStrength;
 // (WallTransmission is gone. How much light a cell stops is now carried per-cell in the tile grid's
 // R channel as an opacity, so it varies by material and by sprite coverage instead of being one
 // global constant. See SampleRaySegment.)
-// Water ripple. ElapsedSeconds drives the travelling wave; the other three shape it.
+// ---- Water surface ------------------------------------------------------------------------------
+//
+// ElapsedSeconds drives every animated term. The per-layer wave frequencies, directions and speeds
+// are deliberately NOT uniforms - they are authored constants in WaterHeight, because they have to
+// stay in a specific non-harmonic relationship to each other and exposing them individually invites
+// that relationship being broken from the outside. What is exposed here is the overall character.
 float ElapsedSeconds;
-float WaterRippleStrength;
-float WaterRippleWavesPerTile;
-float WaterRippleSpeed;
-float WaterRippleContrast;
+// Steepness of the surface: how far the normal tilts for a given slope. 0 is a mirror-flat sheet.
+float WaterWaveStrength;
+// Global multiplier on the animation clock. The layers keep their relative speeds.
+float WaterWaveSpeed;
+// How far the scrolling noise displaces the point the waves are evaluated at, in tiles. This is what
+// bends the wavefronts off their straight lines.
+float WaterNoiseWarpTiles;
+// Refraction: how far the scene under the surface is displaced, in SCREEN uv.
+float WaterDistortionUv;
+// Reflection: how far the lighting-field lookup is displaced, in tiles.
+float WaterReflectionTiles;
+// Weight of the slope-driven diffuse term, and of the narrow specular highlight on top of it.
+float WaterDiffuseStrength;
+float WaterSpecularStrength;
+// Tightness of that highlight. Large soft highlights read as gelatin rather than water.
+float WaterSpecularPower;
+// Quantisation of the diffuse term, in bands. 0 leaves it a smooth gradient.
+float WaterLightBands;
+// Local disturbance rings - see GetWaterDisturbance for how these turn a drawn falloff into rings.
+float WaterRippleRingFrequency;
+float WaterRippleRingSpeed;
+// Fresnel: reflectivity on flat water, and the remap that turns the wave slopes into a 0..1 range.
+float WaterFresnelFloor;
+float WaterFresnelScale;
+float WaterFresnelPower;
+// The surface's own albedo at a trough turned away from the light and at a crest turned toward it.
+// A multiplier on the water texture already in the scene, so these straddle 1.
+float WaterAlbedoLow;
+float WaterAlbedoHigh;
+// How much of the bed the surface hides where it is reflecting hardest.
+float WaterRefractionLoss;
 float HasHigherCascade;
 float Ambient;
 float LightingEnabled;
@@ -351,37 +397,170 @@ float2 GetLightingFieldUv(float2 screenUv)
     return (probeIndex + 0.5) / LightingFieldResolution;
 }
 
-// Two summed waves per axis at unrelated frequencies, so the surface never looks like it is
-// pulsing on one obvious period.
+// ---- Water surface ------------------------------------------------------------------------------
 //
-// Returns .xy = an offset to add to a lighting-field UV lookup, .z = a -1..1 scalar wave for
-// modulating highlight intensity.
+// (GetWaterRipple is gone. It summed two sines per axis and used them both to warp the reflection
+// lookup and, through a scalar band, to brighten and darken it directly.
 //
-// The amplitude is defined in TILES and converted to UV through the camera, so the distortion is a
-// fixed world distance at every zoom level. Expressing it directly in UV (as this first did) meant
-// the same UV offset covered a different world distance per zoom, so zooming visibly rearranged
-// the reflection.
-float3 GetWaterRipple(float2 screenUv)
+// Two things were wrong with that and neither is a tuning problem. The field was SEPARABLE - x
+// depended only on world y and vice versa - so its level sets are straight lines and the surface
+// reads as a moving grid, which is the most recognisable "fake water" tell there is. And driving
+// brightness from the wave HEIGHT produces travelling light and dark stripes, because height is
+// literally what the waves are made of; real water catches light on its SLOPE, which is a different
+// function entirely and is what the normal below exists to compute.)
+
+float WaterWave(float2 p, float2 direction, float frequency, float speed, float t)
 {
-    float2 tiles = ScreenUvToWorld(screenUv) / max(1.0, TileSize);
-    float k = WaterRippleWavesPerTile;
-    float t = ElapsedSeconds * WaterRippleSpeed;
-
-    float2 ripple;
-    ripple.x = sin((tiles.y * k) + t) + (0.5 * sin((tiles.y * k * 2.3) - (t * 1.7)));
-    ripple.y = cos((tiles.x * k) - (t * 0.9)) + (0.5 * cos((tiles.x * k * 1.9) + (t * 1.3)));
-
-    // The amplitude is a world distance; one field texel is ProbeWorldSpacing of world, so the
-    // conversion to a field-UV offset is a division by that and by the field resolution. Straight
-    // world -> field, with no trip through screen pixels or a UV scale.
-    float2 worldDisplacement = ripple * WaterRippleStrength * TileSize;
-    float2 fieldOffset = (worldDisplacement / ProbeWorldSpacing) / LightingFieldResolution;
-
-    // Scalar wave for intensity banding. The field is low resolution and very smooth, so warping
-    // its lookup alone changes the highlight only slightly; this is what makes the ripple read.
-    float wave = (ripple.x + ripple.y) * 0.5;
-    return float3(fieldOffset, wave);
+    return sin((dot(p, normalize(direction)) * frequency) + (t * speed));
 }
+
+// Surface height at a point that has ALREADY been warped by noise. Four layers spanning very
+// different scales:
+//
+//   swell  0.55 rad/tile - an ~11 tile wavelength, and slow. This is what stops the surface reading
+//                          as a bathtub: with only small ripples every scale of motion is the same
+//                          and the eye reads the whole thing as vibration rather than as a body of
+//                          water. It contributes mostly through the normal, not through visible
+//                          displacement.
+//   medium 2.10 and 3.30 - the body of the motion, crossing at an angle so neither dominates.
+//   chop   5.70          - fine detail that breaks up the medium wavefronts.
+//
+// The frequencies and speeds are deliberately not related by simple ratios. Harmonically related
+// layers re-align on a short period and the field visibly repeats; these share no common period on
+// any timescale a player will sit and watch.
+float WaterHeight(float2 p, float t)
+{
+    return (WaterWave(p, float2(0.7, 0.3), 0.55, 0.25, t) * 0.70)
+         + (WaterWave(p, float2(1.0, 0.25), 2.10, 1.20, t) * 0.45)
+         + (WaterWave(p, float2(-0.3, 1.0), 3.30, 1.70, t) * 0.25)
+         + (WaterWave(p, float2(0.8, -0.6), 5.70, 2.30, t) * 0.12);
+}
+
+// Two scrolling noise samples at unrelated scales, drifting in different directions, used to
+// displace the position the waves are evaluated at.
+//
+// Pure sines have perfectly straight wavefronts, and once the layering above is right that is the
+// strongest remaining tell. Warping the DOMAIN bends them without touching their amplitude, which is
+// why this perturbs position rather than height.
+//
+// Evaluated once per pixel and reused across the gradient taps below. Re-evaluating it at each tap
+// would be marginally more correct and three times the cost, and the difference cannot be seen: the
+// warp varies over whole tiles while the gradient epsilon is a twentieth of one.
+// The SCALES are the thing to be careful with here, and getting them wrong is what made lakes look
+// like a repeating pattern. The texture wraps once per 1/scale tiles, so at the 0.12 and 0.31 this
+// first used it repeated every 8.3 and 3.2 tiles - well inside a single lake, and with the albedo
+// band driven off it that repeat was plainly visible. At 0.037 and 0.0911 the periods are 27 and 11
+// tiles, and because their ratio is not a simple fraction the SUM does not line up again for far
+// longer than either alone.
+float2 GetWaterNoiseWarp(float2 tiles, float t)
+{
+    float a = SampleLevelZero(WaterNoiseSampler, (tiles * 0.0370) + float2(t * 0.015, t * 0.008)).r;
+    float b = SampleLevelZero(WaterNoiseSampler, (tiles * 0.0911) + float2(-t * 0.020, t * 0.012)).r;
+    return (((a * 0.7) + (b * 0.3)) - 0.5) * WaterNoiseWarpTiles;
+}
+
+// Local disturbance: concentric rings radiating from whatever is moving through the water.
+//
+// The mask's R channel carries a radial falloff drawn once per source on the CPU (see
+// DrawWaterDisturbanceLayer), so its VALUE is a monotonic function of distance from that source - 1
+// at the centre, 0 at the rim. Feeding that straight into a sine therefore produces rings without
+// the shader ever being told where the centre is, which is what lets any number of sources exist at
+// once instead of however many a uniform array could hold.
+//
+// The squared envelope makes the rings die out well inside the drawn disc, so there is no visible
+// circular edge where the sprite stops.
+float GetWaterDisturbance(float disturbance, float t)
+{
+    float ring = sin((disturbance * WaterRippleRingFrequency) - (t * WaterRippleRingSpeed));
+    return ring * disturbance * disturbance;
+}
+
+// Surface normal, by differencing the height field in TILE space.
+//
+// The epsilon is a world distance rather than a pixel or UV step for the same reason the waves are
+// authored per tile: a screen-space epsilon would change the measured slope with the zoom, so the
+// water would look rougher or smoother depending on how close the camera was.
+//
+// Dividing by the epsilon converts the difference into a true slope, which is what makes
+// WaterWaveStrength mean "how steep" independently of the sampling distance chosen here.
+float3 GetWaterNormal(float2 tiles, float2 screenUv, float t)
+{
+    const float epsilon = 0.05;
+    float2 p = tiles + GetWaterNoiseWarp(tiles, t);
+
+    // The same epsilon as a screen offset, so the disturbance rings - which live in screen space,
+    // in the mask - are differentiated over the same distance as the waves and cannot end up with a
+    // slope on a different scale from everything around them.
+    float2 screenEpsilon = (epsilon * TileSize * CameraScale) / max(float2(1.0, 1.0), ViewportResolution);
+
+    float height = WaterHeight(p, t)
+        + GetWaterDisturbance(SampleLevelZero(WaterMaskSampler, screenUv).r, t);
+    float heightX = WaterHeight(p + float2(epsilon, 0.0), t)
+        + GetWaterDisturbance(SampleLevelZero(WaterMaskSampler, screenUv + float2(screenEpsilon.x, 0.0)).r, t);
+    float heightY = WaterHeight(p + float2(0.0, epsilon), t)
+        + GetWaterDisturbance(SampleLevelZero(WaterMaskSampler, screenUv + float2(0.0, screenEpsilon.y)).r, t);
+
+    float2 slope = float2(heightX - height, heightY - height) / epsilon;
+    return normalize(float3(-slope * WaterWaveStrength, 1.0));
+}
+
+// Which way light is arriving, taken as the gradient of the lighting field.
+//
+// A constant light vector is the usual choice and it is wrong for this game: the cave has no sun,
+// only scattered deposits, so a fixed direction would put the highlight on the same side of every
+// lake no matter which side the light was actually on. The field's gradient points at whatever is
+// bright nearby, which for a top-down view IS the light direction.
+//
+// This is safe in a way the same trick was not for creature shadows (see the note above
+// CompositePixel): nothing here feeds back into the field it reads, and a highlight that sits a
+// little soft or a frame late is invisible, whereas a shadow pointed the wrong way is not.
+//
+// When the lighting is flat the gradient vanishes and the vector tends to straight up - and a light
+// directly overhead produces almost no specular, which is the correct answer for "no direction to
+// speak of" rather than a fallback that has to be invented.
+float3 GetWaterLightDirection(float2 screenUv)
+{
+    float2 offset = 2.0 / max(float2(1.0, 1.0), ViewportResolution);
+    float3 luma = float3(0.2126, 0.7152, 0.0722);
+    float left = dot(tex2D(LightingSampler, GetLightingFieldUv(screenUv - float2(offset.x, 0.0))).rgb, luma);
+    float right = dot(tex2D(LightingSampler, GetLightingFieldUv(screenUv + float2(offset.x, 0.0))).rgb, luma);
+    float up = dot(tex2D(LightingSampler, GetLightingFieldUv(screenUv - float2(0.0, offset.y))).rgb, luma);
+    float down = dot(tex2D(LightingSampler, GetLightingFieldUv(screenUv + float2(0.0, offset.y))).rgb, luma);
+    return normalize(float3(float2(right - left, down - up) * 40.0, 1.0));
+}
+
+// Reflectivity as a property of the SURFACE ANGLE rather than a constant.
+//
+// Real water reflects almost nothing when looked into straight down and almost everything at a
+// grazing angle. The view direction here is straight down, so normal.z IS the cosine of that angle:
+// flat water reflects least and the faces of waves reflect most. Driving reflection from this is
+// what makes it fluctuate ACROSS the surface with the waves, instead of sitting on the lake as an
+// even sheet - which is what a constant reflectivity looks like, and why a uniform sheen reads as
+// polished metal however far it is turned down.
+//
+// Schlick's exponent of 5 is unusable at this wave steepness. The slopes are gentle enough that
+// normal.z stays above roughly 0.7 even on the steepest face, so (1 - z)^5 lands near 0.002 and the
+// reflection vanishes altogether. The scale remaps the range the waves actually produce onto 0..1
+// first; the power then shapes it. The floor keeps calm water from going completely matte.
+float GetWaterReflectivity(float3 normal)
+{
+    float facing = saturate(1.0 - normal.z);
+    float curve = pow(saturate(facing * WaterFresnelScale), max(0.01, WaterFresnelPower));
+    return saturate(WaterFresnelFloor + ((1.0 - WaterFresnelFloor) * curve));
+}
+
+// (GetWaterShoreFoam is gone, and with it the shoreline term.
+//
+// It brightened a band wherever a water pixel had a non-water neighbour, which is the standard way
+// to get foam without any extra CPU data. The problem is that it traces the mask's edge exactly, and
+// that edge is a TILE boundary - the mask is drawn from whole water tiles - so what it produced was
+// not foam but a clean bright line following the rim of every pool. Foam needs an irregular,
+// noise-broken edge to read as foam; a band of uniform width reads as an outline, which is what it
+// looked like.
+//
+// Removing it also takes four texture taps per water pixel with it. If it comes back it needs the
+// noise field breaking up its width, not a lower strength - dimming an outline just gives a fainter
+// outline.)
 
 // (SampleSpriteOcclusion is gone. Creature occlusion has moved out of the ray march entirely and
 // into the screen-space pass at the bottom of this file - see GetCreatureShadow.
@@ -751,9 +930,10 @@ float4 CompositePixel(VertexShaderOutput input) : COLOR0
 
 float4 LightingAddPixel(VertexShaderOutput input) : COLOR0
 {
-    float4 scene = tex2D(TextureSampler, input.TextureCoordinates);
-    float3 cascadeLight = tex2D(LightingSampler, GetLightingFieldUv(input.TextureCoordinates)).rgb;
-    float3 directEmission = tex2D(EmissiveSampler, input.TextureCoordinates).rgb;
+    float2 screenUv = input.TextureCoordinates;
+    float water = tex2D(WaterMaskSampler, screenUv).a;
+    float3 cascadeLight = tex2D(LightingSampler, GetLightingFieldUv(screenUv)).rgb;
+    float3 directEmission = tex2D(EmissiveSampler, screenUv).rgb;
     // Ray radiance is no longer scaled by RayDimension^2 (that made cascade 4 carry 256x the
     // energy of cascade 0 and broke the merge), so apply one uniform gain here instead, then
     // tonemap with a Reinhard-style curve. That curve never fully saturates, which keeps the
@@ -762,26 +942,105 @@ float4 LightingAddPixel(VertexShaderOutput input) : COLOR0
     // lit pool reads; the core is already saturating and barely responds to it.
     float3 litRadiance = cascadeLight * LightingEnabled * LightGain;
     float3 cascadeResponse = TonemapRadiance(litRadiance);
-    // Water is a smooth surface, so it returns light more sharply than rough rock does. Raising
-    // the response to a power narrows it into a highlight, which reads as a wet sheen rather than
-    // a uniformly brighter tile. Purely a reflectance change - no extra light is introduced.
-    //
-    // The highlight is sampled through a rippled offset so the reflection distorts as though the
-    // surface were moving. Only the sheen uses the rippled lookup: the diffuse term above keeps
-    // the unperturbed one, so rippling water can never smear the lighting on the rock around it.
-    float water = tex2D(WaterMaskSampler, input.TextureCoordinates).a;
-    float3 ripple = GetWaterRipple(input.TextureCoordinates);
-    float2 rippledFieldUv = GetLightingFieldUv(input.TextureCoordinates) + ripple.xy;
-    float3 rippledRadiance = tex2D(LightingSampler, rippledFieldUv).rgb * LightingEnabled * LightGain;
-    float3 rippledResponse = TonemapRadiance(rippledRadiance);
-    // Travelling bright/dark bands across the highlight, which is the part that actually reads as
-    // movement. Clamped so a trough cannot drive the highlight negative.
-    float rippleGain = max(0.0, 1.0 + (WaterRippleContrast * ripple.z));
-    float3 sheen = rippledResponse * rippledResponse * WaterSheenStrength * water * rippleGain;
+
+    float2 refraction = float2(0.0, 0.0);
+    float3 waterAdd = float3(0.0, 0.0, 0.0);
+    // Multiplier on the surface's own colour. 1 everywhere that is not water, so the term below can
+    // be applied unconditionally.
+    float waterAlbedo = 1.0;
+
+    // Branch rather than multiply the result out at the end. This is a full-screen pass and the
+    // block below is twelve sines, a normalize and about a dozen taps; water is a small fraction of
+    // a typical view, so paying for it everywhere would be most of the cost of the whole composite.
+    if (water > 0.002)
+    {
+        float t = ElapsedSeconds * WaterWaveSpeed;
+        float2 tiles = ScreenUvToWorld(screenUv) / max(1.0, TileSize);
+        float3 normal = GetWaterNormal(tiles, screenUv, t);
+
+        // Refraction of what lies under the surface. Screen-space deliberately, unlike the wave
+        // geometry: this is the offset between where the bed IS and where it APPEARS through a
+        // sloped surface, which is a property of looking through the water rather than a distance
+        // in the world. Kept small - past roughly 0.015 the bed stops reading as seen through water
+        // and starts reading as heat haze, which is the single most common way this effect is
+        // overdone.
+        refraction = normal.xy * WaterDistortionUv * water;
+
+        // Reflection: the lighting field sampled through the normal, so the mirrored light bends
+        // with the surface. Converted from a tile displacement the same way everything else in this
+        // file converts world to field, so it slides the same physical distance at every zoom.
+        float2 reflectionOffset =
+            ((normal.xy * WaterReflectionTiles * TileSize) / ProbeWorldSpacing) / LightingFieldResolution;
+        float3 reflectedResponse = TonemapRadiance(
+            tex2D(LightingSampler, GetLightingFieldUv(screenUv) + reflectionOffset).rgb
+                * LightingEnabled * LightGain);
+
+        // Lighting from the SLOPE, never from the height - see the note on GetWaterRipple's removal.
+        float3 lightDirection = GetWaterLightDirection(screenUv);
+        float diffuse = saturate(dot(normal, lightDirection));
+
+        // Quantised, because everything around this is pixel art and a perfectly smooth ramp across
+        // a lake reads as a different medium from the tiles it sits in. WaterLightBands = 0 leaves
+        // it smooth.
+        float bands = max(0.0, WaterLightBands);
+        diffuse = bands >= 1.0 ? (floor(diffuse * bands) / bands) : diffuse;
+
+        // Narrow specular. The view direction is straight down in a top-down game, so the reflected
+        // vector's z component IS its alignment with the viewer and no explicit dot is needed.
+        float3 reflected = reflect(-lightDirection, normal);
+        float specular = pow(saturate(reflected.z), max(1.0, WaterSpecularPower));
+
+        // Torn into streaks rather than left as a smooth blob, reusing the noise that warps the
+        // waves. An unbroken highlight across a whole lake reads as a lit sheet; real ones are
+        // broken up by structure far finer than the waves carrying them.
+        specular *= smoothstep(0.55, 0.95, diffuse + (GetWaterNoiseWarp(tiles, t).x * 6.0));
+
+        // How reflective this particular patch of surface is, which varies across every wave.
+        float reflectivity = GetWaterReflectivity(normal);
+
+        // The surface's OWN albedo, varying with slope. This is what gives the water body between
+        // its highlights: a trough turned away from the light is a darker, deeper colour, a crest
+        // turned toward it a lighter one. Taken from the slope via diffuse and never from the
+        // height, or it degenerates into travelling stripes.
+        //
+        // Because diffuse has already been quantised, so is this - the surface reads as bands of
+        // flat colour rather than a smooth gradient, which is the point for pixel art.
+        waterAlbedo = WaterAlbedoLow + (diffuse * (WaterAlbedoHigh - WaterAlbedoLow));
+
+        // Loose energy conservation, and the other half of driving reflectivity from the waves:
+        // where the surface reflects hardest it also hides more of what lies under it. The two
+        // trade off across every wave instead of simply summing, which is what stops a strongly
+        // reflecting crest from also being a brightly lit one.
+        waterAlbedo *= 1.0 - (reflectivity * WaterRefractionLoss);
+        waterAlbedo = lerp(1.0, waterAlbedo, water);
+
+        // Water returns light more sharply than rough rock does. Squaring the response narrows it
+        // into a highlight, which reads as a wet sheen rather than a uniformly brighter tile.
+        // Weighted by reflectivity, so the reflection appears on wave faces rather than everywhere.
+        float3 sheen = reflectedResponse * reflectedResponse * WaterSheenStrength * water * reflectivity;
+
+        // EVERY water term is gated by cascadeResponse. Without that gate the surface generates its
+        // own highlights out of the wave field alone and a lake in an unlit chamber glows - which
+        // is how a water shader most easily wrecks a scene whose whole premise is that it is dark.
+        waterAdd = sheen
+            + (cascadeResponse * water
+                * ((diffuse * WaterDiffuseStrength) + (specular * WaterSpecularStrength * reflectivity)));
+    }
+
+    // Sampled through the refraction offset, which is zero everywhere that is not water. Level-zero
+    // rather than tex2D because the coordinate is now computed inside a branch, and a gradient
+    // instruction there is undefined; these targets have no mips, so level 0 is what tex2D would
+    // have chosen anyway.
+    float3 scene = SampleLevelZero(TextureSampler, screenUv + refraction).rgb;
 
     // The contribution is drawn with an additive blend state; keep alpha non-zero on
     // backends that fold source alpha into the color contribution.
-    return float4((scene.rgb * cascadeResponse * LitContribution) + sheen + (directEmission * 0.17), 1.0);
+    // waterAlbedo is 1 off the water, so this multiply is a no-op everywhere else. It scales the
+    // surface's own colour rather than adding to it, which is the difference between the waves
+    // shading the water and the waves lighting it.
+    return float4(
+        (scene * waterAlbedo * cascadeResponse * LitContribution) + waterAdd + (directEmission * 0.17),
+        1.0);
 }
 
 float4 TileGridDebugPixel(VertexShaderOutput input) : COLOR0

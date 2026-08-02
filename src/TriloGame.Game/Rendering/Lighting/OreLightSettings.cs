@@ -279,26 +279,110 @@ public static class OreLightSettings
     // two tiles reach the ray march's own 2% cut-off, which is what keeps deep rock genuinely dark
     // now that walls no longer are.
     public const float RockTransmission = 0.08f;
-    // Water is treated as a mostly specular surface: its own texture is dimmed to WaterAlbedo so it
-    // stays only faintly visible, and what you mainly see is reflected light at WaterSheenStrength.
-    // That means unlit water reads as near-black and lit water mirrors the ore colour around it.
+    // Water is treated as a partly specular surface: its own texture is dimmed to WaterAlbedo, and
+    // some of what you see is reflected light at WaterSheenStrength. Unlit water reads as near-black
+    // and lit water picks up the ore colour around it.
+    //
+    // The sheen is applied as reflectedResponse SQUARED times this, and the response saturates near
+    // 1 wherever a deposit is close - so this number is very nearly the peak brightness the
+    // reflection adds on top of an already-lit surface. At 0.85 that was approaching the full lit
+    // contribution (0.83) again, i.e. water was doubling its own brightness and reading as polished
+    // metal rather than as a pool.
+    //
+    // It is now also weighted by WaterFresnel* reflectivity, which averages well under 1 across a
+    // wave, so the effective sheen is a fraction of this number rather than equal to it. The visual
+    // interest that used to come from a big uniform reflection now comes from the albedo band below
+    // instead - which is a property of the surface rather than a light added on top of it, and does
+    // not brighten the scene at all.
     public const float WaterAlbedo = 0.45f;
-    public const float WaterSheenStrength = 0.85f;
-    // Ripple on the water's reflection. The highlight is distorted by a travelling wave rather
-    // than the texture being warped, which is what a reflection on a moving surface actually does.
-    // Strength is an offset in lighting-field UV space, so it scales with the screen, not the zoom.
-    // Set to 0 to hold the reflection still.
-    // Amplitude in TILES, converted to a UV offset through the camera so the distortion covers the
-    // same world distance at every zoom level.
-    public const float WaterRippleStrength = 0.4f;
-    // Depth of the travelling bright/dark banding on the highlight. This is what actually makes the
-    // ripple visible: the lighting field is low resolution and smooth, so warping its lookup alone
-    // barely changes the reflection.
-    public const float WaterRippleContrast = 0.5f;
-    // Radians of wave phase per tile. Higher = tighter, choppier ripples.
-    public const float WaterRippleWavesPerTile = 1.5f;
-    // Radians per second. Higher = faster travel.
-    public const float WaterRippleSpeed = 1.15f;
+    public const float WaterSheenStrength = 0.4f;
+
+    // ---- Water surface ---------------------------------------------------------------------------
+    //
+    // The surface is a height field of four non-harmonic directional waves, warped by scrolling
+    // noise, differentiated into a NORMAL, and then lit. Everything visible comes off that normal.
+    //
+    // What this replaced was a pair of summed sines per axis driving the reflection lookup plus a
+    // brightness band taken from the wave height. Both are the standard tells: a per-axis sum is
+    // separable, so its level sets are straight lines and the surface reads as a moving grid, and
+    // brightness taken from height gives travelling stripes rather than glints, because height is
+    // what the waves are made of. Light catches the SLOPE.
+
+    // How far the normal tilts for a given slope - i.e. how choppy the surface looks. 0 is a flat
+    // mirror. This is the main character knob.
+    public const float WaterWaveStrength = 0.35f;
+    // Multiplier on the animation clock. The four layers keep their relative speeds, which is what
+    // stops the field acquiring a common period and visibly repeating.
+    public const float WaterWaveSpeed = 1f;
+    // How far the scrolling noise displaces the point the waves are sampled at, in tiles. This is
+    // what bends the wavefronts off their straight lines; at 0 the layering is still right but the
+    // parallel-line look comes back.
+    public const float WaterNoiseWarpTiles = 0.35f;
+    // Refraction of the scene beneath the surface, in SCREEN uv - it is a viewing effect, not a
+    // world distance. The workable range is about 0.003-0.015; beyond that the bed stops reading as
+    // being seen through water and starts reading as heat haze.
+    public const float WaterDistortionUv = 0.006f;
+    // Displacement of the reflection lookup, in tiles. Larger than the refraction because the
+    // lighting field is smooth and low resolution, so a small offset barely changes what it returns.
+    public const float WaterReflectionTiles = 0.3f;
+    // Weight of the slope-driven diffuse term. Kept low: this is a dark cave and the diffuse term's
+    // job is to give the surface shape, not to light the room.
+    public const float WaterDiffuseStrength = 0.15f;
+    // The narrow highlight on top of it, and how narrow. Wide soft highlights read as gelatin.
+    //
+    // Cut alongside the sheen. These two stack - the highlight sits on exactly the slopes that are
+    // already reflecting most strongly - so leaving this high while lowering the sheen would have
+    // moved the glare into the glints rather than removed it. Narrowed as well as dimmed: a tighter
+    // power concentrates what is left into small glints, which reads as more reflective for less
+    // total light than a broad one does. Also weighted by reflectivity now.
+    public const float WaterSpecularStrength = 0.58f;
+    public const float WaterSpecularPower = 48f;
+    // ---- Reflectivity, as a function of the wave slope -------------------------------------------
+    //
+    // Reflection used to be a constant applied evenly to every water pixel, which is why turning it
+    // down made the surface duller without making it look any less like sheet metal - an even
+    // reflection is the wrong SHAPE, not merely too bright. Real water reflects almost nothing when
+    // looked straight into and a great deal at a grazing angle, so in a top-down view reflectivity
+    // is a function of how far each patch of surface is tilted - i.e. of the waves themselves.
+    //
+    // Floor: reflectivity of dead flat water, kept small but non-zero so a calm pool is not matte.
+    public const float WaterFresnelFloor = 0.1f;
+    // The wave slopes only take normal.z down to about 0.7, so the usable input range is roughly
+    // 0..0.3. This remaps that onto 0..1; Schlick's textbook exponent of 5 applied directly to such
+    // a small range lands near 0.002 and removes the reflection entirely.
+    public const float WaterFresnelScale = 3.3f;
+    public const float WaterFresnelPower = 1.6f;
+    // How much of the bed the surface hides where it reflects hardest. This is what makes albedo and
+    // reflection trade off across a wave rather than sum, so a strongly reflecting crest is not also
+    // a brightly lit one.
+    public const float WaterRefractionLoss = 0.45f;
+    // ---- Albedo band -----------------------------------------------------------------------------
+    //
+    // The surface's own colour, varying with slope: a trough turned away from the light is darker
+    // and deeper, a crest turned toward it lighter. Multipliers on the water texture already in the
+    // scene, so they straddle 1 and the mean is roughly neutral - this shades the water rather than
+    // brightening it, which is the point. Carrying the surface's character here instead of in the
+    // reflection is what lets the reflection be turned right down.
+    //
+    // Quantised along with the diffuse term it is derived from, so the surface reads as bands of
+    // flat colour rather than a smooth ramp.
+    // Widened: the trough/crest contrast is what gives the surface its shape, and it is the term
+    // that can be pushed hardest without brightening anything - the band straddles 1, so widening it
+    // darkens the troughs by as much as it lightens the crests. The mean stays neutral.
+    public const float WaterAlbedoLow = 0.3f;
+    public const float WaterAlbedoHigh = 1.85f;
+    // Quantisation of the diffuse term. The rest of the game is pixel art, and a perfectly smooth
+    // gradient across a lake reads as a different medium from the tiles around it. 0 = smooth.
+    public const float WaterLightBands = 4f;
+    // (WaterFoamStrength and WaterFoamWidthPixels are gone with the shoreline term - see the note
+    // where GetWaterShoreFoam used to be in RadianceCascade.fx. It followed the mask's edge, and
+    // that edge is a tile boundary, so it drew a clean line around every pool rather than foam.)
+    // Local disturbance where something is moving through the water. Radius of the drawn falloff in
+    // tiles, how strongly it disturbs, and the ring pattern derived from it in the shader.
+    public const float WaterDisturbanceRadiusTiles = 1.2f;
+    public const float WaterDisturbanceStrength = 0.85f;
+    public const float WaterRippleRingFrequency = 38f;
+    public const float WaterRippleRingSpeed = 7f;
     public const float LumeniteMinimumPulse = 0.38f;
 
     public static readonly Color SharedOreLightColor = new(255, 209, 158, 255);
