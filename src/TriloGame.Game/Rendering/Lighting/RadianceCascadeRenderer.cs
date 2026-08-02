@@ -72,6 +72,9 @@ public sealed class RadianceCascadeRenderer : IDisposable
     private readonly LightingSourceCollector _sourceCollector = new();
     private readonly List<OreLightEmitter> _oreEmitters = [];
     private readonly List<Tile> _visibleTiles = [];
+    // The visible tiles the water surface covers, padding included. See
+    // WorldSceneRenderer.CollectWaterSurfaceTiles.
+    private readonly List<Tile> _waterSurfaceTiles = [];
     private readonly OreLightColorPalette _colorPalette = new();
     private readonly BuildingOccluderCoverage _occluderCoverage = new();
     private readonly Texture2D _oreLightTexture;
@@ -324,6 +327,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
         UpdateProbeLattice(context.Camera, viewportSize);
 
         var scene = _targets.Scene!;
+        var waterScene = _targets.WaterScene!;
         var entityOccluder = _targets.EntityOccluder!;
         var emissive = _targets.Emissive!;
 
@@ -333,6 +337,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
             viewportSize,
             showFullMapVisibility,
             _visibleTiles);
+        WorldSceneRenderer.CollectWaterSurfaceTiles(cave, _visibleTiles, _waterSurfaceTiles);
 
         // Screen-space consumers only: the drawn halo sprites and the creature contact shadows. The
         // ray march does NOT read this list - the tile grid resolves emission itself, across the
@@ -348,6 +353,15 @@ public sealed class RadianceCascadeRenderer : IDisposable
             _colorPalette,
             CalculateLightRangeTiles(_targets.Layout, BaseIntervalSpacing),
             _occluderCoverage);
+
+        // The layer under the floor. Kept separate so the composite can shade the surface and then
+        // cover it with the scene, which is what makes water read as being below the floor rather
+        // than as a tile beside it - see WorldSceneRenderer.DrawWaterSceneLayer.
+        _graphicsDevice.SetRenderTarget(waterScene);
+        _graphicsDevice.Clear(Color.Transparent);
+        context.SpriteBatch.Begin(samplerState: SamplerState.PointClamp);
+        worldRenderer.DrawWaterSceneLayer(context, _waterSurfaceTiles, spriteEffects);
+        context.SpriteBatch.End();
 
         _graphicsDevice.SetRenderTarget(scene);
         _graphicsDevice.Clear(Color.Transparent);
@@ -366,7 +380,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
 
         if (DebugMode == LightingDebugMode.SceneOnly)
         {
-            Composite(context, viewportSize, scene, entityOccluder, emissive);
+            Composite(context, viewportSize, scene, waterScene, entityOccluder, emissive);
             return;
         }
 
@@ -379,7 +393,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
         RunCascades(context, viewportSize);
         ReduceLightingField(context.SpriteBatch);
         CaptureLightingField(context);
-        Composite(context, viewportSize, scene, entityOccluder, emissive);
+        Composite(context, viewportSize, scene, waterScene, entityOccluder, emissive);
     }
 
     public void Dispose()
@@ -731,7 +745,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
             samplerState: SamplerState.PointClamp,
             blendState: BlendState.AlphaBlend,
             transformMatrix: Matrix.CreateScale(LightBufferScale));
-        worldRenderer.DrawWaterMaskLayer(context, _visibleTiles);
+        worldRenderer.DrawWaterMaskLayer(context, _waterSurfaceTiles);
         context.SpriteBatch.End();
 
         context.SpriteBatch.Begin(
@@ -826,12 +840,14 @@ public sealed class RadianceCascadeRenderer : IDisposable
         RenderingContext context,
         Point viewportSize,
         RenderTarget2D scene,
+        RenderTarget2D waterScene,
         RenderTarget2D entityOccluder,
         RenderTarget2D emissive)
     {
         _graphicsDevice.SetRenderTarget(null);
         if (DebugMode == LightingDebugMode.SceneOnly)
         {
+            DrawFullscreen(context.SpriteBatch, waterScene, viewportSize.X, viewportSize.Y, BlendState.AlphaBlend, null);
             DrawFullscreen(context.SpriteBatch, scene, viewportSize.X, viewportSize.Y, BlendState.AlphaBlend, null);
             return;
         }
@@ -881,15 +897,23 @@ public sealed class RadianceCascadeRenderer : IDisposable
 
         if (DebugMode == LightingDebugMode.AmbientOnly)
         {
+            DrawAmbientScene(context.SpriteBatch, waterScene, viewportSize);
             DrawAmbientScene(context.SpriteBatch, scene, viewportSize);
             return;
         }
 
         // Keep the captured scene as the base layer, then add only the lighting contribution.
         // This preserves the parallax background wherever the scene target is transparent.
+        //
+        // Two draws, water first, because the water layer is BELOW the floor: alpha-blending the
+        // scene over it reproduces on screen exactly the stack the world is - background, then pool,
+        // then floor. The lighting pass below rebuilds the same order per pixel from the scene's
+        // alpha, so the lit and the ambient halves of the image agree about what is on top.
+        DrawAmbientScene(context.SpriteBatch, waterScene, viewportSize);
         DrawAmbientScene(context.SpriteBatch, scene, viewportSize);
         _effect.CurrentTechnique = _effect.Techniques["LightingAdd"];
         SetParameter("Texture", scene);
+        SetParameter("WaterSceneTexture", waterScene);
         SetParameter("LightingTexture", GetLitField());
         SetParameter("EmissiveTexture", emissive);
         SetParameter("LightingEnabled", 1f);

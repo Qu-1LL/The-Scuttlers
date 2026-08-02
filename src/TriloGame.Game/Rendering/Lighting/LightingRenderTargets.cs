@@ -16,6 +16,11 @@ public sealed class LightingRenderTargets : IDisposable
 
     public RenderTarget2D? Scene { get; private set; }
 
+    // The water surface, kept out of the scene so the composite can finish it and then put the
+    // scene - the floor and everything on it - over the top. Same size as Scene, because the two are
+    // sampled together per screen pixel.
+    public RenderTarget2D? WaterScene { get; private set; }
+
     // Short casters (creatures): occlude only close behind themselves.
     //
     // Larger than the light buffer, and world-anchored rather than screen-anchored - see
@@ -80,6 +85,7 @@ public sealed class LightingRenderTargets : IDisposable
         OccluderMaskWidth = maskSize.X;
         OccluderMaskHeight = maskSize.Y;
         Scene = CreateTarget(sceneWidth, sceneHeight, highPrecision: false);
+        WaterScene = CreateTarget(sceneWidth, sceneHeight, highPrecision: false);
         EntityOccluder = CreateTarget(maskSize.X, maskSize.Y, highPrecision: false);
         WaterMask = CreateTarget(lightWidth, lightHeight, highPrecision: false);
         Emissive = CreateTarget(lightWidth, lightHeight, highPrecision: true);
@@ -146,6 +152,7 @@ public sealed class LightingRenderTargets : IDisposable
     private void DisposeTargets()
     {
         Scene?.Dispose();
+        WaterScene?.Dispose();
         EntityOccluder?.Dispose();
         WaterMask?.Dispose();
         Emissive?.Dispose();
@@ -158,6 +165,7 @@ public sealed class LightingRenderTargets : IDisposable
         CascadeScratch?.Dispose();
 
         Scene = null;
+        WaterScene = null;
         EntityOccluder = null;
         WaterMask = null;
         Emissive = null;
