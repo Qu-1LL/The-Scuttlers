@@ -8,11 +8,40 @@ public sealed class CameraController
 {
     private const float ShakeSeedX = 17.137f;
     private const float ShakeSeedY = 5.713f;
+    // Outermost rungs of the zoom ladder. GameConstants.MinScale/MaxScale are defined as exactly
+    // these rungs, so the ladder reaches the supported range without ever landing between rungs.
+    private const int MaxZoomStep = GameConstants.MaxZoomSteps;
+    private const int MinZoomStep = -GameConstants.MaxZoomSteps;
+
     private float _shakeTrauma;
     private float _shakeNoiseTime;
     private Vector2 _shakeOffset;
+    private int _zoomStep;
+    private float _currentScale = GameConstants.DefaultCameraScale;
+    private float _targetScale = GameConstants.DefaultCameraScale;
 
-    public float CurrentScale { get; set; } = GameConstants.DefaultCameraScale;
+    // The scale the view is drawn at this frame. Eases toward TargetScale so a wheel notch is a
+    // short glide rather than a jump; assigning it directly (tests, debug tooling) takes effect
+    // immediately, cancels any glide in progress, and re-derives the nearest ladder rung so a later
+    // notch continues from where the camera actually is instead of from a stale step index.
+    public float CurrentScale
+    {
+        get => _currentScale;
+        set
+        {
+            _currentScale = value;
+            _targetScale = value;
+            _zoomStep = GetNearestZoomStep(value);
+        }
+    }
+
+    // Where the eased zoom is heading. Exposed so callers can tell a settled camera from one that
+    // is still gliding.
+    public float TargetScale => _targetScale;
+
+    public int ZoomStep => _zoomStep;
+
+    public bool IsZooming => MathF.Abs(_targetScale - _currentScale) > 0.000001f;
 
     public Vector2 CameraOrigin { get; private set; }
 
@@ -50,8 +79,37 @@ public sealed class CameraController
         ParallaxScreenOffset += screenDelta;
     }
 
+    // Move the zoom by whole ladder rungs. Only the target moves; Update glides the live scale to
+    // it, so the view never teleports and the lighting keeps a reprojectable history.
+    public void ZoomBySteps(int steps)
+    {
+        if (steps == 0)
+        {
+            return;
+        }
+
+        _zoomStep = Math.Clamp(_zoomStep + steps, MinZoomStep, MaxZoomStep);
+        _targetScale = GetScaleForZoomStep(_zoomStep);
+    }
+
+    // Snap back to the default rung with no glide. Used when a new game hands the camera a fresh
+    // viewpoint, where easing from the previous session's zoom would only be a distraction.
+    public void ResetZoom()
+    {
+        _zoomStep = 0;
+        _targetScale = GameConstants.DefaultCameraScale;
+        _currentScale = GameConstants.DefaultCameraScale;
+    }
+
+    public static float GetScaleForZoomStep(int step)
+    {
+        var clampedStep = Math.Clamp(step, MinZoomStep, MaxZoomStep);
+        return GameConstants.DefaultCameraScale * MathF.Pow(GameConstants.ZoomStepRatio, clampedStep);
+    }
+
     public void Update(GameTime gameTime)
     {
+        UpdateZoom(gameTime);
         var elapsedSeconds = MathF.Min(0.1f, (float)gameTime.ElapsedGameTime.TotalSeconds);
         if (_shakeTrauma <= 0f || elapsedSeconds <= 0f)
         {
@@ -77,6 +135,45 @@ public sealed class CameraController
         {
             _shakeOffset = Vector2.Zero;
         }
+    }
+
+    // Eased in LOG space: zoom is multiplicative, so a constant fraction of the remaining ratio per
+    // second is what reads as an even glide. Interpolating the scale linearly instead makes zooming
+    // out crawl and zooming in lurch, because the same scale delta covers a different ratio at each
+    // end of the ladder.
+    private void UpdateZoom(GameTime gameTime)
+    {
+        if (!IsZooming)
+        {
+            _currentScale = _targetScale;
+            return;
+        }
+
+        var elapsedSeconds = MathF.Min(0.1f, (float)gameTime.ElapsedGameTime.TotalSeconds);
+        if (elapsedSeconds <= 0f)
+        {
+            return;
+        }
+
+        var approach = 1f - MathF.Exp(-GameConstants.ZoomApproachRatePerSecond * elapsedSeconds);
+        var remainingRatio = _targetScale / _currentScale;
+        _currentScale *= MathF.Pow(remainingRatio, approach);
+
+        // Land exactly on the rung once the remainder is sub-perceptual. Without this the scale
+        // creeps toward the target forever, and a never-settling scale means the lighting can never
+        // treat the camera as stationary.
+        if (MathF.Abs(_targetScale - _currentScale) <= _targetScale * 0.0005f)
+        {
+            _currentScale = _targetScale;
+        }
+    }
+
+    // Nearest rung to an arbitrary scale, so a directly assigned scale still rejoins the ladder.
+    private static int GetNearestZoomStep(float scale)
+    {
+        var safeScale = MathF.Max(0.000001f, scale);
+        var step = MathF.Log(safeScale / GameConstants.DefaultCameraScale) / MathF.Log(GameConstants.ZoomStepRatio);
+        return Math.Clamp((int)MathF.Round(step), MinZoomStep, MaxZoomStep);
     }
 
     public void TriggerExplosionShake(float intensity = 1f)

@@ -26,8 +26,21 @@ public sealed class WorldSceneRenderer
         OreLightSettings.WaterAlbedo,
         1f);
 
+    // The parallax backdrop is drawn straight to the backbuffer, so no cascade light ever reaches
+    // it - it is by definition an unlit surface and belongs at the ambient floor. Drawn at full
+    // brightness it showed through unrevealed tiles as the brightest thing on screen, which put a
+    // ceiling on how dark the unlit cave could be made: lowering Ambient only widened the gap
+    // between dark explored ground and a glaring backdrop.
+    private static readonly Color BackgroundAmbientColor = new(
+        OreLightSettings.Ambient,
+        OreLightSettings.Ambient,
+        OreLightSettings.Ambient,
+        1f);
+
     private const float InventoryBackpackIconTileScale = 0.64f;
     private const float InventoryBackpackSlotSpacingPixels = 42f;
+
+    // Neutral fallback for a creature contact shadow with no nearby light to point it away from.
 
     private static readonly FrameworkVector2[] DroppedResourceOffsets =
     [
@@ -67,7 +80,7 @@ public sealed class WorldSceneRenderer
                     texture,
                     center + new FrameworkVector2(x * scaledWidth, y * scaledHeight),
                     null,
-                    Color.White,
+                    BackgroundAmbientColor,
                     0f,
                     origin,
                     scale,
@@ -94,6 +107,8 @@ public sealed class WorldSceneRenderer
 
         var visibleTiles = new List<Tile>();
         CollectVisibleTiles(cave, context.Camera, viewportSize, showFullMapVisibility, visibleTiles);
+        var oreEmitters = new List<OreLightEmitter>();
+        new LightingSourceCollector().CollectOreEmitters(visibleTiles, spriteEffects, oreEmitters);
         DrawWorldLayer(
             context,
             session,
@@ -101,7 +116,8 @@ public sealed class WorldSceneRenderer
             showFullMapVisibility,
             showCombatDebug,
             interpolationAlpha,
-            visibleTiles);
+            visibleTiles,
+            oreEmitters);
     }
 
     // Render all world layers from one camera cull so lighting and scene pixels share tile coverage.
@@ -112,7 +128,9 @@ public sealed class WorldSceneRenderer
         bool showFullMapVisibility,
         bool showCombatDebug,
         float interpolationAlpha,
-        IReadOnlyList<Tile> visibleTiles)
+        IReadOnlyList<Tile> visibleTiles,
+        IReadOnlyList<OreLightEmitter> oreEmitters,
+        LightingTileGrid? tileGrid = null)
     {
         var cave = session.Cave;
         if (cave is null)
@@ -127,6 +145,13 @@ public sealed class WorldSceneRenderer
         DrawTileOverlays(context, visibleTiles, spriteEffects);
         DrawSurfaceFeatures(context, cave, showFullMapVisibility);
         DrawDroppedResources(context, visibleTiles);
+        // Cast shadows go down before anything that casts them, so every caster sits on top of its
+        // own shadow rather than beside it.
+        if (tileGrid is not null)
+        {
+            DrawCastShadowLayer(context, cave, tileGrid, interpolationAlpha);
+        }
+
         DrawBuildings(context, cave, showFullMapVisibility);
         if (showCombatDebug)
         {
@@ -136,8 +161,13 @@ public sealed class WorldSceneRenderer
         DrawProjectiles(context, session);
     }
 
-    // Short casters only (creatures). Their texture alpha becomes the shadow silhouette, so light
-    // stops on the drawn sprite rather than on the whole tile square.
+    // Every sprite-shaped caster: creatures and buildings. Their texture alpha becomes the shadow
+    // silhouette, so the shadow follows the drawn shape rather than a bounding box.
+    //
+    // Buildings are here as well as in the world tile grid, and the two do different jobs. The grid
+    // makes a building block light at any distance, which gives the long soft shadow the ray march
+    // resolves at probe spacing. This mask is what the screen-space pass reads, and it is what puts a
+    // crisp shadow at the building's base - the detail the probe grid is far too coarse to carry.
     public void DrawEntityOccluderLayer(
         RenderingContext context,
         Cave cave,
@@ -162,6 +192,19 @@ public sealed class WorldSceneRenderer
                 enemy.GetInterpolatedFacingRadians(interpolationAlpha),
                 color: Color.White);
         }
+
+        // Drawn exactly as the scene draws them, so the shadow matches the sprite the player sees -
+        // rotation and footprint scaling included.
+        foreach (var building in cave.Buildings)
+        {
+            if (!LightingTileClassifier.GetBuildingOccluderHeight(building).IsFullHeight() ||
+                building.Location is null)
+            {
+                continue;
+            }
+
+            DrawBuildingTexture(context, building);
+        }
     }
 
     // Silhouette of open water for the composite's specular sheen. Uses a flat white quad rather
@@ -185,29 +228,237 @@ public sealed class WorldSceneRenderer
 
     // Full-height casters go in their own mask so the shader can occlude with them at any
     // distance, while the short mask above only shades what is close behind its casters.
-    public void DrawTallOccluderLayer(RenderingContext context, IReadOnlyList<Tile> occludingTiles)
+    // (DrawTallOccluderLayer is gone. Terrain blockers come from the world-space tile grid, and
+    // building silhouettes moved into DrawEntityOccluderLayer above so they cast the same
+    // screen-space shadow every other sprite caster does.)
+
+    // Cast shadows: each caster's silhouette drawn ONCE, stretched away from the light.
+    //
+    // This replaced a per-pixel march that swept the occluder mask along the light direction and took
+    // the maximum. That sweep is the right shape in principle - the union of a silhouette dragged
+    // along a line IS an elongated silhouette - but sampled at discrete steps it comes out as a row of
+    // overlapping copies. Anything thinner than the step, which is every leg and antenna, repeats
+    // visibly instead of smearing, and because the direction was sampled per pixel the whole thing
+    // curved. Neither is tunable: they are what marching a hard-edged silhouette looks like.
+    //
+    // Projecting the sprite once gives a single coherent shape, keeps thin features intact, costs one
+    // draw per caster instead of sixteen taps per screen pixel, and is what a cast shadow actually is.
+    public void DrawCastShadowLayer(
+        RenderingContext context,
+        Cave cave,
+        LightingTileGrid tileGrid,
+        float interpolationAlpha)
     {
-        foreach (var tile in occludingTiles)
+        var cameraScale = new FrameworkVector2(context.Camera.CurrentScale);
+
+        foreach (var trilobite in cave.Trilobites)
         {
-            if (!LightingTileClassifier.GetOccluderHeight(tile).IsFullHeight())
+            if (context.Sprites.TryGet("Trilobite", out var texture))
+            {
+                DrawProjectedShadow(
+                    context,
+                    texture,
+                    tileGrid,
+                    GetCreatureWorldPosition(trilobite, interpolationAlpha),
+                    trilobite.GetInterpolatedFacingRadians(interpolationAlpha),
+                    cameraScale,
+                    OreLightSettings.CreatureShadowHeightTiles,
+                    OreLightSettings.CreatureShadowMinLengthTiles,
+                    OreLightSettings.CreatureShadowMaxLengthTiles);
+            }
+        }
+
+        foreach (var enemy in cave.Enemies)
+        {
+            if (context.Sprites.TryGet("Enemy", out var texture))
+            {
+                DrawProjectedShadow(
+                    context,
+                    texture,
+                    tileGrid,
+                    GetCreatureWorldPosition(enemy, interpolationAlpha),
+                    enemy.GetInterpolatedFacingRadians(interpolationAlpha),
+                    cameraScale,
+                    OreLightSettings.CreatureShadowHeightTiles,
+                    OreLightSettings.CreatureShadowMinLengthTiles,
+                    OreLightSettings.CreatureShadowMaxLengthTiles);
+            }
+        }
+
+        // Buildings cast the same way, keeping their own display rotation and footprint scale so the
+        // shadow matches the shape the player sees.
+        foreach (var building in cave.Buildings)
+        {
+            if (!LightingTileClassifier.GetBuildingOccluderHeight(building).IsFullHeight() ||
+                building.Location is null ||
+                !context.Sprites.TryGet(building.TextureKey, out var texture))
             {
                 continue;
             }
 
-            var textureKey = tile.Base == "wall"
-                ? "wall"
-                : GetTileOverlayTextureKey(tile) ?? tile.Base;
-            if (!context.Sprites.TryGet(textureKey, out _))
-            {
-                continue;
-            }
-
-            DrawTileTexture(
+            DrawProjectedShadow(
                 context,
-                textureKey,
-                tile.Coordinates,
-                tile.Base == "wall" ? 0f : GetTileOverlayRotationRadians(tile),
-                Color.White);
+                texture,
+                tileGrid,
+                BuildingPlacementGrid.GetWorldCenter(building),
+                building.GetDisplayRotationTurns() * MathF.PI / 2f,
+                BuildingPlacementGrid.GetTextureFootprintScale(
+                    building, texture.Width, texture.Height, context.Camera.CurrentScale),
+                OreLightSettings.BuildingShadowHeightTiles,
+                OreLightSettings.BuildingShadowMinLengthTiles,
+                OreLightSettings.BuildingShadowMaxLengthTiles);
+        }
+    }
+
+    // One caster's shadow: its silhouette extruded along the light, keeping the caster's own
+    // orientation and growing softer with distance.
+    //
+    // Extruding by repeated draws rather than rotating one stretched copy is what keeps the shape
+    // honest. A cast shadow's outline comes from the caster, so it has to stay in the caster's
+    // rotation - a trilobite's shadow pointing one way while its body points another reads as an
+    // obvious error, and a rectangular building rotated to face the light reads as a different
+    // building. Stretching along an arbitrary world axis while holding rotation is a shear, which
+    // SpriteBatch cannot express, so the extrusion does it instead: the union of a silhouette dragged
+    // along a line IS that silhouette elongated.
+    //
+    // Each step also grows slightly and fades. That is the penumbra - a shadow really does soften
+    // with distance from its caster - and it is also what stops thin features (legs, antennae) from
+    // appearing as a row of separate dashes. Discrete steps can only merge if each is wider than the
+    // gap to the next, which the growth guarantees and a constant-size extrusion does not.
+    // How long a shadow a caster of this height throws from a light this far away.
+    //
+    // Similar triangles: the light sits at height h, the caster's top at H, so the ray grazing the
+    // caster meets the ground at H*d/(h-H) past it. Zero directly beneath the light, growing with
+    // distance, and capped because the expression diverges as H approaches h.
+    //
+    // The bounds come from the caller rather than from shared constants: how short a shadow can get
+    // before the caster looks unplaced, and how long before it stops looking attached, both depend on
+    // how big the caster is - and a trilobite and a building are not the same size. See
+    // CreatureShadowMinLengthTiles.
+    internal static float GetShadowLengthWorld(
+        float casterHeightTiles,
+        float lightDistanceWorld,
+        float minLengthTiles,
+        float maxLengthTiles)
+    {
+        var tile = TileConstants.TileSize;
+        var casterHeight = casterHeightTiles * tile;
+        var rise = MathF.Max((OreLightSettings.ShadowLightHeightTiles * tile) - casterHeight, tile * 0.05f);
+        var modelled = casterHeight * lightDistanceWorld / rise;
+        // Clamped, not scaled: the light's DIRECTION still comes from the geometry, so a shadow
+        // pinned at either bound still points the right way - it has only stopped reporting distance.
+        return Math.Clamp(modelled, minLengthTiles * tile, MathF.Max(minLengthTiles, maxLengthTiles) * tile);
+    }
+
+    // How dark a caster's shadow is at this distance from the light dominating it: full strength
+    // close in, tapering to nothing by ShadowFadeDistanceTiles.
+    //
+    // lightDistance is already inverse-square weighted across every emitter in range (see
+    // LightingTileGrid.TryGetLightDirection), so this tracks whichever deposit is actually doing the
+    // lighting rather than the average of everything nearby - which is what makes walking up to one
+    // deposit past another darken the shadow instead of averaging the two out.
+    internal static float GetShadowProximityStrength(float lightDistanceWorld)
+    {
+        var tiles = lightDistanceWorld / TileConstants.TileSize;
+        var near = OreLightSettings.ShadowFullStrengthDistanceTiles;
+        var far = MathF.Max(near + 0.001f, OreLightSettings.ShadowFadeDistanceTiles);
+        return Smoothstep(Math.Clamp((far - tiles) / (far - near), 0f, 1f));
+    }
+
+    // How much of a shadow survives the light arriving from other angles. 1 when every contribution
+    // agrees on a direction, falling to 0 at CreatureShadowDirectionality, below which light is
+    // effectively ambient and casts nothing.
+    internal static float GetShadowDirectionalStrength(float directionality)
+    {
+        var threshold = Math.Clamp(OreLightSettings.CreatureShadowDirectionality, 0f, 0.999f);
+        return Smoothstep(Math.Clamp((directionality - threshold) / (1f - threshold), 0f, 1f));
+    }
+
+    // Matches the tapers in RadianceCascade.fx, so a shadow fades on the same curve its light does.
+    private static float Smoothstep(float t) => t * t * (3f - (2f * t));
+
+    private static void DrawProjectedShadow(
+        RenderingContext context,
+        Texture2D texture,
+        LightingTileGrid tileGrid,
+        FrameworkVector2 worldPosition,
+        float rotation,
+        FrameworkVector2 baseScale,
+        float casterHeightTiles,
+        float minLengthTiles,
+        float maxLengthTiles)
+    {
+        if (!tileGrid.TryGetLightDirection(
+                worldPosition,
+                OreLightSettings.CreatureShadowLightRadiusTiles,
+                out var toLight,
+                out var directionality,
+                out var lightDistance))
+        {
+            return;
+        }
+
+        // Two independent reasons a shadow is weak, multiplied together.
+        //
+        // Proximity: a shadow is the light a caster is keeping off the floor, so it darkens as the
+        // caster approaches the light and fades as it moves away. This is where the distance response
+        // lives - see ShadowFullStrengthDistanceTiles for why it is not in the length.
+        //
+        // Directionality: anisotropy near zero means light is arriving from every side at once, so
+        // there is no direction to cast along and nothing to block. Fade out rather than pick one -
+        // which is precisely the failure the old hardcoded "straight down" fallback produced - and
+        // fade CONTINUOUSLY, so light from a second angle visibly brightens the shadow instead of
+        // having no effect until it has nearly cancelled the first.
+        var strength = GetShadowProximityStrength(lightDistance)
+            * GetShadowDirectionalStrength(directionality);
+        if (strength <= 0.01f)
+        {
+            return;
+        }
+
+        var away = -toLight;
+        var length = GetShadowLengthWorld(casterHeightTiles, lightDistance, minLengthTiles, maxLengthTiles);
+        var lengthTiles = length / TileConstants.TileSize;
+
+        // Step COUNT follows the length, so the SPACING stays fixed.
+        //
+        // A fixed count is what produced the repeats: six steps over a 1.1 tile shadow put the copies
+        // 113 world units apart, while the spread only widened a leg by about 23, so thin features
+        // landed as separate dashes with clear gaps. Holding the spacing at roughly a leg's width
+        // instead means a longer shadow spends more draws rather than stretching the gaps, and every
+        // feature overlaps its own neighbour whatever the length turns out to be.
+        var steps = Math.Clamp((int)MathF.Ceiling(length / OreLightSettings.ShadowStepWorld) + 1, 3, 40);
+
+        // Per-copy alpha is SOLVED, not divided.
+        //
+        // Alpha compositing accumulates as 1 - (1 - a)^n, so reaching a target opacity S through n
+        // overlapping copies needs a = 1 - (1 - S)^(1/n). Dividing the target by the step count
+        // instead - which is what this did - makes every copy n times too light, because blended
+        // copies at different positions do not average: each simply darkens by its own alpha. The
+        // shadow came out at under a tenth of its intended strength, and against a dim cave floor
+        // that reads as no shadow at all.
+        //
+        // It also means the taper is free. Near the caster every copy overlaps and the stack reaches
+        // full strength; at the tip only one copy lands, so it fades out on its own.
+        var perCopy = 1f - MathF.Pow(1f - OreLightSettings.CreatureShadowStrength, 1f / steps);
+
+        // Back to front, so the darkest part sits nearest the caster once alpha-blended.
+        for (var step = steps - 1; step >= 0; step--)
+        {
+            var t = step / (float)(steps - 1);
+            // Penumbra widens with how far this copy has travelled from the caster, in real tiles -
+            // so a short shadow stays tight and a long one goes soft, rather than both widening by
+            // the same fraction of the sprite.
+            var spread = 1f + (OreLightSettings.ShadowSpreadPerTile * lengthTiles * t);
+            var alpha = perCopy * strength * (1f - (0.5f * t));
+
+            DrawWorldTextureNative(
+                context,
+                texture,
+                worldPosition + (away * length * t),
+                rotation,
+                color: Color.Black * alpha,
+                scale: baseScale * spread);
         }
     }
 
@@ -435,14 +686,22 @@ public sealed class WorldSceneRenderer
 
         foreach (var enemy in cave.Enemies)
         {
+            var worldPosition = GetCreatureWorldPosition(enemy, interpolationAlpha);
+            var facingRadians = enemy.GetInterpolatedFacingRadians(interpolationAlpha);
             DrawWorldTextureNative(
                 context,
                 "Enemy",
-                GetCreatureWorldPosition(enemy, interpolationAlpha),
-                enemy.GetInterpolatedFacingRadians(interpolationAlpha),
+                worldPosition,
+                facingRadians,
                 color: GetCreatureDrawColor(session, enemy));
         }
     }
+
+    // (DrawCreatureContactShadow and GetContactShadowDirection are gone. Creature shadows are a
+    // screen-space pass in the composite now - see GetCreatureShadow in RadianceCascade.fx - which
+    // takes its direction from the lighting field's gradient rather than from a radius search of the
+    // visible emitter list, and finds the silhouette in the occluder mask at screen resolution rather
+    // than translating a copy of the sprite. See OreLightSettings.CreatureShadowStrength.)
 
     private static Color GetCreatureDrawColor(GameSession session, Creature creature)
     {
@@ -683,11 +942,16 @@ public sealed class WorldSceneRenderer
     }
 
     // Mirror the world-gen-tests culling pass by scanning only tiles inside the camera footprint.
+    // paddingTiles is how far past the camera footprint to reach. The default of 2 is the drawing
+    // margin - just enough that a tile straddling the screen edge still gets rasterised. Lighting
+    // passes a much larger value, because a light source only has to be within the ray march's reach
+    // to affect what is on screen, not within the screen itself.
     internal static IEnumerable<Tile> EnumerateVisibleTiles(
         Cave cave,
         CameraController camera,
         Point viewportSize,
-        bool showFullMapVisibility)
+        bool showFullMapVisibility,
+        int paddingTiles = 2)
     {
         camera.GetVisibleWorldBounds(viewportSize, out var topLeft, out var bottomRight);
 
@@ -696,10 +960,10 @@ public sealed class WorldSceneRenderer
         var maxWorldX = MathF.Max(topLeft.X, bottomRight.X);
         var maxWorldY = MathF.Max(topLeft.Y, bottomRight.Y);
 
-        var minTileX = (int)MathF.Floor((minWorldX - TileConstants.TileHalfSize) / TileConstants.TileSize) - 2;
-        var minTileY = (int)MathF.Floor((minWorldY - TileConstants.TileHalfSize) / TileConstants.TileSize) - 2;
-        var maxTileX = (int)MathF.Ceiling((maxWorldX + TileConstants.TileHalfSize) / TileConstants.TileSize) + 2;
-        var maxTileY = (int)MathF.Ceiling((maxWorldY + TileConstants.TileHalfSize) / TileConstants.TileSize) + 2;
+        var minTileX = (int)MathF.Floor((minWorldX - TileConstants.TileHalfSize) / TileConstants.TileSize) - paddingTiles;
+        var minTileY = (int)MathF.Floor((minWorldY - TileConstants.TileHalfSize) / TileConstants.TileSize) - paddingTiles;
+        var maxTileX = (int)MathF.Ceiling((maxWorldX + TileConstants.TileHalfSize) / TileConstants.TileSize) + paddingTiles;
+        var maxTileY = (int)MathF.Ceiling((maxWorldY + TileConstants.TileHalfSize) / TileConstants.TileSize) + paddingTiles;
 
         for (var y = minTileY; y <= maxTileY; y++)
         {
@@ -721,10 +985,11 @@ public sealed class WorldSceneRenderer
         CameraController camera,
         Point viewportSize,
         bool showFullMapVisibility,
-        List<Tile> destination)
+        List<Tile> destination,
+        int paddingTiles = 2)
     {
         destination.Clear();
-        foreach (var tile in EnumerateVisibleTiles(cave, camera, viewportSize, showFullMapVisibility))
+        foreach (var tile in EnumerateVisibleTiles(cave, camera, viewportSize, showFullMapVisibility, paddingTiles))
         {
             destination.Add(tile);
         }

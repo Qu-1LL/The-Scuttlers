@@ -97,6 +97,18 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _debugAntHolePlacementMode;
     private bool _cameraPanDragActive;
     private bool _selectionDragActive;
+    // Design size used whenever the game is not fullscreen.
+    private const int WindowedWidth = 1440;
+    private const int WindowedHeight = 900;
+    // Fullscreen at startup. WindowedWidth/Height stay the size the Windowed setting returns to, so
+    // toggling out of fullscreen still lands on the design resolution rather than on whatever the
+    // desktop happens to be.
+    private GameDisplayMode _displayMode = GameDisplayMode.Fullscreen;
+    // The viewport size the camera was last adjusted for. Compared against Window.ClientBounds in
+    // HandleViewportResize so that method is safe to call from more than one trigger for the same
+    // resize (see its own comment) without applying CameraController's recentring twice.
+    private int _cameraViewportWidth;
+    private int _cameraViewportHeight;
     private bool _buildingPlacementDragActive;
     private GridPoint _buildingPlacementDragStart;
     private double _uiClockMs;
@@ -135,7 +147,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         PlayApi = new GamePlayApi(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
-        Window.AllowUserResizing = true;
+        // Fixed-size borderless window: no user resizing and no title bar, so the only way the
+        // viewport changes is the display-mode toggle in the settings menu.
+        Window.AllowUserResizing = false;
+        Window.IsBorderless = true;
         Window.ClientSizeChanged += (_, _) => HandleViewportResize();
     }
 
@@ -238,17 +253,26 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     protected override void Initialize()
     {
-        _graphics.PreferredBackBufferWidth = 1440;
-        _graphics.PreferredBackBufferHeight = 900;
-        _graphics.ApplyChanges();
+        // Establishes the startup mode (fullscreen by default) before anything sizes itself off the
+        // window: the camera viewport and the lighting render targets are both built from
+        // Window.ClientBounds a few lines down, so the swap chain has to be its final size first.
+        ConfigureDisplayMode();
         GumUi.Initialize(this, DefaultVisualsVersion.V3);
         MonoGameAndGum.Renderables.ShapeRenderer.Self.Initialize(GraphicsDevice, Content);
         _gumUiRenderer = new GumUiRenderer();
         _trilodexCatalogViewport = new GumRenderTargetViewport(GraphicsDevice, _gumUiRenderer.Root);
         _camera.SetViewport(Window.ClientBounds.Width, Window.ClientBounds.Height);
+        _cameraViewportWidth = Window.ClientBounds.Width;
+        _cameraViewportHeight = Window.ClientBounds.Height;
+        // Fixed seed for reproducible diagnostics: two runs otherwise generate different caves and
+        // different colonies, so nothing measured in one is comparable with the next.
+        if (int.TryParse(Environment.GetEnvironmentVariable("TRILO_SEED"), out var worldSeed))
+        {
+            RandomUtil.Reseed(worldSeed);
+        }
+
         StartNewGame();
         ReturnToMainMenu();
-
         base.Initialize();
     }
 
@@ -337,19 +361,140 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             GraphicsDevice,
             Content.Load<Effect>("Effects/RadianceCascade"));
         _lightingRenderer.RegisterOreLightColors(sprites);
+        // Only the occluding types need measuring, and coverage depends on the texture and footprint
+        // rather than on any particular placed instance - so throwaway prototypes are enough.
+        _lightingRenderer.RegisterBuildingOccluders(
+            sprites,
+            [new Wall(_session), new Radar(_session)]);
         InitializeWorldParticles();
 
         GameAudioContentCatalog.RegisterCues(Content, _audio);
         GameAudioContentCatalog.RegisterTracks(Content, _music);
     }
 
+    // Records the raw lighting field for 120 frames: 60 with the camera held still, then 60 while it
+    // pans itself at a fixed rate. Both halves see the same moving creatures, so anything that
+    // differs between them is attributable to the camera and nothing else.
+    //
+    // Driven from here, ahead of the main-menu early-out, and startable from an environment variable
+    // as well as F6 - key injection does not reach SDL's input layer, so an automated run needs a
+    // path that does not involve the keyboard at all.
+    private int _captureClockFrames;
+    private bool _captureStarted;
+
+    // Tiles of camera travel per recorded pan frame. 0.05 x 120 is 6 tiles at every zoom rung - well
+    // past a lattice step - and reads as a brisk but ordinary drag rather than a teleport.
+    private const float CapturePanTilesPerFrame = 0.05f;
+    private const int CaptureStillFrames = 20;
+    private const int CapturePanFrames = 120;
+
+    // The zoom phase walks the ladder from the bottom rung to the top and straight back down, holding
+    // each rung for a few frames. The descent revisits every rung the ascent already recorded, with
+    // the camera untouched - so any difference between the two visits to a rung is genuine
+    // non-determinism rather than a consequence of the zoom itself.
+    //
+    // The scale is SET rather than glided so each rung is settled the instant it is entered; the glide
+    // is a separate question and would only blur this one.
+    private const int CaptureFramesPerRung = 6;
+    private static readonly int CaptureZoomSlots = (GameConstants.MaxZoomSteps * 4) + 1;
+    private static readonly int CaptureZoomFrames = CaptureZoomSlots * CaptureFramesPerRung;
+
+    // Slot -> zoom rung: up from the bottom, then back down. Slot 0 and the last slot are both the
+    // bottom rung, so even the endpoints get a repeat visit.
+    private static int GetCaptureZoomStep(int slot)
+    {
+        var max = GameConstants.MaxZoomSteps;
+        var span = max * 2;
+        return slot <= span ? slot - max : (span * 2) - slot - max;
+    }
+
+    private void StartLightingFieldCapture()
+    {
+        // Optional zoom rung to record at. The flicker is reported as worst when zoomed in, and the
+        // geometry genuinely differs there - probe spacing is scaled by zoomFactor, the packed
+        // lattice overhangs the screen severalfold, and each field texel covers far more screen - so
+        // a measurement taken at the default rung says nothing about that case.
+        if (int.TryParse(Environment.GetEnvironmentVariable("TRILO_LIGHT_CAPTURE_ZOOM"), out var step))
+        {
+            _camera.CurrentScale = CameraController.GetScaleForZoomStep(step);
+        }
+
+        var path = _lightingRenderer?.BeginFieldCapture(
+            CaptureStillFrames, CapturePanFrames, CaptureZoomFrames);
+        if (path is not null)
+        {
+            _captureStarted = true;
+            Console.WriteLine(
+                $"[lighting] capturing {CaptureStillFrames + CapturePanFrames + CaptureZoomFrames} frames: " +
+                $"{CaptureStillFrames} still, {CapturePanFrames} panning " +
+                $"{CapturePanFrames * CapturePanTilesPerFrame:F1} tiles, " +
+                $"{CaptureZoomFrames} sweeping {CaptureZoomSlots} zoom rungs. -> {path}");
+        }
+    }
+
+    private void UpdateLightingFieldCapture()
+    {
+        // Zoom phase: hold the camera still and snap to the rung this frame belongs to.
+        var zoomFrame = _lightingRenderer?.CaptureZoomFrame ?? -1;
+        if (zoomFrame >= 0)
+        {
+            var slot = Math.Min(CaptureZoomSlots - 1, zoomFrame / CaptureFramesPerRung);
+            _camera.CurrentScale = CameraController.GetScaleForZoomStep(GetCaptureZoomStep(slot));
+        }
+
+        if (_lightingRenderer?.CaptureIsPanningPhase == true)
+        {
+            // Pan a fixed WORLD distance per frame, not a fixed screen distance.
+            //
+            // The probe lattice re-snaps once per top-cascade probe spacing - 3.2 tiles at this
+            // viewport - and that snap is the only discontinuity the whole lighting path contains,
+            // so a capture that does not cross one cannot see it. At a fixed 2 screen px/frame the
+            // pan covered 0.36 TILES over its 60 frames at max zoom: a ninth of one snap, which is
+            // why the recorded run came out bit-identical frame to frame and looked like proof that
+            // nothing moves. Worse, the distance covered scaled with 1/CameraScale, so the zoom rung
+            // being measured silently decided how much of the phenomenon was in frame.
+            //
+            // A world-space rate makes the sweep cover the same number of tiles - and therefore the
+            // same number of snaps - at every zoom rung.
+            var worldPerFrame = TileConstants.TileSize * CapturePanTilesPerFrame;
+            _camera.PanByScreenDelta(-worldPerFrame * _camera.CurrentScale, 0f);
+        }
+
+        if (_captureStarted || Environment.GetEnvironmentVariable("TRILO_LIGHT_CAPTURE") is not "1")
+        {
+            return;
+        }
+
+        // Give the session a few seconds to settle before recording.
+        if (++_captureClockFrames > 240)
+        {
+            StartLightingFieldCapture();
+        }
+    }
+
     protected override void Update(GameTime gameTime)
     {
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
-        _session.Runtime.AdvancePresentation(gameTime.ElapsedGameTime.TotalMilliseconds);
         _camera.Update(gameTime);
-        _worldSpriteEffects.Update(gameTime);
+        UpdateLightingFieldCapture();
+
+        // While a lighting capture runs, hold every animated input still so the camera is the only
+        // thing that changes between frames. Both of these move the lighting on their own and are
+        // otherwise indistinguishable from instability: AdvancePresentation interpolates creature
+        // positions into the occluder mask, and the sprite-effect clock drives the lumenite pulse -
+        // a deliberate 0.38..1.0 brightness cycle every 2.1s, which on its own will read as a probe
+        // changing value every single frame.
+        var capturingLighting = _lightingRenderer?.CaptureFramesRemaining > 0;
+        if (!capturingLighting)
+        {
+            _session.Runtime.AdvancePresentation(gameTime.ElapsedGameTime.TotalMilliseconds);
+        }
+        if (!capturingLighting)
+        {
+            _worldSpriteEffects.Update(gameTime);
+        }
+
         UpdateMusic(gameTime);
         UpdateWorldParticles(gameTime);
         ExpirePendingManualMove();
@@ -393,6 +538,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             _lightingRenderer?.CycleDebugMode();
             PlayUiSelectSound();
+        }
+
+        if (!_menu.IsRenamingSelectedTrilobite && _input.KeyPressed(Keys.F6))
+        {
+            StartLightingFieldCapture();
         }
 
         if (HasLostQueen())
@@ -465,14 +615,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
             if (!wheelHandled)
             {
-                if (_input.WheelDelta > 0)
-                {
-                    _camera.CurrentScale = MathF.Min(GameConstants.MaxScale, _camera.CurrentScale * (4f / 3f));
-                }
-                else
-                {
-                    _camera.CurrentScale = MathF.Max(GameConstants.MinScale, _camera.CurrentScale * 0.75f);
-                }
+                // One whole rung of the zoom ladder per notch. The camera eases onto it, so holding
+                // the wheel queues rungs instead of snapping through a series of scales.
+                _camera.ZoomBySteps(_input.WheelDelta > 0 ? 1 : -1);
             }
         }
 
@@ -639,6 +784,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                 _showFullMapVisibility,
                 _session.Runtime.ShowHitboxes,
                 _simulationClock.InterpolationAlpha);
+
             _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
             DrawWorldParticles();
             DrawSelection();
@@ -824,7 +970,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         var spawnX = bootstrap.QueenLocation.X;
         var spawnY = bootstrap.QueenLocation.Y;
 
-        _camera.CurrentScale = GameConstants.DefaultCameraScale;
+        _camera.ResetZoom();
         _camera.ClearShake();
         _camera.SetOrigin(new Vector2((spawnX * TileConstants.TileSize) + TileConstants.TileSize, (spawnY * TileConstants.TileSize) + TileConstants.TileSize));
         _activeBfsDebugField = null;
@@ -2209,7 +2355,8 @@ public sealed partial class GameApp
             _settingsMenuOpen,
             _mainMenuOpen,
             _audio.VolumePercent,
-            _music.IsMusicEnabled);
+            _music.IsMusicEnabled,
+            _displayMode);
     }
 
     private void DrawResourceHud()
@@ -3371,6 +3518,15 @@ public sealed partial class GameApp
         }
     }
 
+    // Wired to Window.ClientSizeChanged AND called explicitly from ApplyDisplayMode: a fullscreen/
+    // windowed toggle was found not to reliably fire ClientSizeChanged synchronously within
+    // ApplyChanges() on every platform this targets, so the explicit call is needed to actually
+    // guarantee the camera gets recentred - but the event can ALSO still fire for the same resize.
+    // Comparing against the tracked _cameraViewportWidth/Height (rather than unconditionally calling
+    // CameraController.HandleViewportResize) is what makes having both triggers safe: whichever
+    // fires first performs the adjustment and updates the tracked size, and the other becomes a
+    // no-op against the now-current size, instead of the two together double-applying the
+    // recentring offset (which shows up as the camera visibly jumping by an extra, wrong pan).
     private void HandleViewportResize()
     {
         if (Window.ClientBounds.Width <= 0 || Window.ClientBounds.Height <= 0)
@@ -3378,9 +3534,18 @@ public sealed partial class GameApp
             return;
         }
 
-        var oldWidth = (int)_camera.ViewCenter.X * 2;
-        var oldHeight = (int)_camera.ViewCenter.Y * 2;
-        _camera.HandleViewportResize(oldWidth, oldHeight, Window.ClientBounds.Width, Window.ClientBounds.Height);
+        if (_cameraViewportWidth == Window.ClientBounds.Width && _cameraViewportHeight == Window.ClientBounds.Height)
+        {
+            return;
+        }
+
+        _camera.HandleViewportResize(
+            _cameraViewportWidth,
+            _cameraViewportHeight,
+            Window.ClientBounds.Width,
+            Window.ClientBounds.Height);
+        _cameraViewportWidth = Window.ClientBounds.Width;
+        _cameraViewportHeight = Window.ClientBounds.Height;
     }
 
     private void SpawnDebugEnemy()

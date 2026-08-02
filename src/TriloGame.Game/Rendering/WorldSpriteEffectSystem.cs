@@ -39,6 +39,9 @@ public sealed class WorldSpriteEffectSystem
         return _tileAnimations.ContainsKey(animationKey);
     }
 
+    // Shared animation clock, wrapped at an hour so trigonometric shader effects keep precision.
+    public float ElapsedSeconds => _elapsedSeconds;
+
     // Current frame for an animation. phaseOffsetSeconds lets each tile start at a different point
     // in the loop so a large water body ripples unevenly instead of flipping in lockstep. Returns
     // the animation key itself when nothing is registered, so an unregistered animation degrades to

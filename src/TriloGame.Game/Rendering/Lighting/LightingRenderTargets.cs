@@ -17,10 +17,16 @@ public sealed class LightingRenderTargets : IDisposable
     public RenderTarget2D? Scene { get; private set; }
 
     // Short casters (creatures): occlude only close behind themselves.
+    //
+    // Larger than the light buffer, and world-anchored rather than screen-anchored - see
+    // RadianceCascadeRenderer.GetOccluderMaskLayout. Full-height casters have no mask at all any
+    // more; they are resolved from the world-space tile grid inside the ray march, which is the
+    // single-representation rule that mask duplication used to break.
     public RenderTarget2D? EntityOccluder { get; private set; }
 
-    // Full-height casters (walls, radars, solid rock): occlude at any distance.
-    public RenderTarget2D? TallOccluder { get; private set; }
+    public int OccluderMaskWidth { get; private set; }
+
+    public int OccluderMaskHeight { get; private set; }
 
     public RenderTarget2D? Emissive { get; private set; }
 
@@ -28,11 +34,6 @@ public sealed class LightingRenderTargets : IDisposable
     public RenderTarget2D? WaterMask { get; private set; }
 
     public RenderTarget2D? LightingField { get; private set; }
-
-    // Previous frame's accumulated field, swapped with LightingField each frame.
-    public RenderTarget2D? LightingHistory { get; private set; }
-
-    public RenderTarget2D? LightingAccumulated { get; private set; }
 
     public RenderTarget2D[] Cascades { get; private set; } = [];
 
@@ -75,14 +76,14 @@ public sealed class LightingRenderTargets : IDisposable
         _sceneHeight = sceneHeight;
         LightWidth = lightWidth;
         LightHeight = lightHeight;
+        var maskSize = RadianceCascadeRenderer.GetOccluderMaskSize(viewportSize);
+        OccluderMaskWidth = maskSize.X;
+        OccluderMaskHeight = maskSize.Y;
         Scene = CreateTarget(sceneWidth, sceneHeight, highPrecision: false);
-        EntityOccluder = CreateTarget(lightWidth, lightHeight, highPrecision: false);
-        TallOccluder = CreateTarget(lightWidth, lightHeight, highPrecision: false);
+        EntityOccluder = CreateTarget(maskSize.X, maskSize.Y, highPrecision: false);
         WaterMask = CreateTarget(lightWidth, lightHeight, highPrecision: false);
         Emissive = CreateTarget(lightWidth, lightHeight, highPrecision: true);
         LightingField = CreateTarget(layout.LightingFieldSize.X, layout.LightingFieldSize.Y, highPrecision: true);
-        LightingAccumulated = CreateTarget(layout.LightingFieldSize.X, layout.LightingFieldSize.Y, highPrecision: true);
-        LightingHistory = CreateTarget(layout.LightingFieldSize.X, layout.LightingFieldSize.Y, highPrecision: true);
         Cascades = new RenderTarget2D[layout.CascadeCount];
         for (var index = 0; index < Cascades.Length; index++)
         {
@@ -134,11 +135,6 @@ public sealed class LightingRenderTargets : IDisposable
             RenderTargetUsage.DiscardContents);
     }
 
-    internal void SwapAccumulatedWithHistory()
-    {
-        (LightingAccumulated, LightingHistory) = (LightingHistory, LightingAccumulated);
-    }
-
     internal void SwapCascadeWithScratch(int cascadeIndex)
     {
         var scratch = CascadeScratch ?? throw new InvalidOperationException("Cascade scratch target is not initialized.");
@@ -151,12 +147,9 @@ public sealed class LightingRenderTargets : IDisposable
     {
         Scene?.Dispose();
         EntityOccluder?.Dispose();
-        TallOccluder?.Dispose();
         WaterMask?.Dispose();
         Emissive?.Dispose();
         LightingField?.Dispose();
-        LightingAccumulated?.Dispose();
-        LightingHistory?.Dispose();
         for (var index = 0; index < Cascades.Length; index++)
         {
             Cascades[index].Dispose();
@@ -166,12 +159,9 @@ public sealed class LightingRenderTargets : IDisposable
 
         Scene = null;
         EntityOccluder = null;
-        TallOccluder = null;
         WaterMask = null;
         Emissive = null;
         LightingField = null;
-        LightingAccumulated = null;
-        LightingHistory = null;
         Cascades = [];
         CascadeScratch = null;
     }
