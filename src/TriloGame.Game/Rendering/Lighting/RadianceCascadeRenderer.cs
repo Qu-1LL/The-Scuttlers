@@ -75,6 +75,19 @@ public sealed class RadianceCascadeRenderer : IDisposable
     private readonly OreLightColorPalette _colorPalette = new();
     private readonly BuildingOccluderCoverage _occluderCoverage = new();
     private readonly Texture2D _oreLightTexture;
+    private readonly Texture2D _waterNoiseTexture;
+
+    // Additive, but RGB only. The water silhouette lives in the mask's ALPHA and the disturbance
+    // discs are added into its colour channels afterwards; a plain BlendState.Additive would
+    // accumulate into alpha as well and dissolve the silhouette it is being drawn on top of.
+    private static readonly BlendState AdditiveColorOnly = new()
+    {
+        ColorSourceBlend = Blend.SourceAlpha,
+        ColorDestinationBlend = Blend.One,
+        AlphaSourceBlend = Blend.Zero,
+        AlphaDestinationBlend = Blend.One,
+        ColorWriteChannels = ColorWriteChannels.Red | ColorWriteChannels.Green | ColorWriteChannels.Blue
+    };
 
     public RadianceCascadeRenderer(GraphicsDevice graphicsDevice, Effect effect)
     {
@@ -83,6 +96,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
         _targets = new LightingRenderTargets(graphicsDevice);
         _tileGrid = new LightingTileGrid(graphicsDevice);
         _oreLightTexture = CreateOreLightTexture(64);
+        _waterNoiseTexture = CreateWaterNoiseTexture(256);
     }
 
     public LightingDebugMode DebugMode { get; private set; }
@@ -360,7 +374,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
         // tile grid inside the ray march (see SampleRaySegment), which is both stable under camera
         // motion and one whole full-screen rasterisation cheaper per frame.
         DrawEntityOccluderMask(context, worldRenderer, cave, entityOccluder, interpolationAlpha);
-        DrawWaterMask(context, worldRenderer, _targets.WaterMask!);
+        DrawWaterMask(context, worldRenderer, cave, _targets.WaterMask!, interpolationAlpha);
         DrawEmissiveMask(context, worldRenderer, emissive);
         RunCascades(context, viewportSize);
         ReduceLightingField(context.SpriteBatch);
@@ -373,6 +387,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
         _targets.Dispose();
         _tileGrid.Dispose();
         _oreLightTexture.Dispose();
+        _waterNoiseTexture.Dispose();
         _effect.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -696,10 +711,19 @@ public sealed class RadianceCascadeRenderer : IDisposable
         context.SpriteBatch.End();
     }
 
+    // Two passes into one target, carrying two unrelated things in different channels.
+    //
+    // ALPHA is the water silhouette, which the composite uses to decide what is water at all and
+    // whose edge doubles as the shoreline mask. RGB is local disturbance - a radial falloff per
+    // moving source, which the shader turns into expanding rings by feeding it to a sine (see
+    // GetWaterDisturbance). Packing them together is what avoids both a second render target and a
+    // uniform array capping how many sources can exist.
     private void DrawWaterMask(
         RenderingContext context,
         WorldSceneRenderer worldRenderer,
-        RenderTarget2D target)
+        Cave cave,
+        RenderTarget2D target,
+        float interpolationAlpha)
     {
         _graphicsDevice.SetRenderTarget(target);
         _graphicsDevice.Clear(Color.Transparent);
@@ -708,6 +732,13 @@ public sealed class RadianceCascadeRenderer : IDisposable
             blendState: BlendState.AlphaBlend,
             transformMatrix: Matrix.CreateScale(LightBufferScale));
         worldRenderer.DrawWaterMaskLayer(context, _visibleTiles);
+        context.SpriteBatch.End();
+
+        context.SpriteBatch.Begin(
+            samplerState: SamplerState.LinearClamp,
+            blendState: AdditiveColorOnly,
+            transformMatrix: Matrix.CreateScale(LightBufferScale));
+        worldRenderer.DrawWaterDisturbanceLayer(context, cave, _oreLightTexture, interpolationAlpha);
         context.SpriteBatch.End();
     }
 
@@ -865,12 +896,26 @@ public sealed class RadianceCascadeRenderer : IDisposable
         SetParameter("LightGain", OreLightSettings.LightGain);
         SetParameter("LitContribution", OreLightSettings.LitContribution);
         SetParameter("WaterMaskTexture", _targets.WaterMask!);
+        SetParameter("WaterNoiseTexture", _waterNoiseTexture);
         SetParameter("WaterSheenStrength", OreLightSettings.WaterSheenStrength);
         SetParameter("ElapsedSeconds", _animationSeconds);
-        SetParameter("WaterRippleStrength", OreLightSettings.WaterRippleStrength);
-        SetParameter("WaterRippleWavesPerTile", OreLightSettings.WaterRippleWavesPerTile);
-        SetParameter("WaterRippleSpeed", OreLightSettings.WaterRippleSpeed);
-        SetParameter("WaterRippleContrast", OreLightSettings.WaterRippleContrast);
+        SetParameter("WaterWaveStrength", OreLightSettings.WaterWaveStrength);
+        SetParameter("WaterWaveSpeed", OreLightSettings.WaterWaveSpeed);
+        SetParameter("WaterNoiseWarpTiles", OreLightSettings.WaterNoiseWarpTiles);
+        SetParameter("WaterDistortionUv", OreLightSettings.WaterDistortionUv);
+        SetParameter("WaterReflectionTiles", OreLightSettings.WaterReflectionTiles);
+        SetParameter("WaterDiffuseStrength", OreLightSettings.WaterDiffuseStrength);
+        SetParameter("WaterSpecularStrength", OreLightSettings.WaterSpecularStrength);
+        SetParameter("WaterSpecularPower", OreLightSettings.WaterSpecularPower);
+        SetParameter("WaterLightBands", OreLightSettings.WaterLightBands);
+        SetParameter("WaterRippleRingFrequency", OreLightSettings.WaterRippleRingFrequency);
+        SetParameter("WaterRippleRingSpeed", OreLightSettings.WaterRippleRingSpeed);
+        SetParameter("WaterFresnelFloor", OreLightSettings.WaterFresnelFloor);
+        SetParameter("WaterFresnelScale", OreLightSettings.WaterFresnelScale);
+        SetParameter("WaterFresnelPower", OreLightSettings.WaterFresnelPower);
+        SetParameter("WaterRefractionLoss", OreLightSettings.WaterRefractionLoss);
+        SetParameter("WaterAlbedoLow", OreLightSettings.WaterAlbedoLow);
+        SetParameter("WaterAlbedoHigh", OreLightSettings.WaterAlbedoHigh);
         SetTileGridParameters(context, viewportSize);
         // The field is a reduction of cascade 0, so the composite locates it on cascade 0's world
         // grid. Two uniforms, no UV scale, no zoom factor: field texel i holds the probe at
@@ -1073,6 +1118,90 @@ public sealed class RadianceCascadeRenderer : IDisposable
     private static int GetCascadeIndex(LightingDebugMode mode)
     {
         return (int)mode - (int)LightingDebugMode.Cascade0;
+    }
+
+    // Tileable value noise for the water surface warp.
+    //
+    // Generated rather than authored as an asset because it MUST tile: the shader scrolls it
+    // continuously in two directions, so any seam would sweep across every lake once per wrap.
+    // Building it from wrapping lattices makes that a property of the construction rather than
+    // something an artist has to get right.
+    //
+    // Three octaves, smoothstep-interpolated, on lattices whose sizes share no common factor.
+    //
+    // Two octaves on 8 and 16 was too little structure and, worse, 16 is a multiple of 8 - so the
+    // two lined up on the coarse lattice's boundaries and reinforced its grid instead of hiding it.
+    // 5, 11 and 23 are mutually coprime, so no two octaves share a cell edge anywhere in the
+    // texture. That is what stops the noise itself carrying a visible period into the water.
+    internal static Color[] CreateWaterNoiseData(int size)
+    {
+        var data = new Color[size * size];
+        // Fixed seeds, and deliberately NOT RandomUtil: drawing from the simulation's stream here
+        // would shift world generation depending on whether the renderer had initialised yet.
+        var coarse = CreateNoiseLattice(5, 1337u);
+        var medium = CreateNoiseLattice(11, 7919u);
+        var fine = CreateNoiseLattice(23, 104729u);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var u = x / (float)size;
+                var v = y / (float)size;
+                var value = (SampleNoiseLattice(coarse, 5, u, v) * 0.52f)
+                    + (SampleNoiseLattice(medium, 11, u, v) * 0.31f)
+                    + (SampleNoiseLattice(fine, 23, u, v) * 0.17f);
+                value = Math.Clamp(value, 0f, 1f);
+                data[(y * size) + x] = new Color(value, value, value, 1f);
+            }
+        }
+
+        return data;
+    }
+
+    // xorshift rather than System.Random so the texture is identical on every platform and run -
+    // a surface that differed between machines would make any visual comparison worthless.
+    private static float[] CreateNoiseLattice(int extent, uint seed)
+    {
+        var values = new float[extent * extent];
+        var state = seed;
+        for (var index = 0; index < values.Length; index++)
+        {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            values[index] = (state & 0xFFFFFF) / (float)0xFFFFFF;
+        }
+
+        return values;
+    }
+
+    // Bilinear with a smoothstep on the weights, wrapping at the lattice edge. The wrap is what
+    // makes the result tile.
+    private static float SampleNoiseLattice(float[] values, int extent, float u, float v)
+    {
+        var x = u * extent;
+        var y = v * extent;
+        var x0 = (int)MathF.Floor(x);
+        var y0 = (int)MathF.Floor(y);
+        var fx = x - x0;
+        var fy = y - y0;
+        fx = fx * fx * (3f - (2f * fx));
+        fy = fy * fy * (3f - (2f * fy));
+        var x1 = ((x0 + 1) % extent + extent) % extent;
+        var y1 = ((y0 + 1) % extent + extent) % extent;
+        x0 = ((x0 % extent) + extent) % extent;
+        y0 = ((y0 % extent) + extent) % extent;
+        return MathHelper.Lerp(
+            MathHelper.Lerp(values[(y0 * extent) + x0], values[(y0 * extent) + x1], fx),
+            MathHelper.Lerp(values[(y1 * extent) + x0], values[(y1 * extent) + x1], fx),
+            fy);
+    }
+
+    private Texture2D CreateWaterNoiseTexture(int size)
+    {
+        var texture = new Texture2D(_graphicsDevice, size, size, false, SurfaceFormat.Color);
+        texture.SetData(CreateWaterNoiseData(size));
+        return texture;
     }
 
     private Texture2D CreateOreLightTexture(int size)
