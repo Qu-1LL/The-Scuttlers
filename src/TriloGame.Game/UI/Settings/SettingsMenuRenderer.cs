@@ -23,6 +23,12 @@ public sealed class SettingsMenuRenderer
         new GumUiFrameStyle(new Color(180, 147, 92), new Color(255, 229, 170), 2, 12),
         new Color(18, 26, 34),
         GumTextStyle.Small);
+    // Selected display mode reads as an active toggle rather than a pressable button.
+    private static readonly GumUiButtonStyle DisplayModeSelectedStyle = new(
+        new GumUiFrameStyle(new Color(27, 65, 88), new Color(163, 217, 235), 2, 10),
+        new GumUiFrameStyle(new Color(34, 78, 104), new Color(196, 235, 249), 2, 10),
+        Color.White,
+        GumTextStyle.Small);
     private static readonly GumUiButtonStyle ReturnToMenuButtonStyle = new(
         new GumUiFrameStyle(new Color(61, 92, 76), new Color(129, 170, 149), 2, 12),
         new GumUiFrameStyle(new Color(82, 113, 96), new Color(185, 230, 204), 2, 12),
@@ -37,7 +43,8 @@ public sealed class SettingsMenuRenderer
         bool isOpen,
         bool isMainMenuOpen,
         int volumePercent,
-        bool musicEnabled)
+        bool musicEnabled,
+        GameDisplayMode displayMode)
     {
         if (!isMainMenuOpen)
         {
@@ -49,7 +56,7 @@ public sealed class SettingsMenuRenderer
             return;
         }
 
-        DrawPanel(gumUiRenderer, rendering, viewport, pointer, isMainMenuOpen, volumePercent, musicEnabled);
+        DrawPanel(gumUiRenderer, rendering, viewport, pointer, isMainMenuOpen, volumePercent, musicEnabled, displayMode);
     }
 
     private static void DrawTopHudButton(GumUiRenderer gumUiRenderer, Point viewport, Point pointer, bool isOpen)
@@ -73,7 +80,8 @@ public sealed class SettingsMenuRenderer
         Point pointer,
         bool isMainMenuOpen,
         int volumePercent,
-        bool musicEnabled)
+        bool musicEnabled,
+        GameDisplayMode displayMode)
     {
         var includeQuitToMainMenu = !isMainMenuOpen;
         var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport, includeQuitToMainMenu);
@@ -103,6 +111,7 @@ public sealed class SettingsMenuRenderer
         DrawChromeButton(gumUiRenderer, volumeUpBounds, volumeUpBounds.Contains(pointer), "+", GumTextStyle.Ui);
         DrawVolumeBar(gumUiRenderer, volumeBarBounds, volumeFillBounds, volumeBarBounds.Contains(pointer));
         DrawMusicToggle(gumUiRenderer, musicToggleBounds, musicCheckboxBounds, musicToggleBounds.Contains(pointer), musicEnabled);
+        DrawDisplayModeRow(gumUiRenderer, panelBounds, pointer, displayMode);
         DrawTrilodexButton(gumUiRenderer, trilodexBounds, trilodexBounds.Contains(pointer));
 
         if (includeQuitToMainMenu)
@@ -160,6 +169,37 @@ public sealed class SettingsMenuRenderer
             "Music",
             Color.White,
             GumTextStyle.Small);
+    }
+
+    private static void DrawDisplayModeRow(
+        GumUiRenderer gumUiRenderer,
+        Rectangle panelBounds,
+        Point pointer,
+        GameDisplayMode displayMode)
+    {
+        GumUiText.AddFittedLeft(
+            gumUiRenderer,
+            SettingsMenuLayout.GetDisplayModeLabelBounds(panelBounds),
+            "Display",
+            new Color(216, 232, 239),
+            GumTextStyle.Small);
+
+        var fullscreenBounds = SettingsMenuLayout.GetFullscreenButtonBounds(panelBounds);
+        var windowedBounds = SettingsMenuLayout.GetWindowedButtonBounds(panelBounds);
+        var isFullscreen = displayMode == GameDisplayMode.Fullscreen;
+
+        GumUiChrome.DrawButton(
+            gumUiRenderer,
+            fullscreenBounds,
+            "Fullscreen",
+            fullscreenBounds.Contains(pointer),
+            isFullscreen ? DisplayModeSelectedStyle : ChromeButtonStyle with { TextStyle = GumTextStyle.Small });
+        GumUiChrome.DrawButton(
+            gumUiRenderer,
+            windowedBounds,
+            "Windowed",
+            windowedBounds.Contains(pointer),
+            isFullscreen ? ChromeButtonStyle with { TextStyle = GumTextStyle.Small } : DisplayModeSelectedStyle);
     }
 
     private static void DrawTrilodexButton(GumUiRenderer gumUiRenderer, Rectangle bounds, bool hovered)

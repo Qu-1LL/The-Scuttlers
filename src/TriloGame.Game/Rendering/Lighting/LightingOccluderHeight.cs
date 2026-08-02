@@ -35,4 +35,21 @@ public static class LightingOccluderHeightExtensions
     {
         return height != LightingOccluderHeight.Flat;
     }
+
+    // Fraction of light this material passes per tile of thickness. 1 is clear.
+    //
+    // This is what makes Tall and Impassable different classes rather than two names for the same
+    // thing. They block at the same distances - both are full height - but a built wall is a panel
+    // with gaps and solid rock is metres of stone, so they should not attenuate identically.
+    public static float GetLightTransmission(this LightingOccluderHeight height)
+    {
+        return height switch
+        {
+            LightingOccluderHeight.Tall => OreLightSettings.WallTransmission,
+            LightingOccluderHeight.Impassable => OreLightSettings.RockTransmission,
+            // Flat and Short are not full-height blockers, so they never attenuate a marched ray.
+            // Short casters are resolved in the scene layer instead - see DrawCastShadowLayer.
+            _ => 1f
+        };
+    }
 }

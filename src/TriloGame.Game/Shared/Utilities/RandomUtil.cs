@@ -2,9 +2,19 @@ namespace TriloGame.Game.Shared.Utilities;
 
 public static class RandomUtil
 {
-    private static readonly Random SharedRandom = new();
+    private static Random _shared = new();
 
-    public static Random Shared => SharedRandom;
+    public static Random Shared => _shared;
+
+    // Replace the shared generator with a seeded one, so a session can be reproduced exactly.
+    //
+    // Diagnostics only. Comparing two lighting captures requires both runs to produce the same cave,
+    // the same colony and the same creature behaviour; without that, every number measured in one run
+    // is confounded against the next by a different world.
+    public static void Reseed(int seed)
+    {
+        _shared = new Random(seed);
+    }
 
     // Draw a unit-interval sample from the shared RNG.
     public static double NextDouble() => Shared.NextDouble();

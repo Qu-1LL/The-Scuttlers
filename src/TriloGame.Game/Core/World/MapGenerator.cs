@@ -48,7 +48,10 @@ public sealed partial class MapGenerator
     {
         _random = seed.HasValue
             ? new XorShift64(seed.Value)
-            : new XorShift64();
+            // Derived from the shared generator rather than self-seeding, so RandomUtil.Reseed makes
+            // world generation reproducible along with the rest of the session. (|1 because
+            // XorShift64 degenerates on a zero state.)
+            : new XorShift64((ulong)RandomUtil.Shared.NextInt64() | 1UL);
     }
 
     public void Generate(Cave cave, WorldGenerationMethod method)

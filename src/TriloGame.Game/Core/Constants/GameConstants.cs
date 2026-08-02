@@ -23,8 +23,21 @@ public static class GameConstants
     public const float ExplosionShakeDecayPerSecond = 2.75f;
 
     public const float DefaultCameraScale = 80f / TileConstants.TileSize;
-    public const float MinScale = DefaultCameraScale * 0.25f;
-    public const float MaxScale = DefaultCameraScale * 4f;
+    // Zoom is a quantised ladder of DefaultCameraScale * ZoomStepRatio^step rather than a live
+    // scale the wheel keeps multiplying. Repeated multiplication drifts off the ladder and the
+    // clamp at either end swallowed steps, so zooming out and back in never returned to the level
+    // you started from. The step index makes every level exact and the sequence reversible.
+    public const float ZoomStepRatio = 4f / 3f;
+    public const int MaxZoomSteps = 5;
+    // The outermost rungs, written as exact ZoomStepRatio^MaxZoomSteps ratios (4^5 / 3^5). The
+    // limits have to land ON the ladder: bounds that fall between rungs make the last step short,
+    // and a short step is not undone by a step in the opposite direction.
+    public const float MinScale = DefaultCameraScale * (243f / 1024f);
+    public const float MaxScale = DefaultCameraScale * (1024f / 243f);
+    // Approach rate of the eased zoom, in e-folds per second. High enough that a wheel notch feels
+    // immediate, low enough that the scale moves continuously instead of snapping - a snap resets
+    // the lighting's temporal history in one frame, which is what made each notch flash.
+    public const float ZoomApproachRatePerSecond = 18f;
     public const float KeyboardPanSpeedPixelsPerSecond = 800f;
     public const float DragThresholdPixels = 10f;
     public const double DoubleClickThresholdMs = 300d;

@@ -11,13 +11,21 @@ public enum SettingsMenuInteractionOutcome
     VolumeChanged,
     MusicToggled,
     RequestedOpenTrilodex,
-    RequestedReturnToMainMenu
+    RequestedReturnToMainMenu,
+    DisplayModeChanged
+}
+
+public enum GameDisplayMode
+{
+    Windowed,
+    Fullscreen
 }
 
 public readonly record struct SettingsMenuInteractionResult(
     SettingsMenuInteractionOutcome Outcome,
     int VolumePercent = 0,
-    bool MusicEnabled = true)
+    bool MusicEnabled = true,
+    GameDisplayMode DisplayMode = GameDisplayMode.Windowed)
 {
     public bool Handled => Outcome != SettingsMenuInteractionOutcome.None;
 }
@@ -136,6 +144,24 @@ public sealed class SettingsMenuController
                 SettingsMenuInteractionOutcome.MusicToggled,
                 volumePercent,
                 !musicEnabled);
+        }
+
+        if (SettingsMenuLayout.GetFullscreenButtonBounds(panelBounds).Contains(point))
+        {
+            return new SettingsMenuInteractionResult(
+                SettingsMenuInteractionOutcome.DisplayModeChanged,
+                volumePercent,
+                musicEnabled,
+                GameDisplayMode.Fullscreen);
+        }
+
+        if (SettingsMenuLayout.GetWindowedButtonBounds(panelBounds).Contains(point))
+        {
+            return new SettingsMenuInteractionResult(
+                SettingsMenuInteractionOutcome.DisplayModeChanged,
+                volumePercent,
+                musicEnabled,
+                GameDisplayMode.Windowed);
         }
 
         if (trilodexBounds.Contains(point))

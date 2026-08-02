@@ -5,8 +5,14 @@ namespace TriloGame.Game.Rendering.Lighting;
 
 public static class LightingTileClassifier
 {
-    // Height of whatever occupies this tile, which decides how long a shadow it casts.
-    public static LightingOccluderHeight GetOccluderHeight(Tile tile)
+    // Height of the TERRAIN alone, ignoring anything built on the tile.
+    //
+    // The tile grid needs this separately because a building's occlusion is applied in its own pass,
+    // weighted by how much of each cell its sprite actually covers. Folding the building in here as
+    // well stamps its whole rectangular footprint first, and since the two are combined by taking
+    // whichever is more opaque, the rectangle wins and the coverage weighting does nothing at all -
+    // which is precisely why the radar kept its square shadow after coverage was added.
+    public static LightingOccluderHeight GetTerrainOccluderHeight(Tile tile)
     {
         // Walls are the canonical full-height structure.
         if (string.Equals(tile.Base, "wall", StringComparison.Ordinal))
@@ -21,13 +27,22 @@ public static class LightingTileClassifier
             return LightingOccluderHeight.Impassable;
         }
 
-        if (tile.Built is { } building)
-        {
-            return GetBuildingOccluderHeight(building);
-        }
-
         // Bare floor.
         return LightingOccluderHeight.Flat;
+    }
+
+    // Height of whatever occupies this tile, which decides how long a shadow it casts.
+    public static LightingOccluderHeight GetOccluderHeight(Tile tile)
+    {
+        var terrain = GetTerrainOccluderHeight(tile);
+        if (terrain != LightingOccluderHeight.Flat)
+        {
+            return terrain;
+        }
+
+        return tile.Built is { } building
+            ? GetBuildingOccluderHeight(building)
+            : LightingOccluderHeight.Flat;
     }
 
     // Only genuinely tall structures occlude. Everything else - farms, storage, posts, barracks,
