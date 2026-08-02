@@ -2,7 +2,7 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Pathfinding;
 
-public sealed class BuildingOwnershipFieldTests
+public sealed class BuildingOwnershipLookupTests
 {
     [Fact]
     public void NearestBuildingLookup_ReturnsPerTypeDictionaryForTile()
@@ -72,7 +72,7 @@ public sealed class BuildingOwnershipFieldTests
     }
 
     [Fact]
-    public void BarracksOwnershipField_DeactivatesWhenNoBarracksExist()
+    public void BarracksOwnershipLookup_ReturnsNoOwnerWhenNoBarracksExist()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 14, new GridPoint(8, 0));
         var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(8, 6));
@@ -82,12 +82,9 @@ public sealed class BuildingOwnershipFieldTests
 
         Assert.True(cave.RemoveBuilding(barracks));
 
-        var field = cave.RefreshBarracksOwnershipField();
         var ownership = cave.GetBarracksOwnership(probeTile);
         var nearestBuildings = cave.GetNearestBuildings(probeTile);
 
-        Assert.Null(field.Cave);
-        Assert.Empty(field.GetOwnershipField(false));
         Assert.False(ownership.IsOwned);
         Assert.Null(ownership.Building);
         Assert.Equal(int.MaxValue, ownership.Distance);

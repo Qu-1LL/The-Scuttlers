@@ -7,6 +7,7 @@ namespace TriloGame.Game.Core.Combat;
 // Fighters follow director assignments; they do not select or expose tactical subroles.
 internal sealed class CombatAgentController
 {
+    private const int DirectPursuitMaximumDistance = WorldUnits.UnitsPerTile * 8;
     private int _trackedTargetId;
     private GridPoint? _trackedTargetCell;
 
@@ -143,13 +144,12 @@ internal sealed class CombatAgentController
         _trackedTargetCell = target.CurrentCell;
     }
 
-    // Replace a stale pursuit route without discarding the fighter's current movement momentum.
+    // Use the shared enemy field for travel and a direct final approach for exact melee spacing.
     private static bool StartPursuitRoute(Trilobite fighter, Enemy target)
     {
         var engagementPoint = CombatWorld.GetMeleeEngagementPoint(fighter, target);
-        var started = fighter.HasActiveMovement
-            ? fighter.TryReplaceActiveCombatRoute(engagementPoint)
-            : fighter.NavigateTo(engagementPoint, clearExisting: true);
+        var started = fighter.TryBeginOrReplaceDirectCombatRoute(engagementPoint, DirectPursuitMaximumDistance) ||
+                      fighter.TryBeginOrContinueSharedFieldRoute("enemy");
         if (started && fighter.HasActiveMovement)
         {
             fighter.SetMovementCohort(new MovementCohort(

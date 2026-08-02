@@ -363,14 +363,19 @@ public sealed class MenuControllerTests
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
         var miningPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
         var algaeFarm = TestWorldFactory.BuildAlgaeFarm(cave, session, new GridPoint(12, 6));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
         var firstMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(2, 6), "Miner A", "miner");
         var secondMiner = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(3, 6), "Miner B", "miner");
         var farmer = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(12, 6), "Farmer", "farmer");
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(18, 5), "Fighter", "fighter");
         var storage = new Storage(session);
 
         miningPost.Assign(firstMiner, null);
         miningPost.Assign(secondMiner, null);
         Assert.True(algaeFarm.Assign(farmer));
+
+        fighter.SetAssignedBuilding(turret);
+        Assert.True(turret.Assign(fighter));
 
         var getAssignmentCount = typeof(MenuController).GetMethod(
             "GetSelectedBuildingAssignmentCount",
@@ -379,6 +384,7 @@ public sealed class MenuControllerTests
         Assert.NotNull(getAssignmentCount);
         Assert.Equal(2, (int)getAssignmentCount!.Invoke(null, [miningPost])!);
         Assert.Equal(1, (int)getAssignmentCount.Invoke(null, [algaeFarm])!);
+        Assert.Equal(1, (int)getAssignmentCount.Invoke(null, [turret])!);
         Assert.Equal(0, (int)getAssignmentCount.Invoke(null, [storage])!);
     }
 

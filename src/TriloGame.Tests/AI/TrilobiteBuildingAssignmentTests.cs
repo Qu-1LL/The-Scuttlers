@@ -2,202 +2,15 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
-using TriloGame.Game.Shared.Diagnostics;
+using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.AI;
 
 public sealed class TrilobiteBuildingAssignmentTests
 {
-    [Fact]
-    public void BuilderAssignment_UsesBuildFirstBeforeCreationOrder()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 14, new GridPoint(1, 1));
-        var firstScaffold = new Scaffolding(session, new Storage(session));
-        var priorityScaffold = new Scaffolding(session, new Storage(session));
-        Assert.True(cave.Build(firstScaffold, new GridPoint(8, 6)));
-        Assert.True(cave.Build(priorityScaffold, new GridPoint(18, 6)));
-
-        var firstRequirement = firstScaffold.GetRemainingRequirement(ResourceName.Sandstone);
-        var priorityRequirement = priorityScaffold.GetRemainingRequirement(ResourceName.Sandstone);
-        Assert.Equal(firstRequirement, firstScaffold.Deposit(ResourceName.Sandstone, firstRequirement));
-        Assert.Equal(priorityRequirement, priorityScaffold.Deposit(ResourceName.Sandstone, priorityRequirement));
-        Assert.True(priorityScaffold.ToggleBuildFirst());
-
-        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
-
-        Assert.Same(priorityScaffold, builder.EnsureBuilderAssignment(true));
-        Assert.Contains(builder, priorityScaffold.GetAssignments());
-        Assert.DoesNotContain(builder, firstScaffold.GetAssignments());
-    }
-
-    [Fact]
-    public void BuilderSupplySelection_UsesNearestCompatibleStorage()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(1, 1));
-        var nearStorage = new Storage(session);
-        var farStorage = new Storage(session);
-        Assert.True(cave.Build(nearStorage, new GridPoint(10, 6)));
-        Assert.True(cave.Build(farStorage, new GridPoint(24, 6)));
-        Assert.Equal(10, nearStorage.Deposit(ResourceName.Sandstone, 10));
-        Assert.Equal(10, farStorage.Deposit(ResourceName.Sandstone, 10));
-
-        var scaffold = new Scaffolding(
-            session,
-            new Storage(session),
-            [ResourceRequirement.ForResource(ResourceName.Sandstone, 10)]);
-        Assert.True(cave.Build(scaffold, new GridPoint(16, 10)));
-        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(8, 10), "Builder", "builder");
-
-        var supply = builder.GetBuilderSupplyOptionForScaffold(scaffold);
-
-        Assert.NotNull(supply);
-        Assert.Same(nearStorage, supply.Value.SourceBuilding);
-        Assert.Equal(ResourceName.Sandstone, supply.Value.ResourceType);
-        Assert.Equal(builder.InventoryCapacity, supply.Value.Amount);
-    }
-
-    [Fact]
-    public void BuilderAssignment_UsesCarryCapacityToLimitScaffoldStaffing()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(1, 1));
-        var scaffold = new Scaffolding(
-            session,
-            new Storage(session),
-            [ResourceRequirement.ForResource(ResourceName.Sandstone, 40)]);
-        Assert.True(cave.Build(scaffold, new GridPoint(18, 6)));
-
-        var builders = new List<Trilobite>(9);
-        for (var index = 0; index < builders.Capacity; index++)
-        {
-            builders.Add(TestWorldFactory.SpawnTrilobite(
-                cave,
-                session,
-                new GridPoint(4 + index, 10),
-                $"Builder {index}",
-                "builder"));
-        }
-
-        var requiredBuilderCount = (40 + builders[0].InventoryCapacity - 1) / builders[0].InventoryCapacity;
-        Assert.Equal(requiredBuilderCount, scaffold.GetRequiredBuilderCount(builders[0].InventoryCapacity));
-        for (var index = 0; index < requiredBuilderCount; index++)
-        {
-            Assert.True(scaffold.CanAssignBuilder(builders[index], builders[index].InventoryCapacity));
-            scaffold.Assign(builders[index]);
-        }
-
-        Assert.False(scaffold.CanAssignBuilder(builders[requiredBuilderCount], builders[requiredBuilderCount].InventoryCapacity));
-        Assert.True(scaffold.CanAssignBuilder(builders[0], builders[0].InventoryCapacity));
-    }
-
-    [Fact]
-    public void BuilderLongApproach_UsesBuildingFieldAndExplicitSourceMovementState()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(34, 16, new GridPoint(1, 1));
-        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 6));
-        Assert.Equal(10, post.Deposit(ResourceName.Sandstone, 10));
-        var scaffold = new Scaffolding(
-            session,
-            new Storage(session),
-            [ResourceRequirement.ForResource(ResourceName.Sandstone, 10)]);
-        Assert.True(cave.Build(scaffold, new GridPoint(24, 6)));
-        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(10, 12), "Builder", "builder");
-
-        NavigationInstrumentation.BeginTick();
-        Assert.True(builder.RunRoleState(BuilderState.Idle));
-        var navigation = NavigationInstrumentation.CompleteTick();
-
-        Assert.Equal(BuilderState.MoveToSource, builder.BuilderState);
-        Assert.True(builder.HasActiveMovement);
-        Assert.NotEmpty(builder.DesiredRoute);
-        Assert.Equal(0, navigation.PointPathRequestCount);
-    }
-
-    [Fact]
-    public void BuilderWithoutMaterials_RetainsSharedIdleMovementAndResumesWhenStockArrives()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 16, new GridPoint(1, 1));
-        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 6));
-        var scaffold = new Scaffolding(
-            session,
-            new Storage(session),
-            [ResourceRequirement.ForResource(ResourceName.Sandstone, 10)]);
-        Assert.True(cave.Build(scaffold, new GridPoint(22, 6)));
-        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(12, 11), "Waiting Builder", "builder");
-        builder.RestartBehavior();
-
-        for (var tick = 0; tick < InteractionZone.ReservationLeaseTicks && builder.BuilderState != BuilderState.Idle; tick++)
-        {
-            TickRunner.RunTick(session);
-        }
-
-        Assert.Equal(BuilderState.Idle, builder.BuilderState);
-
-        var startedIdleMove = false;
-        for (var tick = 0; tick < 120; tick++)
-        {
-            TickRunner.RunTick(session);
-            startedIdleMove |= builder.MovementCohort.GoalKind == MovementGoalKind.Idle ||
-                               builder.IdleState == IdleBehaviorState.WanderNearAnchor;
-        }
-
-        Assert.True(startedIdleMove);
-
-        Assert.Equal(10, post.Deposit(ResourceName.Sandstone, 10));
-        for (var tick = 0; tick < 300 && cave.GetScaffoldingList().Contains(scaffold); tick++)
-        {
-            TickRunner.RunTick(session);
-        }
-
-        Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
-        Assert.Contains(cave.GetBuildingList().OfType<Storage>(), storage => storage.Location == new GridPoint(22, 6));
-    }
-
-    [Fact]
-    public void MultipleBuilders_CompleteScaffoldWithoutReturningToSourcePostLoop()
-    {
-        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(42, 18, new GridPoint(1, 1));
-        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(5, 6));
-        Assert.Equal(40, post.Deposit(ResourceName.Sandstone, 40));
-        var scaffold = new Scaffolding(
-            session,
-            new Storage(session),
-            [ResourceRequirement.ForResource(ResourceName.Sandstone, 40)]);
-        var scaffoldLocation = new GridPoint(28, 6);
-        Assert.True(cave.Build(scaffold, scaffoldLocation));
-
-        var builders = new List<Trilobite>(4);
-        for (var index = 0; index < 4; index++)
-        {
-            var builder = TestWorldFactory.SpawnTrilobite(
-                cave,
-                session,
-                new GridPoint(10 + index, 11),
-                $"Builder {index}",
-                "builder");
-            builder.RestartBehavior();
-            builders.Add(builder);
-        }
-
-        for (var tick = 0; tick < 600 && cave.GetScaffoldingList().Contains(scaffold); tick++)
-        {
-            TickRunner.RunTick(session);
-        }
-
-        Assert.DoesNotContain(scaffold, cave.GetScaffoldingList());
-        Assert.Contains(cave.GetBuildingList().OfType<Storage>(), storage => storage.Location == scaffoldLocation);
-        foreach (var builder in builders)
-        {
-            Assert.False(builder.HasInventory(), $"{builder.Name} retained inventory in {builder.BuilderState}.");
-            Assert.NotEqual(BuilderState.WithdrawMaterial, builder.BuilderState);
-            Assert.NotEqual(BuilderState.DepositMaterial, builder.BuilderState);
-            Assert.NotSame(post, builder.BuilderSourceBuilding);
-        }
-    }
-
     [Fact]
     public void FarmerSelection_FallsBackToAdjacentOpenFarm_WhenNearestFarmIsFull()
     {
@@ -317,6 +130,57 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void NewFighterStation_WakesIdleFightersToSelectAndAssign()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
+        var firstFighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Fighter A", "fighter");
+        var secondFighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 8), "Fighter B", "fighter");
+
+        Assert.Equal(FighterState.Idle, firstFighter.FighterState);
+        Assert.Equal(FighterState.Idle, secondFighter.FighterState);
+
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+
+        Assert.Equal(FighterState.SelectStation, firstFighter.FighterState);
+        Assert.Equal(FighterState.SelectStation, secondFighter.FighterState);
+        Assert.True(firstFighter.RunRole());
+        Assert.Same(turret, firstFighter.GetAssignedFighterStation());
+
+        var guard = 120;
+        while (!firstFighter.IsHostedOnBuilding(turret) && guard-- > 0)
+        {
+            firstFighter.Move();
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        Assert.True(firstFighter.IsHostedOnBuilding(turret));
+    }
+
+    [Fact]
+    public void FighterStartingAfterTurretExists_SelectsAndStationsAtIt()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 12, new GridPoint(12, 0));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Fighter", "fighter");
+
+        Assert.Equal(FighterState.Idle, fighter.FighterState);
+        Assert.True(fighter.Move() is true);
+        Assert.Equal(FighterState.SelectStation, fighter.FighterState);
+        Assert.Same(turret, fighter.GetAssignedFighterStation());
+
+        var guard = 120;
+        while (fighter.HasActiveMovement && guard-- > 0)
+        {
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        fighter.Move();
+        Assert.True(fighter.IsHostedOnBuilding(turret));
+    }
+
+    [Fact]
     public void FighterSelection_FallsBackToBarracks_WhenAllTurretsAreFull()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(13, 0));
@@ -333,6 +197,194 @@ public sealed class TrilobiteBuildingAssignmentTests
         var selectedStation = fallbackFighter.SelectFighterStation();
 
         Assert.Same(barracks, selectedStation);
+    }
+
+    [Fact]
+    public void FighterSelection_FillsTurretSlotsBeforeAssigningBarracks()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(48, 18, new GridPoint(22, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(38, 8));
+        var firstTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(16, 8));
+        var secondTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(26, 8));
+        var fighters = new List<Trilobite>();
+
+        for (var index = 0; index < 5; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(4 + (index * 2), 14),
+                $"Fighter {index}",
+                "fighter");
+            fighters.Add(fighter);
+            Assert.True(fighter.RunRoleState(FighterState.SelectStation));
+        }
+
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[firstTurret]);
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[secondTurret]);
+        Assert.Equal(1, cave.GetBarracksAssignmentCounts()[barracks]);
+        Assert.Same(barracks, fighters[4].GetAssignedFighterStation());
+    }
+
+    [Fact]
+    public void BarracksAssignments_AreUnlimitedAndSplitEvenly()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(64, 24, new GridPoint(30, 0));
+        var leftBarracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(8, 8));
+        var rightBarracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(48, 8));
+        var fighters = new List<Trilobite>();
+
+        for (var index = 0; index < 21; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + ((index % 16) * 3), 18 + (index / 16)),
+                $"Fighter {index}",
+                "fighter");
+            fighters.Add(fighter);
+            Assert.True(fighter.RunRoleState(FighterState.SelectStation));
+        }
+
+        var leftCount = cave.GetBarracksAssignmentCounts()[leftBarracks];
+        var rightCount = cave.GetBarracksAssignmentCounts()[rightBarracks];
+        Assert.Equal(int.MaxValue, leftBarracks.Capacity);
+        Assert.Equal(21, leftCount + rightCount);
+        Assert.True(Math.Abs(leftCount - rightCount) <= 1);
+        Assert.All(fighters, fighter => Assert.NotNull(fighter.GetAssignedBarracks()));
+    }
+
+    [Fact]
+    public void FighterSelection_KeepsTurretAssignmentWhileAsyncFieldIsPending()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(14, 0));
+        using var maintenance = new BuildingBfsFieldMaintenanceSystem();
+        maintenance.Attach(session);
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(24, 6));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        turret.ClearPublishedNavigationField();
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(4, 6), "Fighter", "fighter");
+
+        Assert.False(fighter.RunRoleState(FighterState.SelectStation));
+
+        Assert.Equal(FighterState.SelectStation, fighter.FighterState);
+        Assert.Same(turret, fighter.GetAssignedFighterStation());
+        Assert.True(turret.IsAssigned(fighter));
+        Assert.False(barracks.IsAssigned(fighter));
+    }
+
+    [Fact]
+    public void BarracksAssignments_SpreadAcrossLeastOccupiedStationSlots()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(14, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(14, 6));
+        var slotCounts = new int[barracks.Stations.Count];
+
+        for (var index = 0; index < 17; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + (index % 12), 13),
+                $"Fighter {index}",
+                "fighter");
+            fighter.SetAssignedBuilding(barracks);
+            Assert.True(barracks.Assign(fighter));
+            slotCounts[barracks.GetAssignedStationIndex(fighter)!.Value]++;
+        }
+
+        Assert.Equal(3, slotCounts.Max());
+        Assert.Equal(2, slotCounts.Min());
+    }
+
+    [Fact]
+    public void ArrivingBarracksFighter_WalksToItsLeastOccupiedAssignedStationSlot()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(14, 0));
+        var barracks = TestWorldFactory.BuildBarracks(cave, session, new GridPoint(14, 6));
+        var targetSlot = new GridPoint(14, 6);
+
+        for (var index = 0; index < barracks.Stations.Count; index++)
+        {
+            var fighter = TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + index, 13),
+                $"Reserved {index}",
+                "fighter");
+            fighter.SetAssignedBuilding(barracks);
+            Assert.True(barracks.Assign(fighter));
+        }
+
+        var arrivingFighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(16, 8), "Arriving", "fighter");
+        arrivingFighter.SetAssignedBuilding(barracks);
+        Assert.True(barracks.Assign(arrivingFighter));
+        Assert.Equal(0, barracks.GetAssignedStationIndex(arrivingFighter));
+
+        Assert.False(arrivingFighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
+        var guard = 20;
+        while (arrivingFighter.Activity != CreatureActivity.Stationed && guard-- > 0)
+        {
+            cave.AdvanceCreatureMovement();
+            arrivingFighter.Move();
+        }
+
+        Assert.True(guard > 0);
+        Assert.Equal(targetSlot, arrivingFighter.Location);
+        Assert.Equal(CreatureActivity.Stationed, arrivingFighter.Activity);
+    }
+
+    [Fact]
+    public void FighterAtTurretApproach_DocksEvenWhenDangerIsActive()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 14, new GridPoint(14, 0));
+        var turret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(18, 6));
+        var fighter = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(18, 5), "Fighter", "fighter");
+        fighter.SetAssignedBuilding(turret);
+        Assert.True(turret.Assign(fighter));
+        session.Danger = true;
+
+        fighter.Move();
+
+        Assert.True(fighter.IsHostedOnBuilding(turret));
+        Assert.False(fighter.IsLocomotionEnabled);
+    }
+
+    [Fact]
+    public void Fighters_FillAndDockEachTurretWhenMultipleTurretsExist()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(56, 20, new GridPoint(26, 0));
+        var firstTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(12, 6));
+        var secondTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(26, 6));
+        var thirdTurret = TestWorldFactory.BuildTurret(cave, session, new GridPoint(40, 6));
+        var fighters = new List<Trilobite>();
+
+        for (var index = 0; index < 6; index++)
+        {
+            fighters.Add(TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(2 + (index * 2), 14),
+                $"Fighter {index}",
+                "fighter"));
+        }
+
+        var guard = 180;
+        while (fighters.Any(fighter => !fighter.IsHostedOnBuilding()) && guard-- > 0)
+        {
+            for (var index = 0; index < fighters.Count; index++)
+            {
+                fighters[index].Move();
+            }
+
+            cave.AdvanceCreatureMovement();
+        }
+
+        Assert.True(guard > 0);
+        Assert.All(fighters, fighter => Assert.True(fighter.IsHostedOnBuilding()));
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[firstTurret]);
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[secondTurret]);
+        Assert.Equal(2, cave.GetTurretAssignmentCounts()[thirdTurret]);
     }
 
     [Fact]
@@ -586,6 +638,30 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void NewScaffolding_WakesOnlyBuildersWithoutActiveScaffoldWork()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(1, 1));
+        var waitingBuilder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 8), "Waiting Builder", "builder");
+        var activeScaffold = new Scaffolding(session, new SoilPatch(session));
+
+        Assert.True(cave.Build(activeScaffold, new GridPoint(12, 6)));
+        waitingBuilder.RunRoleState(BuilderState.WaitForMaterials);
+        Assert.Equal(BuilderState.Idle, waitingBuilder.BuilderState);
+
+        var activeBuilder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(10, 8), "Active Builder", "builder");
+        activeBuilder.SetAssignedBuilding(activeScaffold);
+        activeScaffold.Assign(activeBuilder);
+        Assert.Contains(activeBuilder, activeScaffold.GetAssignments());
+
+        var newScaffold = new Scaffolding(session, new SoilPatch(session));
+        Assert.True(cave.Build(newScaffold, new GridPoint(20, 6)));
+
+        Assert.Equal(BuilderState.SelectScaffold, waitingBuilder.BuilderState);
+        Assert.Same(activeScaffold, activeBuilder.GetAssignedScaffolding());
+        Assert.Equal(BuilderState.Idle, activeBuilder.BuilderState);
+    }
+
+    [Fact]
     public void BuilderBuildsSoilPatchUsingOrganicResourceFromReachableMiningPost()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
@@ -606,6 +682,68 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == scaffoldLocation);
         Assert.Equal(0, post.GetInventory().GetValueOrDefault(ResourceName.Chitinstone, 0));
         Assert.False(builder.HasInventory());
+    }
+
+    [Fact]
+    public void BuilderCompletesSequentialScaffoldsUsingStorageMaterials()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(1, 1));
+        var storage = new Storage(session);
+        Assert.True(cave.Build(storage, new GridPoint(6, 6)));
+        Assert.Equal(2, storage.Deposit(ResourceName.Chitinstone, 2));
+
+        var recipe = new[] { ResourceRequirement.ForResource(ResourceName.Chitinstone, 1) };
+        var firstLocation = new GridPoint(12, 6);
+        var secondLocation = new GridPoint(20, 6);
+        var firstScaffold = new Scaffolding(session, new SoilPatch(session), recipe);
+        var secondScaffold = new Scaffolding(session, new SoilPatch(session), recipe);
+        Assert.True(cave.Build(firstScaffold, firstLocation));
+        Assert.True(cave.Build(secondScaffold, secondLocation));
+
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(9, 6), "Builder", "builder");
+        builder.RestartBehavior();
+
+        for (var tick = 0; tick < 240 && cave.GetSoilPatches().Count < 2; tick++)
+        {
+            TickRunner.RunTick(session);
+        }
+
+        Assert.DoesNotContain(firstScaffold, cave.GetScaffoldingList());
+        Assert.DoesNotContain(secondScaffold, cave.GetScaffoldingList());
+        Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == firstLocation);
+        Assert.Contains(cave.GetSoilPatches(), patch => patch.Location == secondLocation);
+        Assert.Equal(0, storage.GetStoredAmount(ResourceName.Chitinstone));
+        Assert.Equal(BuilderState.SelectScaffold, builder.BuilderState);
+    }
+
+    [Fact]
+    public void BuilderKeepsCarriedMaterialsWhileScaffoldFieldIsWaitingToPublish()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        using var maintenance = new BuildingBfsFieldMaintenanceSystem();
+        maintenance.Attach(session);
+
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(7, 6));
+        Assert.Equal(5, post.Deposit(ResourceName.Sandstone, 5));
+
+        var scaffold = new Scaffolding(session, new Storage(session));
+        Assert.True(cave.Build(scaffold, new GridPoint(14, 6)));
+
+        var postTile = post.TileArray.First(tile => tile.CreatureFits());
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, postTile.Coordinates, "Builder", "builder");
+        builder.SetAssignedBuilding(scaffold);
+        scaffold.Assign(builder);
+        Assert.Equal(5, builder.AddToInventory(ResourceName.Sandstone, 5));
+
+        scaffold.ClearPublishedNavigationField();
+
+        Assert.False(builder.NavigateToBuilding(scaffold));
+        Assert.Equal(5, builder.Inventory.Amount);
+
+        builder.Move();
+
+        Assert.Equal(5, builder.Inventory.Amount);
+        Assert.Equal(5, post.GetStoredAmount(ResourceName.Sandstone));
     }
 
     [Fact]

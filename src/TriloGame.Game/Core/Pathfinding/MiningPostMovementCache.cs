@@ -1,10 +1,8 @@
-using TriloGame.Game.Core.Buildings;
-using TriloGame.Game.Core.World;
-
 namespace TriloGame.Game.Core.Pathfinding;
 
 public sealed class MiningPostMovementTelemetry
 {
+    private readonly HashSet<int> _accessedBuildingIds = [];
     public int CacheHits { get; private set; }
 
     public int CacheMisses { get; private set; }
@@ -25,6 +23,20 @@ public sealed class MiningPostMovementTelemetry
 
     internal void RecordSelectionGraphBfs() => SelectionGraphBfsCount++;
 
+    // Compatibility telemetry now tracks the general building field rather than a mining-post cache.
+    internal void RecordMovementFieldAccess(int buildingRuntimeId)
+    {
+        if (_accessedBuildingIds.Add(buildingRuntimeId))
+        {
+            RecordCacheMiss();
+            RecordCacheRebuild();
+        }
+        else
+        {
+            RecordCacheHit();
+        }
+    }
+
     public void Reset()
     {
         CacheHits = 0;
@@ -33,23 +45,4 @@ public sealed class MiningPostMovementTelemetry
         StalePathInvalidationCount = 0;
         SelectionGraphBfsCount = 0;
     }
-}
-
-internal sealed class MiningPostMovementCacheEntry
-{
-    public MiningPostMovementCacheEntry(MiningPost post, Cave cave)
-    {
-        Field = new BfsField(post.Name, "building", cave, post);
-        TopologyVersion = -1;
-        ReachabilityVersion = -1;
-        ForceRebuild = true;
-    }
-
-    public BfsField Field { get; }
-
-    public long TopologyVersion { get; set; }
-
-    public long ReachabilityVersion { get; set; }
-
-    public bool ForceRebuild { get; set; }
 }

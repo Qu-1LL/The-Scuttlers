@@ -1,4 +1,6 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
@@ -160,6 +162,172 @@ internal static class CavePathfinder
         return null;
     }
 
+    // Search the post target index once and retain the route that selected the mineable.
+    public static Cave.MineablePathResult? BuildPathToNearestTrackedMineableApproach(
+        Cave cave,
+        Trilobite miner,
+        MiningPost post,
+        ResourceName? requiredResource)
+    {
+        var startTile = cave.GetTile(miner.Location);
+        if (startTile is null ||
+            !cave.CanCreatureTraverseTile(miner, startTile) ||
+            !cave.IsTileReachable(startTile))
+        {
+            return null;
+        }
+
+        var preferUnassignedTarget = post.HasUnassignedTrackedMineableTarget(cave, miner, requiredResource);
+        var search = cave.PathSearchWorkspace;
+        search.Begin(cave.TileCapacity);
+        search.AddStart(startTile.Id);
+        Tile? sharedFallbackTarget = null;
+        var sharedFallbackApproachId = -1;
+
+        while (search.TryDequeue(out var currentId))
+        {
+            var current = cave.GetTileById(currentId);
+            if (current is null)
+            {
+                continue;
+            }
+
+            if (TryGetTrackedMineableAtApproach(post, miner, current, requiredResource, preferUnassignedTarget, out var target) &&
+                cave.CanCreatureOccupyWorldPosition(miner, WorldPoint.FromGridPoint(current.Coordinates)))
+            {
+                if (!preferUnassignedTarget || !post.IsTargetAssignedToOther(miner, target.Key))
+                {
+                    var path = ReconstructPath(cave, search, startTile.Id, current.Id);
+                    return path is null
+                        ? null
+                        : new Cave.MineablePathResult(target.Key, current.Coordinates, path);
+                }
+
+                if (sharedFallbackTarget is null)
+                {
+                    sharedFallbackTarget = target;
+                    sharedFallbackApproachId = current.Id;
+                }
+            }
+
+            string? lastNeighborKey = null;
+            while (TryGetNextNeighborByKey(current, lastNeighborKey, out var neighbor))
+            {
+                lastNeighborKey = neighbor.Key;
+                if (!CanUsePathTile(cave, miner, neighbor) || search.WasVisited(neighbor.Id))
+                {
+                    continue;
+                }
+
+                search.Visit(neighbor.Id, current.Id);
+            }
+        }
+
+        if (sharedFallbackTarget is null)
+        {
+            return null;
+        }
+
+        var sharedPath = ReconstructPath(cave, search, startTile.Id, sharedFallbackApproachId);
+        return sharedPath is null
+            ? null
+            : new Cave.MineablePathResult(sharedFallbackTarget.Key, sharedPath[^1], sharedPath);
+    }
+
+    private static bool TryGetTrackedMineableAtApproach(
+        MiningPost post,
+        Trilobite miner,
+        Tile approachTile,
+        ResourceName? requiredResource,
+        bool preferUnassignedTarget,
+        out Tile target)
+    {
+        Tile? sharedFallbackTarget = null;
+        string? lastNeighborKey = null;
+        while (TryGetNextNeighborByKey(approachTile, lastNeighborKey, out var neighbor))
+        {
+            lastNeighborKey = neighbor.Key;
+            if (!post.IsTrackedMineableTarget(neighbor, requiredResource))
+            {
+                continue;
+            }
+
+            if (!preferUnassignedTarget || !post.IsTargetAssignedToOther(miner, neighbor.Key))
+            {
+                target = neighbor;
+                return true;
+            }
+
+            sharedFallbackTarget ??= neighbor;
+        }
+
+        target = sharedFallbackTarget!;
+        return sharedFallbackTarget is not null;
+    }
+
+    // A mining claim owns the exact route that made its target reachable.
+    public static List<GridPoint>? BuildPathToMineableApproach(Cave cave, Trilobite miner, Tile target)
+    {
+        var startTile = cave.GetTile(miner.Location);
+        if (startTile is null ||
+            !cave.CanCreatureTraverseTile(miner, startTile) ||
+            !cave.IsTileReachable(startTile) ||
+            !Building.IsMineableType(target.Base))
+        {
+            return null;
+        }
+
+        var search = cave.PathSearchWorkspace;
+        search.Begin(cave.TileCapacity);
+        search.AddStart(startTile.Id);
+
+        while (search.TryDequeue(out var currentId))
+        {
+            var current = cave.GetTileById(currentId);
+            if (current is null)
+            {
+                continue;
+            }
+
+            if (IsMineableApproach(cave, miner, target, current))
+            {
+                return ReconstructPath(cave, search, startTile.Id, current.Id);
+            }
+
+            string? lastNeighborKey = null;
+            while (TryGetNextNeighborByKey(current, lastNeighborKey, out var neighbor))
+            {
+                lastNeighborKey = neighbor.Key;
+                if (!CanUsePathTile(cave, miner, neighbor) || search.WasVisited(neighbor.Id))
+                {
+                    continue;
+                }
+
+                search.Visit(neighbor.Id, current.Id);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsMineableApproach(Cave cave, Trilobite miner, Tile target, Tile approachTile)
+    {
+        foreach (var neighbor in target.Neighbors)
+        {
+            if (neighbor.Id == approachTile.Id)
+            {
+                return cave.CanCreatureOccupyWorldPosition(miner, WorldPoint.FromGridPoint(approachTile.Coordinates));
+            }
+        }
+
+        return false;
+    }
+
+    private static bool CanUsePathTile(Cave cave, Creature creature, Tile tile)
+    {
+        return cave.CanCreatureTraverseTile(creature, tile) && cave.IsTileReachable(tile);
+    }
+
     private static Cave.MineablePathResult? TryCreateMineablePathResult(
         Cave cave,
         Tile current,
@@ -216,6 +384,42 @@ internal static class CavePathfinder
         return tile.CreatureFits() && cave.IsTileReachable(tile);
     }
 
+    private static List<GridPoint>? ReconstructPath(
+        Cave cave,
+        TraversalSearchWorkspace search,
+        int startId,
+        int destinationId)
+    {
+        if ((uint)startId >= (uint)cave.TileCapacity ||
+            (uint)destinationId >= (uint)cave.TileCapacity ||
+            !search.WasVisited(destinationId))
+        {
+            return null;
+        }
+
+        var path = new List<GridPoint>();
+        var currentId = destinationId;
+        var guard = 0;
+        while (guard++ < cave.TileCapacity)
+        {
+            var tile = cave.GetTileById(currentId);
+            if (tile is null)
+            {
+                return null;
+            }
+
+            path.Add(tile.Coordinates);
+            if (currentId == startId)
+            {
+                path.Reverse();
+                return path;
+            }
+
+            currentId = search.GetPreviousId(currentId);
+        }
+
+        return null;
+    }
     private static List<GridPoint>? ReconstructPath(
         Cave cave,
         IReadOnlyList<int> previousIds,

@@ -77,6 +77,36 @@ The project is currently a single MonoGame game assembly with layered modules in
 - `Shared`
   - diagnostics, math, and utilities
 
+### Navigation ownership
+
+Per-building traversal navigation is split from the legacy synchronous `BfsField` path:
+
+- `Core` declares explicit building metadata for whether a building maintains a traversal field,
+  how its open-map seeds are selected, and whether maintenance is synchronous or asynchronous.
+- `Core` creates immutable tile/building topology snapshots and publishes immutable per-building
+  field snapshots for O(1) distance and next-step reads.
+- `Runtime/Systems/BuildingBfsFieldMaintenanceSystem` owns the single long-lived worker, its
+  topology mirror, incremental repair state, and command/result queues.
+- `enemy`, `colony`, `wall`, and the queen remain synchronous. Other navigable building fields are
+  asynchronously maintained in production; non-navigable buildings do not participate in the
+  per-building traversal-field set.
+- Mining-post movement uses the general per-building field path. Its compatibility telemetry is
+  retained, but there is no separate mining-post movement-field cache.
+- Smooth creature routes consume bounded coarse path chunks from those published snapshots, then
+  follow their existing fixed-point continuous movement. Generic building navigation terminates on
+  a snapshot tile with distance `0`, including exterior access tiles for solid-footprint buildings.
+- A building field seeds every walkable interaction-zone slot at distance `0` by default.
+  `NavigateToInteractionZone` reserves capacity in the requested zone, then follows that shared
+  building field instead of creating a destination-specific point BFS. Spawn-only and hosted-only
+  slots explicitly opt out of field seeding.
+- Building selection no longer maintains separate ownership BFS fields. Nearest-building queries
+  compare the corresponding per-building traversal fields, and assignment candidate lists are
+  ordered directly by those distances.
+
+Worker results are applied only at runtime pump points outside `TickRunner.RunTick`. Session and
+building runtime ids guard publication so detached sessions and replaced buildings cannot publish
+stale mutable state into the current simulation.
+
 ### Current host rule
 
 `GameApp` is the MonoGame host and composition root. It should wire modules together, but it
@@ -117,9 +147,10 @@ These form the current “golden path” for adding structure without destabiliz
   damage/audio events. Structure attacks retain a blocked-tile reach envelope, while creature
   combat uses the same centered body shape for both sides.
 - `Core/Combat/CombatAgentController` consumes automatic 8x8 threat-sector directives and routes
-  fighters to a deterministic stand-off point on the assigned enemy's live world pose before
-  attacking. Pursuit routes refresh only on a target identity or cell change, replacing future
-  waypoints while preserving current movement momentum. Fighters keep only the colony `fighter`
+  fighters through the once-per-tick shared enemy field for long travel, then directly to a
+  deterministic stand-off point on the assigned enemy's live world pose before attacking. This
+  avoids destination-specific point BFS fields while preserving momentum during nearby retargeting.
+  Fighters keep only the colony `fighter`
   profession; named tactical subroles are not part of simulation state. When danger is clear,
   fighters use the same deterministic idle-wander routine as every other mobile trilobite.
 - Enemies expose the same explicit combat lifecycle through `EnemyCombatState`, separating target

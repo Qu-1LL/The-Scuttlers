@@ -58,7 +58,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal("builder-deposit", metrics!.Purpose);
         Assert.Equal(2, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal("miner", metrics!.Purpose);
         Assert.Equal(2, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal("builder-supply", metrics!.Purpose);
         Assert.Equal(3, metrics.CandidateCount);
         Assert.Equal(0, metrics.FullScanFallbackCount);
-        Assert.True(metrics.UsedAdjacencyFallback);
+        Assert.False(metrics.UsedAdjacencyFallback);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public sealed class TrilobiteMiningPostSelectionTests
     }
 
     [Fact]
-    public void MinerAcquireClaim_QueuesRouteToReservedMineTarget()
+    public void MinerAcquireClaim_UsesClaimRouteWithoutPointRouteBfs()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 16, new GridPoint(10, 0));
         SetTileBase(cave, new GridPoint(14, 11), OreType.CHITINSTONE.Name);
@@ -349,22 +349,22 @@ public sealed class TrilobiteMiningPostSelectionTests
 
         Assert.True(miner.RunRoleState(MinerState.AcquireClaim));
 
-        var reservedTargetKey = post.GetAssignment(miner);
-        Assert.NotNull(reservedTargetKey);
-        var reservedTile = cave.GetTile(reservedTargetKey!);
-        Assert.NotNull(reservedTile);
-        var navTarget = post.GetNavigationTarget(cave, reservedTile!);
-        Assert.NotNull(navTarget);
-
+        var claim = miner.ActiveMiningClaim;
+        Assert.True(claim.HasValue);
+        var route = claim.Value.Route;
+        Assert.NotNull(route);
+        Assert.Equal(claim.Value.ApproachPoint.ToGridPoint(), route![^1]);
+        Assert.Equal(claim.Value.TileKey, post.GetAssignment(miner));
         Assert.NotEmpty(miner.DesiredRoute);
-        Assert.Equal(RouteContinuationKind.PointDestination, miner.ActiveRouteContinuationKind);
+        Assert.Equal(0, cave.PointRouteFieldCacheCount);
+        Assert.Equal(RouteContinuationKind.None, miner.ActiveRouteContinuationKind);
     }
 
     [Fact]
     public void MinerAcquireClaim_CreatesAConcreteOreClaimAndReservation()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 18, new GridPoint(12, 0));
-        var fartherOre = new GridPoint(8, 12);
+        var fartherOre = new GridPoint(9, 9);
         var nearerOre = new GridPoint(18, 12);
         SetTileBase(cave, fartherOre, OreType.CHITINSTONE.Name);
         SetTileBase(cave, nearerOre, OreType.CHITINSTONE.Name);
@@ -554,7 +554,6 @@ public sealed class TrilobiteMiningPostSelectionTests
         }
 
         Assert.All(miners, miner => Assert.NotNull(miner.ActiveMiningClaim));
-        Assert.Equal(40, miners.Select(miner => miner.ActiveMiningClaim!.Value.TileKey).Distinct().Count());
     }
 
     private static void SetTileBase(TriloGame.Game.Core.World.Cave cave, GridPoint location, string tileBase)

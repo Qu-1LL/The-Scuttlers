@@ -2,7 +2,7 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Pathfinding;
 
-public sealed class MiningPostOwnershipFieldTests
+public sealed class MiningPostOwnershipLookupTests
 {
     [Fact]
     public void NearestOwner_AssignsExpectedPostsAndDistances_OnOpenGrid()
@@ -90,8 +90,6 @@ public sealed class MiningPostOwnershipFieldTests
         }
 
         cave.RefreshReachableTiles();
-        var field = cave.RebuildMiningPostOwnershipField();
-
         Assert.Empty(cave.GetAdjacentMiningPosts(leftPost));
         Assert.Empty(cave.GetAdjacentMiningPosts(rightPost));
 
@@ -113,6 +111,5 @@ public sealed class MiningPostOwnershipFieldTests
         Assert.Equal(expectedNeighborOwnership.Distance + 1, openedOwnership.Distance);
         Assert.Contains(rightPost, cave.GetAdjacentMiningPosts(leftPost));
         Assert.Contains(leftPost, cave.GetAdjacentMiningPosts(rightPost));
-        Assert.True(field.IsUpdated());
     }
 }

@@ -330,7 +330,7 @@ public sealed partial class MenuController
         {
             MiningPost post => post.GetVolume(),
             AlgaeFarm farm => farm.GetVolume(),
-            Barracks barracks => barracks.GetVolume(),
+            StationBuilding station => station.GetVolume(),
             Scaffolding scaffolding => scaffolding.GetVolume(),
             _ => 0
         };

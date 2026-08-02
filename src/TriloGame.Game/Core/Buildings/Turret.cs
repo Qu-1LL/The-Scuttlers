@@ -3,6 +3,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -38,7 +39,8 @@ public sealed class Turret : StationBuilding
             InteractionZonePurpose.Station,
             new GridPoint(0, 0),
             new GridPoint(3, 3),
-            [new GridPoint(1, 1), new GridPoint(2, 2)]),
+            [new GridPoint(1, 1), new GridPoint(2, 2)],
+            IsNavigationTarget: false),
         new(
             "Approach",
             InteractionZonePurpose.Approach,
@@ -156,6 +158,13 @@ public sealed class Turret : StationBuilding
             return false;
         }
 
+        if (creature.ReservedZone is { Purpose: InteractionZonePurpose.Approach } approachZone &&
+            ReferenceEquals(approachZone.Owner, this) &&
+            creature.IsAtReservedInteractionSlot())
+        {
+            return true;
+        }
+
         var currentTile = Cave.GetTile(creature.Location);
         return currentTile is not null &&
                currentTile.Neighbors.Any(neighbor => ReferenceEquals(neighbor.Built, this));
@@ -263,6 +272,7 @@ public sealed class Turret : StationBuilding
         if (ReferenceEquals(Target, creature))
         {
             SetTarget(null);
+            AcquireInitialTarget();
         }
     }
 
@@ -271,6 +281,7 @@ public sealed class Turret : StationBuilding
         if (ReferenceEquals(Target, creature))
         {
             SetTarget(null);
+            AcquireInitialTarget();
         }
     }
 
@@ -279,6 +290,11 @@ public sealed class Turret : StationBuilding
         if (Target is not null && (Target.Health <= 0 || !ReferenceEquals(Target.Cave, cave)))
         {
             SetTarget(null);
+        }
+
+        if (Target is null)
+        {
+            AcquireInitialTarget();
         }
 
         var shotsFired = 0;
