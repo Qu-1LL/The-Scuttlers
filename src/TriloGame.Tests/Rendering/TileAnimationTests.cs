@@ -1,6 +1,8 @@
 using Microsoft.Xna.Framework;
+using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
+using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Rendering;
 
@@ -131,6 +133,54 @@ public sealed class TileAnimationTests
         // and placement without any water-specific special casing.
         Assert.False(water.CreatureFits());
         Assert.False(water.EnemyFits());
+    }
+
+    // The surface is drawn a tile past every edge of a pool and then covered by the floor, so the
+    // reads that look sideways from a pixel - the refraction offset, the half-resolution mask -
+    // cannot run off the end of it at the shoreline.
+    [Fact]
+    public void ShouldDrawWaterTile_ReachesOneTilePastThePoolInEveryDirection()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, generateDefaultMap: false);
+        for (var y = 0; y <= 4; y++)
+        {
+            for (var x = 0; x <= 4; x++)
+            {
+                cave.AddTile(new GridPoint(x, y).ToString());
+            }
+        }
+
+        var water = cave.GetTile(new GridPoint(2, 2))!;
+        water.SetFloorCover(false);
+
+        Assert.True(WorldSceneRenderer.ShouldDrawWaterTile(cave, water));
+        // Diagonals included: a corner of the hole is as much an edge as a side is.
+        Assert.True(WorldSceneRenderer.ShouldDrawWaterTile(cave, cave.GetTile(new GridPoint(1, 1))!));
+        Assert.True(WorldSceneRenderer.ShouldDrawWaterTile(cave, cave.GetTile(new GridPoint(3, 2))!));
+        // Two tiles out is past the padding and stays dry.
+        Assert.False(WorldSceneRenderer.ShouldDrawWaterTile(cave, cave.GetTile(new GridPoint(0, 2))!));
+    }
+
+    [Fact]
+    public void CollectWaterSurfaceTiles_ReturnsOnlyTilesTheSurfaceCovers()
+    {
+        var session = new GameSession();
+        var cave = new Cave(session, generateDefaultMap: false);
+        for (var x = 0; x <= 3; x++)
+        {
+            cave.AddTile(new GridPoint(x, 0).ToString());
+        }
+
+        cave.GetTile(new GridPoint(0, 0))!.SetFloorCover(false);
+        var visible = cave.GetTiles().ToList();
+        var surface = new List<Tile>();
+
+        WorldSceneRenderer.CollectWaterSurfaceTiles(cave, visible, surface);
+
+        // The pool tile and its one neighbour along the row; the tile two out is excluded.
+        Assert.Equal(2, surface.Count);
+        Assert.DoesNotContain(surface, tile => tile.Coordinates.X > 1);
     }
 
     [Fact]

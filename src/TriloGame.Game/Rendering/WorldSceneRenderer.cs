@@ -20,6 +20,29 @@ public sealed class WorldSceneRenderer
     // Animation name registered on WorldSpriteEffectSystem; resolves to Water1/Water2/Water3.
     public const string WaterAnimationKey = "Water";
 
+    // How far past the edge of a pool the water surface is drawn, in tiles.
+    //
+    // Water is a layer UNDERNEATH the floor, not a tile that sits beside it, so it does not have to
+    // stop where the floor starts - and it must not. Everything that reads the surface reads it at an
+    // OFFSET from the pixel being shaded: the composite refracts what is under the surface by up to
+    // WaterDistortionUv, and the mask is half resolution, so both reach past the shoreline. Stopping
+    // the water exactly at the last water tile means those reads run off the end of it and pull in
+    // whatever is next to the pool, which is what shows up as the rim of a pool tearing as the
+    // animation steps from one frame to the next. One tile is far more than any of those reads need
+    // (the largest is ~11 screen pixels against a tile of 80 or more), and every pixel of it is
+    // covered by opaque floor, so the padding is free visually.
+    public const int WaterPaddingTiles = 1;
+
+    // A water frame covers exactly ONE tile, at its full 512x512 resolution - the same mapping every
+    // other tile texture in the game uses.
+    //
+    // (Spreading one frame across a 4x4 block of tiles, so the albedo repeated every four tiles
+    // instead of every one, is gone. It did break up the repeat and it stayed seamless, but it also
+    // spent three quarters of the frame's resolution to do it: a tile was drawn from 128 source
+    // pixels rather than 512, which is soft at the default zoom and blocky at the top of the zoom
+    // ladder. Breaking the repeat has to come from the surface itself - the wave field, the albedo
+    // band, the noise warp, all of which are continuous across the world and owe nothing to the tile
+    // grid - or from art that repeats less, not from throwing away the art that exists.)
     private static readonly Color WaterAlbedoColor = new(
         OreLightSettings.WaterAlbedo,
         OreLightSettings.WaterAlbedo,
@@ -141,9 +164,9 @@ public sealed class WorldSceneRenderer
             return;
         }
 
-        // Water sits below the floor: it is what shows through gaps in the cave floor, so it must
-        // be laid down before the floor tiles that surround (and partially overlap) it.
-        DrawWaterTiles(context, visibleTiles, spriteEffects);
+        // No water here. The surface is its own layer, drawn into its own target by
+        // DrawWaterSceneLayer and composited underneath this one - see the note there. This layer is
+        // the LID over it: the floor, and everything standing on the floor.
         DrawFloorTiles(context, visibleTiles);
         DrawTileOverlays(context, visibleTiles, spriteEffects);
         DrawSurfaceFeatures(context, cave, showFullMapVisibility);
@@ -217,19 +240,24 @@ public sealed class WorldSceneRenderer
     // Drawn black with full alpha, not white. Only the alpha is the silhouette; the colour channels
     // of this target carry local disturbance, added afterwards by DrawWaterDisturbanceLayer, and
     // writing white here would saturate them before that pass ever ran.
-    public void DrawWaterMaskLayer(RenderingContext context, IReadOnlyList<Tile> visibleTiles)
+    //
+    // Padded exactly like the surface itself (WaterPaddingTiles), and for a reason specific to this
+    // target: it is HALF resolution. An unpadded silhouette gives the boundary texel partial
+    // coverage, so the composite reads the shoreline as "half water" and the surface fades out over
+    // the last couple of screen pixels of every pool. Padding puts that ramp a whole tile away,
+    // under the floor, so the mask reads solid right up to the edge of the hole. Nothing leaks onto
+    // the floor as a result: the composite masks the water terms with the floor layer's own alpha,
+    // not with this.
+    public void DrawWaterMaskLayer(RenderingContext context, IReadOnlyList<Tile> waterSurfaceTiles)
     {
         if (!context.Sprites.TryGet("empty", out _))
         {
             return;
         }
 
-        foreach (var tile in visibleTiles)
+        foreach (var tile in waterSurfaceTiles)
         {
-            if (tile.IsWater())
-            {
-                DrawTileTexture(context, "empty", tile.Coordinates, 0f, WaterMaskSilhouetteColor);
-            }
+            DrawTileTexture(context, "empty", tile.Coordinates, 0f, WaterMaskSilhouetteColor);
         }
     }
 
@@ -573,18 +601,26 @@ public sealed class WorldSceneRenderer
         }
     }
 
-    private static void DrawWaterTiles(
+    // The water surface, as its own layer.
+    //
+    // It is drawn into its own render target rather than into the scene, and the composite puts it
+    // UNDER the scene using the scene's alpha as the lid. That ordering is what the layer is for:
+    // water is below the floor, so everything the surface does - its texture, the albedo band, the
+    // sheen, the specular, the refraction of what lies under it - has to be finished before the
+    // floor is laid over the top, exactly as a real floor with holes in it would show a pool
+    // beneath. Drawing water into the scene and then shading the result in screen space cannot do
+    // that: the shader has no way to tell a pixel of pool from a pixel of the floor beside it, so
+    // the sheen ends up sitting ON the floor around every hole and the refraction drags the floor's
+    // own pixels into the water.
+    //
+    // Padded past the pool edge; see WaterPaddingTiles.
+    public void DrawWaterSceneLayer(
         RenderingContext context,
-        IEnumerable<Tile> visibleTiles,
+        IReadOnlyList<Tile> waterSurfaceTiles,
         WorldSpriteEffectSystem spriteEffects)
     {
-        foreach (var tile in visibleTiles)
+        foreach (var tile in waterSurfaceTiles)
         {
-            if (!tile.IsWater())
-            {
-                continue;
-            }
-
             // Every water tile shares one animation phase, so the whole surface steps through its
             // frames together. GetWorldSpritePhaseOffsetSeconds returns 0 for water deliberately -
             // see the note there.
@@ -598,6 +634,59 @@ public sealed class WorldSceneRenderer
                 DrawTileTexture(context, textureKey, tile.Coordinates, 0f, WaterAlbedoColor);
             }
         }
+    }
+
+    // Which tiles the water surface covers this frame: every visible water tile, plus its padding
+    // ring. Collected once and handed to both consumers - the surface layer and the mask - because
+    // the two have to agree on where the water is down to the tile, and because deciding it costs a
+    // neighbourhood scan per visible tile that there is no reason to pay for twice.
+    public static void CollectWaterSurfaceTiles(
+        Cave cave,
+        IReadOnlyList<Tile> visibleTiles,
+        List<Tile> destination)
+    {
+        destination.Clear();
+        foreach (var tile in visibleTiles)
+        {
+            if (ShouldDrawWaterTile(cave, tile))
+            {
+                destination.Add(tile);
+            }
+        }
+    }
+
+    // A water tile, or any tile within WaterPaddingTiles of one. The padding tiles are covered by
+    // opaque floor (or rock), which is what makes drawing water under them free: a floor hole is
+    // carved out of covered floor by definition, so every neighbour of a water tile has a lid.
+    //
+    // Only ever asked about tiles that are already being rendered, so the padding cannot reach into
+    // unexplored ground and show a pool the player has not found.
+    internal static bool ShouldDrawWaterTile(Cave cave, Tile tile)
+    {
+        if (tile.IsWater())
+        {
+            return true;
+        }
+
+        var origin = tile.Coordinates;
+        for (var y = -WaterPaddingTiles; y <= WaterPaddingTiles; y++)
+        {
+            for (var x = -WaterPaddingTiles; x <= WaterPaddingTiles; x++)
+            {
+                if (x == 0 && y == 0)
+                {
+                    continue;
+                }
+
+                var neighbour = cave.GetTile(new GridPoint(origin.X + x, origin.Y + y));
+                if (neighbour is not null && neighbour.IsWater())
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static void DrawFloorTiles(RenderingContext context, IEnumerable<Tile> visibleTiles)

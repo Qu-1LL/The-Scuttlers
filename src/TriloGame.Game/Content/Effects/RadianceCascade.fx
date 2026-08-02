@@ -17,6 +17,7 @@ Texture2D LightingTexture;
 Texture2D EmissiveTexture;
 Texture2D WaterMaskTexture;
 Texture2D WaterNoiseTexture;
+Texture2D WaterSceneTexture;
 
 sampler2D TextureSampler = sampler_state
 {
@@ -78,6 +79,25 @@ sampler2D LightingSampler = sampler_state
     AddressV = Clamp;
     MinFilter = Linear;
     MagFilter = Linear;
+    MipFilter = None;
+};
+
+// The water surface layer, which sits UNDER the scene. Point-sampled like the scene target it is a
+// sibling of, so the surface keeps the same hard pixel edges as every other tile in the game.
+//
+// It is a separate target rather than part of the scene because the surface has to be shaded before
+// the floor covers it. Refraction is the clearest case: it samples what lies under the surface at an
+// offset, and if the floor were in the same texture that offset would drag floor pixels into the
+// pool whenever it pointed at the shoreline. Here there is nothing in the texture BUT water, and it
+// is drawn a tile past every edge (WorldSceneRenderer.WaterPaddingTiles), so the offset always lands
+// on water.
+sampler2D WaterSceneSampler = sampler_state
+{
+    Texture = <WaterSceneTexture>;
+    AddressU = Clamp;
+    AddressV = Clamp;
+    MinFilter = Point;
+    MagFilter = Point;
     MipFilter = None;
 };
 
@@ -1027,19 +1047,38 @@ float4 LightingAddPixel(VertexShaderOutput input) : COLOR0
                 * ((diffuse * WaterDiffuseStrength) + (specular * WaterSpecularStrength * reflectivity)));
     }
 
-    // Sampled through the refraction offset, which is zero everywhere that is not water. Level-zero
-    // rather than tex2D because the coordinate is now computed inside a branch, and a gradient
-    // instruction there is undefined; these targets have no mips, so level 0 is what tex2D would
-    // have chosen anyway.
-    float3 scene = SampleLevelZero(TextureSampler, screenUv + refraction).rgb;
+    // The two layers, lit separately and then stacked.
+    //
+    // The floor and everything standing on it. Never refracted: it is above the surface, not under
+    // it, and the whole point of the split is that the two no longer bleed into each other.
+    float4 scene = tex2D(TextureSampler, screenUv);
 
-    // The contribution is drawn with an additive blend state; keep alpha non-zero on
-    // backends that fold source alpha into the color contribution.
+    // The surface, sampled through the refraction offset - zero everywhere that is not water.
+    // Level-zero rather than tex2D because the coordinate is computed inside a branch, and a
+    // gradient instruction there is undefined; these targets have no mips, so level 0 is what tex2D
+    // would have chosen anyway.
+    //
     // waterAlbedo is 1 off the water, so this multiply is a no-op everywhere else. It scales the
     // surface's own colour rather than adding to it, which is the difference between the waves
     // shading the water and the waves lighting it.
+    float3 waterLayer = SampleLevelZero(WaterSceneSampler, screenUv + refraction).rgb;
+    float3 litWater = (waterLayer * waterAlbedo * cascadeResponse * LitContribution) + waterAdd;
+    float3 litScene = scene.rgb * cascadeResponse * LitContribution;
+
+    // scene.a is the lid. It is 1 wherever the floor - or a wall, a building, a creature - covers
+    // this pixel and 0 over an open hole, so it decides which of the two layers the player is
+    // looking at. This is what confines the sheen, the specular and the albedo band to the water:
+    // they are terms of litWater, and litWater is weighted out entirely under solid floor.
+    //
+    // Doing it here rather than by trimming the water mask matters, because this alpha is full
+    // resolution and the mask is half. A mask cut to the shoreline fades over the last screen pixels
+    // of a pool and spills the same distance onto the floor around it; the lid does not, so the
+    // surface can be drawn past the edge and still stop dead where the floor begins.
+    //
+    // The contribution is drawn with an additive blend state; keep alpha non-zero on
+    // backends that fold source alpha into the color contribution.
     return float4(
-        (scene * waterAlbedo * cascadeResponse * LitContribution) + waterAdd + (directEmission * 0.17),
+        lerp(litWater, litScene, scene.a) + (directEmission * 0.17),
         1.0);
 }
 
