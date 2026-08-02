@@ -2,6 +2,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
@@ -57,6 +58,10 @@ public sealed class AlgaeFarm : Building
     }
 
     public int Period { get; }
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public int Growth { get; private set; }
 

@@ -157,6 +157,26 @@ public sealed class EnemyBehaviorTests
     }
 
     [Fact]
+    public void EnemyStep3_ColonyFieldTargetZero_DoesNotRebuildTheSharedFieldPerEnemy()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));
+        cave.RefreshBfsField("colony");
+        var field = cave.GetBfsFieldObject("colony")
+            ?? throw new InvalidOperationException("Expected colony field.");
+        var targetTile = cave.GetReachableTiles().First(tile =>
+            tile.CreatureFits() &&
+            !cave.HasCreatureInCell(tile.Coordinates) &&
+            field.GetFieldValue(tile.Coordinates, refresh: false) == 0);
+        var enemy = new Enemy("Arrived", targetTile.Coordinates, session);
+        Assert.True(cave.Spawn(enemy, targetTile));
+        var before = field.GetField(refresh: false);
+
+        Assert.True(enemy.EnemyStep3());
+
+        Assert.Same(before, field.GetField(refresh: false));
+    }
+
+    [Fact]
     public void EnemyStep1_ActivePendingMeleeStaysFightingInsteadOfIdle()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(14, 10, new GridPoint(1, 1));

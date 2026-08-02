@@ -10,6 +10,7 @@ namespace TriloGame.Game.Core.Entities;
 
 public sealed class Enemy : Creature
 {
+    private const int DirectPursuitMaximumDistance = WorldUnits.UnitsPerTile * 8;
     private GridPoint? _pursuedCreatureCell;
 
     public Enemy(string name, GridPoint location, GameSession session)
@@ -121,8 +122,7 @@ public sealed class Enemy : Creature
             return true;
         }
 
-        ClearTaskQueue();
-        if (!NavigateTo(target.Position, clearExisting: true))
+        if (!TryBeginOrReplaceDirectCombatRoute(target.Position, DirectPursuitMaximumDistance))
         {
             return false;
         }
@@ -338,10 +338,17 @@ public sealed class Enemy : Creature
             return TryDigTowardQueen() || RecoverEnemy(CombatNoOpReason.NoPath);
         }
 
-        ClearTaskQueue();
         var resolvedField = field;
+        var currentFieldValue = field.GetFieldValue(Location, refresh: false);
+        if (currentFieldValue == 0)
+        {
+            return ResolveReachedColonyFieldTarget();
+        }
+
         var resolvedNext = field.GetNextStep(Location, refresh: false);
-        if (resolvedNext is null || (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile && !cave.CanCreatureTraverseTile(this, attemptedTile)))
+        if (resolvedNext is null ||
+            (cave.GetTile(resolvedNext.Value.ToString()) is { } attemptedTile &&
+             !cave.CanCreatureTraverseTile(this, attemptedTile)))
         {
             var refreshedField = cave.GetBfsFieldObject("colony");
             refreshedField?.Rebuild();
@@ -352,14 +359,15 @@ public sealed class Enemy : Creature
             }
 
             resolvedField = refreshedField;
+            currentFieldValue = resolvedField.GetFieldValue(Location, refresh: false);
             resolvedNext = refreshedField.GetNextStep(Location, refresh: false);
-            if (resolvedField.GetFieldValue(Location, refresh: false) == 0)
+            if (currentFieldValue == 0)
             {
                 return ResolveReachedColonyFieldTarget();
             }
         }
 
-        if (resolvedField.GetFieldValue(Location, refresh: false) == int.MaxValue || resolvedNext is null)
+        if (currentFieldValue == int.MaxValue || resolvedNext is null)
         {
             var adjacentWallTileKey = GetAdjacentWallTileKey();
             if (adjacentWallTileKey is not null)

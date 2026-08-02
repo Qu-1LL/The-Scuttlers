@@ -9,7 +9,8 @@ public readonly record struct MiningClaim(
     int MiningPostId,
     string TileKey,
     WorldPoint ApproachPoint,
-    int ClaimedTick);
+    int ClaimedTick,
+    IReadOnlyList<GridPoint>? Route = null);
 
 public enum MiningClaimFailureReason
 {
@@ -54,30 +55,26 @@ public static class MiningClaimAllocator
             return MiningClaimResult.Failed(ResolveNoClaimReason(cave, post, miner, carriedResource));
         }
 
-        var maximumAttempts = Math.Max(1, cave.GetTiles().Count);
-        var sawCandidateWithoutApproach = false;
-        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        var routeResult = cave.BuildPathToNearestTrackedMineableApproach(miner, post, carriedResource);
+        if (!routeResult.HasValue)
         {
-            var tile = post.GrabMineableTile(cave, miner, carriedResource);
-            if (tile is null)
-            {
-                return MiningClaimResult.Failed(
-                    sawCandidateWithoutApproach
-                        ? MiningClaimFailureReason.NoReachableApproach
-                        : MiningClaimFailureReason.StaleQueue);
-            }
-
-            var claim = TryBuildClaim(miner, post, tile);
-            if (claim.HasValue)
-            {
-                return MiningClaimResult.Success(claim.Value);
-            }
-
-            sawCandidateWithoutApproach = true;
-            post.RemoveAssignment(miner);
+            return MiningClaimResult.Failed(MiningClaimFailureReason.NoReachableApproach);
         }
 
-        return MiningClaimResult.Failed(MiningClaimFailureReason.NoReachableApproach);
+        var tile = cave.GetTile(routeResult.Value.TileKey);
+        if (tile is null)
+        {
+            return MiningClaimResult.Failed(MiningClaimFailureReason.StaleQueue);
+        }
+
+        var claim = TryBuildClaim(miner, post, tile, routeResult.Value.Path);
+        if (!claim.HasValue)
+        {
+            return MiningClaimResult.Failed(MiningClaimFailureReason.NoReachableApproach);
+        }
+
+        post.Assign(miner, tile.Key);
+        return MiningClaimResult.Success(claim.Value);
     }
 
     public static MiningClaim? TryClaim(Trilobite miner, MiningPost post, Tile tile)
@@ -97,41 +94,17 @@ public static class MiningClaimAllocator
         return claim;
     }
 
-    private static MiningClaim? TryBuildClaim(Trilobite miner, MiningPost post, Tile tile)
+    private static MiningClaim? TryBuildClaim(Trilobite miner, MiningPost post, Tile tile, IReadOnlyList<GridPoint>? resolvedPath = null)
     {
         var cave = miner.Cave!;
-        MiningClaim? bestClaim = null;
-        var bestDistanceSquared = long.MaxValue;
-        foreach (var neighbor in tile.Neighbors)
+        var path = resolvedPath ?? cave.BuildPathToMineableApproach(miner, tile);
+        if (path is null || path.Count == 0)
         {
-            if (!cave.CanCreatureTraverseTile(miner, neighbor))
-            {
-                continue;
-            }
-
-            var approach = WorldPoint.FromGridPoint(neighbor.Coordinates);
-            if (IsApproachAvailable(cave, miner, approach))
-            {
-                var distanceSquared = (approach - miner.Position).LengthSquared;
-                if (bestClaim.HasValue &&
-                    (distanceSquared > bestDistanceSquared ||
-                     (distanceSquared == bestDistanceSquared &&
-                      string.CompareOrdinal(neighbor.Key, bestClaim.Value.ApproachPoint.ToGridPoint().ToString()) >= 0)))
-                {
-                    continue;
-                }
-
-                bestDistanceSquared = distanceSquared;
-                bestClaim = new MiningClaim(post.Id, tile.Key, approach, miner.Session.TickCount);
-            }
+            return null;
         }
 
-        return bestClaim;
-    }
-
-    private static bool IsApproachAvailable(Cave cave, Trilobite miner, WorldPoint approach)
-    {
-        return cave.CanCreatureOccupyWorldPosition(miner, approach);
+        var approach = WorldPoint.FromGridPoint(path[^1]);
+        return new MiningClaim(post.Id, tile.Key, approach, miner.Session.TickCount, path);
     }
 
     private static MiningClaimFailureReason ResolveNoClaimReason(
