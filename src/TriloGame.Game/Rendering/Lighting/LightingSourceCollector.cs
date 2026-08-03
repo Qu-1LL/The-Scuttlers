@@ -13,6 +13,15 @@ public readonly record struct OreLightEmitter(
     float Intensity,
     Color LightColor);
 
+// Carries its own radius, unlike an ore emitter: the halo has to sit on the sprite it belongs to, and
+// buildings are not all one tile across.
+public readonly record struct BuildingLightEmitter(
+    GridPoint Coordinates,
+    Vector2 WorldPosition,
+    float Intensity,
+    Color LightColor,
+    float RadiusTiles);
+
 public sealed class LightingSourceCollector
 {
     // Collect only intact ore deposits; dropped resources and cave crystals have no light source.
@@ -47,6 +56,44 @@ public sealed class LightingSourceCollector
                         tile.Coordinates.Y * TileConstants.TileSize),
                     intensity,
                     palette?.GetLightColor(oreType.Name) ?? Color.White));
+        }
+
+        return destination.Count;
+    }
+
+    // Buildings that light the cave, for the screen-space glow drawn on the sprite itself. The ray
+    // march does NOT read this - LightingTileGrid.ApplyBuildingEmission seeds the world grid for that,
+    // over the full lighting footprint, so a post off the edge of the screen still lights what is on
+    // it.
+    public int CollectBuildingEmitters(
+        Cave cave,
+        bool showFullMapVisibility,
+        float elapsedSeconds,
+        List<BuildingLightEmitter> destination)
+    {
+        destination.Clear();
+        foreach (var building in cave.Buildings)
+        {
+            if (building.Location is null ||
+                !BuildingLightSettings.TryGetEmission(building, elapsedSeconds, out var emission))
+            {
+                continue;
+            }
+
+            var centre = building.GetCenter();
+            if (!showFullMapVisibility &&
+                (cave.GetTile(centre) is not { } tile || !cave.IsTileRevealed(tile)))
+            {
+                continue;
+            }
+
+            destination.Add(
+                new BuildingLightEmitter(
+                    centre,
+                    new Vector2(centre.X * TileConstants.TileSize, centre.Y * TileConstants.TileSize),
+                    emission.Intensity,
+                    emission.Color,
+                    emission.RadiusTiles));
         }
 
         return destination.Count;

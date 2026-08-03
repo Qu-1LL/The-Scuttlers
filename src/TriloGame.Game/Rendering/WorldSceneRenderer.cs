@@ -575,30 +575,70 @@ public sealed class WorldSceneRenderer
     public void DrawEmissiveLayer(
         RenderingContext context,
         IReadOnlyList<OreLightEmitter> emitters,
-        Texture2D lightTexture)
+        Texture2D lightTexture,
+        IReadOnlyList<BuildingLightEmitter>? buildingEmitters = null)
     {
         var origin = new FrameworkVector2(lightTexture.Width / 2f, lightTexture.Height / 2f);
         for (var index = 0; index < emitters.Count; index++)
         {
             var emitter = emitters[index];
-            var center = context.Camera.WorldToScreen(emitter.WorldPosition);
             // Each deposit's own colour, so the direct glow matches the cascade light it seeds.
-            var lightColor = emitter.LightColor.ToVector4();
-            lightColor *= Math.Clamp(emitter.Intensity, 0f, 1f);
-            lightColor.W = 1f;
-            var diameter = TileConstants.TileSize * context.Camera.CurrentScale * OreLightSettings.OreRadiusTiles * 2f;
-            var scale = Math.Max(0.01f, diameter / lightTexture.Width);
-            context.SpriteBatch.Draw(
+            DrawEmissiveHalo(
+                context,
                 lightTexture,
-                center,
-                sourceRectangle: null,
-                new Color(lightColor),
-                rotation: 0f,
                 origin,
-                scale,
-                SpriteEffects.None,
-                layerDepth: 0f);
+                emitter.WorldPosition,
+                emitter.LightColor,
+                emitter.Intensity,
+                OreLightSettings.OreRadiusTiles);
         }
+
+        if (buildingEmitters is null)
+        {
+            return;
+        }
+
+        for (var index = 0; index < buildingEmitters.Count; index++)
+        {
+            var emitter = buildingEmitters[index];
+            // Radius comes off the emitter rather than a shared constant: a campfire's glow sits on
+            // the fire, a mining post's spreads over the whole post.
+            DrawEmissiveHalo(
+                context,
+                lightTexture,
+                origin,
+                emitter.WorldPosition,
+                emitter.LightColor,
+                emitter.Intensity,
+                emitter.RadiusTiles);
+        }
+    }
+
+    private static void DrawEmissiveHalo(
+        RenderingContext context,
+        Texture2D lightTexture,
+        FrameworkVector2 origin,
+        FrameworkVector2 worldPosition,
+        Color color,
+        float intensity,
+        float radiusTiles)
+    {
+        var center = context.Camera.WorldToScreen(worldPosition);
+        var lightColor = color.ToVector4();
+        lightColor *= Math.Clamp(intensity, 0f, 1f);
+        lightColor.W = 1f;
+        var diameter = TileConstants.TileSize * context.Camera.CurrentScale * radiusTiles * 2f;
+        var scale = Math.Max(0.01f, diameter / lightTexture.Width);
+        context.SpriteBatch.Draw(
+            lightTexture,
+            center,
+            sourceRectangle: null,
+            new Color(lightColor),
+            rotation: 0f,
+            origin,
+            scale,
+            SpriteEffects.None,
+            layerDepth: 0f);
     }
 
     // The water surface, as its own layer.
