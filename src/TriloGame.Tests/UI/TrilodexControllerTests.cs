@@ -1,5 +1,5 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Research;
 using TriloGame.Game.Core.Simulation;
@@ -153,7 +153,7 @@ public sealed class TrilodexControllerTests
         controller.Draw(viewport, session, gumUi, treeBackgroundTexture: null, visualTimeMs: 300d);
 
         var cyanOutlines = gumUi.Root.Children
-            .OfType<RoundedRectangleRuntime>()
+            .OfType<RectangleRuntime>()
             .Where(IsCyanOutline)
             .ToArray();
         Assert.Equal(2, cyanOutlines.Length);
@@ -228,12 +228,12 @@ public sealed class TrilodexControllerTests
             layout.DetailTreeViewportBounds.Bottom - ResearchTreeUiRenderer.DetailNodeRadius - 8);
     }
 
-    private static bool IsCyanOutline(RoundedRectangleRuntime shape)
+    private static bool IsCyanOutline(RectangleRuntime shape)
     {
         return !shape.IsFilled &&
-            shape.Color.R == 105 &&
-            shape.Color.G == 226 &&
-            shape.Color.B == 239;
+            shape.StrokeColor.R == 105 &&
+            shape.StrokeColor.G == 226 &&
+            shape.StrokeColor.B == 239;
     }
 
     private static int CountNodes(ResearchTreeViewNode root)

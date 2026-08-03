@@ -2,6 +2,8 @@ using System.Numerics;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -30,11 +32,29 @@ public sealed class Turret : StationBuilding
         new(null, new Vector2(TileConstants.TileSize * 2f, TileConstants.TileSize)),
         new(null, new Vector2(TileConstants.TileSize, TileConstants.TileSize * 2f))
     ];
+    private static readonly InteractionZoneDefinition[] TurretZones =
+    [
+        new(
+            "Hosted stations",
+            InteractionZonePurpose.Station,
+            new GridPoint(0, 0),
+            new GridPoint(3, 3),
+            [new GridPoint(1, 1), new GridPoint(2, 2)],
+            IsNavigationTarget: false),
+        new(
+            "Approach",
+            InteractionZonePurpose.Approach,
+            new GridPoint(0, -1),
+            new GridPoint(3, 1),
+            [new GridPoint(0, -1), new GridPoint(1, -1), new GridPoint(2, -1)])
+    ];
     private readonly Dictionary<Creature, int> _remainingReloadTicks = [];
 
     public override int ProjectionRadius => GameConstants.TurretProjectionRadius;
 
     public Enemy? Target { get; private set; }
+
+    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => TurretZones;
 
     public Turret(GameSession session)
         : base(
@@ -110,7 +130,7 @@ public sealed class Turret : StationBuilding
                 if (ReferenceEquals(neighbor.Built, this) ||
                     !neighbor.CreatureFits() ||
                     !Cave.IsTileReachable(neighbor) ||
-                    neighbor.EnemyOccupant is not null ||
+                    Cave.GetEnemyAtTileKey(neighbor.Key) is not null ||
                     !visited.Add(neighbor.Key))
                 {
                     continue;
@@ -133,9 +153,16 @@ public sealed class Turret : StationBuilding
 
     public override bool IsCreatureAtNavigationTarget(Creature creature)
     {
-        if (!creature.IsTrackedInTileSystem || Cave is null)
+        if (!creature.IsLocomotionEnabled || Cave is null)
         {
             return false;
+        }
+
+        if (creature.ReservedZone is { Purpose: InteractionZonePurpose.Approach } approachZone &&
+            ReferenceEquals(approachZone.Owner, this) &&
+            creature.IsAtReservedInteractionSlot())
+        {
+            return true;
         }
 
         var currentTile = Cave.GetTile(creature.Location);
@@ -153,23 +180,34 @@ public sealed class Turret : StationBuilding
         if (IsCreatureStationed(creature) && TryGetAssignedWorldPosition(creature, out var existingWorldPosition))
         {
             creature.HostOnBuilding(this, existingWorldPosition);
+            ReserveHostedStation(creature);
             return true;
         }
 
         if (!IsCreatureAtNavigationTarget(creature) ||
             !TryGetAssignedWorldPosition(creature, out var worldPosition) ||
-            !(Cave?.RemoveCreatureFromTileSystem(creature) ?? false))
+            !(Cave?.DisableCreatureLocomotion(creature) ?? false))
         {
             return false;
         }
 
         creature.HostOnBuilding(this, worldPosition);
+        ReserveHostedStation(creature);
         return true;
     }
 
-    public override bool TryRestoreCreatureToTileSystem(Creature creature)
+    private void ReserveHostedStation(Creature creature)
     {
-        if (creature.IsTrackedInTileSystem)
+        creature.ReleaseInteractionReservation();
+        if (TryGetInteractionZone(InteractionZonePurpose.Station, out var stationZone))
+        {
+            creature.TryReserveInteractionZone(stationZone);
+        }
+    }
+
+    public override bool TryRestoreCreatureLocomotion(Creature creature)
+    {
+        if (creature.IsLocomotionEnabled)
         {
             return true;
         }
@@ -179,14 +217,14 @@ public sealed class Turret : StationBuilding
             return false;
         }
 
-        if (Cave?.PlaceCreatureOnTile(creature, creature.Location, randomizeMovementOffset: false) == true)
+        if (Cave?.PlaceCreatureOnTile(creature, creature.LocomotionRestoreCell) == true)
         {
             return true;
         }
 
-        var preferredAccessTile = GetPreferredAccessTile(creature.Location);
+        var preferredAccessTile = GetPreferredAccessTile(creature.LocomotionRestoreCell);
         return preferredAccessTile.HasValue &&
-               (Cave?.PlaceCreatureOnTile(creature, preferredAccessTile.Value, randomizeMovementOffset: false) ?? false);
+               (Cave?.PlaceCreatureOnTile(creature, preferredAccessTile.Value) ?? false);
     }
 
     public override bool TryGetAssignedWorldPosition(Creature creature, out Vector2 worldPosition)
@@ -234,6 +272,7 @@ public sealed class Turret : StationBuilding
         if (ReferenceEquals(Target, creature))
         {
             SetTarget(null);
+            AcquireInitialTarget();
         }
     }
 
@@ -242,6 +281,7 @@ public sealed class Turret : StationBuilding
         if (ReferenceEquals(Target, creature))
         {
             SetTarget(null);
+            AcquireInitialTarget();
         }
     }
 
@@ -250,6 +290,11 @@ public sealed class Turret : StationBuilding
         if (Target is not null && (Target.Health <= 0 || !ReferenceEquals(Target.Cave, cave)))
         {
             SetTarget(null);
+        }
+
+        if (Target is null)
+        {
+            AcquireInitialTarget();
         }
 
         var shotsFired = 0;
@@ -307,10 +352,10 @@ public sealed class Turret : StationBuilding
     {
         for (var index = 0; index < ProjectedTiles.Count; index++)
         {
-            var tile = ProjectedTiles[index];
-            if (tile.EnemyOccupant is not null)
+            var enemy = Cave?.GetEnemyAtTileKey(ProjectedTiles[index].Key);
+            if (enemy is not null)
             {
-                TargetInRadius(tile.EnemyOccupant);
+                TargetInRadius(enemy);
             }
         }
     }

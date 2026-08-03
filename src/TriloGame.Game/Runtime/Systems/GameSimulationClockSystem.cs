@@ -14,6 +14,10 @@ public sealed class GameSimulationClockSystem
 
     public double TickAccumulatorMs { get; set; }
 
+    public float InterpolationAlpha => TickSpeedMs <= 0d
+        ? 1f
+        : (float)Math.Clamp(TickAccumulatorMs / TickSpeedMs, 0d, 1d);
+
     // Restore pause state, tick speed, and accumulated budget to their baseline values.
     public void ResetToDefaults(bool paused = false, double tickSpeedMs = GameConstants.TickSpeedFast)
     {

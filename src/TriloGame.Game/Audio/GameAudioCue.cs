@@ -16,5 +16,11 @@ public enum GameAudioCue
     UnlockNode,
     VolumeSound,
     MiningPostFocus,
-    AlgaeFarmFocus
+    AlgaeFarmFocus,
+    RadarFocus,
+    MiningStrike,
+    CombatStrike,
+    HitAffect,
+    CreatureDeposit,
+    CreatureDeath
 }

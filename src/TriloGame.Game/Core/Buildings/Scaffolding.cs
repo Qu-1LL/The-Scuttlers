@@ -1,6 +1,8 @@
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -51,6 +53,15 @@ public sealed class Scaffolding : Building
 
     public Building TargetBuilding { get; }
 
+    public override bool MaintainsNavigationField => true;
+
+    // Builders work from the exterior ring; the scaffold footprint is the construction target,
+    // not a location they need to occupy while delivering materials or applying work.
+    public override BuildingNavigationSeedMode NavigationSeedMode =>
+        BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
+
     public IReadOnlyList<ResourceRequirement> RecipeRequired { get; }
 
     public bool RecipeComplete { get; private set; }
@@ -64,6 +75,39 @@ public sealed class Scaffolding : Building
     public bool ResourceComplete { get; private set; }
 
     public bool CompletionPending { get; private set; }
+
+    public bool BuildFirst { get; private set; }
+
+    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions()
+    {
+        var width = DisplayBaseSize.X;
+        var height = DisplayBaseSize.Y;
+        return
+        [
+            CreateEdgeZone("North work edge", new GridPoint(0, -1), new GridPoint(width, 1), width, horizontal: true),
+            CreateEdgeZone("East work edge", new GridPoint(width, 0), new GridPoint(1, height), height, horizontal: false),
+            CreateEdgeZone("South work edge", new GridPoint(0, height), new GridPoint(width, 1), width, horizontal: true),
+            CreateEdgeZone("West work edge", new GridPoint(-1, 0), new GridPoint(1, height), height, horizontal: false)
+        ];
+    }
+
+    private static InteractionZoneDefinition CreateEdgeZone(
+        string name,
+        GridPoint origin,
+        GridPoint size,
+        int slotCount,
+        bool horizontal)
+    {
+        var slots = new GridPoint[slotCount];
+        for (var index = 0; index < slotCount; index++)
+        {
+            slots[index] = horizontal
+                ? new GridPoint(origin.X + index, origin.Y)
+                : new GridPoint(origin.X, origin.Y + index);
+        }
+
+        return new InteractionZoneDefinition(name, InteractionZonePurpose.Construction, origin, size, slots);
+    }
 
     public override int[][] RotateMap()
     {
@@ -83,6 +127,45 @@ public sealed class Scaffolding : Building
     public void RemoveAssignment(Creature creature) => _assignments.Remove(creature);
 
     public int GetVolume() => _assignments.Count;
+
+    public bool ToggleBuildFirst()
+    {
+        if (!IsInProgress())
+        {
+            return false;
+        }
+
+        BuildFirst = !BuildFirst;
+        return true;
+    }
+
+    public int GetRequiredBuilderCount(int carryCapacity)
+    {
+        if (!IsInProgress())
+        {
+            return 0;
+        }
+
+        if (!NeedsAnyResource())
+        {
+            return NeedsConstructionWork() ? 1 : 0;
+        }
+
+        var remaining = 0;
+        for (var index = 0; index < _recipeProgress.Count; index++)
+        {
+            remaining += GetRemainingRequirement(index);
+        }
+
+        return Math.Max(1, (remaining + Math.Max(1, carryCapacity) - 1) / Math.Max(1, carryCapacity));
+    }
+
+    public bool CanAssignBuilder(Creature creature, int carryCapacity)
+    {
+        return IsInProgress() &&
+               (_assignments.Contains(creature) ||
+                _assignments.Count < GetRequiredBuilderCount(carryCapacity));
+    }
 
     public int GetTotalDepositedAmount()
     {
@@ -347,7 +430,7 @@ public sealed class Scaffolding : Building
             return false;
         }
 
-        if (HasTrilobitesInConstructionArea())
+        if (Cave.HasCreatureOverlappingSolidCells(TargetBuilding, Location.Value))
         {
             CompletionPending = true;
             return false;
@@ -361,7 +444,10 @@ public sealed class Scaffolding : Building
         if (cave.ReplaceBuilding(this, TargetBuilding, location, source ?? "scaffoldingComplete"))
         {
             CompletionPending = false;
-            Session.RequestAudioCue(GameAudioCue.BuildingFinished);
+            Session.RequestAudioCue(
+                GameAudioCue.BuildingFinished,
+                WorldPoint.FromGridPoint(TargetBuilding.GetCenter()),
+                Math.Max(1f, TargetBuilding.Size.X * TargetBuilding.Size.Y));
             return true;
         }
 
@@ -562,19 +648,6 @@ public sealed class Scaffolding : Building
     }
 
     // Only live scaffold-owned tiles block completion; excluded cells stay out of the occupancy check.
-    private bool HasTrilobitesInConstructionArea()
-    {
-        foreach (var tile in TileArray)
-        {
-            if (ReferenceEquals(tile.Built, this) && tile.Trilobites.Count > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private static int BuildConstructionRequirement(IReadOnlyList<ResourceRequirement> recipeRequired)
     {
         var requiredWork = 0;

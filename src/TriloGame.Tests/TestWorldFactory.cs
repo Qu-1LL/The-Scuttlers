@@ -264,7 +264,6 @@ internal static class TestWorldFactory
                 var tile = cave.AddTile(key);
                 tile.SetBase("empty");
                 tile.SetBuilt(null);
-                tile.SetEnemyOccupant(null);
                 tile.CreatureCanFit = true;
 
                 if (x > 0)
@@ -280,7 +279,6 @@ internal static class TestWorldFactory
         }
 
         cave.ResetBfsFields();
-        cave.RebuildAllBuildingOwnershipFields();
     }
 
     public static GridPoint FindBuildLocation(Cave cave, Building building, bool preserveReachability = false)

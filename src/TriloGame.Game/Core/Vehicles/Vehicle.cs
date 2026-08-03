@@ -28,10 +28,12 @@ public abstract class Vehicle : IVehicle
         IEnumerable<VehicleStationSlot> stationSlots,
         GameSession session)
     {
+        Id = session.AllocateWorldObjectId();
         Name = name;
         Description = description;
         TextureKey = textureKey;
         AssignmentClassification = assignmentClassification;
+        AssignmentRole = CreatureRoleNames.Parse(assignmentClassification);
         Size = size;
         Health = health;
         MaxHealth = health;
@@ -39,16 +41,20 @@ public abstract class Vehicle : IVehicle
         _stationSlots = new List<VehicleStationSlot>(stationSlots);
         Session = session;
         TileArray = [];
-        PathPreview = [];
+        RouteCells = [];
     }
 
     public string Name { get; }
+
+    public int Id { get; }
 
     public string Description { get; }
 
     public string TextureKey { get; }
 
     public string AssignmentClassification { get; }
+
+    public CreatureRole AssignmentRole { get; }
 
     public GameSession Session { get; }
 
@@ -74,9 +80,9 @@ public abstract class Vehicle : IVehicle
 
     IReadOnlyList<Tile> IVehicle.TileArray => TileArray;
 
-    public List<GridPoint> PathPreview { get; }
+    public List<GridPoint> RouteCells { get; }
 
-    IReadOnlyList<GridPoint> IVehicle.PathPreview => PathPreview;
+    IReadOnlyList<GridPoint> IVehicle.RouteCells => RouteCells;
 
     public int DisplayRotationTurns { get; private set; }
 
@@ -104,9 +110,20 @@ public abstract class Vehicle : IVehicle
             (location.Y * TileConstants.TileSize) + ((rotatedSize.Y - 1) * TileConstants.TileHalfSize));
     }
 
+    public Interaction.WorldRectangle GetWorldBounds()
+    {
+        var location = Location ?? GridPoint.Zero;
+        var rotatedSize = GetRotatedSize();
+        return new Interaction.WorldRectangle(
+            (location.X * WorldUnits.UnitsPerTile) - WorldUnits.UnitsPerHalfTile,
+            (location.Y * WorldUnits.UnitsPerTile) - WorldUnits.UnitsPerHalfTile,
+            rotatedSize.X * WorldUnits.UnitsPerTile,
+            rotatedSize.Y * WorldUnits.UnitsPerTile);
+    }
+
     public bool CanStation(Creature creature)
     {
-        return creature.Assignment == AssignmentClassification &&
+        return creature.Role == AssignmentRole &&
                (_stationedCreatures.Contains(creature) || _stationedCreatures.Count < MaxStationedCreatures) &&
                (_stationedCreatures.Contains(creature) || _stationedCreatures.Count < _stationSlots.Count);
     }
@@ -133,11 +150,11 @@ public abstract class Vehicle : IVehicle
 
         if (Cave is not null && ReferenceEquals(creature.Cave, Cave))
         {
-            Cave.RemoveCreatureFromTileSystem(creature);
+            Cave.DisableCreatureLocomotion(creature);
         }
         else
         {
-            creature.LeaveTileSystem();
+            creature.DisableLocomotion();
         }
 
         _stationedCreatures.Add(creature);
@@ -150,15 +167,15 @@ public abstract class Vehicle : IVehicle
 
     public bool DestationCreature(Creature creature)
     {
-        return DestationCreatureInternal(creature, restoreToTileSystem: true);
+        return DestationCreatureInternal(creature, restoreLocomotion: true);
     }
 
     internal bool DestationCreatureWithoutRestore(Creature creature)
     {
-        return DestationCreatureInternal(creature, restoreToTileSystem: false);
+        return DestationCreatureInternal(creature, restoreLocomotion: false);
     }
 
-    private bool DestationCreatureInternal(Creature creature, bool restoreToTileSystem)
+    private bool DestationCreatureInternal(Creature creature, bool restoreLocomotion)
     {
         if (!_stationedCreatures.Remove(creature))
         {
@@ -171,13 +188,13 @@ public abstract class Vehicle : IVehicle
             _driver = null;
         }
         OnDestationCreature(creature);
-        if (restoreToTileSystem)
+        if (restoreLocomotion)
         {
             RestoreDestationedCreature(creature);
         }
         else
         {
-            creature.LeaveTileSystem();
+            creature.DisableLocomotion();
         }
 
         return true;
@@ -195,13 +212,13 @@ public abstract class Vehicle : IVehicle
     public void EnqueueMove(GridPoint destination, int rotationTurns)
     {
         _moveQueue.Enqueue(new MoveStep(destination, ((rotationTurns % 4) + 4) % 4));
-        PathPreview.Add(destination);
+        RouteCells.Add(destination);
     }
 
     public void ClearMoveQueue()
     {
         _moveQueue.Clear();
-        PathPreview.Clear();
+        RouteCells.Clear();
     }
 
     public object? Move()
@@ -221,9 +238,9 @@ public abstract class Vehicle : IVehicle
             SetDisplayRotationTurns(previousRotationTurns);
         }
 
-        if (moved && PathPreview.Count > 0)
+        if (moved && RouteCells.Count > 0)
         {
-            PathPreview.RemoveAt(0);
+            RouteCells.RemoveAt(0);
         }
 
         if (moved && previousLocation is { } previousPoint)
@@ -356,14 +373,14 @@ public abstract class Vehicle : IVehicle
         {
             foreach (var location in EnumerateRestorationLocations(creature))
             {
-                if (Cave.PlaceCreatureOnTile(creature, location, randomizeMovementOffset: false))
+                if (Cave.PlaceCreatureOnTile(creature, location))
                 {
                     return;
                 }
             }
         }
 
-        creature.LeaveTileSystem();
+        creature.DisableLocomotion();
     }
 
     // Vehicles restore passengers back into the cave using their own footprint first.

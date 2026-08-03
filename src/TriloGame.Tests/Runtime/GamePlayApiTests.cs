@@ -1,3 +1,4 @@
+using System.Numerics;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Runtime.Automation;
@@ -96,6 +97,26 @@ public sealed class GamePlayApiTests
     }
 
     [Fact]
+    public void Snapshot_ReportsContinuousCreatureStateAndExactMoveRoute()
+    {
+        var host = new FakeGamePlayHost();
+        var api = new GamePlayApi(host);
+        var before = api.GetSnapshot().Trilobites.Single(creature => creature.Name == "Jeffery");
+        var destination = before.WorldPosition + new Vector2(80f, 40f);
+
+        Assert.True(api.MoveTrilobite("Jeffery", destination));
+
+        var moving = api.GetSnapshot().Trilobites.Single(creature => creature.Name == "Jeffery");
+        Assert.True(moving.Id > 0);
+        Assert.Equal(moving.Location, moving.CurrentCell);
+        Assert.Equal("Miner", moving.Role.ToString());
+        Assert.Equal("Moving", moving.Activity.ToString());
+        Assert.True(moving.CollisionRadius > 0f);
+        Assert.InRange(moving.FacingDirection.Length(), 0.999f, 1.001f);
+        Assert.Equal(destination, Assert.Single(moving.DesiredRoute));
+    }
+
+    [Fact]
     public void SpawnAntHole_FighterKillsAntAndTicksContinue()
     {
         var (session, cave, _) = TestWorldFactory.CreateSessionWithQueen();
@@ -123,8 +144,7 @@ public sealed class GamePlayApiTests
 
         var fighterTile = antTile.Neighbors.FirstOrDefault(tile =>
                               tile.CreatureFits() &&
-                              tile.Trilobites.Count == 0 &&
-                              tile.EnemyOccupant is null &&
+                              !cave.HasCreatureInCell(tile.Coordinates) &&
                               !cave.HasBlockingSurfaceFeature(tile))
                           ?? throw new InvalidOperationException("Could not find a clear tile beside the spawned ant.");
 

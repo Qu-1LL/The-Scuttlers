@@ -1,17 +1,20 @@
-using Gum.Forms;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using MonoGameGum;
+using Gum;
+using Gum.Forms;
 using RenderingLibrary.Graphics;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Interaction;
+using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering;
+using TriloGame.Game.Rendering.Lighting;
 using TriloGame.Game.Runtime.Automation;
 using TriloGame.Game.Runtime.Bootstrap;
 using TriloGame.Game.Runtime.Systems;
@@ -51,6 +54,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly CameraController _camera = new();
     private readonly WorldSpriteEffectSystem _worldSpriteEffects = new();
     private readonly WorldSceneRenderer _worldSceneRenderer = new();
+    private RadianceCascadeRenderer? _lightingRenderer;
     private readonly MainMenuOverlayRenderer _mainMenuOverlayRenderer = new();
     private readonly MenuController _menu = new();
     private readonly SettingsMenuController _settingsMenu = new();
@@ -60,6 +64,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly TrilodexController _trilodex = new();
     private readonly ResourceHudRenderer _resourceHud = new();
     private readonly GameSessionBootstrapper _bootstrapper = new();
+    private readonly BuildingBfsFieldMaintenanceSystem _buildingBfsFieldMaintenance = new();
     private readonly GameSimulationClockSystem _simulationClock = new();
     private readonly GameOverStateSystem _gameOverState = new();
     private readonly ResearchDraftSystem _researchDraftSystem = new();
@@ -93,6 +98,18 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _debugAntHolePlacementMode;
     private bool _cameraPanDragActive;
     private bool _selectionDragActive;
+    // Design size used whenever the game is not fullscreen.
+    private const int WindowedWidth = 1440;
+    private const int WindowedHeight = 900;
+    // Fullscreen at startup. WindowedWidth/Height stay the size the Windowed setting returns to, so
+    // toggling out of fullscreen still lands on the design resolution rather than on whatever the
+    // desktop happens to be.
+    private GameDisplayMode _displayMode = GameDisplayMode.Fullscreen;
+    // The viewport size the camera was last adjusted for. Compared against Window.ClientBounds in
+    // HandleViewportResize so that method is safe to call from more than one trigger for the same
+    // resize (see its own comment) without applying CameraController's recentring twice.
+    private int _cameraViewportWidth;
+    private int _cameraViewportHeight;
     private bool _buildingPlacementDragActive;
     private GridPoint _buildingPlacementDragStart;
     private double _uiClockMs;
@@ -105,10 +122,15 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     public GameApp()
     {
-        _graphics = new GraphicsDeviceManager(this);
-        _sessionAudioBridge = new SessionAudioBridge(_audio);
+        _graphics = new GraphicsDeviceManager(this)
+        {
+            // The radiance cascade lighting pipeline needs floating-point render targets and
+            // longer shader programs than the Reach profile (MonoGame's default) allows.
+            GraphicsProfile = GraphicsProfile.HiDef
+        };
+        _sessionAudioBridge = new SessionAudioBridge(_audio, () => _camera);
         _sessionScreenShakeBridge = new SessionScreenShakeBridge(_camera);
-        _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist);
+        _sessionParticleBridge = new SessionParticleBridge(EmitDeathMist, EmitCreatureDeathParticles);
         _focusAudioSystem = new FocusAudioSystem(_audio);
         _debugToggleControls = new DebugToggleControls(
             value => _showRoleLabels = value,
@@ -116,6 +138,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             value => _session.Runtime.NoCostBuildPlacement = value,
             value => _infiniteDraft = value,
             SetFullMapVisibility,
+            value => _session.Runtime.ShowHitboxes = value,
+            value => _session.Runtime.ShowInteractionZones = value,
             PlayUiSelectSound);
         _roundManager.RoundStarted += HandleRoundStarted;
         _roundManager.RoundEnded += HandleRoundEnded;
@@ -124,7 +148,10 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         PlayApi = new GamePlayApi(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
-        Window.AllowUserResizing = true;
+        // Fixed-size borderless window: no user resizing and no title bar, so the only way the
+        // viewport changes is the display-mode toggle in the settings menu.
+        Window.AllowUserResizing = false;
+        Window.IsBorderless = true;
         Window.ClientSizeChanged += (_, _) => HandleViewportResize();
     }
 
@@ -227,14 +254,24 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     protected override void Initialize()
     {
-        _graphics.PreferredBackBufferWidth = 1440;
-        _graphics.PreferredBackBufferHeight = 900;
-        _graphics.ApplyChanges();
-        GumUi.Initialize(this, DefaultVisualsVersion.V2);
+        // Establishes the startup mode (fullscreen by default) before anything sizes itself off the
+        // window: the camera viewport and the lighting render targets are both built from
+        // Window.ClientBounds a few lines down, so the swap chain has to be its final size first.
+        ConfigureDisplayMode();
+        GumUi.Initialize(this, DefaultVisualsVersion.V3);
         MonoGameAndGum.Renderables.ShapeRenderer.Self.Initialize(GraphicsDevice, Content);
         _gumUiRenderer = new GumUiRenderer();
         _trilodexCatalogViewport = new GumRenderTargetViewport(GraphicsDevice, _gumUiRenderer.Root);
         _camera.SetViewport(Window.ClientBounds.Width, Window.ClientBounds.Height);
+        _cameraViewportWidth = Window.ClientBounds.Width;
+        _cameraViewportHeight = Window.ClientBounds.Height;
+        // Fixed seed for reproducible diagnostics: two runs otherwise generate different caves and
+        // different colonies, so nothing measured in one is comparable with the next.
+        if (int.TryParse(Environment.GetEnvironmentVariable("TRILO_SEED"), out var worldSeed))
+        {
+            RandomUtil.Reseed(worldSeed);
+        }
+
         StartNewGame();
         ReturnToMainMenu();
         base.Initialize();
@@ -277,6 +314,24 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
         RegisterTexture(sprites, "Garage", "Textures/Garage");
         RegisterTexture(sprites, "Silo", "Textures/Silo");
+        // Animated water shown through gaps in the cave floor. Registered optionally so the game
+        // still starts before the art exists; the animation is only registered for frames that
+        // actually loaded, and DrawWaterTiles skips anything unregistered.
+        var waterFrames = new List<string>();
+        foreach (var frame in new[] { "Water1", "Water2", "Water3" })
+        {
+            if (TryRegisterOptionalTexture(sprites, frame, $"Textures/{frame}"))
+            {
+                waterFrames.Add(frame);
+            }
+        }
+
+        if (waterFrames.Count > 0)
+        {
+            _worldSpriteEffects.RegisterTileAnimation(
+                WorldSceneRenderer.WaterAnimationKey,
+                new TileAnimationEffect(waterFrames, 0.45f));
+        }
         RegisterTexture(sprites, "SoilTile_0", "Textures/SoilTile_0");
         RegisterTexture(sprites, "SoilTile_Algae_1", "Textures/SoilTile_Algae_1");
         RegisterTexture(sprites, "SoilTile_Algae_2", "Textures/SoilTile_Algae_2");
@@ -303,18 +358,145 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             Sprites = sprites,
             Camera = _camera
         };
+        _lightingRenderer = new RadianceCascadeRenderer(
+            GraphicsDevice,
+            Content.Load<Effect>("Effects/RadianceCascade"));
+        _lightingRenderer.RegisterOreLightColors(sprites);
+        // Only the occluding types need measuring, and coverage depends on the texture and footprint
+        // rather than on any particular placed instance - so throwaway prototypes are enough.
+        _lightingRenderer.RegisterBuildingOccluders(
+            sprites,
+            [new Wall(_session), new Radar(_session)]);
         InitializeWorldParticles();
 
         GameAudioContentCatalog.RegisterCues(Content, _audio);
         GameAudioContentCatalog.RegisterTracks(Content, _music);
     }
 
+    // Records the raw lighting field for 120 frames: 60 with the camera held still, then 60 while it
+    // pans itself at a fixed rate. Both halves see the same moving creatures, so anything that
+    // differs between them is attributable to the camera and nothing else.
+    //
+    // Driven from here, ahead of the main-menu early-out, and startable from an environment variable
+    // as well as F6 - key injection does not reach SDL's input layer, so an automated run needs a
+    // path that does not involve the keyboard at all.
+    private int _captureClockFrames;
+    private bool _captureStarted;
+
+    // Tiles of camera travel per recorded pan frame. 0.05 x 120 is 6 tiles at every zoom rung - well
+    // past a lattice step - and reads as a brisk but ordinary drag rather than a teleport.
+    private const float CapturePanTilesPerFrame = 0.05f;
+    private const int CaptureStillFrames = 20;
+    private const int CapturePanFrames = 120;
+
+    // The zoom phase walks the ladder from the bottom rung to the top and straight back down, holding
+    // each rung for a few frames. The descent revisits every rung the ascent already recorded, with
+    // the camera untouched - so any difference between the two visits to a rung is genuine
+    // non-determinism rather than a consequence of the zoom itself.
+    //
+    // The scale is SET rather than glided so each rung is settled the instant it is entered; the glide
+    // is a separate question and would only blur this one.
+    private const int CaptureFramesPerRung = 6;
+    private static readonly int CaptureZoomSlots = (GameConstants.MaxZoomSteps * 4) + 1;
+    private static readonly int CaptureZoomFrames = CaptureZoomSlots * CaptureFramesPerRung;
+
+    // Slot -> zoom rung: up from the bottom, then back down. Slot 0 and the last slot are both the
+    // bottom rung, so even the endpoints get a repeat visit.
+    private static int GetCaptureZoomStep(int slot)
+    {
+        var max = GameConstants.MaxZoomSteps;
+        var span = max * 2;
+        return slot <= span ? slot - max : (span * 2) - slot - max;
+    }
+
+    private void StartLightingFieldCapture()
+    {
+        // Optional zoom rung to record at. The flicker is reported as worst when zoomed in, and the
+        // geometry genuinely differs there - probe spacing is scaled by zoomFactor, the packed
+        // lattice overhangs the screen severalfold, and each field texel covers far more screen - so
+        // a measurement taken at the default rung says nothing about that case.
+        if (int.TryParse(Environment.GetEnvironmentVariable("TRILO_LIGHT_CAPTURE_ZOOM"), out var step))
+        {
+            _camera.CurrentScale = CameraController.GetScaleForZoomStep(step);
+        }
+
+        var path = _lightingRenderer?.BeginFieldCapture(
+            CaptureStillFrames, CapturePanFrames, CaptureZoomFrames);
+        if (path is not null)
+        {
+            _captureStarted = true;
+            Console.WriteLine(
+                $"[lighting] capturing {CaptureStillFrames + CapturePanFrames + CaptureZoomFrames} frames: " +
+                $"{CaptureStillFrames} still, {CapturePanFrames} panning " +
+                $"{CapturePanFrames * CapturePanTilesPerFrame:F1} tiles, " +
+                $"{CaptureZoomFrames} sweeping {CaptureZoomSlots} zoom rungs. -> {path}");
+        }
+    }
+
+    private void UpdateLightingFieldCapture()
+    {
+        // Zoom phase: hold the camera still and snap to the rung this frame belongs to.
+        var zoomFrame = _lightingRenderer?.CaptureZoomFrame ?? -1;
+        if (zoomFrame >= 0)
+        {
+            var slot = Math.Min(CaptureZoomSlots - 1, zoomFrame / CaptureFramesPerRung);
+            _camera.CurrentScale = CameraController.GetScaleForZoomStep(GetCaptureZoomStep(slot));
+        }
+
+        if (_lightingRenderer?.CaptureIsPanningPhase == true)
+        {
+            // Pan a fixed WORLD distance per frame, not a fixed screen distance.
+            //
+            // The probe lattice re-snaps once per top-cascade probe spacing - 3.2 tiles at this
+            // viewport - and that snap is the only discontinuity the whole lighting path contains,
+            // so a capture that does not cross one cannot see it. At a fixed 2 screen px/frame the
+            // pan covered 0.36 TILES over its 60 frames at max zoom: a ninth of one snap, which is
+            // why the recorded run came out bit-identical frame to frame and looked like proof that
+            // nothing moves. Worse, the distance covered scaled with 1/CameraScale, so the zoom rung
+            // being measured silently decided how much of the phenomenon was in frame.
+            //
+            // A world-space rate makes the sweep cover the same number of tiles - and therefore the
+            // same number of snaps - at every zoom rung.
+            var worldPerFrame = TileConstants.TileSize * CapturePanTilesPerFrame;
+            _camera.PanByScreenDelta(-worldPerFrame * _camera.CurrentScale, 0f);
+        }
+
+        if (_captureStarted || Environment.GetEnvironmentVariable("TRILO_LIGHT_CAPTURE") is not "1")
+        {
+            return;
+        }
+
+        // Give the session a few seconds to settle before recording.
+        if (++_captureClockFrames > 240)
+        {
+            StartLightingFieldCapture();
+        }
+    }
+
     protected override void Update(GameTime gameTime)
     {
+        _buildingBfsFieldMaintenance.PumpCompleted();
         _input.BeginFrame();
         _uiClockMs += gameTime.ElapsedGameTime.TotalMilliseconds;
         _camera.Update(gameTime);
-        _worldSpriteEffects.Update(gameTime);
+        UpdateLightingFieldCapture();
+
+        // While a lighting capture runs, hold every animated input still so the camera is the only
+        // thing that changes between frames. Both of these move the lighting on their own and are
+        // otherwise indistinguishable from instability: AdvancePresentation interpolates creature
+        // positions into the occluder mask, and the sprite-effect clock drives the lumenite pulse -
+        // a deliberate 0.38..1.0 brightness cycle every 2.1s, which on its own will read as a probe
+        // changing value every single frame.
+        var capturingLighting = _lightingRenderer?.CaptureFramesRemaining > 0;
+        if (!capturingLighting)
+        {
+            _session.Runtime.AdvancePresentation(gameTime.ElapsedGameTime.TotalMilliseconds);
+        }
+        if (!capturingLighting)
+        {
+            _worldSpriteEffects.Update(gameTime);
+        }
+
         UpdateMusic(gameTime);
         UpdateWorldParticles(gameTime);
         ExpirePendingManualMove();
@@ -352,6 +534,17 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         {
             _debugMetricsOverlayVisible = !_debugMetricsOverlayVisible;
             PlayUiSelectSound();
+        }
+
+        if (!_menu.IsRenamingSelectedTrilobite && _input.KeyPressed(Keys.F4))
+        {
+            _lightingRenderer?.CycleDebugMode();
+            PlayUiSelectSound();
+        }
+
+        if (!_menu.IsRenamingSelectedTrilobite && _input.KeyPressed(Keys.F6))
+        {
+            StartLightingFieldCapture();
         }
 
         if (HasLostQueen())
@@ -424,14 +617,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
             if (!wheelHandled)
             {
-                if (_input.WheelDelta > 0)
-                {
-                    _camera.CurrentScale = MathF.Min(GameConstants.MaxScale, _camera.CurrentScale * (4f / 3f));
-                }
-                else
-                {
-                    _camera.CurrentScale = MathF.Max(GameConstants.MinScale, _camera.CurrentScale * 0.75f);
-                }
+                // One whole rung of the zoom ladder per notch. The camera eases onto it, so holding
+                // the wheel queues rungs instead of snapping through a series of scales.
+                _camera.ZoomBySteps(_input.WheelDelta > 0 ? 1 : -1);
             }
         }
 
@@ -587,22 +775,31 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             _spriteBatch.End();
         }
 
-        _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
-
         if (_session.Cave is not null)
         {
-            _worldSceneRenderer.DrawWorldLayer(_rendering, _session, _worldSpriteEffects, Window.ClientBounds.Size, _showFullMapVisibility);
+            _lightingRenderer?.RenderWorld(
+                _rendering,
+                _worldSceneRenderer,
+                _session,
+                _worldSpriteEffects,
+                Window.ClientBounds.Size,
+                _showFullMapVisibility,
+                _session.Runtime.ShowHitboxes,
+                _simulationClock.InterpolationAlpha);
+
+            _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
             DrawWorldParticles();
             DrawSelection();
             DrawFloatingPreview();
+            DrawContinuousWorldDebug(_session.Cave);
             DrawDebugOverlay(_session.Cave);
+            _spriteBatch.End();
         }
-
-        _spriteBatch.End();
         _gumUiRenderer.BeginFrame(Window.ClientBounds.Size);
         if (_session.Cave is not null)
         {
             DrawRoleLabels(_session.Cave);
+            DrawWorldDebugTooltip(_session.Cave);
             DrawMiningTileSelection();
             DrawSelectionBox();
         }
@@ -694,14 +891,19 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             endLocation,
             _buildingPlacementDragStart);
         var placedAny = false;
+        GridPoint? placedSoundLocation = null;
         foreach (var location in locations)
         {
-            placedAny |= TryPlaceBuildingAt(location);
+            if (TryPlaceBuildingAt(location))
+            {
+                placedAny = true;
+                placedSoundLocation ??= location;
+            }
         }
 
         if (placedAny)
         {
-            _audio.Play(GameAudioCue.BuildingPlace);
+            PlayBuildingPlacementSound(placedSoundLocation!.Value, _buildingPlacementCursor!.TargetBuilding);
             _buildingPlacementCursor!.RefreshAfterSuccessfulPlacement();
         }
     }
@@ -749,6 +951,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
 
     private void StartGameplaySession()
     {
+        _buildingBfsFieldMaintenance.Detach();
         _sessionAudioBridge.Detach();
         _sessionScreenShakeBridge.Detach();
         _sessionParticleBridge.Detach();
@@ -763,6 +966,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         _appScreen = AppScreen.Gameplay;
         var bootstrap = _bootstrapper.CreateNewGame(_worldGenerationMethod);
         _session = bootstrap.Session;
+        _buildingBfsFieldMaintenance.Attach(_session);
         _session.Runtime.DisableEnemySpawns = false;
         _sessionAudioBridge.Attach(_session);
         _sessionScreenShakeBridge.Attach(_session);
@@ -770,7 +974,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         var spawnX = bootstrap.QueenLocation.X;
         var spawnY = bootstrap.QueenLocation.Y;
 
-        _camera.CurrentScale = GameConstants.DefaultCameraScale;
+        _camera.ResetZoom();
         _camera.ClearShake();
         _camera.SetOrigin(new Vector2((spawnX * TileConstants.TileSize) + TileConstants.TileSize, (spawnY * TileConstants.TileSize) + TileConstants.TileSize));
         _activeBfsDebugField = null;
@@ -1103,7 +1307,9 @@ public sealed partial class GameApp
                 _session.Runtime.DisableEnemySpawns,
                 _session.Runtime.NoCostBuildPlacement,
                 _infiniteDraft,
-                _showFullMapVisibility))
+                _showFullMapVisibility,
+                _session.Runtime.ShowHitboxes,
+                _session.Runtime.ShowInteractionZones))
         {
             return;
         }
@@ -1345,7 +1551,7 @@ public sealed partial class GameApp
             ClearMiningTileSelection();
             if (TryPlaceBuildingAt(buildLocation))
             {
-                _audio.Play(GameAudioCue.BuildingPlace);
+                PlayBuildingPlacementSound(buildLocation, _buildingPlacementCursor!.TargetBuilding);
                 _buildingPlacementCursor!.RefreshAfterSuccessfulPlacement();
             }
 
@@ -1437,7 +1643,7 @@ public sealed partial class GameApp
 
         if (TryConsumePendingManualMove(tile.Key, out var pendingTargets))
         {
-            TryHandleManualMove(tile, pendingTargets);
+            TryHandleManualMove(_camera.ScreenToWorld(point), pendingTargets);
             return;
         }
 
@@ -1657,7 +1863,7 @@ public sealed partial class GameApp
         _pendingManualMoveTargets = [];
     }
 
-    private bool TryHandleManualMove(Tile tile, IEnumerable<Trilobite>? targets = null)
+    private bool TryHandleManualMove(Vector2 worldCenter, IEnumerable<Trilobite>? targets = null)
     {
         var moveTargets = (targets ?? _selectedTrilobites)
             .Where(trilobite => trilobite.Cave is not null)
@@ -1668,11 +1874,26 @@ public sealed partial class GameApp
             return false;
         }
 
-        var destination = GridPoint.Parse(tile.Key);
-        var movedAny = false;
-        foreach (var trilobite in moveTargets)
+        var cave = _session.Cave;
+        if (cave is null)
         {
-            movedAny = trilobite.NavigateTo(destination, trilobite.GetBehavior(), clearExisting: true) || movedAny;
+            return false;
+        }
+
+        var sharedDestination = ToWorldPoint(worldCenter);
+        var sharedDestinationCell = sharedDestination.ToGridPoint();
+        var assignments = CreatureFormationPlanner.Build(cave, moveTargets, sharedDestination);
+        var cohortId = _session.AllocateMovementCohortId();
+        var cohort = new MovementCohort(CreatureFaction.Colony, MovementGoalKind.ManualCommand, cohortId);
+        var movedAny = false;
+        for (var index = 0; index < assignments.Count; index++)
+        {
+            var assignment = assignments[index];
+            assignment.Creature.SetMovementCohort(cohort);
+            movedAny = assignment.Creature.NavigateToViaSharedRoute(
+                assignment.Destination,
+                sharedDestinationCell,
+                clearExisting: true) || movedAny;
         }
 
         return movedAny;
@@ -1731,17 +1952,25 @@ public sealed partial class GameApp
 
     public void RunSingleTick()
     {
-        _simulationClock.RunSingleTick(_session, HandleSimulationTickCompleted);
+        _buildingBfsFieldMaintenance.PumpCompleted();
+        _simulationClock.RunSingleTick(_session, HandleSimulationTickCompletedAndPump);
         RefreshBfsFieldDebug();
     }
 
     private void AdvanceSimulation(GameTime gameTime)
     {
+        _buildingBfsFieldMaintenance.PumpCompleted();
         _simulationClock.Advance(
             _session,
             gameTime.ElapsedGameTime.TotalMilliseconds,
             _stopSimulationAfterTick,
-            HandleSimulationTickCompleted);
+            HandleSimulationTickCompletedAndPump);
+    }
+
+    private void HandleSimulationTickCompletedAndPump(GameSession session)
+    {
+        HandleSimulationTickCompleted(session);
+        _buildingBfsFieldMaintenance.PumpCompleted();
     }
 
     private bool StopSimulationAfterTick()
@@ -1776,21 +2005,197 @@ public sealed partial class GameApp
             return;
         }
 
-        foreach (var trilobite in cave.Trilobites)
+        foreach (var trilobite in cave.GetTrilobiteList())
         {
-            var position = GetCreatureScreenPosition(trilobite);
-            var label = GetAssignmentLabel(trilobite.Assignment);
-            var size = GumTextLayout.Measure(label, GumTextStyle.Debug);
-            var bounds = new Rectangle(
-                (int)MathF.Round(position.X - (size.X / 2f) - 8f),
-                (int)MathF.Round(position.Y - (TileConstants.TileHalfSize * _camera.CurrentScale) - size.Y - 14f),
-                (int)MathF.Round(size.X + 16f),
-                (int)MathF.Round(size.Y + 8f));
-
-            _gumUiRenderer.AddFilledRectangle(bounds, new Color(6, 12, 18, 210));
-            DrawScreenBorder(bounds, new Color(127, 179, 196), 1);
-            DrawScreenTextFittedCentered(label, bounds, new Color(230, 239, 245), _rendering.DebugFont, minScale: 0.72f);
+            DrawCreatureRoleLabel(trilobite);
         }
+
+        foreach (var enemy in cave.GetEnemyList())
+        {
+            DrawCreatureRoleLabel(enemy);
+        }
+    }
+
+    private void DrawCreatureRoleLabel(Creature creature)
+    {
+        if (!creature.IsVisible)
+        {
+            return;
+        }
+
+        var position = GetCreatureScreenPosition(creature);
+        var label = $"{GetAssignmentLabel(creature.Role)} | {creature.Activity}";
+        var size = GumTextLayout.Measure(label, GumTextStyle.Debug);
+        var radiusOnScreen = (creature.CollisionRadius / (float)WorldUnits.UnitsPerPixel) * _camera.CurrentScale;
+        var bounds = new Rectangle(
+            (int)MathF.Round(position.X - (size.X / 2f) - 8f),
+            (int)MathF.Round(position.Y - radiusOnScreen - size.Y - 10f),
+            (int)MathF.Round(size.X + 16f),
+            (int)MathF.Round(size.Y + 8f));
+
+        _gumUiRenderer.AddFilledRectangle(bounds, new Color(6, 12, 18, 210));
+        DrawScreenBorder(bounds, new Color(127, 179, 196), 1);
+        DrawScreenTextFittedCentered(label, bounds, new Color(230, 239, 245), _rendering.DebugFont, minScale: 0.72f);
+    }
+
+    private void DrawContinuousWorldDebug(Cave cave)
+    {
+        if (_session.Runtime.ShowInteractionZones)
+        {
+            var buildings = cave.GetBuildingList();
+            for (var buildingIndex = 0; buildingIndex < buildings.Count; buildingIndex++)
+            {
+                var zones = buildings[buildingIndex].InteractionZones;
+                for (var zoneIndex = 0; zoneIndex < zones.Count; zoneIndex++)
+                {
+                    DrawInteractionZone(zones[zoneIndex]);
+                }
+            }
+        }
+
+        if (_session.Runtime.ShowHitboxes)
+        {
+            DrawCreatureHitboxes(cave.GetTrilobiteList());
+            DrawCreatureHitboxes(cave.GetEnemyList());
+        }
+
+        if (!_showRoleLabels)
+        {
+            return;
+        }
+
+        foreach (var selected in _selectedTrilobites)
+        {
+            DrawDesiredRoute(selected);
+        }
+
+        if (_selectedObject is Creature selectedCreature &&
+            (selectedCreature is not Trilobite selectedTrilobite || !_selectedTrilobites.Contains(selectedTrilobite)))
+        {
+            DrawDesiredRoute(selectedCreature);
+        }
+
+        var pointerWorld = ToWorldPoint(_camera.ScreenToWorld(_input.MousePoint));
+        var hovered = WorldDebugInspector.FindNearestCreature(cave, pointerWorld);
+        if (hovered is not null &&
+            (hovered is not Trilobite hoveredTrilobite || !_selectedTrilobites.Contains(hoveredTrilobite)) &&
+            !ReferenceEquals(_selectedObject, hovered))
+        {
+            DrawDesiredRoute(hovered);
+        }
+    }
+
+    private void DrawCreatureHitboxes<T>(IReadOnlyList<T> creatures) where T : Creature
+    {
+        var lime = new Color(118, 255, 70, 235);
+        for (var index = 0; index < creatures.Count; index++)
+        {
+            var creature = creatures[index];
+            if (creature.IsVisible)
+            {
+                DrawWorldCircleOutline(
+                    GetCreatureWorldPosition(creature),
+                    creature.CollisionRadius / (float)WorldUnits.UnitsPerPixel,
+                    lime,
+                    2f);
+            }
+        }
+    }
+
+    private void DrawInteractionZone(InteractionZone zone)
+    {
+        var bounds = zone.WorldBounds;
+        var topLeft = _camera.WorldToScreen(new Vector2(
+            bounds.X / (float)WorldUnits.UnitsPerPixel,
+            bounds.Y / (float)WorldUnits.UnitsPerPixel));
+        var bottomRight = _camera.WorldToScreen(new Vector2(
+            bounds.Right / (float)WorldUnits.UnitsPerPixel,
+            bounds.Bottom / (float)WorldUnits.UnitsPerPixel));
+        var screenBounds = new Rectangle(
+            (int)MathF.Round(MathF.Min(topLeft.X, bottomRight.X)),
+            (int)MathF.Round(MathF.Min(topLeft.Y, bottomRight.Y)),
+            Math.Max(1, (int)MathF.Round(MathF.Abs(bottomRight.X - topLeft.X))),
+            Math.Max(1, (int)MathF.Round(MathF.Abs(bottomRight.Y - topLeft.Y))));
+        var cyan = new Color(58, 224, 239, 220);
+        _spriteBatch.Draw(_rendering.WhitePixel, screenBounds, new Color(58, 224, 239, 34));
+        DrawScreenLine(new Vector2(screenBounds.Left, screenBounds.Top), new Vector2(screenBounds.Right, screenBounds.Top), cyan, 2f);
+        DrawScreenLine(new Vector2(screenBounds.Right, screenBounds.Top), new Vector2(screenBounds.Right, screenBounds.Bottom), cyan, 2f);
+        DrawScreenLine(new Vector2(screenBounds.Right, screenBounds.Bottom), new Vector2(screenBounds.Left, screenBounds.Bottom), cyan, 2f);
+        DrawScreenLine(new Vector2(screenBounds.Left, screenBounds.Bottom), new Vector2(screenBounds.Left, screenBounds.Top), cyan, 2f);
+
+        for (var index = 0; index < zone.SlotPositions.Count; index++)
+        {
+            if (!zone.IsReserved(index))
+            {
+                continue;
+            }
+
+            var center = _camera.WorldToScreen(ToFrameworkVector(zone.SlotPositions[index].ToWorldPixels()));
+            var marker = new Rectangle((int)center.X - 5, (int)center.Y - 5, 10, 10);
+            _spriteBatch.Draw(_rendering.WhitePixel, marker, new Color(255, 187, 58, 230));
+        }
+    }
+
+    private void DrawDesiredRoute(Creature creature)
+    {
+        if (creature.Activity != CreatureActivity.Moving || creature.DesiredRouteIndex >= creature.DesiredRoute.Count)
+        {
+            return;
+        }
+
+        var previous = _camera.WorldToScreen(GetCreatureWorldPosition(creature));
+        var cyan = new Color(68, 224, 238, 230);
+        for (var index = creature.DesiredRouteIndex; index < creature.DesiredRoute.Count; index++)
+        {
+            var next = _camera.WorldToScreen(ToFrameworkVector(creature.DesiredRoute[index].ToWorldPixels()));
+            DrawScreenLine(previous, next, cyan, 2f);
+            previous = next;
+        }
+    }
+
+    private void DrawWorldDebugTooltip(Cave cave)
+    {
+        if (!_session.Runtime.ShowHitboxes && !_session.Runtime.ShowInteractionZones)
+        {
+            return;
+        }
+
+        var inspection = WorldDebugInspector.Inspect(
+            cave,
+            ToWorldPoint(_camera.ScreenToWorld(_input.MousePoint)),
+            _session.Runtime.ShowHitboxes,
+            _session.Runtime.ShowInteractionZones);
+        if (!inspection.HasValue)
+        {
+            return;
+        }
+
+        var lines = inspection.Tooltip.Split('\n');
+        var width = 0f;
+        var height = 0f;
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var size = GumTextLayout.Measure(lines[index], GumTextStyle.Compact);
+            width = MathF.Max(width, size.X);
+            height += size.Y;
+        }
+
+        var viewport = Window.ClientBounds.Size;
+        var bounds = new Rectangle(
+            Math.Clamp(_input.MousePoint.X + 14, 8, Math.Max(8, viewport.X - (int)width - 30)),
+            Math.Clamp(_input.MousePoint.Y + 14, 8, Math.Max(8, viewport.Y - (int)height - 26)),
+            (int)MathF.Ceiling(width) + 20,
+            (int)MathF.Ceiling(height) + 12);
+        _gumUiRenderer.AddFilledRectangle(bounds, new Color(5, 13, 19, 235));
+        _gumUiRenderer.AddRectangleOutline(bounds, new Color(117, 199, 217), 1);
+        _gumUiRenderer.AddText(
+            new Rectangle(bounds.X + 10, bounds.Y + 6, bounds.Width - 20, bounds.Height - 12),
+            inspection.Tooltip,
+            new Color(231, 243, 247),
+            HorizontalAlignment.Left,
+            VerticalAlignment.Top,
+            GumTextLayout.GetMetrics(GumTextStyle.Compact).FontSize,
+            maxLines: lines.Length);
     }
 
     private void DrawSelection()
@@ -1962,7 +2367,8 @@ public sealed partial class GameApp
             _settingsMenuOpen,
             _mainMenuOpen,
             _audio.VolumePercent,
-            _music.IsMusicEnabled);
+            _music.IsMusicEnabled,
+            _displayMode);
     }
 
     private void DrawResourceHud()
@@ -2193,7 +2599,11 @@ public sealed partial class GameApp
                 _session.Runtime.TickProfiler.AverageMinerMsPerTrilobite,
                 _session.Runtime.TickProfiler.AverageBuilderMsPerTrilobite,
                 _session.Runtime.TickProfiler.AverageFarmerMsPerTrilobite,
-                _session.Runtime.TickProfiler.AverageFighterMsPerTrilobite));
+                _session.Runtime.TickProfiler.AverageFighterMsPerTrilobite,
+                _session.Combat.LastDiagnostics.IdleInDangerCount,
+                _session.Combat.LastDiagnostics.EnemyIdleInDangerCount,
+                _session.Combat.LastDiagnostics.RecoverIntentCount,
+                _session.Combat.LastDiagnostics.SilentIdleRecoveryCount));
     }
 
     private void DrawMainMenuDebugOverlay()
@@ -2284,6 +2694,8 @@ public sealed partial class GameApp
             _session.Runtime.NoCostBuildPlacement,
             _infiniteDraft,
             _showFullMapVisibility,
+            _session.Runtime.ShowHitboxes,
+            _session.Runtime.ShowInteractionZones,
             pointer);
         DrawWrappedScreenText(
             ["` closes this panel. F3 toggles metrics."],
@@ -2643,7 +3055,7 @@ public sealed partial class GameApp
         var spawnTile = queen.GetBirthTile()
             ?? cave.GetReachableTiles().FirstOrDefault(tile =>
                 tile.CreatureFits() &&
-                tile.EnemyOccupant is null &&
+                cave.GetEnemyAtTileKey(tile.Key) is null &&
                 !cave.HasBlockingSurfaceFeature(tile));
         if (spawnTile is null)
         {
@@ -2662,7 +3074,10 @@ public sealed partial class GameApp
             if (cave.Spawn(trilobite, spawnTile))
             {
                 trilobite.RestartBehavior();
-                _session.RequestAudioCue(GameAudioCue.TrilobiteBirth);
+                _session.RequestAudioCue(
+                    GameAudioCue.TrilobiteBirth,
+                    WorldPoint.FromGridPoint(spawnTile.Coordinates),
+                    AudioCueRequest.CreatureEffectFootprintTiles);
             }
         }
     }
@@ -2676,6 +3091,45 @@ public sealed partial class GameApp
         return new Rectangle(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
     }
 
+    private static bool IsCameraControlDragBlocked(bool dragging, bool buildPlacementDragActive)
+    {
+        return dragging && !buildPlacementDragActive;
+    }
+
+    private static bool IsManualMiningTileSelectable(
+        bool allowManualMining,
+        bool hasOpal,
+        string baseType,
+        bool isRevealed)
+    {
+        return allowManualMining &&
+               (hasOpal || !isRevealed || !string.Equals(baseType, "empty", StringComparison.Ordinal));
+    }
+
+    private static bool ShouldShowMiningTileHoverLabel(bool hasOpal, string baseType, bool isRevealed)
+    {
+        return isRevealed &&
+               (hasOpal || !string.Equals(baseType, "empty", StringComparison.Ordinal));
+    }
+
+    private static Scaffolding CreatePlacementScaffolding(
+        GameSession session,
+        Factory factory,
+        int displayRotationTurns)
+    {
+        var turns = ((displayRotationTurns % 4) + 4) % 4;
+        var target = factory.Build(session);
+        var scaffolding = new Scaffolding(session, target);
+        for (var turn = 0; turn < turns; turn++)
+        {
+            scaffolding.RotateMap();
+        }
+
+        scaffolding.SetDisplayRotationTurns(turns);
+        scaffolding.TargetBuilding.SetDisplayRotationTurns(turns);
+        return scaffolding;
+    }
+
     private IReadOnlyList<Trilobite> GetTrilobitesInScreenRectangle(Rectangle selection)
     {
         var cave = _session.Cave;
@@ -2687,7 +3141,7 @@ public sealed partial class GameApp
         _selectionResultBuffer.Clear();
         foreach (var trilobite in cave.GetTrilobiteList())
         {
-            if (trilobite.Cave == cave && selection.Intersects(GetCreatureHitBounds(trilobite)))
+            if (trilobite.Cave == cave && SelectionIntersectsCreature(selection, trilobite))
             {
                 _selectionResultBuffer.Add(trilobite);
             }
@@ -2751,12 +3205,26 @@ public sealed partial class GameApp
 
     private Vector2 GetCreatureWorldPosition(Creature creature)
     {
-        return ToFrameworkVector(creature.GetWorldPosition());
+        return ToFrameworkVector(creature.GetInterpolatedWorldPosition(_simulationClock.InterpolationAlpha));
     }
 
     private Vector2 GetCreatureScreenPosition(Creature creature)
     {
         return _camera.WorldToScreen(GetCreatureWorldPosition(creature));
+    }
+
+    private static string GetAssignmentLabel(CreatureRole role)
+    {
+        return role switch
+        {
+            CreatureRole.Unassigned => "Unassigned",
+            CreatureRole.Miner => "Miner",
+            CreatureRole.Builder => "Builder",
+            CreatureRole.Farmer => "Farmer",
+            CreatureRole.Fighter => "Fighter",
+            CreatureRole.Enemy => "Enemy",
+            _ => role.ToString()
+        };
     }
 
     private static string GetAssignmentLabel(string assignment)
@@ -2775,6 +3243,11 @@ public sealed partial class GameApp
     private static Vector2 ToFrameworkVector(System.Numerics.Vector2 value)
     {
         return new Vector2(value.X, value.Y);
+    }
+
+    private static WorldPoint ToWorldPoint(Vector2 value)
+    {
+        return WorldPoint.FromWorldPixels(new System.Numerics.Vector2(value.X, value.Y));
     }
 
     private string FormatPressedKeys()
@@ -2807,7 +3280,7 @@ public sealed partial class GameApp
 
     private static string FormatTickProfile(TickTimingSnapshot snapshot, string label)
     {
-        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobites {snapshot.TrilobiteMoveMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, miner {FormatRoleTimingSnapshot(snapshot.MinerTiming)}, builder {FormatRoleTimingSnapshot(snapshot.BuilderTiming)}, farmer {FormatRoleTimingSnapshot(snapshot.FarmerTiming)}, fighter {FormatRoleTimingSnapshot(snapshot.FighterTiming)}, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
+        return $"{label}: total {snapshot.TotalMs:0.00} ms, bfs {snapshot.TotalBfsMs:0.00} ms, trilobite ai {snapshot.TrilobiteMoveMs:0.00} ms, movement {snapshot.CreatureMovementMs:0.00} ms, combat resolution {snapshot.CombatResolutionMs:0.00} ms, enemies {snapshot.EnemyMoveMs:0.00} ms, buildings {snapshot.BuildingTickMs:0.00} ms, miner {FormatRoleTimingSnapshot(snapshot.MinerTiming)}, builder {FormatRoleTimingSnapshot(snapshot.BuilderTiming)}, farmer {FormatRoleTimingSnapshot(snapshot.FarmerTiming)}, fighter {FormatRoleTimingSnapshot(snapshot.FighterTiming)}, alloc {FormatByteCount(snapshot.AllocatedBytes)}, gc {snapshot.Gen0Collections}/{snapshot.Gen1Collections}/{snapshot.Gen2Collections}, counts {snapshot.TrilobiteCount}/{snapshot.EnemyCount}/{snapshot.BuildingCount}, work {snapshot.DescribeDominantWork()}";
     }
 
     private static string FormatRoleTimingSnapshot(RoleTimingSnapshot timing)
@@ -2932,17 +3405,23 @@ public sealed partial class GameApp
             return false;
         }
 
+        var worldPoint = ToWorldPoint(_camera.ScreenToWorld(point));
+        Trilobite? best = null;
+        var bestDistance = long.MaxValue;
         foreach (var candidate in cave.GetTrilobiteList())
         {
-            if (GetCreatureHitBounds(candidate).Contains(point))
+            var distance = (worldPoint - candidate.Position).LengthSquared;
+            var radius = candidate.CollisionRadius + candidate.SeparationPadding;
+            if (distance <= (long)radius * radius &&
+                (best is null || distance < bestDistance || (distance == bestDistance && candidate.Id < best.Id)))
             {
-                trilobite = candidate;
-                return true;
+                best = candidate;
+                bestDistance = distance;
             }
         }
 
-        trilobite = null!;
-        return false;
+        trilobite = best!;
+        return best is not null;
     }
 
     private bool TryHitCreature(Point point, out Creature creature)
@@ -2954,26 +3433,8 @@ public sealed partial class GameApp
             return false;
         }
 
-        foreach (var candidate in cave.GetTrilobiteList())
-        {
-            if (GetCreatureHitBounds(candidate).Contains(point))
-            {
-                creature = candidate;
-                return true;
-            }
-        }
-
-        foreach (var candidate in cave.GetEnemyList())
-        {
-            if (GetCreatureHitBounds(candidate).Contains(point))
-            {
-                creature = candidate;
-                return true;
-            }
-        }
-
-        creature = null!;
-        return false;
+        creature = WorldDebugInspector.FindNearestCreature(cave, ToWorldPoint(_camera.ScreenToWorld(point)))!;
+        return creature is not null;
     }
 
     private IEnumerable<Tile> GetCandidateTilesForScreenPoint(Point point, Cave cave)
@@ -3016,7 +3477,26 @@ public sealed partial class GameApp
 
     private Rectangle GetCreatureHitBounds(Creature creature)
     {
-        return GetTileHitBounds(creature.Location);
+        var radius = ((creature.CollisionRadius + creature.SeparationPadding) /
+                     (float)WorldUnits.UnitsPerPixel) * _camera.CurrentScale;
+        var center = GetCreatureScreenPosition(creature);
+        return new Rectangle(
+            (int)MathF.Floor(center.X - radius),
+            (int)MathF.Floor(center.Y - radius),
+            Math.Max(1, (int)MathF.Ceiling(radius * 2f)),
+            Math.Max(1, (int)MathF.Ceiling(radius * 2f)));
+    }
+
+    private bool SelectionIntersectsCreature(Rectangle selection, Creature creature)
+    {
+        var center = GetCreatureScreenPosition(creature);
+        var radius = ((creature.CollisionRadius + creature.SeparationPadding) /
+                     (float)WorldUnits.UnitsPerPixel) * _camera.CurrentScale;
+        var closestX = Math.Clamp(center.X, selection.Left, selection.Right);
+        var closestY = Math.Clamp(center.Y, selection.Top, selection.Bottom);
+        var dx = center.X - closestX;
+        var dy = center.Y - closestY;
+        return (dx * dx) + (dy * dy) <= radius * radius;
     }
 
     private Rectangle GetTileHitBounds(GridPoint tilePoint)
@@ -3035,6 +3515,30 @@ public sealed partial class GameApp
         sprites.Register(key, Content.Load<Texture2D>(assetName));
     }
 
+    // For art that may not be present yet. Callers must tolerate the key being unregistered:
+    // renderers check Sprites.TryGet before drawing.
+    private bool TryRegisterOptionalTexture(SpriteFactory sprites, string key, string assetName)
+    {
+        try
+        {
+            sprites.Register(key, Content.Load<Texture2D>(assetName));
+            return true;
+        }
+        catch (Microsoft.Xna.Framework.Content.ContentLoadException)
+        {
+            return false;
+        }
+    }
+
+    // Wired to Window.ClientSizeChanged AND called explicitly from ApplyDisplayMode: a fullscreen/
+    // windowed toggle was found not to reliably fire ClientSizeChanged synchronously within
+    // ApplyChanges() on every platform this targets, so the explicit call is needed to actually
+    // guarantee the camera gets recentred - but the event can ALSO still fire for the same resize.
+    // Comparing against the tracked _cameraViewportWidth/Height (rather than unconditionally calling
+    // CameraController.HandleViewportResize) is what makes having both triggers safe: whichever
+    // fires first performs the adjustment and updates the tracked size, and the other becomes a
+    // no-op against the now-current size, instead of the two together double-applying the
+    // recentring offset (which shows up as the camera visibly jumping by an extra, wrong pan).
     private void HandleViewportResize()
     {
         if (Window.ClientBounds.Width <= 0 || Window.ClientBounds.Height <= 0)
@@ -3042,9 +3546,18 @@ public sealed partial class GameApp
             return;
         }
 
-        var oldWidth = (int)_camera.ViewCenter.X * 2;
-        var oldHeight = (int)_camera.ViewCenter.Y * 2;
-        _camera.HandleViewportResize(oldWidth, oldHeight, Window.ClientBounds.Width, Window.ClientBounds.Height);
+        if (_cameraViewportWidth == Window.ClientBounds.Width && _cameraViewportHeight == Window.ClientBounds.Height)
+        {
+            return;
+        }
+
+        _camera.HandleViewportResize(
+            _cameraViewportWidth,
+            _cameraViewportHeight,
+            Window.ClientBounds.Width,
+            Window.ClientBounds.Height);
+        _cameraViewportWidth = Window.ClientBounds.Width;
+        _cameraViewportHeight = Window.ClientBounds.Height;
     }
 
     private void SpawnDebugEnemy()
@@ -3061,7 +3574,7 @@ public sealed partial class GameApp
         }
 
         var occupiedKeys = cave.GetCreatures()
-            .Where(creature => creature.IsTrackedInTileSystem)
+            .Where(creature => creature.IsLocomotionEnabled)
             .Select(creature => creature.Location.ToString())
             .ToHashSet(StringComparer.Ordinal);
         var reachable = cave.GetReachableTiles().Where(tile => tile.CreatureFits() && !occupiedKeys.Contains(tile.Key)).ToList();
@@ -3104,7 +3617,9 @@ public sealed partial class GameApp
     {
         if (disposing)
         {
+            _buildingBfsFieldMaintenance.Dispose();
             _trilodexCatalogViewport?.Dispose();
+            _lightingRenderer?.Dispose();
         }
 
         base.Dispose(disposing);

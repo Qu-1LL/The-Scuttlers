@@ -1,3 +1,4 @@
+using Microsoft.Xna.Framework;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Constants;
 
@@ -5,40 +6,56 @@ namespace TriloGame.Tests.Audio;
 
 public sealed class FocusAudioSystemTests
 {
-    [Theory]
-    [InlineData(GameAudioCue.MiningPostFocus)]
-    [InlineData(GameAudioCue.AlgaeFarmFocus)]
-    public void FocusCue_DefaultZoomCenteredStaysBelowAudibleThreshold(GameAudioCue cue)
+    [Fact]
+    public void CreatureEffectFootprint_DefaultZoomMatchesThirtySixTileScreenCoverage()
     {
-        var score = FocusAudioSystem.CalculateFocusScoreForTesting(cue, 0f, GameConstants.DefaultCameraScale);
-        var tuning = FocusAudioSystem.GetTuning(cue);
+        var coverage = FocusAudioSystem.CalculateSquareCoverageForTesting(
+            AudioCueRequest.CreatureEffectFootprintTiles,
+            GameConstants.DefaultCameraScale,
+            1280,
+            720);
 
-        Assert.True(score < tuning.PlayThreshold);
+        Assert.Equal(230400f / (1280f * 720f), coverage, precision: 6);
+    }
+
+    [Fact]
+    public void CreatureEffectFootprint_GetsLouderWhenZoomedIn()
+    {
+        var defaultCoverage = FocusAudioSystem.CalculateSquareCoverageForTesting(
+            AudioCueRequest.CreatureEffectFootprintTiles,
+            GameConstants.DefaultCameraScale,
+            1280,
+            720);
+        var zoomedCoverage = FocusAudioSystem.CalculateSquareCoverageForTesting(
+            AudioCueRequest.CreatureEffectFootprintTiles,
+            GameConstants.MaxScale,
+            1280,
+            720);
+
+        Assert.True(zoomedCoverage > defaultCoverage);
+    }
+
+    [Fact]
+    public void ScreenSpaceCoverage_OffscreenSourceFallsSilent()
+    {
+        var coverage = ScreenSpaceAudio.CalculateVisibleCoverage(
+            new Vector2(-500f, -500f),
+            2f,
+            2f,
+            GameConstants.DefaultCameraScale,
+            1280,
+            720);
+
+        Assert.Equal(0f, coverage);
     }
 
     [Theory]
-    [InlineData(GameAudioCue.MiningPostFocus)]
     [InlineData(GameAudioCue.AlgaeFarmFocus)]
-    public void FocusCue_MaxZoomCenteredExceedsAudibleThreshold(GameAudioCue cue)
-    {
-        var score = FocusAudioSystem.CalculateFocusScoreForTesting(cue, 0f, GameConstants.MaxScale);
-        var tuning = FocusAudioSystem.GetTuning(cue);
-
-        Assert.True(score >= tuning.PlayThreshold);
-        Assert.True(tuning.FullAudibleScale <= GameConstants.MaxScale);
-    }
-
-    [Theory]
-    [InlineData(GameAudioCue.MiningPostFocus)]
-    [InlineData(GameAudioCue.AlgaeFarmFocus)]
-    public void FocusCue_BeyondAudibleRadiusFallsSilent(GameAudioCue cue)
+    [InlineData(GameAudioCue.RadarFocus)]
+    public void FocusCue_UsesFootprintCoverageThreshold(GameAudioCue cue)
     {
         var tuning = FocusAudioSystem.GetTuning(cue);
-        var score = FocusAudioSystem.CalculateFocusScoreForTesting(
-            cue,
-            tuning.AudibleRadiusPixels,
-            GameConstants.MaxScale);
 
-        Assert.Equal(0f, score);
+        Assert.Equal(0.001f, tuning.PlayThreshold);
     }
 }

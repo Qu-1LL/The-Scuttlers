@@ -17,9 +17,15 @@ The project is currently a single MonoGame game assembly with layered modules in
   - cave generation is isolated in `Core/World/CaveGenerator.cs`; `Cave` owns world state and
     simulation-facing coordination rather than generation policy details
   - cave path queries that do not need to mutate world state live in `Core/Pathfinding`
-  - trilobite role dispatch is isolated behind `Core/Entities/TrilobiteRoleBehavior.cs`, with
-    role-specific behavior components such as `TrilobiteFighterBehavior.cs` owning extracted
-    state machines
+  - creature role work is represented by typed `CreatureTask` values; role and activity are typed
+    state, with the combat role controller and battle plan owning explicit fighter transitions
+    and deterministic army-level cohorts
+  - `Core/Movement` owns fixed-point continuous routes, environment-aware locomotion,
+    deterministic formations, and explicit impulse displacement
+  - terrain, buildings, topology, and coarse BFS remain cell based; moving bodies are not stored
+    on `Tile` and walking does not invalidate static terrain fields
+  - `Core/Interaction` owns rotated rectangular building zones, physical slots, and deterministic
+    30-tick reservation leases
 - `Runtime`
   - startup/bootstrap flow
   - simulation clock orchestration
@@ -62,10 +68,44 @@ The project is currently a single MonoGame game assembly with layered modules in
   - world-scene rendering, including parallax background and cave tile/entity layers
   - soil-patch rendering draws per-tile crop sprites in the world layer instead of collapsing the
     patch to one building sprite
+  - `Rendering/Lighting` owns the presentation-only radiance cascade pipeline; it renders the world
+    into camera-space targets, uploads a world-space tile grid for terrain/reveal/building/emission
+    queries, preserves creature sprite alpha as dynamic silhouettes for shadows, and derives
+    emissive sources only from intact ore tiles
 - `Audio`
   - cue registration, playback, and audio-specific runtime systems
 - `Shared`
   - diagnostics, math, and utilities
+
+### Navigation ownership
+
+Per-building traversal navigation is split from the legacy synchronous `BfsField` path:
+
+- `Core` declares explicit building metadata for whether a building maintains a traversal field,
+  how its open-map seeds are selected, and whether maintenance is synchronous or asynchronous.
+- `Core` creates immutable tile/building topology snapshots and publishes immutable per-building
+  field snapshots for O(1) distance and next-step reads.
+- `Runtime/Systems/BuildingBfsFieldMaintenanceSystem` owns the single long-lived worker, its
+  topology mirror, incremental repair state, and command/result queues.
+- `enemy`, `colony`, `wall`, and the queen remain synchronous. Other navigable building fields are
+  asynchronously maintained in production; non-navigable buildings do not participate in the
+  per-building traversal-field set.
+- Mining-post movement uses the general per-building field path. Its compatibility telemetry is
+  retained, but there is no separate mining-post movement-field cache.
+- Smooth creature routes consume bounded coarse path chunks from those published snapshots, then
+  follow their existing fixed-point continuous movement. Generic building navigation terminates on
+  a snapshot tile with distance `0`, including exterior access tiles for solid-footprint buildings.
+- A building field seeds every walkable interaction-zone slot at distance `0` by default.
+  `NavigateToInteractionZone` reserves capacity in the requested zone, then follows that shared
+  building field instead of creating a destination-specific point BFS. Spawn-only and hosted-only
+  slots explicitly opt out of field seeding.
+- Building selection no longer maintains separate ownership BFS fields. Nearest-building queries
+  compare the corresponding per-building traversal fields, and assignment candidate lists are
+  ordered directly by those distances.
+
+Worker results are applied only at runtime pump points outside `TickRunner.RunTick`. Session and
+building runtime ids guard publication so detached sessions and replaced buildings cannot publish
+stale mutable state into the current simulation.
 
 ### Current host rule
 
@@ -85,6 +125,62 @@ should not remain the long-term home for new gameplay rules or reusable orchestr
 
 These form the current “golden path” for adding structure without destabilizing the whole game.
 
+## Continuous World Model
+
+- `WorldPoint` and `WorldVector` are authoritative deterministic coordinates with 16 subunits per
+  world pixel. Floating-point conversion is a rendering and external-API boundary only.
+- Every creature has a stable numeric ID, circular body, previous/current position, velocity,
+  desired velocity, typed role/activity, and persistent desired route.
+- `Creature.Location` is a read-only projection of `Position`; it is not mutable authority.
+- Creature locomotion collides with environment blockers only; creature bodies may overlap one
+  another. `ApplyImpulse` displaces only the target creature, and unresolved displacement remains
+  pending for later ticks.
+- Hosted creatures use the same authoritative position at a kinematic station anchor. Vehicles
+  remain separate world objects but block creature circles through the same clearance rules.
+- Point-route construction is capped at 32 per tick. Excess typed navigation tasks remain in
+  `Planning` and retry in stable creature-ID order.
+- Route following, arrival, and wall avoidance produce preferred velocity only; swept environment
+  collision remains authoritative.
+- `Core/Combat/CombatWorld` owns fixed-tick attack commands, centered creature-body hitboxes and
+  hurtboxes, circle, AABB, and capsule narrow phase tests, a uniform-grid broadphase, stable hit
+  events, and faction filtering. It resolves against final post-movement poses and emits shared
+  damage/audio events. Structure attacks retain a blocked-tile reach envelope, while creature
+  combat uses the same centered body shape for both sides.
+- `Core/Combat/CombatAgentController` consumes automatic 8x8 threat-sector directives and routes
+  fighters through the once-per-tick shared enemy field for long travel, then directly to a
+  deterministic stand-off point on the assigned enemy's live world pose before attacking. This
+  avoids destination-specific point BFS fields while preserving momentum during nearby retargeting.
+  Fighters keep only the colony `fighter`
+  profession; named tactical subroles are not part of simulation state. When danger is clear,
+  fighters use the same deterministic idle-wander routine as every other mobile trilobite.
+- Enemies expose the same explicit combat lifecycle through `EnemyCombatState`, separating target
+  acquisition, colony pursuit, attacks, breaches, and recovery for runtime inspection and replay
+  diagnostics.
+- Combat target selection uses deterministic live-ant load balancing: fighters are processed by
+  stable creature ID, assigned to the least-loaded ant, and use distance then ant ID as tie-breaks.
+  Threat sectors remain the fallback advance plan, while the spatial grid handles actual target
+  acquisition and hit resolution. No attacker performs an army-wide scan during hit resolution.
+- Creature death publishes a shared render request; the session particle bridge turns it into a
+  red two-second burst using the existing particle system's high-velocity friction and tile-collision
+  support.
+- `MiningStrikeSystem` owns the unchanged mining claim/reach/timing path. Mining strikes are
+  point-sampled at their rendered magenta point and never share combat hitbox state.
+- `MiningClaimAllocator` gives miners deterministic claims while allowing multiple miners to share
+  a mineable target, and each post rotates its mineable queue so autonomous and manual mining
+  orders keep round-robin pressure on the available work.
+- Builder role execution uses explicit idle, scaffold selection, source selection, withdrawal,
+  delivery, and construction phases. Remaining recipe volume divided by carry capacity determines
+  staffing, Build First scaffolds take priority, and building creation order is the stable tie-breaker.
+  Building navigation fields handle the approach while reserved interaction zones handle the final
+  transfer, preventing repeated point-path requests and haul/deposit loops when several builders
+  share a source.
+- Trilobite role state machines start from an explicit idle state. All mobile trilobite professions
+  use the same deterministic layered idle routine: mostly stationary pauses followed by short,
+  anchor-biased local moves that prefer clear direct steering and bound fallback pathfinding.
+- Creature carrier inventory may contain multiple resource types; older `Inventory.Type` callers
+  observe the first carried resource for compatibility, while deposit paths drain all carried
+  stacks into compatible storage.
+
 ## UI Rendering Notes
 
 - Screen-space UI is Gum-first.
@@ -101,6 +197,22 @@ These form the current “golden path” for adding structure without destabiliz
   for routine sizing because it softens text and makes nearby surfaces look inconsistent.
 - Treat MonoGame `SpriteBatch.DrawString` as a world-space/debug-only tool unless the text is
   intentionally attached to the game world rather than the UI.
+- World lighting is presentation-only. The radiance cascade shader is applied before the world
+  debug/selection overlays and before the Gum frame; no shader or lighting render target is applied
+  to Gum panels, controls, HUD, menus, research screens, or UI text.
+- Radiance Cascade inputs are built from one camera cull per frame. A render-only world-space tile
+  grid encodes blocker, known/revealed, and ore-emission channels; unrevealed and out-of-map cells
+  are opaque to rays, while full-map mode includes known open cells. Completed building footprints
+  block light and scaffolding does not. Creature silhouettes remain in a camera-space dynamic
+  occluder target. Packed cascades halve probe density and double ray density on each axis per level,
+  merge from the far cascade toward cascade 0, and reduce cascade 0 into the lighting field used for
+  composition. Cascade count is derived from the light-buffer diagonal and clamped for the supported
+  render budget.
+- Intact ore deposits are the only light sources. All ore types use the shared warm ore light;
+  Lumenite's existing presentation pulse modulates its intensity. Cave crystals, buildings,
+  creatures, particles, dropped resources, and simulation rules do not emit light.
+- Solid non-empty tiles and building footprints block light. Creature sprites block light by their
+  alpha silhouette, but creatures remain non-emissive.
 - Short UI sound cues are routed through a shared `AudioService`, while gameplay systems
   request sounds indirectly through `GameSession.AudioCueRequested`.
 - Managed crash handling is routed through a shared crash reporter that writes timestamped

@@ -7,22 +7,13 @@ public sealed class ClickPitchVariationTests
     [Fact]
     public void AllCues_ExposeThreePitchVariants()
     {
-        var buildingPitches = ClickPitchVariation.GetPitches(GameAudioCue.BuildingFinished);
-        var birthPitches = ClickPitchVariation.GetPitches(GameAudioCue.TrilobiteBirth);
-        var uiPitches = ClickPitchVariation.GetPitches(GameAudioCue.UiSelect);
-        var invalidPitches = ClickPitchVariation.GetPitches(GameAudioCue.InvalidBranchPlacement);
-        var unlockPitches = ClickPitchVariation.GetPitches(GameAudioCue.UnlockNode);
-        var selectPitches = ClickPitchVariation.GetPitches(GameAudioCue.TrilobiteSelected);
-        var volumePitches = ClickPitchVariation.GetPitches(GameAudioCue.VolumeSound);
-
-        Assert.Equal(3, buildingPitches.Count);
-        Assert.Equal(buildingPitches, birthPitches);
-        Assert.Equal(3, uiPitches.Count);
-        Assert.Equal(buildingPitches, uiPitches);
-        Assert.Equal(uiPitches, invalidPitches);
-        Assert.Equal(uiPitches, unlockPitches);
-        Assert.Equal(uiPitches, selectPitches);
-        Assert.Equal(uiPitches, volumePitches);
+        var expected = ClickPitchVariation.GetPitches(GameAudioCue.BuildingFinished);
+        foreach (var cue in Enum.GetValues<GameAudioCue>())
+        {
+            var pitches = ClickPitchVariation.GetPitches(cue);
+            Assert.Equal(3, pitches.Count);
+            Assert.Equal(expected, pitches);
+        }
     }
 
     [Fact]

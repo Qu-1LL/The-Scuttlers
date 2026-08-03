@@ -1,5 +1,6 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Shared.Math;
 using TriloGame.Game.Shared.Utilities;
 
@@ -17,6 +18,12 @@ public sealed class Radar : Building
         GrowthChance = 0.1;
         Description = $"Reveals tiles in an expanding radius. Has a 1 in 10 chance each tick to grow until radius {RadiusMax}.";
     }
+
+    public override bool MaintainsNavigationField => false;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.None;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 
     public int RadiusMax { get; }
 

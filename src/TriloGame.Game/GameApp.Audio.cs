@@ -1,5 +1,8 @@
 using Microsoft.Xna.Framework;
 using TriloGame.Game.Audio;
+using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
+using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game;
 
@@ -69,5 +72,18 @@ public sealed partial class GameApp
         {
             _audio.Play(GameAudioCue.VolumeSound);
         }
+    }
+
+    private void PlayBuildingPlacementSound(GridPoint location, Building building)
+    {
+        var center = new Vector2(
+            (location.X * TileConstants.TileSize) + ((building.Size.X - 1) * TileConstants.TileHalfSize),
+            (location.Y * TileConstants.TileSize) + ((building.Size.Y - 1) * TileConstants.TileHalfSize));
+        var gain = ScreenSpaceAudio.CalculateVisibleCoverage(
+            _camera.WorldToScreen(center),
+            Math.Max(1, building.Size.X),
+            Math.Max(1, building.Size.Y),
+            _camera);
+        _audio.Play(GameAudioCue.BuildingPlace, gain);
     }
 }

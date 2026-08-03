@@ -10,5 +10,8 @@ public enum TickPhase
     TrilobiteMove,
     ColonyBfs,
     EnemyMove,
+    CreatureMovement,
+    CombatResolution,
+    MiningResolution,
     BuildingTick
 }

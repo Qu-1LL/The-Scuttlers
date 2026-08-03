@@ -74,7 +74,11 @@ public sealed class WallTests
         Assert.True(cave.Spawn(enemy, enemyTile));
         Assert.True(wallField.IsUpdated());
 
-        Assert.True(cave.MoveCreature(enemy, new GridPoint(8, 3)));
+        Assert.True(cave.RequestCreatureMove(enemy, new GridPoint(8, 3)));
+        while (enemy.HasActiveMovement)
+        {
+            cave.AdvanceCreatureMovement();
+        }
         Assert.True(wallField.IsUpdated());
     }
 
@@ -90,7 +94,11 @@ public sealed class WallTests
 
         Assert.NotNull(path);
         Assert.Equal([new GridPoint(4, 4), wallLocation, new GridPoint(6, 4)], path);
-        Assert.True(cave.MoveCreature(trilobite, wallLocation));
+        Assert.True(cave.RequestCreatureMove(trilobite, wallLocation));
+        while (trilobite.HasActiveMovement)
+        {
+            cave.AdvanceCreatureMovement();
+        }
         Assert.Equal(wallLocation, trilobite.Location);
     }
 

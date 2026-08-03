@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
@@ -36,17 +37,17 @@ public sealed class TickProfilerTests
         var trilobite = TestWorldFactory.SpawnTrilobite(cave, session, start, "Profiler");
         var clock = new GameSimulationClockSystem();
 
-        trilobite.EnqueueAction(() => trilobite.NavigateTo(destination));
+        trilobite.EnqueueTask(CreatureTask.NavigateTo(destination));
 
         clock.RunSingleTick(session);
 
         var navigation = session.Runtime.TickProfiler.Last.Navigation;
         Assert.True(navigation.PointPathRequestCount > 0);
-        Assert.True(navigation.BuildPathFromFieldCallCount > 0);
+        Assert.Equal(0, navigation.BuildPathFromFieldCallCount);
         Assert.True(navigation.BuildPointBfsFieldCallCount > 0);
         Assert.True(navigation.QueuedNavigationSteps > 0);
         Assert.Equal(start, trilobite.Location);
-        Assert.True(trilobite.GetQueuedPathPreview().Count > 1);
+        Assert.NotEmpty(trilobite.DesiredRoute);
     }
 
     [Fact]
@@ -87,6 +88,8 @@ public sealed class TickProfilerTests
             128d,
             12d,
             81d,
+            0d,
+            0d,
             8d,
             10d,
             6d,
@@ -113,6 +116,8 @@ public sealed class TickProfilerTests
             42d,
             4d,
             9d,
+            0d,
+            0d,
             21d,
             3d,
             2d,
@@ -138,6 +143,8 @@ public sealed class TickProfilerTests
             118d,
             6d,
             74d,
+            0d,
+            0d,
             9d,
             7d,
             5d,
@@ -180,12 +187,7 @@ public sealed class TickProfilerTests
             12,
             8,
             1,
-            6,
-            1,
-            6,
-            6,
-            1,
-            2);
+            6);
         var secondNavigation = new NavigationTickMetrics(
             4,
             3,
@@ -205,17 +207,14 @@ public sealed class TickProfilerTests
             18,
             10,
             3,
-            8,
-            3,
-            12,
-            8,
-            3,
-            6);
+            8);
 
         profiler.Record(new TickTimingSnapshot(
             18d,
             1d,
             5d,
+            0d,
+            0d,
             2d,
             3d,
             4d,
@@ -231,6 +230,8 @@ public sealed class TickProfilerTests
             16d,
             2d,
             4d,
+            0d,
+            0d,
             1d,
             2d,
             5d,

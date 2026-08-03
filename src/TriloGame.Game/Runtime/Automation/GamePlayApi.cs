@@ -1,4 +1,6 @@
+using System.Numerics;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -21,20 +23,10 @@ public sealed class GamePlayApi
         var session = _host.Session;
         var cave = session.Cave;
         var trilobites = cave?.GetTrilobiteList()
-            .Select(trilobite => new CreatureSnapshot(
-                trilobite.Name,
-                trilobite.Assignment,
-                trilobite.Location,
-                trilobite.Health,
-                trilobite.MaxHealth))
+            .Select(CreateCreatureSnapshot)
             .ToArray() ?? [];
         var enemies = cave?.GetEnemyList()
-            .Select(enemy => new CreatureSnapshot(
-                enemy.Name,
-                enemy.Assignment,
-                enemy.Location,
-                enemy.Health,
-                enemy.MaxHealth))
+            .Select(CreateCreatureSnapshot)
             .ToArray() ?? [];
         var buildings = cave?.GetBuildingList()
             .Select(building => new BuildingSnapshot(
@@ -43,6 +35,44 @@ public sealed class GamePlayApi
                 building.Health,
                 building.MaxHealth))
             .ToArray() ?? [];
+
+        var directives = session.Combat.Directives.Values
+            .OrderBy(directive => directive.FighterId)
+            .Select(directive => new CombatDirectiveSnapshot(
+                directive.FighterId,
+                directive.SectorId,
+                directive.Kind,
+                directive.Destination.ToWorldPixels(),
+                directive.TargetId,
+                directive.AssignmentVersion))
+            .ToArray();
+        var hitboxes = session.Combat.ActiveHitboxes
+            .Select(hitbox => new CombatHitboxSnapshot(
+                hitbox.Id,
+                hitbox.SourceId,
+                hitbox.AttackInstanceId,
+                hitbox.Shape.Kind,
+                hitbox.Shape.First.ToWorldPixels(),
+                hitbox.Shape.Second.ToWorldPixels(),
+                hitbox.Shape.Radius / (float)WorldUnits.UnitsPerPixel,
+                hitbox.ActiveFromTick,
+                hitbox.ActiveUntilTick,
+                hitbox.Damage,
+                hitbox.MaximumTargetCount))
+            .ToArray();
+        var hurtboxes = session.Combat.Hurtboxes
+            .Select(hurtbox => new CombatHurtboxSnapshot(
+                hurtbox.Id,
+                hurtbox.EntityId,
+                hurtbox.Shape.Kind,
+                hurtbox.Shape.First.ToWorldPixels(),
+                hurtbox.Shape.Second.ToWorldPixels(),
+                hurtbox.Shape.Radius / (float)WorldUnits.UnitsPerPixel,
+                (int)hurtbox.Faction))
+            .ToArray();
+        var hits = session.Combat.RecentHitEvents
+            .Select(hit => new CombatHitEventSnapshot(hit.Tick, hit.HitboxId, hit.AttackInstanceId, hit.SourceId, hit.Target.Id, hit.Damage))
+            .ToArray();
 
         return new GamePlaySnapshot(
             session.TickCount,
@@ -54,7 +84,12 @@ public sealed class GamePlayApi
             buildings.Length,
             trilobites,
             enemies,
-            buildings);
+            buildings,
+            session.Combat.LastDirectivePlan,
+            directives,
+            hitboxes,
+            hurtboxes,
+            hits);
     }
 
     // Rebuild the host's game session from scratch.
@@ -117,11 +152,19 @@ public sealed class GamePlayApi
         return trilobite.ChangeAssignment(assignment);
     }
 
-    // Queue movement for one named trilobite using its existing behavior as fallback.
+    // Queue movement for one named trilobite; its typed role task resumes afterward.
     public bool MoveTrilobite(string trilobiteName, GridPoint destination)
     {
+        return MoveTrilobite(trilobiteName, WorldPoint.FromGridPoint(destination).ToWorldPixels());
+    }
+
+    // Queue movement to an exact continuous world position.
+    public bool MoveTrilobite(string trilobiteName, Vector2 destination)
+    {
         var trilobite = FindTrilobite(trilobiteName);
-        return trilobite is not null && trilobite.NavigateTo(destination, trilobite.GetBehavior(), clearExisting: true);
+        return trilobite is not null && trilobite.NavigateTo(
+            WorldPoint.FromWorldPixels(destination),
+            clearExisting: true);
     }
 
     // Spawn a new trilobite onto a legal tile and immediately start its role behavior.
@@ -209,6 +252,71 @@ public sealed class GamePlayApi
     {
         return _host.Session.Cave?.GetTrilobiteList()
             .FirstOrDefault(candidate => string.Equals(candidate.Name, trilobiteName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static CreatureSnapshot CreateCreatureSnapshot(Creature creature)
+    {
+        var route = new Vector2[Math.Max(0, creature.DesiredRoute.Count - creature.DesiredRouteIndex)];
+        for (var index = creature.DesiredRouteIndex; index < creature.DesiredRoute.Count; index++)
+        {
+            route[index - creature.DesiredRouteIndex] = creature.DesiredRoute[index].ToWorldPixels();
+        }
+
+        var activeHurtbox = creature.Session.Combat.GetActiveFor(creature);
+        var facing = new Vector2(creature.FacingDirection.X, creature.FacingDirection.Y);
+        if (facing != Vector2.Zero)
+        {
+            facing = Vector2.Normalize(facing);
+        }
+
+        var combatTargetId = activeHurtbox?.PreferredTarget?.Id ?? creature switch
+        {
+            Trilobite trilobite => trilobite.FighterTarget?.Id,
+            Enemy enemy => enemy.EnemyTarget?.Id,
+            _ => null
+        };
+        var hurtboxSnapshot = activeHurtbox is null
+            ? null
+            : new CombatHitboxSnapshot(
+                activeHurtbox.Id,
+                activeHurtbox.SourceId,
+                activeHurtbox.AttackInstanceId,
+                activeHurtbox.Shape.Kind,
+                activeHurtbox.Shape.First.ToWorldPixels(),
+                activeHurtbox.Shape.Second.ToWorldPixels(),
+                activeHurtbox.Shape.Radius / (float)WorldUnits.UnitsPerPixel,
+                activeHurtbox.ActiveFromTick,
+                activeHurtbox.ActiveUntilTick,
+                activeHurtbox.Damage,
+                activeHurtbox.MaximumTargetCount);
+        return new CreatureSnapshot(
+            creature.Id,
+            creature.Name,
+            creature.Assignment,
+            creature.Location,
+            creature.Health,
+            creature.MaxHealth,
+            creature.Position.ToWorldPixels(),
+            creature.CurrentCell,
+            creature.Role,
+            creature.Activity,
+            creature.CollisionRadius / (float)WorldUnits.UnitsPerPixel,
+            new Vector2(
+                creature.Velocity.X / (float)WorldUnits.UnitsPerPixel,
+                creature.Velocity.Y / (float)WorldUnits.UnitsPerPixel),
+            facing,
+            creature.MovementCohort,
+            creature.IdleDestination?.ToWorldPixels(),
+            creature.IdleRestTicks,
+            creature.ReservedZone?.Id,
+            creature.ReservedZone?.Name,
+            route,
+            hurtboxSnapshot,
+            combatTargetId,
+            (creature as Trilobite)?.ActiveMiningClaim,
+            creature.DamageFlashSequence,
+            (creature as Trilobite)?.FighterState,
+            (creature as Enemy)?.CombatState);
     }
 
     // Map automation-friendly building aliases onto concrete building instances.

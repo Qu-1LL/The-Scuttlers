@@ -52,12 +52,24 @@ public sealed class AudioService
     // Play a one-shot cue if the sound has been registered.
     public bool Play(GameAudioCue cue)
     {
+        return Play(cue, 1f);
+    }
+
+    // Play a one-shot cue with caller-provided spatial gain while preserving pitch variation.
+    public bool Play(GameAudioCue cue, float gain)
+    {
         if (!_effects.TryGetValue(cue, out var effect))
         {
             return false;
         }
 
-        effect.Play(NormalizedVolume, ClickPitchVariation.GetRandomPitch(cue), 0f);
+        gain = Math.Clamp(gain, 0f, 1f);
+        if (gain <= 0f)
+        {
+            return false;
+        }
+
+        effect.Play(NormalizedVolume * gain, ClickPitchVariation.GetRandomPitch(cue), 0f);
         return true;
     }
 

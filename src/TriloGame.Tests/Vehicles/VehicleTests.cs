@@ -25,16 +25,17 @@ public sealed class VehicleTests
         Assert.Equal(4, plow.TileArray.Count);
         Assert.Same(plow, cave.GetVehicleAtTileKey(new GridPoint(5, 6).ToString()));
         Assert.IsAssignableFrom<IDriveable>(plow);
-        Assert.False(farmer.IsTrackedInTileSystem);
+        Assert.False(farmer.IsLocomotionEnabled);
         Assert.True(farmer.IsVisible);
         Assert.Same(plow, farmer.HostedVehicle);
         Assert.Null(farmer.HostedBuilding);
         Assert.Same(farmer, plow.Driver);
         Assert.True(plow.IsCreatureDriving(farmer));
         Assert.Contains(farmer, plow.StationedCreatures);
-        Assert.Equal(480f, farmer.HostedWorldPosition!.Value.X, 3);
-        Assert.Equal(520f, farmer.HostedWorldPosition.Value.Y, 3);
+        Assert.Equal(plow.GetWorldCenter().X + 40f, farmer.GetWorldPosition().X, 3);
+        Assert.Equal(plow.GetWorldCenter().Y, farmer.GetWorldPosition().Y, 3);
         Assert.Equal(MathF.PI * 0.5f, farmer.RotationRadians, 3);
+        Assert.Equal(farmer.RotationRadians, farmer.GetInterpolatedFacingRadians(0.5f), 3);
     }
 
     [Fact]
@@ -50,8 +51,8 @@ public sealed class VehicleTests
         Assert.True((bool)plow.Move()!);
 
         Assert.Equal(new GridPoint(6, 6), plow.Location);
-        Assert.Equal(560f, farmer.HostedWorldPosition!.Value.X, 3);
-        Assert.Equal(520f, farmer.HostedWorldPosition.Value.Y, 3);
+        Assert.Equal(plow.GetWorldCenter().X + 40f, farmer.GetWorldPosition().X, 3);
+        Assert.Equal(plow.GetWorldCenter().Y, farmer.GetWorldPosition().Y, 3);
     }
 
     [Fact]
@@ -71,8 +72,8 @@ public sealed class VehicleTests
         Assert.True((bool)farmer.Move()!);
 
         Assert.Equal(new GridPoint(6, 6), plow.Location);
-        Assert.Equal(560f, farmer.HostedWorldPosition!.Value.X, 3);
-        Assert.Equal(520f, farmer.HostedWorldPosition.Value.Y, 3);
+        Assert.Equal(plow.GetWorldCenter().X + 40f, farmer.GetWorldPosition().X, 3);
+        Assert.Equal(plow.GetWorldCenter().Y, farmer.GetWorldPosition().Y, 3);
     }
 
     [Fact]
@@ -89,8 +90,8 @@ public sealed class VehicleTests
 
         Assert.Equal(new GridPoint(5, 6), plow.Location);
         Assert.Equal(2, plow.GetDisplayRotationTurns());
-        Assert.Equal(400f, farmer.HostedWorldPosition!.Value.X, 3);
-        Assert.Equal(520f, farmer.HostedWorldPosition.Value.Y, 3);
+        Assert.Equal(plow.GetWorldCenter().X - 40f, farmer.GetWorldPosition().X, 3);
+        Assert.Equal(plow.GetWorldCenter().Y, farmer.GetWorldPosition().Y, 3);
         Assert.Equal(MathF.PI * 1.5f, farmer.RotationRadians, 3);
     }
 
@@ -205,6 +206,9 @@ public sealed class VehicleTests
         Assert.Equal(0, cave.GetBfsFieldValue("colony", new GridPoint(4, 6)));
         Assert.Equal(new GridPoint(5, 6).ToString(), enemy.GetAdjacentHostileTileKey());
         Assert.True(enemy.EnemyStep1());
+        session.Combat.ResolveTick(session);
+        session.TickCount++;
+        session.Combat.ResolveTick(session);
         Assert.Equal(35, plow.Health);
     }
 
@@ -223,15 +227,18 @@ public sealed class VehicleTests
         while (plow.Health > 0)
         {
             Assert.True(enemy.EnemyStep1());
+            session.Combat.ResolveTick(session);
+            session.TickCount++;
+            session.Combat.ResolveTick(session);
         }
 
         Assert.Empty(cave.GetVehicles());
         Assert.Null(plow.Cave);
         Assert.Null(cave.GetVehicleAtTileKey(new GridPoint(5, 6).ToString()));
-        Assert.True(farmer.IsTrackedInTileSystem);
+        Assert.True(farmer.IsLocomotionEnabled);
         Assert.True(farmer.IsVisible);
         Assert.Null(farmer.HostedVehicle);
         Assert.Equal(new GridPoint(5, 6), farmer.Location);
-        Assert.Contains(farmer, cave.GetTile(new GridPoint(5, 6))!.Trilobites);
+        Assert.Same(farmer, cave.GetTrilobiteAtTileKey(new GridPoint(5, 6).ToString()));
     }
 }

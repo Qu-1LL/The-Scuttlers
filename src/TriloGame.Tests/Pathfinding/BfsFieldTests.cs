@@ -1,5 +1,9 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.World;
+using TriloGame.Game.Shared.Diagnostics;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.Pathfinding;
@@ -42,17 +46,161 @@ public sealed class BfsFieldTests
 
         var directPath = cave.BuildDirectPathToPoint(trilobite.Location, destinationPoint);
         var fieldPath = cave.BuildPathFromField(cave.BuildPointBfsField(destinationPoint), trilobite.Location);
+        var cachedPath = cave.BuildPointPath(trilobite.Location, destinationPoint);
 
         Assert.NotNull(directPath);
         Assert.NotNull(fieldPath);
+        Assert.NotNull(cachedPath);
         Assert.NotEmpty(directPath);
         Assert.Equal(trilobite.Location, directPath[0]);
         Assert.Equal(destinationPoint, directPath[^1]);
         Assert.Equal(fieldPath!.Count, directPath.Count);
+        Assert.Equal(fieldPath.Count, cachedPath!.Count);
         for (var index = 1; index < directPath.Count; index++)
         {
             Assert.Equal(1, GridPoint.ManhattanDistance(directPath[index - 1], directPath[index]));
         }
+    }
+
+    [Fact]
+    public void CachedPointPath_ReusesSingleFieldForSameDestinationBeyondPerTickBudget()
+    {
+        var (_, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(70, 12, new GridPoint(1, 1));
+        var destination = new GridPoint(64, 6);
+        var paths = new List<List<GridPoint>?>(Cave.MaximumPointRouteBuildsPerTick + 8);
+
+        NavigationInstrumentation.BeginTick();
+        for (var index = 0; index < Cave.MaximumPointRouteBuildsPerTick + 8; index++)
+        {
+            var start = new GridPoint(4 + index, 6);
+            var path = cave.BuildPointPath(start, destination, out var deferred);
+            Assert.False(deferred);
+            paths.Add(path);
+        }
+
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, navigation.BuildPointBfsFieldCallCount);
+        Assert.Equal(1, cave.PointRouteFieldCacheCount);
+        Assert.All(paths, path =>
+        {
+            Assert.NotNull(path);
+            Assert.Equal(destination, path![^1]);
+        });
+    }
+
+    [Fact]
+    public void FormationMove_UsesOneSharedPointFieldForDistinctExactSlots()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(70, 20, new GridPoint(1, 1));
+        var creatures = new List<Trilobite>(24);
+        for (var index = 0; index < 24; index++)
+        {
+            var start = new GridPoint(4 + (index % 8), 4 + (index / 8));
+            creatures.Add(TestWorldFactory.SpawnTrilobite(cave, session, start, $"Formation {index}"));
+        }
+
+        var center = WorldPoint.FromGridPoint(new GridPoint(58, 10)) + new WorldVector(123, 321);
+        var centerCell = center.ToGridPoint();
+        var assignments = CreatureFormationPlanner.Build(cave, creatures, center);
+
+        NavigationInstrumentation.BeginTick();
+        foreach (var assignment in assignments)
+        {
+            Assert.True(assignment.Creature.NavigateToViaSharedRoute(
+                assignment.Destination,
+                centerCell,
+                clearExisting: true));
+            Assert.NotEmpty(assignment.Creature.DesiredRoute);
+            Assert.Equal(RouteContinuationKind.PointDestination, assignment.Creature.ActiveRouteContinuationKind);
+        }
+
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, navigation.BuildPointBfsFieldCallCount);
+        Assert.Equal(assignments.Count, navigation.PointPathRequestCount);
+    }
+
+    [Fact]
+    public void ChunkedPointNavigation_UsesOneFieldAndQueuesOnlyInitialRouteChunks()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(96, 12, new GridPoint(1, 1));
+        var destination = new GridPoint(88, 6);
+        var creatures = new List<Trilobite>(40);
+        for (var index = 0; index < 40; index++)
+        {
+            creatures.Add(TestWorldFactory.SpawnTrilobite(
+                cave,
+                session,
+                new GridPoint(4 + index, 6),
+                $"Chunked {index}"));
+        }
+
+        NavigationInstrumentation.BeginTick();
+        for (var index = 0; index < creatures.Count; index++)
+        {
+            Assert.True(creatures[index].NavigateTo(destination));
+        }
+
+        var navigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, navigation.BuildPointBfsFieldCallCount);
+        Assert.Equal(creatures.Count, navigation.PointPathRequestCount);
+        Assert.True(navigation.MaxPathLength <= Creature.RouteRefillChunkCells + 1);
+        Assert.All(creatures, creature =>
+        {
+            Assert.True(creature.HasActiveMovement);
+            Assert.Equal(RouteContinuationKind.PointDestination, creature.ActiveRouteContinuationKind);
+        });
+    }
+
+    [Fact]
+    public void CachedPointPath_InvalidatesWhenTopologyVersionChanges()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(1, 1));
+        var destination = new GridPoint(20, 6);
+
+        NavigationInstrumentation.BeginTick();
+        Assert.NotNull(cave.BuildPointPath(new GridPoint(4, 6), destination));
+        var initialNavigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, initialNavigation.BuildPointBfsFieldCallCount);
+
+        var wall = new Wall(session);
+        Assert.True(cave.Build(wall, new GridPoint(12, 8)));
+
+        NavigationInstrumentation.BeginTick();
+        Assert.NotNull(cave.BuildPointPath(new GridPoint(5, 6), destination));
+        var rebuiltNavigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, rebuiltNavigation.BuildPointBfsFieldCallCount);
+    }
+
+    [Fact]
+    public void CachedPointPath_InvalidatesWhenReachabilityVersionChanges()
+    {
+        var (_, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(1, 1));
+        var destination = new GridPoint(20, 6);
+
+        NavigationInstrumentation.BeginTick();
+        Assert.NotNull(cave.BuildPointPath(new GridPoint(4, 6), destination));
+        var initialNavigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, initialNavigation.BuildPointBfsFieldCallCount);
+
+        var blockedTile = cave.GetTile(new GridPoint(22, 10))
+            ?? throw new InvalidOperationException("Expected a reachable tile to exist.");
+        blockedTile.SetBase("wall");
+        blockedTile.CreatureCanFit = false;
+        blockedTile.ConfigureWall(1);
+        var reachability = cave.RefreshReachableTiles();
+        Assert.NotEmpty(reachability.ChangedKeys);
+
+        NavigationInstrumentation.BeginTick();
+        Assert.NotNull(cave.BuildPointPath(new GridPoint(5, 6), destination));
+        var rebuiltNavigation = NavigationInstrumentation.CompleteTick();
+
+        Assert.Equal(1, rebuiltNavigation.BuildPointBfsFieldCallCount);
     }
 
     [Fact]
@@ -83,10 +231,10 @@ public sealed class BfsFieldTests
             moved,
             $"Expected retry step {expectedStep} from {startingLocation}, actual location {trilobite.Location}, blocked {blockedTile.Key}, blockedFit={blockedTile.CreatureFits()}, fieldUpdated={field.IsUpdated()}.");
         Assert.True(field.IsUpdated());
-        Assert.NotEqual(startingLocation, trilobite.Location);
-        Assert.Equal(expectedStep!.Value, trilobite.Location);
-        Assert.NotEqual(blockedTile.Key, trilobite.Location.ToString());
-        Assert.Equal(1, GridPoint.ManhattanDistance(startingLocation, trilobite.Location));
+        var startingPosition = trilobite.Position;
+        cave.AdvanceCreatureMovement();
+        Assert.NotEqual(startingPosition, trilobite.Position);
+        Assert.NotEqual(blockedTile.Key, trilobite.CurrentCell.ToString());
     }
 
     [Fact]

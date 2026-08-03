@@ -30,6 +30,11 @@ You can also call the wrappers directly:
 .\dotnet-start.cmd
 ```
 
+## Controls
+
+For player controls, camera movement, selection, building placement, mining orders,
+research, settings, and debug shortcuts, see [CONTROLS.md](CONTROLS.md).
+
 `dotnet launch` is not a reliable repo-local command by itself. The `dotnet` CLI only resolves custom verbs when `dotnet-launch` is installed in a place the `dotnet` host can discover, which is outside what a normal checked-in batch file can guarantee.
 
 On macOS, use the direct `dotnet` commands instead of the checked-in `.cmd` wrappers.

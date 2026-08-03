@@ -13,7 +13,11 @@ public readonly record struct GameAppDebugMetricsSnapshot(
     double AverageMinerMsPerTrilobite,
     double AverageBuilderMsPerTrilobite,
     double AverageFarmerMsPerTrilobite,
-    double AverageFighterMsPerTrilobite);
+    double AverageFighterMsPerTrilobite,
+    int CombatIdleInDangerCount = 0,
+    int CombatEnemyIdleInDangerCount = 0,
+    int CombatRecoverIntentCount = 0,
+    int CombatSilentIdleRecoveryCount = 0);
 
 public static class GameAppDebugMetricsBuilder
 {
@@ -36,6 +40,7 @@ public static class GameAppDebugMetricsBuilder
             $"Avg ene: {snapshot.AverageTick.EnemyMoveMs:0.00} ms",
             $"Avg bld: {snapshot.AverageTick.BuildingTickMs:0.00} ms",
             $"Avg total: {snapshot.AverageTick.TotalMs:0.00} ms",
+            $"Combat: idle danger {snapshot.CombatIdleInDangerCount}  enemy idle {snapshot.CombatEnemyIdleInDangerCount}  recover {snapshot.CombatRecoverIntentCount}  fixed idle {snapshot.CombatSilentIdleRecoveryCount}",
             $"Stats: Alloc {FormatByteCount(snapshot.LastTick.AllocatedBytes)}   GC {snapshot.LastTick.Gen0Collections}/{snapshot.LastTick.Gen1Collections}/{snapshot.LastTick.Gen2Collections}",
             $"Counts: {snapshot.LastTick.TrilobiteCount} tri  {snapshot.LastTick.EnemyCount} ene  {snapshot.LastTick.BuildingCount} bld"
         };

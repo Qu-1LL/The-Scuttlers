@@ -26,7 +26,7 @@ public sealed class MiningPostNavigationCacheTests
         Assert.Equal(1, session.MiningPostMovementTelemetry.CacheMisses);
         Assert.Equal(1, session.MiningPostMovementTelemetry.CacheRebuildCount);
         Assert.Equal(2, session.MiningPostMovementTelemetry.CacheHits);
-        Assert.Empty(first.GetQueuedPathPreview());
+        Assert.NotEmpty(first.DesiredRoute);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public sealed class MiningPostNavigationCacheTests
     }
 
     [Fact]
-    public void NavigateToBuilding_UsesSingleBfsStepWithoutQueuedPreview()
+    public void NavigateToBuilding_BeginsContinuousSmoothedRoute()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 14, new GridPoint(12, 0));
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
@@ -61,17 +61,18 @@ public sealed class MiningPostNavigationCacheTests
 
         session.MiningPostMovementTelemetry.Reset();
 
-        var startingLocation = trilobite.Location;
+        var startingPosition = trilobite.Position;
         Assert.True(trilobite.NavigateToBuilding(post));
+        Assert.NotEmpty(trilobite.DesiredRoute);
+        cave.AdvanceCreatureMovement();
 
-        Assert.NotEqual(startingLocation, trilobite.Location);
-        Assert.Empty(trilobite.GetQueuedPathPreview());
+        Assert.NotEqual(startingPosition, trilobite.Position);
         Assert.Equal(1, session.MiningPostMovementTelemetry.CacheMisses);
         Assert.Equal(1, session.MiningPostMovementTelemetry.CacheRebuildCount);
     }
 
     [Fact]
-    public void SelectionGraphCounter_RemainsDeterministicAcrossFallbackSelections()
+    public void SelectionGraphCounter_RemainsZeroWhenSelectionUsesBuildingFields()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(27, 12, new GridPoint(12, 0));
         var leftPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
@@ -86,6 +87,6 @@ public sealed class MiningPostNavigationCacheTests
 
         Assert.Same(rightPost, firstSelection);
         Assert.Same(firstSelection, secondSelection);
-        Assert.Equal(2, session.MiningPostMovementTelemetry.SelectionGraphBfsCount);
+        Assert.Equal(0, session.MiningPostMovementTelemetry.SelectionGraphBfsCount);
     }
 }

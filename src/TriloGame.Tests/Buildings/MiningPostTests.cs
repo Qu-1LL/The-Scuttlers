@@ -124,40 +124,26 @@ public sealed class MiningPostTests
     }
 
     [Fact]
-    public void ExhaustedAssignmentsRemainFalse_AfterReservationReleaseAndInvalidation()
+    public void SharedMineableTargets_StayAvailableForMultipleAssignments()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
-        SetTileBase(cave, new GridPoint(3, 10), OreType.CHITINSTONE.Name);
+        var oreLocation = new GridPoint(3, 10);
+        SetTileBase(cave, oreLocation, OreType.CHITINSTONE.Name);
         var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
+        var firstMiner = new Trilobite("First Miner", GridPoint.Zero, session);
+        var secondMiner = new Trilobite("Second Miner", GridPoint.Zero, session);
 
-        var reservedBy = new List<Trilobite>();
-        while (true)
-        {
-            var creature = new Trilobite($"Miner {reservedBy.Count}", GridPoint.Zero, session);
-            var tile = post.GrabMineableTile(cave, creature);
-            if (tile is null)
-            {
-                break;
-            }
+        var firstTile = post.GrabMineableTile(cave, firstMiner);
+        var secondTile = post.GrabMineableTile(cave, secondMiner);
 
-            reservedBy.Add(creature);
-        }
-
-        Assert.NotEmpty(reservedBy);
-        Assert.False(post.HasQueuedMineableTiles(cave));
-
-        foreach (var creature in reservedBy)
-        {
-            post.RemoveAssignment(creature);
-        }
-
-        post.InvalidateMineableQueues();
-
-        var recoveredTile = post.GrabMineableTile(cave, new Trilobite("Replacement Miner", GridPoint.Zero, session));
-
-        Assert.Null(recoveredTile);
-        Assert.False(post.AssignmentsAvailable);
-        Assert.False(cave.HasAvailableMiningPostAssignments);
+        Assert.NotNull(firstTile);
+        Assert.NotNull(secondTile);
+        Assert.Equal(oreLocation.ToString(), firstTile!.Key);
+        Assert.Equal(firstTile.Key, secondTile!.Key);
+        Assert.Equal(firstTile.Key, post.GetAssignment(firstMiner));
+        Assert.Equal(secondTile.Key, post.GetAssignment(secondMiner));
+        Assert.True(post.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
     }
 
     [Fact]
@@ -171,33 +157,55 @@ public sealed class MiningPostTests
     }
 
     [Fact]
-    public void AssignmentsAvailable_RemainsFalse_AfterReservedTilesAreReleased()
+    public void GetNavigationTarget_UsesNeighborForWalkableOreTiles()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 12, new GridPoint(7, 0));
+        var oreLocation = new GridPoint(5, 8);
+        var ore = cave.GetTile(oreLocation)!;
+        ore.SetBase(OreType.CHITINSTONE.Name);
+        ore.CreatureCanFit = true;
+        ore.ConfigureOre(1, 1);
+        var post = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(3, 5));
+
+        var target = post.GetNavigationTarget(cave, ore);
+
+        Assert.NotNull(target);
+        Assert.NotEqual(oreLocation, target.Value);
+        Assert.Contains(ore.Neighbors, neighbor => neighbor.Coordinates == target.Value);
+    }
+
+    [Fact]
+    public void AssignmentsAvailable_RemainsTrue_WhenMineableTargetIsShared()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
         SetTileBase(cave, new GridPoint(3, 10), OreType.CHITINSTONE.Name);
         var availablePost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(1, 6));
         var emptyPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(18, 6));
         var reservingMiner = new Trilobite("Miner", GridPoint.Zero, session);
+        var secondMiner = new Trilobite("Second Miner", GridPoint.Zero, session);
 
         Assert.True(availablePost.AssignmentsAvailable);
         Assert.False(emptyPost.AssignmentsAvailable);
         Assert.True(cave.HasAvailableMiningPostAssignments);
 
         var reservedTile = availablePost.GrabMineableTile(cave, reservingMiner);
+        var secondTile = availablePost.GrabMineableTile(cave, secondMiner);
 
         Assert.NotNull(reservedTile);
-        Assert.False(availablePost.AssignmentsAvailable);
+        Assert.NotNull(secondTile);
+        Assert.Equal(reservedTile!.Key, secondTile!.Key);
+        Assert.True(availablePost.AssignmentsAvailable);
         Assert.False(emptyPost.AssignmentsAvailable);
-        Assert.False(cave.HasAvailableMiningPostAssignments);
-        Assert.Equal(1, cave.GetMiningPostAssignmentCounts()[availablePost]);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+        Assert.Equal(2, cave.GetMiningPostAssignmentCounts()[availablePost]);
         Assert.Equal(availablePost.GetVolume(), cave.GetMiningPostAssignmentCounts()[availablePost]);
         Assert.Equal(0, cave.GetMiningPostAssignmentCounts()[emptyPost]);
 
         availablePost.RemoveAssignment(reservingMiner);
 
-        Assert.False(availablePost.AssignmentsAvailable);
-        Assert.False(cave.HasAvailableMiningPostAssignments);
-        Assert.Equal(0, cave.GetMiningPostAssignmentCounts()[availablePost]);
+        Assert.True(availablePost.AssignmentsAvailable);
+        Assert.True(cave.HasAvailableMiningPostAssignments);
+        Assert.Equal(1, cave.GetMiningPostAssignmentCounts()[availablePost]);
         Assert.Equal(availablePost.GetVolume(), cave.GetMiningPostAssignmentCounts()[availablePost]);
     }
 

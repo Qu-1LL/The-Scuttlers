@@ -1,12 +1,19 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Events;
+using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Garage : Building, IResourceStorage, IStorage
 {
+    private static readonly IReadOnlyList<InteractionZoneDefinition> ZoneDefinitions =
+    [
+        new("Resource transfer", InteractionZonePurpose.ResourceTransfer, new GridPoint(0, -1), new GridPoint(2, 1),
+            [new GridPoint(0, -1), new GridPoint(1, -1)])
+    ];
     private readonly Dictionary<ResourceName, int> _inventory = [];
     private readonly HashSet<Silo> _adjacentSilos = [];
     private int _inventoryTotal;
@@ -23,7 +30,15 @@ public sealed class Garage : Building, IResourceStorage, IStorage
 
     public int Capacity { get; }
 
+    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => ZoneDefinitions;
+
     public GrowableResourceType ChosenResource { get; }
+
+    public override bool MaintainsNavigationField => true;
+
+    public override BuildingNavigationSeedMode NavigationSeedMode => BuildingNavigationSeedMode.AdjacentExteriorPassableTiles;
+
+    public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public Ranch? Ranch { get; internal set; }
 

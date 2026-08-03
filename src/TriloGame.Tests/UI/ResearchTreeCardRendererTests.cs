@@ -1,5 +1,5 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using RenderingLibrary.Graphics;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
@@ -85,7 +85,7 @@ public sealed class ResearchTreeCardRendererTests
             ResearchTreeUiRenderer.TreeEntryCardConfig,
             Point.Zero);
 
-        var title = gumUi.Root.Children.OfType<MonoGameGum.GueDeriving.TextRuntime>().Single();
+        var title = gumUi.Root.Children.OfType<TextRuntime>().Single();
         Assert.Equal(1f, title.FontScale);
         Assert.Equal(GumTextLayout.GetMetrics(GumTextStyle.Small).FontSize, title.FontSize);
         Assert.True(title.Y >= layout.TitleBounds.Y);
@@ -157,7 +157,7 @@ public sealed class ResearchTreeCardRendererTests
         var secondCyan = GetCyanOutlines(secondUi);
         Assert.Equal(2, firstCyan.Length);
         Assert.Equal(2, secondCyan.Length);
-        Assert.NotEqual(firstCyan[0].Color.A, secondCyan[0].Color.A);
+        Assert.NotEqual(firstCyan[0].StrokeColor.A, secondCyan[0].StrokeColor.A);
         Assert.NotEqual(firstCyan[0].Width, secondCyan[0].Width);
     }
 
@@ -199,15 +199,15 @@ public sealed class ResearchTreeCardRendererTests
         return bottom - top;
     }
 
-    private static RoundedRectangleRuntime[] GetCyanOutlines(GumUiRenderer gumUi)
+    private static RectangleRuntime[] GetCyanOutlines(GumUiRenderer gumUi)
     {
         return gumUi.Root.Children
-            .OfType<RoundedRectangleRuntime>()
+            .OfType<RectangleRuntime>()
             .Where(shape =>
                 !shape.IsFilled &&
-                shape.Color.R == 105 &&
-                shape.Color.G == 226 &&
-                shape.Color.B == 239)
+                shape.StrokeColor.R == 105 &&
+                shape.StrokeColor.G == 226 &&
+                shape.StrokeColor.B == 239)
             .ToArray();
     }
 }

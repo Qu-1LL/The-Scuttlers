@@ -30,6 +30,8 @@ public static class TickProfilerLogWriter
                 snapshot.TotalMs,
                 snapshot.EnemyBfsMs,
                 snapshot.TrilobiteMoveMs,
+                snapshot.CreatureMovementMs,
+                snapshot.CombatResolutionMs,
                 snapshot.ColonyBfsMs,
                 snapshot.EnemyMoveMs,
                 snapshot.BuildingTickMs,
@@ -63,13 +65,6 @@ public static class TickProfilerLogWriter
                     snapshot.Navigation.AveragePathLength,
                     snapshot.Navigation.RerouteCount,
                     snapshot.Navigation.QueuedNavigationSteps,
-                    snapshot.Navigation.PathPreviewSampleCount,
-                    snapshot.Navigation.TotalPathPreviewLength,
-                    snapshot.Navigation.MaxPathPreviewLength,
-                    snapshot.Navigation.AveragePathPreviewLength,
-                    snapshot.Navigation.PathPreviewFrontRemovalCount,
-                    snapshot.Navigation.PathPreviewFrontRemovalLengthTotal,
-                    snapshot.Navigation.AverageFrontRemovalLength,
                     snapshot.Navigation.AverageDroppedResourceTilesScanned));
 
             writer.WriteLine(JsonSerializer.Serialize(entry, JsonOptions));
@@ -126,6 +121,8 @@ public static class TickProfilerLogWriter
         double TotalMs,
         double EnemyBfsMs,
         double TrilobiteMoveMs,
+        double CreatureMovementMs,
+        double CombatResolutionMs,
         double ColonyBfsMs,
         double EnemyMoveMs,
         double BuildingTickMs,
@@ -161,12 +158,5 @@ public static class TickProfilerLogWriter
         double AveragePathLength,
         int RerouteCount,
         int QueuedNavigationSteps,
-        int PathPreviewSampleCount,
-        int TotalPathPreviewLength,
-        int MaxPathPreviewLength,
-        double AveragePathPreviewLength,
-        int PathPreviewFrontRemovalCount,
-        int PathPreviewFrontRemovalLengthTotal,
-        double AverageFrontRemovalLength,
         double AverageDroppedResourceTilesScanned);
 }

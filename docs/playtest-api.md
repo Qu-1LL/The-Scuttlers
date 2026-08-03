@@ -25,7 +25,7 @@ That API works against the live running game state.
 - run simulation ticks
 - inspect a snapshot of the current session
 - assign a trilobite role by name
-- move a trilobite by name
+- move a trilobite by name to an exact world-pixel position
 - spawn trilobites
 - spawn enemies
 - place buildings directly by type and tile
@@ -40,3 +40,11 @@ This is intentionally an in-process API first. It is meant to provide a stable s
 
 If a future network or tool-facing API is added, it should adapt to this layer instead of reaching
 straight into `GameApp` or `Core` objects.
+
+Creature snapshots include stable ID, world position, current cell, typed role and activity,
+collision radius, full-tick velocity, facing, movement cohort, idle state, reserved interaction
+zone, mining claim, combat target, active combat hitbox, damage-flash sequence, and desired
+world-space route. The top-level snapshot also exposes automatic combat directives, active
+hitboxes, hurtboxes, and recent immutable hit events. The `GridPoint` move overload remains an
+external convenience and converts to the cell center before calling the continuous-position
+overload.

@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -82,5 +83,22 @@ public sealed class MineOrderPlannerTests
         Assert.True(plans.ContainsKey(miners[0]));
         Assert.Single(plans[miners[0]]);
         Assert.Equal(hiddenTile.Key, plans[miners[0]][0]);
+    }
+
+    [Fact]
+    public void GetNavigationTarget_UsesNeighborForWalkableOreTiles()
+    {
+        var (_, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(12, 12, new GridPoint(6, 0));
+        var oreLocation = new GridPoint(5, 5);
+        var ore = cave.GetTile(oreLocation)!;
+        ore.SetBase(OreType.LUMENITE.Name);
+        ore.CreatureCanFit = true;
+        ore.ConfigureOre(1, 1);
+
+        var target = MineOrderPlanner.GetNavigationTarget(cave, ore);
+
+        Assert.NotNull(target);
+        Assert.NotEqual(oreLocation, target.Value);
+        Assert.Contains(ore.Neighbors, neighbor => neighbor.Coordinates == target.Value);
     }
 }

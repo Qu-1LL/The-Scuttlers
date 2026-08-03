@@ -39,16 +39,14 @@ public sealed class TrilobiteTraitHandlerTests
                 tile.CreatureFits() &&
                 cave.GetReachableTiles().Count(other =>
                     other.CreatureFits() &&
-                    other.Trilobites.Count == 0 &&
-                    other.EnemyOccupant is null &&
+                    !cave.HasCreatureInCell(other.Coordinates) &&
                     !string.Equals(other.Key, tile.Key, StringComparison.Ordinal) &&
                     GridPoint.ManhattanDistance(other.Coordinates, tile.Coordinates) <= GameConstants.ExplosiveTraitBlastRadius) >= 2);
 
         var nearbyOpenTiles = cave.GetReachableTiles()
             .Where(tile =>
                 tile.CreatureFits() &&
-                tile.Trilobites.Count == 0 &&
-                tile.EnemyOccupant is null &&
+                !cave.HasCreatureInCell(tile.Coordinates) &&
                 !string.Equals(tile.Key, explosionTile.Key, StringComparison.Ordinal) &&
                 GridPoint.ManhattanDistance(tile.Coordinates, explosionTile.Coordinates) <= GameConstants.ExplosiveTraitBlastRadius)
             .Take(2)
@@ -85,7 +83,7 @@ public sealed class TrilobiteTraitHandlerTests
     {
         var (session, cave, _, _) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
         var blastPair = cave.GetReachableTiles()
-            .Where(tile => tile.CreatureFits() && tile.Trilobites.Count == 0 && tile.EnemyOccupant is null)
+            .Where(tile => tile.CreatureFits() && !cave.HasCreatureInCell(tile.Coordinates))
             .SelectMany(openTile => openTile.Neighbors
                 .Where(neighbor => string.Equals(neighbor.Base, "wall", StringComparison.Ordinal))
                 .Select(neighbor => new { OpenTile = openTile, WallTile = neighbor }))
@@ -118,7 +116,7 @@ public sealed class TrilobiteTraitHandlerTests
         };
 
         var blastPair = cave.GetReachableTiles()
-            .Where(tile => tile.CreatureFits() && tile.Trilobites.Count == 0 && tile.EnemyOccupant is null)
+            .Where(tile => tile.CreatureFits() && !cave.HasCreatureInCell(tile.Coordinates))
             .SelectMany(openTile => openTile.Neighbors
                 .Where(neighbor => string.Equals(neighbor.Base, "wall", StringComparison.Ordinal))
                 .Select(neighbor => new { OpenTile = openTile, WallTile = neighbor }))

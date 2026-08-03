@@ -11,6 +11,8 @@ public sealed class DebugToggleControls
     private readonly Action<bool> _setNoCostBuildPlacement;
     private readonly Action<bool> _setInfiniteDraft;
     private readonly Action<bool> _setRevealMap;
+    private readonly Action<bool> _setShowHitboxes;
+    private readonly Action<bool> _setShowZones;
     private readonly Action _playUiSelectSound;
 
     public DebugToggleControls(
@@ -20,12 +22,35 @@ public sealed class DebugToggleControls
         Action<bool> setInfiniteDraft,
         Action<bool> setRevealMap,
         Action playUiSelectSound)
+        : this(
+            setRoleLabels,
+            setDisableEnemySpawns,
+            setNoCostBuildPlacement,
+            setInfiniteDraft,
+            setRevealMap,
+            static _ => { },
+            static _ => { },
+            playUiSelectSound)
+    {
+    }
+
+    public DebugToggleControls(
+        Action<bool> setRoleLabels,
+        Action<bool> setDisableEnemySpawns,
+        Action<bool> setNoCostBuildPlacement,
+        Action<bool> setInfiniteDraft,
+        Action<bool> setRevealMap,
+        Action<bool> setShowHitboxes,
+        Action<bool> setShowZones,
+        Action playUiSelectSound)
     {
         _setRoleLabels = setRoleLabels;
         _setDisableEnemySpawns = setDisableEnemySpawns;
         _setNoCostBuildPlacement = setNoCostBuildPlacement;
         _setInfiniteDraft = setInfiniteDraft;
         _setRevealMap = setRevealMap;
+        _setShowHitboxes = setShowHitboxes;
+        _setShowZones = setShowZones;
         _playUiSelectSound = playUiSelectSound;
     }
 
@@ -37,7 +62,9 @@ public sealed class DebugToggleControls
         bool disableEnemySpawns,
         bool noCostBuildPlacement,
         bool infiniteDraft,
-        bool revealMap)
+        bool revealMap,
+        bool showHitboxes,
+        bool showZones)
     {
         if (!debugMenuOpen)
         {
@@ -80,7 +107,44 @@ public sealed class DebugToggleControls
             return true;
         }
 
+        if (bounds.ShowHitboxes.Contains(point))
+        {
+            _setShowHitboxes(!showHitboxes);
+            _playUiSelectSound();
+            return true;
+        }
+
+        if (bounds.ShowZones.Contains(point))
+        {
+            _setShowZones(!showZones);
+            _playUiSelectSound();
+            return true;
+        }
+
         return false;
+    }
+
+    public bool HandleClick(
+        Point viewport,
+        Point point,
+        bool debugMenuOpen,
+        bool showRoleLabels,
+        bool disableEnemySpawns,
+        bool noCostBuildPlacement,
+        bool infiniteDraft,
+        bool revealMap)
+    {
+        return HandleClick(
+            viewport,
+            point,
+            debugMenuOpen,
+            showRoleLabels,
+            disableEnemySpawns,
+            noCostBuildPlacement,
+            infiniteDraft,
+            revealMap,
+            showHitboxes: false,
+            showZones: false);
     }
 
     public void Draw(
@@ -92,6 +156,8 @@ public sealed class DebugToggleControls
         bool noCostBuildPlacement,
         bool infiniteDraft,
         bool revealMap,
+        bool showHitboxes,
+        bool showZones,
         Point pointer)
     {
         if (!debugMenuOpen)
@@ -105,19 +171,23 @@ public sealed class DebugToggleControls
         DrawToggle(gumUi, bounds.DisableEnemySpawns, "Disable Enemy Spawns", disableEnemySpawns, bounds.DisableEnemySpawns.Contains(pointer));
         DrawToggle(gumUi, bounds.InfiniteDraft, "Infinite Draft", infiniteDraft, bounds.InfiniteDraft.Contains(pointer));
         DrawToggle(gumUi, bounds.RevealMap, "Reveal Map", revealMap, bounds.RevealMap.Contains(pointer));
+        DrawToggle(gumUi, bounds.ShowHitboxes, "Show Hitboxes", showHitboxes, bounds.ShowHitboxes.Contains(pointer));
+        DrawToggle(gumUi, bounds.ShowZones, "Show Zones", showZones, bounds.ShowZones.Contains(pointer));
     }
 
     private static DebugToggleBounds BuildToggleBounds(Point viewport)
     {
         var layout = DebugMenuLayout.Build(viewport);
         var topRow = DebugMenuLayout.SplitRow(layout.VisualTopRowBounds, 4, layout.ButtonGap);
-        var bottomRow = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 1, layout.ButtonGap);
+        var bottomRow = DebugMenuLayout.SplitRow(layout.VisualBottomRowBounds, 3, layout.ButtonGap);
         return new DebugToggleBounds(
             ShowRoleLabels: topRow[0],
             NoCostBuild: topRow[1],
             DisableEnemySpawns: topRow[2],
             InfiniteDraft: topRow[3],
-            RevealMap: bottomRow[0]);
+            RevealMap: bottomRow[0],
+            ShowHitboxes: bottomRow[1],
+            ShowZones: bottomRow[2]);
     }
 
     private static void DrawToggle(GumUiRenderer gumUi, Rectangle bounds, string text, bool isChecked, bool hovered)
@@ -156,5 +226,7 @@ public sealed class DebugToggleControls
         Rectangle NoCostBuild,
         Rectangle DisableEnemySpawns,
         Rectangle InfiniteDraft,
-        Rectangle RevealMap);
+        Rectangle RevealMap,
+        Rectangle ShowHitboxes,
+        Rectangle ShowZones);
 }

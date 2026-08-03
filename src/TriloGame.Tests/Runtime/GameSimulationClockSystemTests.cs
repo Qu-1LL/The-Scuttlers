@@ -99,6 +99,7 @@ public sealed class GameSimulationClockSystemTests
         Assert.Single(session.Runtime.ActiveProjectileFlights);
 
         system.Advance(session, 1d);
+        session.Combat.ResolveTick(session);
 
         Assert.Equal(target.MaxHealth - ProjectileCatalog.Rock.Damage, target.Health);
         Assert.Empty(session.Runtime.ActiveProjectileFlights);
@@ -141,6 +142,7 @@ public sealed class GameSimulationClockSystemTests
         Assert.Single(session.Runtime.ActiveProjectileFlights);
 
         system.Advance(session, 10d);
+        session.Combat.ResolveTick(session);
 
         Assert.Equal(target.MaxHealth - ProjectileCatalog.Rock.Damage, target.Health);
         Assert.Empty(session.Runtime.ActiveProjectileFlights);

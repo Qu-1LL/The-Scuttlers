@@ -1,12 +1,20 @@
-using System.Numerics;
-
 namespace TriloGame.Game.Shared.Utilities;
 
 public static class RandomUtil
 {
-    private static readonly Random SharedRandom = new();
+    private static Random _shared = new();
 
-    public static Random Shared => SharedRandom;
+    public static Random Shared => _shared;
+
+    // Replace the shared generator with a seeded one, so a session can be reproduced exactly.
+    //
+    // Diagnostics only. Comparing two lighting captures requires both runs to produce the same cave,
+    // the same colony and the same creature behaviour; without that, every number measured in one run
+    // is confounded against the next by a different world.
+    public static void Reseed(int seed)
+    {
+        _shared = new Random(seed);
+    }
 
     // Draw a unit-interval sample from the shared RNG.
     public static double NextDouble() => Shared.NextDouble();
@@ -40,15 +48,4 @@ public static class RandomUtil
         return (z * standardDeviation) + mean;
     }
 
-    // Pick a random world-space offset inside the requested radial band.
-    public static Vector2 NextMovementOffset(float minDistance, float maxDistance)
-    {
-        var safeMax = System.Math.Max(minDistance, maxDistance);
-        var angle = Shared.NextDouble() * System.Math.PI * 2d;
-        var distance = minDistance + (Shared.NextDouble() * (safeMax - minDistance));
-
-        return new Vector2(
-            (float)(System.Math.Cos(angle) * distance),
-            (float)(System.Math.Sin(angle) * distance));
-    }
 }

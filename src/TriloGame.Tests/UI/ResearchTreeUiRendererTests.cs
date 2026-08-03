@@ -1,5 +1,5 @@
 using Microsoft.Xna.Framework;
-using MonoGameGum.GueDeriving;
+using Gum.GueDeriving;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Runtime.Bootstrap;
@@ -210,8 +210,8 @@ public sealed class ResearchTreeUiRendererTests
         Assert.Equal(
             2,
             gumUi.Root.Children
-                .OfType<ColoredRectangleRuntime>()
-                .Count(shape => shape.Color.A > 0));
+                .OfType<RectangleRuntime>()
+                .Count(shape => shape.FillColor.A > 0));
         Assert.NotEqual(firstOffset, secondOffset);
         Assert.InRange(firstOffset.Length(), 0f, 2f);
         Assert.InRange(secondOffset.Length(), 0f, 2f);
@@ -228,8 +228,8 @@ public sealed class ResearchTreeUiRendererTests
         selectedUi.BeginFrame(new Point(320, 240));
         ResearchTreeUiRenderer.DrawSelectedNodeHalo(selectedUi, new Vector2(120f, 100f), 17, visualTimeMs: 300d);
 
-        Assert.Single(hoverUi.Root.Children.OfType<RoundedRectangleRuntime>(), shape => !shape.IsFilled);
-        Assert.Equal(2, selectedUi.Root.Children.OfType<RoundedRectangleRuntime>().Count(shape => !shape.IsFilled));
+        Assert.Single(hoverUi.Root.Children.OfType<RectangleRuntime>(), shape => !shape.IsFilled);
+        Assert.Equal(2, selectedUi.Root.Children.OfType<RectangleRuntime>().Count(shape => !shape.IsFilled));
     }
 
     [Fact]
@@ -243,12 +243,12 @@ public sealed class ResearchTreeUiRendererTests
         secondUi.BeginFrame(new Point(320, 240));
         ResearchTreeUiRenderer.DrawSelectedNodeHalo(secondUi, new Vector2(120f, 100f), 17, visualTimeMs: 300d);
 
-        var firstRings = firstUi.Root.Children.OfType<RoundedRectangleRuntime>().Where(shape => !shape.IsFilled).ToArray();
-        var secondRings = secondUi.Root.Children.OfType<RoundedRectangleRuntime>().Where(shape => !shape.IsFilled).ToArray();
+        var firstRings = firstUi.Root.Children.OfType<RectangleRuntime>().Where(shape => !shape.IsFilled).ToArray();
+        var secondRings = secondUi.Root.Children.OfType<RectangleRuntime>().Where(shape => !shape.IsFilled).ToArray();
         Assert.Equal(2, firstRings.Length);
         Assert.Equal(2, secondRings.Length);
         Assert.NotEqual(firstRings[0].Width, secondRings[0].Width);
-        Assert.NotEqual(firstRings[0].Color, secondRings[0].Color);
+        Assert.NotEqual(firstRings[0].StrokeColor, secondRings[0].StrokeColor);
     }
 
     [Fact]
@@ -317,8 +317,8 @@ public sealed class ResearchTreeUiRendererTests
         var nodeRadius = ResearchTreeUiRenderer.CalculateDetailNodeRadius(zoom);
         var maxNodeDiameter = (nodeRadius + ResearchTreeUiRenderer.CalculateDetailNodeBorderThickness(nodeRadius)) * 2;
         return gumUi.Root.Children
-            .OfType<RoundedRectangleRuntime>()
-            .Where(shape => shape.IsFilled && shape.Width <= maxNodeDiameter && shape.Height <= maxNodeDiameter)
+            .OfType<RectangleRuntime>()
+            .Where(shape => shape.IsFilled && shape.StrokeWidth > 0f && shape.Width <= maxNodeDiameter && shape.Height <= maxNodeDiameter)
             .Select(shape => (Width: (int)shape.Width, Height: (int)shape.Height))
             .OrderBy(size => size.Width)
             .ThenBy(size => size.Height)
@@ -346,8 +346,8 @@ public sealed class ResearchTreeUiRendererTests
             ResearchTreeUiRenderer.ReadOnlyDetailConfig);
 
         return gumUi.Root.Children
-            .OfType<ColoredRectangleRuntime>()
-            .Where(shape => shape.Width > ResearchTreeUiRenderer.DetailConnectorThickness)
+            .OfType<RectangleRuntime>()
+            .Where(shape => shape.StrokeWidth == 0f && shape.Width > ResearchTreeUiRenderer.DetailConnectorThickness)
             .Select(shape => (int)shape.Height)
             .OrderBy(thickness => thickness)
             .ToList();
@@ -372,10 +372,11 @@ public sealed class ResearchTreeUiRendererTests
             ResearchTreeUiRenderer.ReadOnlyDetailConfig);
 
         return gumUi.Root.Children
-            .OfType<ColoredRectangleRuntime>()
-            .Where(shape => shape.Height == ResearchTreeUiRenderer.DetailConnectorThickness &&
+            .OfType<RectangleRuntime>()
+            .Where(shape => shape.StrokeWidth == 0f &&
+                shape.Height == ResearchTreeUiRenderer.DetailConnectorThickness &&
                 shape.Width > ResearchTreeUiRenderer.DetailConnectorThickness)
-            .Select(shape => shape.Color)
+            .Select(shape => shape.FillColor)
             .ToList();
     }
 }

@@ -83,6 +83,8 @@ public sealed partial class GameApp
         {
             _roundManager.CompleteCurrentRound(session);
         }
+
+        EmitMiningHitboxParticles(session);
     }
 
     private bool HandleRoundDebugWidgetClick(Point point)

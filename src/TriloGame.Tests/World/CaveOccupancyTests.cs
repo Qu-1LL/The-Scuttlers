@@ -9,11 +9,12 @@ namespace TriloGame.Tests.World;
 public sealed class CaveOccupancyTests
 {
     [Fact]
-    public void SpawnAndMoveCreature_UpdatesCachedOccupancyLookups()
+    public void SpawnAndMoveCreature_UpdatesContinuousCellQueries()
     {
         var (session, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
         var enemyTile = cave.GetReachableTiles()
-            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() && tile.Trilobites.Count == 0)
+            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() &&
+                                    !cave.HasCreatureInCell(tile.Coordinates))
             ?? throw new InvalidOperationException("No reachable tile was available for the enemy occupancy test.");
         var enemy = new Enemy("Occupant", enemyTile.Coordinates, session);
 
@@ -21,10 +22,15 @@ public sealed class CaveOccupancyTests
         Assert.Same(enemy, cave.GetEnemyAtTileKey(enemyTile.Key));
         Assert.Same(trilobite, cave.GetTrilobiteAtTileKey(trilobite.Location.ToString()));
 
-        var nextTile = enemyTile.Neighbors.FirstOrDefault(tile => tile.CreatureFits() && tile.Trilobites.Count == 0 && tile.EnemyOccupant is null)
+        var nextTile = enemyTile.Neighbors.FirstOrDefault(tile => tile.CreatureFits() &&
+                                                                  !cave.HasCreatureInCell(tile.Coordinates))
             ?? throw new InvalidOperationException("No adjacent tile was available for the enemy move occupancy test.");
 
-        Assert.True(cave.MoveCreature(enemy, nextTile.Coordinates));
+        Assert.True(cave.RequestCreatureMove(enemy, nextTile.Coordinates));
+        while (enemy.HasActiveMovement)
+        {
+            cave.AdvanceCreatureMovement();
+        }
         Assert.Null(cave.GetEnemyAtTileKey(enemyTile.Key));
         Assert.Same(enemy, cave.GetEnemyAtTileKey(nextTile.Key));
     }
@@ -177,7 +183,7 @@ public sealed class CaveOccupancyTests
 
         Assert.Equal(fighter.MaxHealth, fighter.Health);
         Assert.Same(cave, fighter.Cave);
-        Assert.True(fighter.IsTrackedInTileSystem);
+        Assert.True(fighter.IsLocomotionEnabled);
         Assert.Null(fighter.GetAssignedBuilding());
         Assert.Equal(new GridPoint(18, 6), fighter.Location);
         Assert.Same(fighter, cave.GetTrilobiteAtTileKey(fighter.Location.ToString()));
@@ -195,20 +201,18 @@ public sealed class CaveOccupancyTests
 
         fighter.SetAssignedBuilding(turret);
         Assert.True(turret.Assign(fighter));
-        Assert.False(fighter.FighterReturnToStation(true));
+        Assert.False(fighter.RunRoleState(FighterState.ReturnToStation, preferAssignedStation: true));
         Assert.True(turret.IsCreatureStationed(fighter));
 
         Assert.True(cave.RemoveBuilding(turret));
 
         Assert.Equal(fighter.MaxHealth, fighter.Health);
         Assert.Same(cave, fighter.Cave);
-        Assert.True(fighter.IsTrackedInTileSystem);
+        Assert.True(fighter.IsLocomotionEnabled);
         Assert.Null(fighter.HostedBuilding);
-        Assert.Null(fighter.HostedWorldPosition);
         Assert.Null(fighter.GetAssignedBuilding());
         Assert.Equal(accessTile, fighter.Location);
         Assert.Same(fighter, cave.GetTrilobiteAtTileKey(accessTile.ToString()));
-        Assert.Contains(fighter, cave.GetTile(accessTile.ToString())!.Trilobites);
         Assert.Contains(fighter, cave.GetTrilobiteList());
         Assert.False(turret.IsAssigned(fighter));
     }
@@ -219,7 +223,8 @@ public sealed class CaveOccupancyTests
         var (session, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
         cave.RevealCave();
         var enemyTile = cave.GetReachableTiles()
-            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() && tile.Trilobites.Count == 0)
+            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() &&
+                                    !cave.HasCreatureInCell(tile.Coordinates))
             ?? throw new InvalidOperationException("No reachable enemy spawn tile was available for the enemy BFS death test.");
         var enemy = new Enemy("Target", enemyTile.Coordinates, session);
 
@@ -246,7 +251,8 @@ public sealed class CaveOccupancyTests
         var (session, cave, _, trilobite) = TestWorldFactory.CreateSessionWithQueenAndTrilobite();
         cave.RevealCave();
         var enemyTile = cave.GetReachableTiles()
-            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() && tile.Trilobites.Count == 0)
+            .FirstOrDefault(tile => tile.CreatureFits() && tile.Key != trilobite.Location.ToString() &&
+                                    !cave.HasCreatureInCell(tile.Coordinates))
             ?? throw new InvalidOperationException("No reachable enemy spawn tile was available for the post-death build test.");
         var enemy = new Enemy("Builder Freeze Target", enemyTile.Coordinates, session);
         var miningPost = new MiningPost(session);

@@ -29,10 +29,13 @@ public static class SettingsMenuLayout
         return GetPanelBounds(viewport, includeQuitToMainMenu: true);
     }
 
+    // Extra height over the original panel to fit the display-mode row.
+    private const int DisplayModeRowHeight = 52;
+
     public static Rectangle GetPanelBounds(Point viewport, bool includeQuitToMainMenu)
     {
         var width = Math.Min(420, Math.Max(320, viewport.X - 56));
-        var height = includeQuitToMainMenu ? 382 : 332;
+        var height = (includeQuitToMainMenu ? 382 : 332) + DisplayModeRowHeight;
         return new Rectangle((viewport.X - width) / 2, (viewport.Y - height) / 2, width, height);
     }
 
@@ -68,14 +71,33 @@ public static class SettingsMenuLayout
         return new Rectangle(panelBounds.Right - 62, bar.Y - 11, 40, 40);
     }
 
+    // Display mode sits directly under the music toggle; everything below shifts down by
+    // DisplayModeRowHeight to make room.
+    public static Rectangle GetDisplayModeLabelBounds(Rectangle panelBounds)
+    {
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 194, panelBounds.Width - 48, 20);
+    }
+
+    public static Rectangle GetFullscreenButtonBounds(Rectangle panelBounds)
+    {
+        var half = (panelBounds.Width - 48 - 8) / 2;
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 218, half, 34);
+    }
+
+    public static Rectangle GetWindowedButtonBounds(Rectangle panelBounds)
+    {
+        var half = (panelBounds.Width - 48 - 8) / 2;
+        return new Rectangle(panelBounds.X + 24 + half + 8, panelBounds.Y + 218, half, 34);
+    }
+
     public static Rectangle GetReturnToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 252, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 252 + DisplayModeRowHeight, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetTrilodexButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 204 + DisplayModeRowHeight, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetMusicToggleBounds(Rectangle panelBounds)
@@ -91,7 +113,7 @@ public static class SettingsMenuLayout
 
     public static Rectangle GetQuitToMainMenuButtonBounds(Rectangle panelBounds)
     {
-        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 300, panelBounds.Width - 48, 38);
+        return new Rectangle(panelBounds.X + 24, panelBounds.Y + 300 + DisplayModeRowHeight, panelBounds.Width - 48, 38);
     }
 
     public static Rectangle GetDismissHintBounds(Rectangle panelBounds)
