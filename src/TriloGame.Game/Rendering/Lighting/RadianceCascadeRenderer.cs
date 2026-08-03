@@ -71,6 +71,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
     private readonly LightingTileGrid _tileGrid;
     private readonly LightingSourceCollector _sourceCollector = new();
     private readonly List<OreLightEmitter> _oreEmitters = [];
+    private readonly List<BuildingLightEmitter> _buildingEmitters = [];
     private readonly List<Tile> _visibleTiles = [];
     // The visible tiles the water surface covers, padding included. See
     // WorldSceneRenderer.CollectWaterSurfaceTiles.
@@ -344,6 +345,11 @@ public sealed class RadianceCascadeRenderer : IDisposable
         // full lighting footprint, so a deposit off the edge of the screen still lights what is on
         // it. See LightingTileGrid.Update.
         _sourceCollector.CollectOreEmitters(_visibleTiles, spriteEffects, _oreEmitters, _colorPalette);
+        _sourceCollector.CollectBuildingEmitters(
+            cave,
+            showFullMapVisibility,
+            spriteEffects.ElapsedSeconds,
+            _buildingEmitters);
         _tileGrid.Update(
             cave,
             context.Camera,
@@ -767,7 +773,7 @@ public sealed class RadianceCascadeRenderer : IDisposable
             blendState: BlendState.Additive,
             samplerState: SamplerState.LinearClamp,
             transformMatrix: Matrix.CreateScale(LightBufferScale));
-        worldRenderer.DrawEmissiveLayer(context, _oreEmitters, _oreLightTexture);
+        worldRenderer.DrawEmissiveLayer(context, _oreEmitters, _oreLightTexture, _buildingEmitters);
         context.SpriteBatch.End();
     }
 

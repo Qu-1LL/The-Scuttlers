@@ -304,8 +304,64 @@ public sealed class LightingTileGrid : IDisposable
             }
         }
 
+        ApplyBuildingEmission(cave, layout, spriteEffects.ElapsedSeconds, _cells, _emissionColors);
+
         Texture!.SetData(_cells);
         EmissionColorTexture!.SetData(_emissionColors);
+    }
+
+    // Buildings that are light sources seed the grid the same way ore does, so the ray march carries
+    // their light through the cave - respecting walls, feeding the cast-shadow direction, reaching as
+    // far as anything else. The screen-space halo in DrawEmissiveLayer only puts a glow on the sprite;
+    // it is this that lights the room.
+    //
+    // One cell per building, at its centre, rather than its whole footprint. Footprint-wide emission
+    // would make a 3x3 post nine times the source a deposit is, and the cells are gathered
+    // independently by the march, so that is a genuine nine-fold energy difference rather than a
+    // cosmetic one. A building is one lamp.
+    //
+    // Static, like TryGetLightDirection above and for the same reason: the cells are only ever
+    // populated through Update, which needs a GraphicsDevice this pass has no use for.
+    internal static void ApplyBuildingEmission(
+        Cave cave,
+        LightingTileGridLayout layout,
+        float elapsedSeconds,
+        Color[] cells,
+        Color[] emissionColors)
+    {
+        foreach (var building in cave.Buildings)
+        {
+            if (building.Location is null ||
+                !BuildingLightSettings.TryGetEmission(building, elapsedSeconds, out var emission))
+            {
+                continue;
+            }
+
+            var centre = building.GetCenter();
+            var coordinates = new Point(centre.X, centre.Y);
+            if (!layout.Contains(coordinates))
+            {
+                continue;
+            }
+
+            var cellIndex = layout.GetIndex(coordinates);
+            var cell = cells[cellIndex];
+            // Unrevealed cells emit nothing, matching the terrain pass: light from a structure the
+            // player has not found would draw its outline through the fog.
+            if (cell.G == 0)
+            {
+                continue;
+            }
+
+            var intensity = Math.Clamp(emission.Intensity, 0f, 1f);
+            if (intensity <= cell.B / 255f)
+            {
+                continue;
+            }
+
+            emissionColors[cellIndex] = emission.Color;
+            cells[cellIndex] = new Color(cell.R / 255f, cell.G / 255f, intensity, 1f);
+        }
     }
 
     // Emission strength for a cell, recording its colour as a side effect so strength and colour can
