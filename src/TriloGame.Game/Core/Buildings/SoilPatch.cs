@@ -7,7 +7,7 @@ using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class SoilPatch : Building, IBuildPlacementDragTarget
+public sealed class SoilPatch : Building
 {
     public static readonly GridPoint DefaultSize = new(2, 2);
     private static readonly InteractionZoneDefinition[] WorkZones =
@@ -65,11 +65,11 @@ public sealed class SoilPatch : Building, IBuildPlacementDragTarget
 
     public SoilArea? SoilArea { get; internal set; }
 
-    public BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.FootprintGrid;
+    public override BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.FootprintGrid;
 
     protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => WorkZones;
 
-    public GridPoint DragPlacementStep => DefaultSize;
+    public override GridPoint DragPlacementStep => DefaultSize;
 
     public override int Tick(World.Cave cave)
     {

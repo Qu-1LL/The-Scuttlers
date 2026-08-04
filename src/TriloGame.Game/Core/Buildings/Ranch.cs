@@ -28,15 +28,6 @@ public sealed class Ranch : Building, IStorage
     }
 
     private readonly record struct PlowPose(GridPoint Location, int RotationTurns);
-    private readonly record struct PlowTraversalRegion(int MinX, int MinY, int MaxX, int MaxY)
-    {
-        public int MaxRootX => MaxX - Plow.DefaultSize.X + 1;
-
-        public int MaxRootY => MaxY - Plow.DefaultSize.Y + 1;
-    }
-
-    private readonly record struct PoseSearchState(GridPoint Location, int RotationTurns);
-
     private static readonly GridPoint[] PlowMoveDirections =
     [
         new GridPoint(1, 0),
@@ -414,6 +405,7 @@ public sealed class Ranch : Building, IStorage
         Cave = null;
     }
 
+    // Rebuild the simple, deterministic coverage route whenever ranch soil changes.
     internal bool RebuildPlowPath()
     {
         if (_plow?.Cave is not null)
@@ -430,8 +422,7 @@ public sealed class Ranch : Building, IStorage
         }
 
         if (!TryResolvePlowStartLocation(cave, out var startLocation, out var startRotationTurns) ||
-            !TryBuildPlowPoseSequence(cave, startLocation, startRotationTurns, out var poses) ||
-            poses.Count == 0)
+            !TryBuildPlowPoseSequence(cave, startLocation, startRotationTurns, out var poses))
         {
             return false;
         }
@@ -554,6 +545,7 @@ public sealed class Ranch : Building, IStorage
         return map;
     }
 
+    // Spawn the plow from the garage and station its assigned farmer before it begins the route.
     private bool TrySpawnPlowForWaitingFarmer(Cave cave)
     {
         if (_waitingFarmer is null || Garage is null)
@@ -598,13 +590,13 @@ public sealed class Ranch : Building, IStorage
             return false;
         }
 
+        _plow.ProcessCurrentFootprint();
         _waitingFarmer = null;
         _waitingFarmerRestoreLocation = null;
         _garageWaitTicksRemaining = 0;
         return true;
     }
-
-    // Build a deterministic row sweep over rectangular soil regions instead of solving full-ranch coverage.
+    // Sweep legal soil footprints in rows; row changes advance by the plow's full two-tile height.
     private bool TryBuildPlowPoseSequence(Cave cave, GridPoint startLocation, int startRotationTurns, out List<PlowPose> poses)
     {
         poses = [];
@@ -614,85 +606,157 @@ public sealed class Ranch : Building, IStorage
             return false;
         }
 
-        var remainingRegions = BuildTraversalRegions();
-        if (remainingRegions.Count == 0)
+        var minX = int.MaxValue;
+        var minY = int.MaxValue;
+        var maxX = int.MinValue;
+        var maxY = int.MinValue;
+        foreach (var location in legalLocations)
+        {
+            minX = System.Math.Min(minX, location.X);
+            minY = System.Math.Min(minY, location.Y);
+            maxX = System.Math.Max(maxX, location.X);
+            maxY = System.Math.Max(maxY, location.Y);
+        }
+
+        var firstRowStart = new GridPoint(minX, minY);
+        if (!legalLocations.Contains(firstRowStart))
         {
             return false;
         }
 
         poses.Add(new PlowPose(startLocation, NormalizeRotationTurns(startRotationTurns)));
-        var currentPose = poses[0];
-        var startingCorner = GridPoint.Zero;
-        var hasStartingCorner = false;
-
-        while (remainingRegions.Count > 0)
+        if (!TryAppendShortestPlowRoute(poses, firstRowStart, legalLocations))
         {
-            if (!TrySelectNextTraversalRegion(
-                    currentPose,
-                    legalLocations,
-                    remainingRegions,
-                    out var selectedIndex,
-                    out var selectedRegion,
-                    out var entryCorner,
-                    out var approachSegment))
-            {
-                return false;
-            }
-
-            AppendPoseSegment(poses, approachSegment);
-            currentPose = poses[^1];
-            if (!hasStartingCorner)
-            {
-                startingCorner = entryCorner;
-                hasStartingCorner = true;
-            }
-
-            if (!TryBuildRegionSweep(selectedRegion, currentPose, out var sweepSegment))
-            {
-                return false;
-            }
-
-            AppendPoseSegment(poses, sweepSegment);
-            currentPose = poses[^1];
-
-            if (currentPose.Location != entryCorner)
-            {
-                if (!TryBuildShortestPosePathToTarget(currentPose, legalLocations, entryCorner, out var returnToCornerSegment))
-                {
-                    return false;
-                }
-
-                AppendPoseSegment(poses, returnToCornerSegment);
-                currentPose = poses[^1];
-            }
-
-            remainingRegions.RemoveAt(selectedIndex);
+            return false;
         }
 
-        if (hasStartingCorner && currentPose.Location != startingCorner)
+        var rowY = minY;
+        var movesRight = true;
+        while (true)
         {
-            if (!TryBuildShortestPosePathToTarget(currentPose, legalLocations, startingCorner, out var returnToStartCornerSegment))
+            var rowStart = new GridPoint(movesRight ? minX : maxX, rowY);
+            var rowEndX = movesRight ? maxX : minX;
+            if (!legalLocations.Contains(rowStart) || !TryAppendShortestPlowRoute(poses, rowStart, legalLocations))
             {
                 return false;
             }
 
-            AppendPoseSegment(poses, returnToStartCornerSegment);
-            currentPose = poses[^1];
+            while (poses[^1].Location.X != rowEndX)
+            {
+                var stepX = movesRight ? 1 : -1;
+                AppendPlowMove(poses, new GridPoint(poses[^1].Location.X + stepX, rowY));
+            }
+
+            var nextRowY = rowY + Plow.DefaultSize.Y;
+            if (nextRowY > maxY)
+            {
+                AppendPlowTurn(poses, movesRight ? 2 : 0);
+                break;
+            }
+
+            // One turn at the row end works the outer edge before the two-tile row change.
+            AppendPlowTurn(poses, 1);
+            var nextRowStart = new GridPoint(poses[^1].Location.X, nextRowY);
+            if (!legalLocations.Contains(nextRowStart))
+            {
+                return false;
+            }
+
+            AppendPlowMove(poses, nextRowStart);
+            movesRight = !movesRight;
+            AppendPlowTurn(poses, movesRight ? 0 : 2);
+            rowY = nextRowY;
         }
 
-        if (currentPose.Location != startLocation)
+        if (!TryAppendShortestPlowRoute(poses, startLocation, legalLocations))
         {
-            if (!TryBuildShortestPosePathToTarget(currentPose, legalLocations, startLocation, out var returnToGarageSegment))
-            {
-                return false;
-            }
-
-            AppendPoseSegment(poses, returnToGarageSegment);
+            return false;
         }
 
         return AreAllSoilTilesCovered(poses);
     }
 
+    // Connect the garage-side spawn and return endpoint to the standard sweep without pose searching.
+    private static bool TryAppendShortestPlowRoute(
+        List<PlowPose> poses,
+        GridPoint destination,
+        ISet<GridPoint> legalLocations)
+    {
+        var start = poses[^1].Location;
+        if (start == destination)
+        {
+            return true;
+        }
+
+        var queue = new Queue<GridPoint>();
+        var visited = new HashSet<GridPoint> { start };
+        var previousLocations = new Dictionary<GridPoint, GridPoint>();
+        queue.Enqueue(start);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            for (var index = 0; index < PlowMoveDirections.Length; index++)
+            {
+                var direction = PlowMoveDirections[index];
+                var next = new GridPoint(current.X + direction.X, current.Y + direction.Y);
+                if (!legalLocations.Contains(next) || !visited.Add(next))
+                {
+                    continue;
+                }
+
+                previousLocations[next] = current;
+                if (next == destination)
+                {
+                    var reversedPath = new List<GridPoint>();
+                    for (var pathLocation = destination; pathLocation != start; pathLocation = previousLocations[pathLocation])
+                    {
+                        reversedPath.Add(pathLocation);
+                    }
+
+                    for (var pathIndex = reversedPath.Count - 1; pathIndex >= 0; pathIndex--)
+                    {
+                        AppendPlowMove(poses, reversedPath[pathIndex]);
+                    }
+
+                    return true;
+                }
+
+                queue.Enqueue(next);
+            }
+        }
+
+        return false;
+    }
+
+    private static void AppendPlowTurn(List<PlowPose> poses, int rotationTurns)
+    {
+        var currentPose = poses[^1];
+        var normalizedRotationTurns = NormalizeRotationTurns(rotationTurns);
+        if (currentPose.RotationTurns != normalizedRotationTurns)
+        {
+            poses.Add(new PlowPose(currentPose.Location, normalizedRotationTurns));
+        }
+    }
+
+    private static void AppendPlowMove(List<PlowPose> poses, GridPoint destination)
+    {
+        var currentLocation = poses[^1].Location;
+        var deltaX = destination.X - currentLocation.X;
+        var deltaY = destination.Y - currentLocation.Y;
+        if ((deltaX != 0 && deltaY != 0) || (deltaX == 0 && deltaY == 0))
+        {
+            throw new InvalidOperationException("Plow coverage routes may only move in one cardinal direction.");
+        }
+
+        var direction = new GridPoint(System.Math.Sign(deltaX), System.Math.Sign(deltaY));
+        if (!TryGetRotationTurns(direction, out var rotationTurns))
+        {
+            throw new InvalidOperationException("Plow coverage routes require a cardinal direction.");
+        }
+
+        poses.Add(new PlowPose(destination, rotationTurns));
+    }
     private HashSet<GridPoint> BuildLegalPlowLocations(Cave cave)
     {
         var minX = int.MaxValue;
@@ -758,408 +822,6 @@ public sealed class Ranch : Building, IStorage
         return true;
     }
 
-    private List<PlowTraversalRegion> BuildTraversalRegions()
-    {
-        var regions = new List<PlowTraversalRegion>();
-        var coveredPatches = new HashSet<SoilPatch>();
-
-        foreach (var soilArea in _soilAreas)
-        {
-            if (!ReferenceEquals(soilArea.Ranch, this))
-            {
-                continue;
-            }
-
-            if (TryBuildTraversalRegion(soilArea, out var areaRegion))
-            {
-                regions.Add(areaRegion);
-                foreach (var soilPatch in soilArea.SoilPatches)
-                {
-                    if (soilPatch.Cave is not null && ReferenceEquals(soilPatch.Ranch, this))
-                    {
-                        coveredPatches.Add(soilPatch);
-                    }
-                }
-
-                continue;
-            }
-
-            foreach (var soilPatch in soilArea.SoilPatches)
-            {
-                AppendPatchTraversalRegion(regions, coveredPatches, soilPatch);
-            }
-        }
-
-        foreach (var soilTile in _soilTiles)
-        {
-            AppendPatchTraversalRegion(regions, coveredPatches, soilTile.ParentPatch);
-        }
-
-        regions.Sort(static (left, right) =>
-        {
-            var yComparison = left.MinY.CompareTo(right.MinY);
-            if (yComparison != 0)
-            {
-                return yComparison;
-            }
-
-            var xComparison = left.MinX.CompareTo(right.MinX);
-            if (xComparison != 0)
-            {
-                return xComparison;
-            }
-
-            var maxYComparison = left.MaxY.CompareTo(right.MaxY);
-            return maxYComparison != 0
-                ? maxYComparison
-                : left.MaxX.CompareTo(right.MaxX);
-        });
-
-        return regions;
-    }
-
-    private static void AppendPatchTraversalRegion(
-        ICollection<PlowTraversalRegion> regions,
-        ISet<SoilPatch> coveredPatches,
-        SoilPatch soilPatch)
-    {
-        if (soilPatch.Cave is null ||
-            !coveredPatches.Add(soilPatch) ||
-            soilPatch.Location is not { } patchLocation)
-        {
-            return;
-        }
-
-        regions.Add(new PlowTraversalRegion(
-            patchLocation.X,
-            patchLocation.Y,
-            patchLocation.X + soilPatch.Size.X - 1,
-            patchLocation.Y + soilPatch.Size.Y - 1));
-    }
-
-    private static bool TryBuildTraversalRegion(SoilArea soilArea, out PlowTraversalRegion region)
-    {
-        region = default;
-        if (!soilArea.TryGetLiveBounds(out var minX, out var minY, out var maxX, out var maxY))
-        {
-            return false;
-        }
-
-        var width = (maxX - minX) + 1;
-        var height = (maxY - minY) + 1;
-        if (width < Plow.DefaultSize.X ||
-            height < Plow.DefaultSize.Y ||
-            soilArea.SoilTiles.Count != width * height)
-        {
-            return false;
-        }
-
-        region = new PlowTraversalRegion(minX, minY, maxX, maxY);
-        return true;
-    }
-
-    private bool TrySelectNextTraversalRegion(
-        PlowPose currentPose,
-        ISet<GridPoint> legalLocations,
-        IReadOnlyList<PlowTraversalRegion> remainingRegions,
-        out int selectedIndex,
-        out PlowTraversalRegion selectedRegion,
-        out GridPoint entryCorner,
-        out List<PlowPose> approachSegment)
-    {
-        selectedIndex = -1;
-        selectedRegion = default;
-        entryCorner = GridPoint.Zero;
-        approachSegment = [];
-        var bestPathLength = int.MaxValue;
-
-        for (var index = 0; index < remainingRegions.Count; index++)
-        {
-            var region = remainingRegions[index];
-            foreach (var candidateCorner in EnumerateLegalRegionCorners(region, legalLocations))
-            {
-                if (!TryBuildShortestPosePathToTarget(currentPose, legalLocations, candidateCorner, out var candidateSegment))
-                {
-                    continue;
-                }
-
-                var candidatePathLength = candidateSegment.Count;
-                if (selectedIndex >= 0 &&
-                    candidatePathLength > bestPathLength)
-                {
-                    continue;
-                }
-
-                if (selectedIndex >= 0 &&
-                    candidatePathLength == bestPathLength &&
-                    !IsTraversalCandidateBetter(candidateCorner, region, entryCorner, selectedRegion))
-                {
-                    continue;
-                }
-
-                selectedIndex = index;
-                selectedRegion = region;
-                entryCorner = candidateCorner;
-                approachSegment = candidateSegment;
-                bestPathLength = candidatePathLength;
-            }
-        }
-
-        return selectedIndex >= 0;
-    }
-
-    private bool TryBuildShortestPosePathToAnyTarget(
-        PlowPose startPose,
-        ISet<GridPoint> legalLocations,
-        ISet<GridPoint> targetLocations,
-        out List<PlowPose> poses)
-    {
-        poses = [];
-        if (targetLocations.Contains(startPose.Location))
-        {
-            poses.Add(startPose);
-            return true;
-        }
-
-        var queue = new Queue<PoseSearchState>();
-        var startState = new PoseSearchState(startPose.Location, NormalizeRotationTurns(startPose.RotationTurns));
-        var seen = new HashSet<PoseSearchState> { startState };
-        var previousStates = new Dictionary<PoseSearchState, PoseSearchState>();
-        queue.Enqueue(startState);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            foreach (var nextState in EnumeratePoseTransitions(current, legalLocations))
-            {
-                if (!seen.Add(nextState))
-                {
-                    continue;
-                }
-
-                previousStates[nextState] = current;
-                if (targetLocations.Contains(nextState.Location))
-                {
-                    poses = ReconstructPosePath(nextState, startState, previousStates);
-                    return true;
-                }
-
-                queue.Enqueue(nextState);
-            }
-        }
-
-        return false;
-    }
-
-    private bool TryBuildShortestPosePathToTarget(
-        PlowPose startPose,
-        ISet<GridPoint> legalLocations,
-        GridPoint targetLocation,
-        out List<PlowPose> poses)
-    {
-        return TryBuildShortestPosePathToAnyTarget(startPose, legalLocations, new HashSet<GridPoint> { targetLocation }, out poses);
-    }
-
-    private IEnumerable<PoseSearchState> EnumeratePoseTransitions(PoseSearchState state, ISet<GridPoint> legalLocations)
-    {
-        var forwardDirection = PlowMoveDirections[state.RotationTurns];
-        var forwardLocation = new GridPoint(state.Location.X + forwardDirection.X, state.Location.Y + forwardDirection.Y);
-        if (legalLocations.Contains(forwardLocation))
-        {
-            yield return new PoseSearchState(forwardLocation, state.RotationTurns);
-        }
-
-        yield return new PoseSearchState(state.Location, NormalizeRotationTurns(state.RotationTurns + 1));
-        yield return new PoseSearchState(state.Location, NormalizeRotationTurns(state.RotationTurns - 1));
-    }
-
-    private static List<PlowPose> ReconstructPosePath(
-        PoseSearchState endState,
-        PoseSearchState startState,
-        IReadOnlyDictionary<PoseSearchState, PoseSearchState> previousStates)
-    {
-        var reversed = new List<PlowPose>();
-        var current = endState;
-        while (true)
-        {
-            reversed.Add(new PlowPose(current.Location, current.RotationTurns));
-            if (current.Equals(startState))
-            {
-                break;
-            }
-
-            current = previousStates[current];
-        }
-
-        reversed.Reverse();
-        return reversed;
-    }
-
-    private static void AppendPoseSegment(List<PlowPose> poses, IReadOnlyList<PlowPose> segment)
-    {
-        for (var index = 1; index < segment.Count; index++)
-        {
-            poses.Add(segment[index]);
-        }
-    }
-
-    private IEnumerable<GridPoint> EnumerateLegalRegionCorners(PlowTraversalRegion region, ISet<GridPoint> legalLocations)
-    {
-        var yielded = new HashSet<GridPoint>();
-        var topLeft = new GridPoint(region.MinX, region.MinY);
-        if (legalLocations.Contains(topLeft) && yielded.Add(topLeft))
-        {
-            yield return topLeft;
-        }
-
-        var topRight = new GridPoint(region.MaxRootX, region.MinY);
-        if (legalLocations.Contains(topRight) && yielded.Add(topRight))
-        {
-            yield return topRight;
-        }
-
-        var bottomLeft = new GridPoint(region.MinX, region.MaxRootY);
-        if (legalLocations.Contains(bottomLeft) && yielded.Add(bottomLeft))
-        {
-            yield return bottomLeft;
-        }
-
-        var bottomRight = new GridPoint(region.MaxRootX, region.MaxRootY);
-        if (legalLocations.Contains(bottomRight) && yielded.Add(bottomRight))
-        {
-            yield return bottomRight;
-        }
-    }
-
-    private static bool IsTraversalCandidateBetter(
-        GridPoint candidateCorner,
-        PlowTraversalRegion candidateRegion,
-        GridPoint bestCorner,
-        PlowTraversalRegion bestRegion)
-    {
-        var yComparison = candidateCorner.Y.CompareTo(bestCorner.Y);
-        if (yComparison != 0)
-        {
-            return yComparison < 0;
-        }
-
-        var xComparison = candidateCorner.X.CompareTo(bestCorner.X);
-        if (xComparison != 0)
-        {
-            return xComparison < 0;
-        }
-
-        var minYComparison = candidateRegion.MinY.CompareTo(bestRegion.MinY);
-        if (minYComparison != 0)
-        {
-            return minYComparison < 0;
-        }
-
-        var minXComparison = candidateRegion.MinX.CompareTo(bestRegion.MinX);
-        if (minXComparison != 0)
-        {
-            return minXComparison < 0;
-        }
-
-        var maxYComparison = candidateRegion.MaxY.CompareTo(bestRegion.MaxY);
-        if (maxYComparison != 0)
-        {
-            return maxYComparison < 0;
-        }
-
-        return candidateRegion.MaxX < bestRegion.MaxX;
-    }
-
-    private bool TryBuildRegionSweep(PlowTraversalRegion region, PlowPose startPose, out List<PlowPose> poses)
-    {
-        poses = [startPose];
-        var startLocation = startPose.Location;
-        var horizontalDirection = 0;
-        var verticalDirection = 0;
-
-        if (startLocation.X == region.MinX)
-        {
-            horizontalDirection = 1;
-        }
-        else if (startLocation.X == region.MaxRootX)
-        {
-            horizontalDirection = -1;
-        }
-        else
-        {
-            return false;
-        }
-
-        if (startLocation.Y == region.MinY)
-        {
-            verticalDirection = 1;
-        }
-        else if (startLocation.Y == region.MaxRootY)
-        {
-            verticalDirection = -1;
-        }
-        else
-        {
-            return false;
-        }
-
-        var lastRowY = verticalDirection > 0 ? region.MaxRootY : region.MinY;
-        var currentHorizontalDirection = horizontalDirection;
-        while (true)
-        {
-            var targetX = currentHorizontalDirection > 0 ? region.MaxRootX : region.MinX;
-            AppendStraightMoves(poses, new GridPoint(currentHorizontalDirection, 0), Math.Abs(targetX - poses[^1].Location.X));
-            if (poses[^1].Location.Y == lastRowY)
-            {
-                return true;
-            }
-
-            AppendStraightMoves(poses, new GridPoint(0, verticalDirection), 2);
-            currentHorizontalDirection = -currentHorizontalDirection;
-        }
-    }
-
-    private static void AppendStraightMoves(List<PlowPose> poses, GridPoint direction, int stepCount)
-    {
-        if (stepCount <= 0 || poses.Count == 0 || !TryGetRotationTurns(direction, out var rotationTurns))
-        {
-            return;
-        }
-
-        AppendPreMoveRotationSteps(poses, rotationTurns);
-        for (var step = 0; step < stepCount; step++)
-        {
-            var currentPose = poses[^1];
-            poses.Add(new PlowPose(
-                new GridPoint(currentPose.Location.X + direction.X, currentPose.Location.Y + direction.Y),
-                rotationTurns));
-        }
-    }
-
-    private static void AppendPreMoveRotationSteps(List<PlowPose> poses, int targetRotationTurns)
-    {
-        if (poses.Count == 0)
-        {
-            return;
-        }
-
-        var location = poses[^1].Location;
-        var currentRotationTurns = poses[^1].RotationTurns;
-        while (currentRotationTurns != targetRotationTurns)
-        {
-            currentRotationTurns = StepRotationTowards(currentRotationTurns, targetRotationTurns);
-            poses.Add(new PlowPose(location, currentRotationTurns));
-        }
-    }
-
-    private static int StepRotationTowards(int currentRotationTurns, int targetRotationTurns)
-    {
-        var clockwiseDistance = NormalizeRotationTurns(targetRotationTurns - currentRotationTurns);
-        var counterClockwiseDistance = NormalizeRotationTurns(currentRotationTurns - targetRotationTurns);
-        var step = clockwiseDistance <= counterClockwiseDistance ? 1 : -1;
-        return NormalizeRotationTurns(currentRotationTurns + step);
-    }
-
     private bool AreAllSoilTilesCovered(IReadOnlyList<PlowPose> posePath)
     {
         foreach (var soilTile in _soilTiles)
@@ -1173,6 +835,7 @@ public sealed class Ranch : Building, IStorage
 
         return true;
     }
+
     private static bool IsSoilTileCovered(IReadOnlyList<PlowPose> posePath, GridPoint soilLocation)
     {
         for (var index = 0; index < posePath.Count; index++)

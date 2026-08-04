@@ -8,7 +8,7 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public class Building
+public class Building : IBuildPlacementDragTarget
 {
     private readonly List<World.Tile> _projectedTiles = [];
     private readonly List<InteractionZone> _interactionZones = [];
@@ -105,6 +105,11 @@ public class Building
     public bool Selectable { get; protected set; }
 
     public int DisplayRotationTurns { get; protected set; }
+
+    // Buildings opt into batched placement explicitly; ordinary buildings place one at a time.
+    public virtual BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.None;
+
+    public virtual GridPoint DragPlacementStep => Size;
 
     public IReadOnlyList<World.Tile> ProjectedTiles => _projectedTiles;
 

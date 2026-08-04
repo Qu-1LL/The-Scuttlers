@@ -180,7 +180,9 @@ public sealed class Scaffolding : Building
 
     public ScaffoldMaterialReservation? GetMaterialReservation(Creature creature)
     {
-        return _materialReservations.GetValueOrDefault(creature);
+        return _materialReservations.TryGetValue(creature, out var reservation)
+            ? reservation
+            : null;
     }
 
     public int GetReservedAmount(ResourceName resourceType, Creature? excludeCreature = null)

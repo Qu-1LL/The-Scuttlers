@@ -5,7 +5,7 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class Wall : Building, IBuildPlacementDragTarget
+public sealed class Wall : Building
 {
     private static readonly int[][] DefaultOpenMap = [[1]];
     private const string TopDirection = "top";
@@ -41,9 +41,9 @@ public sealed class Wall : Building, IBuildPlacementDragTarget
 
     public IReadOnlyDictionary<string, bool> Connections => _connections;
 
-    public BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.AxisLine;
+    public override BuildPlacementDragKind DragPlacementKind => BuildPlacementDragKind.AxisLine;
 
-    public GridPoint DragPlacementStep => new(1, 1);
+    public override GridPoint DragPlacementStep => new(1, 1);
 
     public override void OnBuilt(World.Cave cave)
     {

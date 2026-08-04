@@ -680,14 +680,16 @@ public sealed class BuildingBfsFieldMaintenanceSystem : IBuildingNavigationField
             Interlocked.Increment(ref _incrementalRepairsProcessed);
         }
 
-        if (state.PendingDirty.Count > 0)
-        {
-            RefreshNextStepsIncrementally(topology, state);
-        }
-        else if (state.NeedsFullNextStepRebuild)
+        // A state can receive another topology command before its first publish. Build every
+        // successor in that case; an incremental refresh only covers tiles whose distance changed.
+        if (state.NeedsFullNextStepRebuild)
         {
             RebuildNextSteps(topology, state);
             state.NeedsFullNextStepRebuild = false;
+        }
+        else if (state.PendingDirty.Count > 0)
+        {
+            RefreshNextStepsIncrementally(topology, state);
         }
         state.Generation++;
         state.NeedsPublish = false;

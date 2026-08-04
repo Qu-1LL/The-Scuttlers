@@ -499,44 +499,23 @@ public sealed partial class MenuController
 
     private void SyncBuildSelection(IReadOnlyList<Factory> options)
     {
-        if (SelectedBuildOption is null || !ContainsVisibleBuildOption(options, SelectedBuildOption.Name))
+        if (SelectedBuildOption is null || !ContainsBuildOption(options, SelectedBuildOption.Name))
         {
-            SelectedBuildOption = FindFirstVisibleBuildOption(options);
+            SelectedBuildOption = options.Count > 0 ? options[0] : null;
         }
 
-        if (HoveredBuildOption is not null && !ContainsVisibleBuildOption(options, HoveredBuildOption.Name))
+        if (HoveredBuildOption is not null && !ContainsBuildOption(options, HoveredBuildOption.Name))
         {
             HoveredBuildOption = null;
         }
     }
 
-    // Temporarily suppress glitchy ranch/storage-adjacent buildings from the build menu.
-    private static bool IsBuildOptionTemporarilyHidden(Factory factory)
-    {
-        return factory.Name is "Soil Patch" or "Garage" or "Silo";
-    }
-
-    private static Factory? FindFirstVisibleBuildOption(IReadOnlyList<Factory> options)
+    private static bool ContainsBuildOption(IReadOnlyList<Factory> options, string factoryName)
     {
         for (var index = 0; index < options.Count; index++)
         {
             var factory = options[index];
-            if (!IsBuildOptionTemporarilyHidden(factory))
-            {
-                return factory;
-            }
-        }
-
-        return null;
-    }
-
-    private static bool ContainsVisibleBuildOption(IReadOnlyList<Factory> options, string factoryName)
-    {
-        for (var index = 0; index < options.Count; index++)
-        {
-            var factory = options[index];
-            if (!IsBuildOptionTemporarilyHidden(factory) &&
-                string.Equals(factory.Name, factoryName, StringComparison.Ordinal))
+            if (string.Equals(factory.Name, factoryName, StringComparison.Ordinal))
             {
                 return true;
             }

@@ -314,6 +314,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
         RegisterTexture(sprites, "Garage", "Textures/Garage");
         RegisterTexture(sprites, "Silo", "Textures/Silo");
+        RegisterTexture(sprites, "Plow", "Textures/Plow");
         // Animated water shown through gaps in the cave floor. Registered optionally so the game
         // still starts before the art exists; the animation is only registered for frames that
         // actually loaded, and DrawWaterTiles skips anything unregistered.
@@ -710,7 +711,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             BeginBuildingPlacementDrag(_input.MousePoint);
         }
 
-        if (_buildingPlacementDragActive && _input.LeftHeld)
+        if (BuildMode && _input.LeftHeld)
         {
             _input.UpdateDrag(GameConstants.DragThresholdPixels, _input.LeftHeld);
         }
@@ -736,10 +737,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
                      !TrilodexCoversPoint(_input.MousePoint) &&
                      !HandleMenuClick(_input.MousePoint))
             {
-                if (!BuildMode)
-                {
-                    HandleWorldClick(_input.MousePoint);
-                }
+                HandleWorldClick(_input.MousePoint);
 
                 ResetPointerInteractionState();
             }
@@ -875,6 +873,11 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         }
 
         _input.BeginDrag();
+        if (_buildingPlacementCursor!.TargetBuilding.DragPlacementKind == BuildPlacementDragKind.None)
+        {
+            return;
+        }
+
         _buildingPlacementDragActive = true;
         _buildingPlacementDragStart = location;
     }
@@ -1608,10 +1611,11 @@ public sealed partial class GameApp
             ClearMiningTileSelection();
             if (!BuildMode)
             {
+                var selectionTarget = BuildingSelectionResolver.Resolve(building, _selectedObject);
                 CleanActive();
-                if (building.CanBeSelected())
+                if (selectionTarget.CanBeSelected())
                 {
-                    SetSelectedObject(building);
+                    SetSelectedObject(selectionTarget);
                 }
             }
 

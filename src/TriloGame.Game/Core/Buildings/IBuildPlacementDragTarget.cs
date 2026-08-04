@@ -4,6 +4,7 @@ namespace TriloGame.Game.Core.Buildings;
 
 public enum BuildPlacementDragKind
 {
+    None,
     AxisLine,
     FootprintGrid
 }

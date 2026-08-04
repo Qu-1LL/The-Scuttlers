@@ -567,6 +567,51 @@ public sealed class TrilobiteBuildingAssignmentTests
     }
 
     [Fact]
+    public void BuilderAssignment_SkipsScaffoldWithNoUnreservedMaterials()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 14, new GridPoint(1, 1));
+        var reservedScaffold = new Scaffolding(session, new SoilPatch(session));
+        var availableScaffold = new Scaffolding(session, new SoilPatch(session));
+        Assert.True(cave.Build(reservedScaffold, new GridPoint(8, 6)));
+        Assert.True(cave.Build(availableScaffold, new GridPoint(18, 6)));
+
+        var reservationHolder = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            new GridPoint(5, 6),
+            "Reservation Holder");
+        var builder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 10), "Builder", "builder");
+
+        Assert.Equal(5, reservedScaffold.ReserveMaterial(reservationHolder, ResourceName.Chitinstone, 5));
+        Assert.Null(reservedScaffold.GetMaterialReservation(builder));
+        Assert.False(reservedScaffold.NeedsAnyResource(includeReservations: true, excludeCreature: builder));
+        Assert.True(availableScaffold.NeedsAnyResource(includeReservations: true, excludeCreature: builder));
+
+        Assert.Same(availableScaffold, builder.EnsureBuilderAssignment());
+        Assert.DoesNotContain(builder, reservedScaffold.GetAssignments());
+        Assert.Contains(builder, availableScaffold.GetAssignments());
+    }
+
+    [Fact]
+    public void BuilderAssignment_RespectsSoilPatchSingleCarryCapacityBeforeReservation()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(1, 1));
+        var scaffold = new Scaffolding(session, new SoilPatch(session));
+        Assert.True(cave.Build(scaffold, new GridPoint(12, 6)));
+
+        var firstBuilder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(5, 8), "Builder A", "builder");
+        var secondBuilder = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(6, 8), "Builder B", "builder");
+
+        Assert.Equal(1, scaffold.GetRequiredBuilderCount(firstBuilder.InventoryCapacity));
+        Assert.Same(scaffold, firstBuilder.EnsureBuilderAssignment());
+        Assert.False(scaffold.CanAssignBuilder(secondBuilder, secondBuilder.InventoryCapacity));
+
+        Assert.Null(secondBuilder.EnsureBuilderAssignment());
+        Assert.Single(scaffold.GetAssignments());
+        Assert.Contains(firstBuilder, scaffold.GetAssignments());
+    }
+
+    [Fact]
     public void BuilderAssignment_ReassignsWhenCurrentScaffoldBecomesUnreachable()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(22, 14, new GridPoint(1, 1));

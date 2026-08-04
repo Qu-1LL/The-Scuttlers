@@ -8,16 +8,28 @@ namespace TriloGame.Tests.UI;
 public sealed class BuildPlacementPreviewResolverTests
 {
     [Fact]
-    public void ResolveLocations_ReturnsHoveredTileForRegularBuilding()
+    public void ResolveLocations_ReturnsHoveredTileForNonDraggableBuilding_EvenWhenDragged()
     {
         var session = new GameSession();
 
         var locations = BuildPlacementPreviewResolver.ResolveLocations(
             new Garage(session),
-            new GridPoint(6, 8));
+            new GridPoint(6, 8),
+            new GridPoint(2, 3));
 
         Assert.Equal([new GridPoint(6, 8)], locations);
     }
+
+    [Fact]
+    public void Buildings_ExposeOnlyTheirSupportedDragPlacementKinds()
+    {
+        var session = new GameSession();
+
+        Assert.Equal(BuildPlacementDragKind.None, new Garage(session).DragPlacementKind);
+        Assert.Equal(BuildPlacementDragKind.FootprintGrid, new SoilPatch(session).DragPlacementKind);
+        Assert.Equal(BuildPlacementDragKind.AxisLine, new Wall(session).DragPlacementKind);
+    }
+
 
     [Fact]
     public void ResolveLocations_UsesFootprintGridForSoilPatches()

@@ -34,11 +34,24 @@ public sealed partial class Cave
             return false;
         }
 
-        var moveDistance = GridPoint.ManhattanDistance(vehicle.Location.Value, destination);
-        if (moveDistance > 1 ||
-            !CanPlaceVehicle(vehicle, destination, vehicle))
+        var currentLocation = vehicle.Location.Value;
+        var deltaX = destination.X - currentLocation.X;
+        var deltaY = destination.Y - currentLocation.Y;
+        var moveDistance = System.Math.Max(System.Math.Abs(deltaX), System.Math.Abs(deltaY));
+        if ((deltaX != 0 && deltaY != 0) || moveDistance > vehicle.MaximumStraightTileStepDistance)
         {
             return false;
+        }
+
+        var stepX = System.Math.Sign(deltaX);
+        var stepY = System.Math.Sign(deltaY);
+        for (var step = 1; step <= moveDistance; step++)
+        {
+            var stepLocation = new GridPoint(currentLocation.X + (stepX * step), currentLocation.Y + (stepY * step));
+            if (!CanPlaceVehicle(vehicle, stepLocation, vehicle))
+            {
+                return false;
+            }
         }
 
         var oldTiles = vehicle.TileArray.ToArray();
@@ -109,7 +122,7 @@ public sealed partial class Cave
                 return false;
             }
 
-            if (HasCreatureBodyInVehicleCell(vehicle, point))
+            if (!vehicle.CanTraverseCreatureCells && HasCreatureBodyInVehicleCell(vehicle, point))
             {
                 return false;
             }

@@ -1,5 +1,6 @@
 using System.Numerics;
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
@@ -11,6 +12,11 @@ namespace TriloGame.Game.Core.Vehicles;
 public sealed class Plow : Vehicle, IDriveable, IStorage
 {
     private const int DefaultCapacity = 400;
+    private const int MovementSpeedMultiplierNumerator = 3;
+    private const int MovementSpeedMultiplierDenominator = 2;
+    private const double QuarterTurnDurationMilliseconds = 500d;
+    public const int QuarterTurnDurationTicks = (int)(QuarterTurnDurationMilliseconds / GameConstants.GameTimePerSimulationTickMs);
+    private const float FarmerStationDefaultOffsetPixels = 256f;
     public static readonly GridPoint DefaultSize = new(2, 2);
     private readonly Dictionary<ResourceName, int> _inventory = [];
     private int _inventoryTotal;
@@ -18,19 +24,28 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
     public Plow(GameSession session)
         : base(
             "Plow",
-            "A ranch plow that carries one farmer, harvests trailing soil tiles, and brings the yield back to the garage.",
+            "A ranch plow that carries one farmer, works every covered soil tile, and brings the yield back to the garage.",
             "Plow",
             "farmer",
             DefaultSize,
             40,
             1,
-            [new VehicleStationSlot(new Vector2(40f, 0f), MathF.PI * 0.5f)],
+            [new VehicleStationSlot(new Vector2(FarmerStationDefaultOffsetPixels, 0f), MathF.PI * 0.5f)],
             session)
     {
         Capacity = DefaultCapacity;
     }
 
     public int Capacity { get; }
+
+    // Plows follow fixed ranch coverage routes and do not abandon a cycle for passing creatures.
+    public override bool CanTraverseCreatureCells => true;
+
+    public override int MaximumStraightTileStepDistance => DefaultSize.Y;
+
+    public override int MovementSpeed => (base.MovementSpeed * MovementSpeedMultiplierNumerator) / MovementSpeedMultiplierDenominator;
+
+    public override int RotationTicksPerQuarterTurn => QuarterTurnDurationTicks;
 
     public IReadOnlyDictionary<ResourceName, int> GetInventory() => _inventory;
 
@@ -106,6 +121,22 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
         return transferred;
     }
 
+    // Work the initial garage-side footprint so even a single soil patch completes a farming pass.
+    internal void ProcessCurrentFootprint()
+    {
+        if (Cave is not { } cave || Location is not { } location)
+        {
+            return;
+        }
+
+        foreach (var point in EnumerateOccupiedPoints(location))
+        {
+            TryProcessSoilTile(cave, point);
+        }
+
+        cave.TryTransferPlowAlgaeToAdjacentSilo(this);
+    }
+
     protected override void OnStationCreature(Creature creature)
     {
     }
@@ -114,20 +145,10 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
     {
     }
 
-    // Process the trailing edge after every successful move, including in-place turns, so ripe crops are harvested and dormant soil gets planted once the plow has fully passed over a tile.
+    // Work every covered tile after each successful move or turn so corners cannot be skipped.
     protected override void OnMoveSucceeded(GridPoint previousLocation, GridPoint currentLocation)
     {
-        if (Cave is not { } cave || Location is not { } location)
-        {
-            return;
-        }
-
-        foreach (var harvestLocation in EnumerateBackEdgeLocations(location, GetDisplayRotationTurns(), GetRotatedSize()))
-        {
-            TryProcessTrailingTile(cave, harvestLocation);
-        }
-
-        cave.TryTransferPlowAlgaeToAdjacentSilo(this);
+        ProcessCurrentFootprint();
     }
 
     protected override void OnVehicleDestroyed(object? source)
@@ -140,7 +161,7 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
         ClearInventory();
     }
 
-    private bool TryProcessTrailingTile(Cave cave, GridPoint location)
+    private bool TryProcessSoilTile(Cave cave, GridPoint location)
     {
         var soilTile = cave.GetSoilTile(location);
         if (soilTile is null || soilTile.ParentPatch.Cave != cave)
@@ -187,38 +208,5 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
         _inventoryTotal = 0;
     }
 
-    private static IEnumerable<GridPoint> EnumerateBackEdgeLocations(GridPoint location, int rotationTurns, GridPoint rotatedSize)
-    {
-        switch (((rotationTurns % 4) + 4) % 4)
-        {
-            case 0:
-                for (var y = 0; y < rotatedSize.Y; y++)
-                {
-                    yield return new GridPoint(location.X, location.Y + y);
-                }
 
-                yield break;
-            case 1:
-                for (var x = 0; x < rotatedSize.X; x++)
-                {
-                    yield return new GridPoint(location.X + x, location.Y);
-                }
-
-                yield break;
-            case 2:
-                for (var y = 0; y < rotatedSize.Y; y++)
-                {
-                    yield return new GridPoint(location.X + rotatedSize.X - 1, location.Y + y);
-                }
-
-                yield break;
-            default:
-                for (var x = 0; x < rotatedSize.X; x++)
-                {
-                    yield return new GridPoint(location.X + x, location.Y + rotatedSize.Y - 1);
-                }
-
-                yield break;
-        }
-    }
 }

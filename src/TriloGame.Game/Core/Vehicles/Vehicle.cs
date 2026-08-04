@@ -9,11 +9,22 @@ namespace TriloGame.Game.Core.Vehicles;
 
 public abstract class Vehicle : IVehicle
 {
+    private const int DefaultMovementSpeed = WorldUnits.UnitsPerTile / 2;
     private readonly Queue<MoveStep> _moveQueue = [];
     private readonly HashSet<Creature> _stationedCreatures = [];
     private readonly Dictionary<Creature, int> _stationSlotIndexes = [];
     private readonly List<VehicleStationSlot> _stationSlots;
     private Creature? _driver;
+    private bool _hasActiveMove;
+    private GridPoint _activeMoveDestination;
+    private bool _hasActiveRotation;
+    private int _activeRotationTargetTurns;
+    private int _activeRotationTicksElapsed;
+    private int _activeRotationTicksTotal;
+    private float _activeRotationStartRadians;
+    private float _activeRotationDeltaRadians;
+    private float _rotationRadians;
+    private float _previousRotationRadians;
 
     private readonly record struct MoveStep(GridPoint Destination, int RotationTurns);
 
@@ -64,6 +75,21 @@ public abstract class Vehicle : IVehicle
 
     public GridPoint? Location { get; private set; }
 
+    // Continuous vehicle center used by the renderer and stationed passenger transforms.
+    public WorldPoint Position { get; private set; }
+
+    public WorldPoint PreviousPosition { get; private set; }
+
+    public WorldPoint? MovementTarget { get; private set; }
+
+    public bool HasActiveMovement => _hasActiveMove;
+
+    public bool HasActiveRotation => _hasActiveRotation;
+
+    public virtual int MovementSpeed => DefaultMovementSpeed;
+
+    public virtual int RotationTicksPerQuarterTurn => 0;
+
     public int Health { get; private set; }
 
     public int MaxHealth { get; }
@@ -88,9 +114,17 @@ public abstract class Vehicle : IVehicle
 
     public int GetDisplayRotationTurns() => ((DisplayRotationTurns % 4) + 4) % 4;
 
+    // Most vehicles yield to creature bodies; dedicated work vehicles may opt into their fixed route.
+    public virtual bool CanTraverseCreatureCells => false;
+
+    public virtual int MaximumStraightTileStepDistance => 1;
+
     public void SetDisplayRotationTurns(int turns)
     {
         DisplayRotationTurns = ((turns % 4) + 4) % 4;
+        _hasActiveRotation = false;
+        _rotationRadians = DisplayRotationTurns * MathF.PI / 2f;
+        _previousRotationRadians = _rotationRadians;
         SyncStationedCreatureTransforms();
     }
 
@@ -101,24 +135,38 @@ public abstract class Vehicle : IVehicle
             : new GridPoint(Size.Y, Size.X);
     }
 
-    public Vector2 GetWorldCenter()
+    public Vector2 GetWorldCenter() => Position.ToWorldPixels();
+
+    public Vector2 GetInterpolatedWorldCenter(float alpha)
     {
-        var location = Location ?? GridPoint.Zero;
+        alpha = Math.Clamp(alpha, 0f, 1f);
+        return Vector2.Lerp(PreviousPosition.ToWorldPixels(), Position.ToWorldPixels(), alpha);
+    }
+
+    public float GetInterpolatedRotationRadians(float alpha)
+    {
+        alpha = Math.Clamp(alpha, 0f, 1f);
+        return _previousRotationRadians + ((_rotationRadians - _previousRotationRadians) * alpha);
+    }
+
+    private WorldPoint GetGridWorldCenter(GridPoint location)
+    {
         var rotatedSize = GetRotatedSize();
-        return new Vector2(
+        return WorldPoint.FromWorldPixels(new Vector2(
             (location.X * TileConstants.TileSize) + ((rotatedSize.X - 1) * TileConstants.TileHalfSize),
-            (location.Y * TileConstants.TileSize) + ((rotatedSize.Y - 1) * TileConstants.TileHalfSize));
+            (location.Y * TileConstants.TileSize) + ((rotatedSize.Y - 1) * TileConstants.TileHalfSize)));
     }
 
     public Interaction.WorldRectangle GetWorldBounds()
     {
-        var location = Location ?? GridPoint.Zero;
         var rotatedSize = GetRotatedSize();
+        var width = rotatedSize.X * WorldUnits.UnitsPerTile;
+        var height = rotatedSize.Y * WorldUnits.UnitsPerTile;
         return new Interaction.WorldRectangle(
-            (location.X * WorldUnits.UnitsPerTile) - WorldUnits.UnitsPerHalfTile,
-            (location.Y * WorldUnits.UnitsPerTile) - WorldUnits.UnitsPerHalfTile,
-            rotatedSize.X * WorldUnits.UnitsPerTile,
-            rotatedSize.Y * WorldUnits.UnitsPerTile);
+            Position.X - (width / 2),
+            Position.Y - (height / 2),
+            width,
+            height);
     }
 
     public bool CanStation(Creature creature)
@@ -219,36 +267,156 @@ public abstract class Vehicle : IVehicle
     {
         _moveQueue.Clear();
         RouteCells.Clear();
+        _hasActiveMove = false;
+        _hasActiveRotation = false;
+        MovementTarget = null;
     }
 
     public object? Move()
     {
-        if (_moveQueue.Count == 0)
+        PreviousPosition = Position;
+        _previousRotationRadians = _rotationRadians;
+        if (_hasActiveRotation)
+        {
+            return AdvanceActiveRotation();
+        }
+
+        if (_hasActiveMove)
+        {
+            return AdvanceActiveMove();
+        }
+
+        if (_moveQueue.Count == 0 || Location is not { } location)
         {
             return null;
         }
 
-        var previousLocation = Location;
-        var moveStep = _moveQueue.Dequeue();
-        var previousRotationTurns = GetDisplayRotationTurns();
-        SetDisplayRotationTurns(moveStep.RotationTurns);
-        var moved = Cave?.MoveVehicle(this, moveStep.Destination) ?? false;
-        if (!moved)
+        var moveStep = _moveQueue.Peek();
+        if (moveStep.RotationTurns != GetDisplayRotationTurns())
         {
-            SetDisplayRotationTurns(previousRotationTurns);
+            if (RotationTicksPerQuarterTurn > 0)
+            {
+                BeginActiveRotation(moveStep.RotationTurns);
+                return AdvanceActiveRotation();
+            }
+
+            SetDisplayRotationTurns(moveStep.RotationTurns);
+            if (moveStep.Destination == location)
+            {
+                CompleteMoveStep(location, moveStep.Destination);
+            }
+            else
+            {
+                OnMoveSucceeded(location, location);
+            }
+
+            return true;
         }
 
-        if (moved && RouteCells.Count > 0)
+        if (moveStep.Destination == location)
+        {
+            CompleteMoveStep(location, moveStep.Destination);
+            return true;
+        }
+
+        _activeMoveDestination = moveStep.Destination;
+        _hasActiveMove = true;
+        MovementTarget = GetGridWorldCenter(moveStep.Destination);
+        return AdvanceActiveMove();
+    }
+
+    // Animate a cardinal turn over a deterministic number of simulation ticks before moving again.
+    private void BeginActiveRotation(int targetTurns)
+    {
+        var currentTurns = GetDisplayRotationTurns();
+        var clockwiseDistance = ((targetTurns - currentTurns) + 4) % 4;
+        var counterClockwiseDistance = ((currentTurns - targetTurns) + 4) % 4;
+        var signedQuarterTurns = clockwiseDistance <= counterClockwiseDistance
+            ? clockwiseDistance
+            : -counterClockwiseDistance;
+
+        _activeRotationTargetTurns = ((targetTurns % 4) + 4) % 4;
+        _activeRotationTicksElapsed = 0;
+        _activeRotationTicksTotal = System.Math.Abs(signedQuarterTurns) * RotationTicksPerQuarterTurn;
+        _activeRotationStartRadians = _rotationRadians;
+        _activeRotationDeltaRadians = signedQuarterTurns * MathF.PI / 2f;
+        _hasActiveRotation = _activeRotationTicksTotal > 0;
+    }
+
+    private bool AdvanceActiveRotation()
+    {
+        if (!_hasActiveRotation || Location is not { } location || _moveQueue.Count == 0)
+        {
+            return false;
+        }
+
+        _activeRotationTicksElapsed++;
+        _rotationRadians = _activeRotationStartRadians +
+                           (_activeRotationDeltaRadians * _activeRotationTicksElapsed / _activeRotationTicksTotal);
+        SyncStationedCreatureTransforms();
+        if (_activeRotationTicksElapsed < _activeRotationTicksTotal)
+        {
+            return true;
+        }
+
+        _hasActiveRotation = false;
+        DisplayRotationTurns = _activeRotationTargetTurns;
+        var moveStep = _moveQueue.Peek();
+        if (moveStep.Destination == location)
+        {
+            CompleteMoveStep(location, moveStep.Destination);
+        }
+        else
+        {
+            OnMoveSucceeded(location, location);
+        }
+
+        return true;
+    }
+
+    // Advance a straight route segment at continuous creature-equivalent speed.
+    private bool AdvanceActiveMove()
+    {
+        if (!_hasActiveMove || MovementTarget is not { } target || Location is not { } previousLocation)
+        {
+            return false;
+        }
+
+        var delta = target - Position;
+        var distance = delta.Length;
+        if (distance > MovementSpeed)
+        {
+            Position += delta.WithMagnitude(MovementSpeed);
+            SyncStationedCreatureTransforms();
+            return true;
+        }
+
+        if (Cave?.MoveVehicle(this, _activeMoveDestination) != true)
+        {
+            return false;
+        }
+
+        Position = target;
+        CompleteMoveStep(previousLocation, _activeMoveDestination);
+        SyncStationedCreatureTransforms();
+        return true;
+    }
+
+    private void CompleteMoveStep(GridPoint previousLocation, GridPoint currentLocation)
+    {
+        if (_moveQueue.Count > 0)
+        {
+            _moveQueue.Dequeue();
+        }
+
+        if (RouteCells.Count > 0)
         {
             RouteCells.RemoveAt(0);
         }
 
-        if (moved && previousLocation is { } previousPoint)
-        {
-            OnMoveSucceeded(previousPoint, moveStep.Destination);
-        }
-
-        return moved;
+        _hasActiveMove = false;
+        MovementTarget = null;
+        OnMoveSucceeded(previousLocation, currentLocation);
     }
 
     public int TakeDamage(int amount, object? source = null)
@@ -279,6 +447,11 @@ public abstract class Vehicle : IVehicle
         Cave = cave;
         Location = location;
         TileArray = tiles;
+        Position = GetGridWorldCenter(location);
+        PreviousPosition = Position;
+        MovementTarget = null;
+        _hasActiveMove = false;
+        _previousRotationRadians = _rotationRadians;
         SyncStationedCreatureTransforms();
     }
 
@@ -286,7 +459,6 @@ public abstract class Vehicle : IVehicle
     {
         Location = location;
         TileArray = tiles;
-        SyncStationedCreatureTransforms();
     }
 
     internal void DetachFromCave()
@@ -295,6 +467,8 @@ public abstract class Vehicle : IVehicle
         Location = null;
         TileArray = [];
         ClearMoveQueue();
+        Position = WorldPoint.Zero;
+        PreviousPosition = Position;
     }
 
     internal void CleanupBeforeRemoval(object? source = null)
@@ -358,12 +532,29 @@ public abstract class Vehicle : IVehicle
             return;
         }
 
-        var vehicleRotation = GetDisplayRotationTurns() * MathF.PI / 2f;
         var slot = _stationSlots[slotIndex];
-        var localOffset = Rotate(slot.LocalPixelOffset, vehicleRotation);
-        creature.HostOnVehicle(this, GetWorldCenter() + localOffset);
-        creature.RotationRadians = NormalizeRadians(vehicleRotation + slot.CreatureRotationRadians);
-        creature.IsVisible = true;
+        var previousLocalOffset = Rotate(slot.LocalPixelOffset, _previousRotationRadians);
+        var localOffset = Rotate(slot.LocalPixelOffset, _rotationRadians);
+        var previousRotation = NormalizeRadians(_previousRotationRadians + slot.CreatureRotationRadians);
+        var rotation = NormalizeRadians(_rotationRadians + slot.CreatureRotationRadians);
+        if (!creature.IsHostedOnVehicle(this))
+        {
+            creature.HostOnVehicle(this, GetWorldCenter() + localOffset);
+            creature.UpdateHostedVehiclePose(
+                this,
+                WorldPoint.FromWorldPixels(Position.ToWorldPixels() + localOffset),
+                WorldPoint.FromWorldPixels(Position.ToWorldPixels() + localOffset),
+                rotation,
+                rotation);
+            return;
+        }
+
+        creature.UpdateHostedVehiclePose(
+            this,
+            WorldPoint.FromWorldPixels(PreviousPosition.ToWorldPixels() + previousLocalOffset),
+            WorldPoint.FromWorldPixels(Position.ToWorldPixels() + localOffset),
+            previousRotation,
+            rotation);
     }
 
     private void RestoreDestationedCreature(Creature creature)

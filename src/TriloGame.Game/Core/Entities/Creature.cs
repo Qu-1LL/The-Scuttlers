@@ -154,6 +154,8 @@ public class Creature
 
     public float RotationRadians { get; set; }
 
+    public float PreviousRotationRadians { get; private set; }
+
     public bool IsLocomotionEnabled { get; private set; }
 
     public bool IsVisible { get; set; }
@@ -224,6 +226,7 @@ public class Creature
         IsLocomotionEnabled = false;
         DrawBelowBuildings = drawBelowBuildings;
         SetKinematicWorldPosition(WorldPoint.FromWorldPixels(worldPosition));
+        PreviousRotationRadians = RotationRadians;
         Velocity = WorldVector.Zero;
         DesiredVelocity = WorldVector.Zero;
         MovementTarget = null;
@@ -248,6 +251,7 @@ public class Creature
         IsVisible = true;
         DrawBelowBuildings = false;
         SetKinematicWorldPosition(WorldPoint.FromWorldPixels(worldPosition));
+        PreviousRotationRadians = RotationRadians;
         Velocity = WorldVector.Zero;
         DesiredVelocity = WorldVector.Zero;
         MovementTarget = null;
@@ -257,6 +261,28 @@ public class Creature
         Activity = CreatureActivity.Stationed;
         ClearBfsTraversal();
         ClearRouteContinuation();
+    }
+
+    // Keep a stationed passenger visually locked to its moving vehicle without restoring locomotion.
+    internal void UpdateHostedVehiclePose(
+        IVehicle vehicle,
+        WorldPoint previousPosition,
+        WorldPoint position,
+        float previousRotationRadians,
+        float rotationRadians)
+    {
+        if (!ReferenceEquals(HostedVehicle, vehicle))
+        {
+            return;
+        }
+
+        PreviousPosition = previousPosition;
+        Position = position;
+        Velocity = position - previousPosition;
+        DesiredVelocity = Velocity;
+        PreviousRotationRadians = previousRotationRadians;
+        RotationRadians = rotationRadians;
+        IsVisible = true;
     }
 
     public void DisableLocomotion()
@@ -491,12 +517,17 @@ public class Creature
 
     public float GetInterpolatedFacingRadians(float alpha)
     {
+        alpha = Math.Clamp(alpha, 0f, 1f);
         if (!IsLocomotionEnabled)
         {
-            return RotationRadians;
-        }
+            if (HostedVehicle is null)
+            {
+                return RotationRadians;
+            }
 
-        alpha = Math.Clamp(alpha, 0f, 1f);
+            var vehicleDelta = MathF.IEEERemainder(RotationRadians - PreviousRotationRadians, MathF.Tau);
+            return PreviousRotationRadians + (vehicleDelta * alpha);
+        }
         var previous = DirectionToRadians(PreviousFacing);
         var current = DirectionToRadians(FacingDirection);
         var delta = MathF.IEEERemainder(current - previous, MathF.Tau);

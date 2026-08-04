@@ -6,6 +6,7 @@ using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.Vehicles;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Rendering.Lighting;
 using TriloGame.Game.Shared.Math;
@@ -178,12 +179,14 @@ public sealed class WorldSceneRenderer
             DrawCastShadowLayer(context, cave, tileGrid, interpolationAlpha);
         }
 
+        DrawCreatures(context, session, cave, interpolationAlpha, drawBelowBuildings: true);
         DrawBuildings(context, cave, showFullMapVisibility);
         if (showCombatDebug)
         {
             DrawCombatDebug(context, session);
         }
-        DrawCreatures(context, session, cave, interpolationAlpha);
+        DrawCreatures(context, session, cave, interpolationAlpha, drawBelowBuildings: false);
+        DrawVehicles(context, cave, interpolationAlpha);
         DrawProjectiles(context, session);
     }
 
@@ -877,14 +880,38 @@ public sealed class WorldSceneRenderer
         }
     }
 
+    private static void DrawVehicles(RenderingContext context, Cave cave, float interpolationAlpha)
+    {
+        foreach (var vehicle in cave.GetVehicles())
+        {
+            if (vehicle.Location is null)
+            {
+                continue;
+            }
+
+            DrawWorldTextureNative(
+                context,
+                vehicle.TextureKey,
+                ToFrameworkVector(vehicle.GetInterpolatedWorldCenter(interpolationAlpha)),
+                vehicle.GetInterpolatedRotationRadians(interpolationAlpha),
+                GetPlacedVehicleOrigin(vehicle));
+        }
+    }
+
     private static void DrawCreatures(
         RenderingContext context,
         GameSession session,
         Cave cave,
-        float interpolationAlpha)
+        float interpolationAlpha,
+        bool drawBelowBuildings)
     {
         foreach (var trilobite in cave.Trilobites)
         {
+            if (!trilobite.IsVisible || trilobite.DrawBelowBuildings != drawBelowBuildings)
+            {
+                continue;
+            }
+
             var worldPosition = GetCreatureWorldPosition(trilobite, interpolationAlpha);
             var facingRadians = trilobite.GetInterpolatedFacingRadians(interpolationAlpha);
             DrawWorldTextureNative(
@@ -899,6 +926,11 @@ public sealed class WorldSceneRenderer
 
         foreach (var enemy in cave.Enemies)
         {
+            if (!enemy.IsVisible || enemy.DrawBelowBuildings != drawBelowBuildings)
+            {
+                continue;
+            }
+
             var worldPosition = GetCreatureWorldPosition(enemy, interpolationAlpha);
             var facingRadians = enemy.GetInterpolatedFacingRadians(interpolationAlpha);
             DrawWorldTextureNative(
@@ -1331,6 +1363,13 @@ public sealed class WorldSceneRenderer
             scale ?? new FrameworkVector2(context.Camera.CurrentScale),
             SpriteEffects.None,
             0f);
+    }
+
+    private static FrameworkVector2 GetPlacedVehicleOrigin(Vehicle vehicle)
+    {
+        return new FrameworkVector2(
+            vehicle.Size.X * TileConstants.TileHalfSize,
+            vehicle.Size.Y * TileConstants.TileHalfSize);
     }
 
     private static FrameworkVector2 GetCreatureWorldPosition(Creature creature, float interpolationAlpha)

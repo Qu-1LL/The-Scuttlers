@@ -1,6 +1,7 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
+using TriloGame.Game.Core.World;
 using TriloGame.Game.Runtime.Systems;
 using TriloGame.Game.Shared.Math;
 
@@ -62,6 +63,28 @@ public sealed class AsyncBuildingNavigationTests
         Assert.Equal(expectedSeedIds, snapshot.SeedTileIds.ToHashSet());
         Assert.All(snapshot.SeedTileIds, seedId => Assert.DoesNotContain(seedId, footprintIds));
         Assert.All(snapshot.SeedTileIds, seedId => Assert.Equal(0, snapshot.GetDistance(seedId)));
+    }
+
+    [Fact]
+    public void BatchedScaffoldingChanges_PublishNextStepsForEarlierScaffold()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(1, 1));
+        using var maintenance = new BuildingBfsFieldMaintenanceSystem();
+        maintenance.Attach(session);
+
+        var first = new Scaffolding(session, new SoilPatch(session));
+        var second = new Scaffolding(session, new SoilPatch(session));
+        var third = new Scaffolding(session, new SoilPatch(session));
+        Assert.True(cave.Build(first, new GridPoint(12, 6)));
+        Assert.True(cave.Build(second, new GridPoint(18, 6)));
+        Assert.True(cave.Build(third, new GridPoint(24, 6)));
+
+        var snapshot = WaitForTopologyVersion(maintenance, cave, first);
+        var start = cave.GetTile(new GridPoint(7, 6))!;
+
+        Assert.InRange(snapshot.GetDistance(start.Id), 1, int.MaxValue - 1);
+        Assert.True(snapshot.GetNextStepTileId(start.Id) >= 0);
+        Assert.NotNull(cave.BuildPathToBuilding(first, start.Coordinates));
     }
 
     [Fact]
@@ -142,6 +165,26 @@ public sealed class AsyncBuildingNavigationTests
         }
 
         throw new TimeoutException($"Timed out waiting for {building.Name} navigation snapshot.");
+    }
+
+    private static BuildingNavigationFieldSnapshot WaitForTopologyVersion(
+        BuildingBfsFieldMaintenanceSystem maintenance,
+        Cave cave,
+        Building building)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            maintenance.PumpCompleted();
+            if (building.PublishedNavigationField is { } snapshot &&
+                snapshot.TopologyVersion == cave.TopologyVersion)
+            {
+                return snapshot;
+            }
+
+            maintenance.WaitForPublishedResult(TimeSpan.FromSeconds(1));
+        }
+
+        throw new TimeoutException($"Timed out waiting for {building.Name} topology version {cave.TopologyVersion}.");
     }
 
     private static void WaitForNextGeneration(

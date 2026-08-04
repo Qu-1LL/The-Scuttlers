@@ -18,6 +18,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     private bool _fleeingToQueen;
     private MineTileResult? _pendingMiningStrikeResult;
     private GridPoint? _farmerHarvestTarget;
+    private Building? _farmerAlgaeStorageSource;
     private bool _fighterPreferAssignedStation = true;
     private bool _depositInventoryBeforeRole;
 
@@ -218,6 +219,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         BuilderState = BuilderState.Idle;
         FighterState = FighterState.Idle;
         _farmerHarvestTarget = null;
+        _farmerAlgaeStorageSource = null;
         _fighterPreferAssignedStation = true;
         LastRoleFailure = WorkerRoleFailureReason.None;
     }
@@ -290,6 +292,11 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     private bool AdvanceFarmerRole()
     {
+        if (GetAssignedRanch() is { } ranch)
+        {
+            return AdvanceFarmerRanch(ranch);
+        }
+
         return FarmerState switch
         {
             FarmerState.Idle => AdvanceFarmerSelectFarm(),
@@ -300,6 +307,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                 : QueueFarmerState(FarmerState.MoveToFarmSlot, WorkerRoleFailureReason.TargetInvalid, result: false),
             FarmerState.MoveToQueen => AdvanceFarmerMoveToQueen(),
             FarmerState.FeedQueen => AdvanceFarmerFeedQueen(),
+            FarmerState.MoveToStoredAlgae => AdvanceFarmerMoveToStoredAlgae(),
             FarmerState.WaitForFarm => QueueFarmerState(FarmerState.Idle, WorkerRoleFailureReason.NoWork, result: false),
             _ => QueueFarmerState(FarmerState.Idle, WorkerRoleFailureReason.TargetInvalid, result: false)
         };
@@ -1476,7 +1484,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         if (SelectAlgaeFarm(GetAssignedAlgaeFarm()) is null)
         {
             ReleaseAssignedBuilding();
-            return false;
+            return TryNavigateStoredAlgae();
         }
 
         return TryNavigateAlgaeFarms();
@@ -2702,6 +2710,33 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return scaffold.IsConstructionComplete() && !scaffold.CompletionPending;
     }
 
+    // Keep assignments within the remaining unreserved deliveries or the single construction slot.
+    private bool CanAssignToScaffold(Scaffolding scaffold)
+    {
+        if (!scaffold.CanAssignBuilder(this, InventoryCapacity))
+        {
+            return false;
+        }
+
+        if (HasInventory())
+        {
+            return scaffold.NeedsResource(Inventory.Type!.Value);
+        }
+
+        if (scaffold.GetMaterialReservation(this) is not null)
+        {
+            return true;
+        }
+
+        if (!scaffold.IsRecipeComplete())
+        {
+            return scaffold.NeedsAnyResource(includeReservations: true, excludeCreature: this);
+        }
+
+        return scaffold.NeedsConstructionWork() ||
+               (scaffold.IsConstructionComplete() && !scaffold.CompletionPending);
+    }
+
     public List<Scaffolding> GetScaffoldingPriorityList(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
     {
         var excluded = excludeScaffolds?.ToHashSet() ?? [];
@@ -2732,7 +2767,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             }
 
             var bfsValue = Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue;
-            if (bfsValue == int.MaxValue || (actionableOnly && !CanActOnScaffold(scaffold)))
+            if (bfsValue == int.MaxValue ||
+                !CanAssignToScaffold(scaffold) ||
+                (actionableOnly && !CanActOnScaffold(scaffold)))
             {
                 continue;
             }
@@ -2782,6 +2819,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             assignedScaffold.IsInProgress() &&
             CanReachScaffolding(assignedScaffold) &&
             !excluded.Contains(assignedScaffold) &&
+            CanAssignToScaffold(assignedScaffold) &&
             (!actionableOnly || CanActOnScaffold(assignedScaffold)))
         {
             assignedScaffold.Assign(this);

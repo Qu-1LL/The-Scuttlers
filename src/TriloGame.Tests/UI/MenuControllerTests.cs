@@ -332,7 +332,7 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
-    public void BuildingsTab_HidesTemporarilyDisabledBuildingsFromBuildCards()
+    public void BuildingsTab_ShowsRanchAndSiloBuildingsInBuildCards()
     {
         var session = new GameSession();
         session.UnlockedBuildings.Add(new Factory(game => new SoilPatch(game), session));
@@ -353,8 +353,8 @@ public sealed class MenuControllerTests
             .Select(card => ((Factory)card.GetType().GetProperty("Factory")!.GetValue(card)!).Name)
             .ToArray();
 
-        Assert.Equal(["Turret"], buildNames);
-        Assert.Equal("Turret", menu.SelectedBuildOption?.Name);
+        Assert.Equal(["Soil Patch", "Garage", "Silo", "Turret"], buildNames);
+        Assert.Equal("Soil Patch", menu.SelectedBuildOption?.Name);
     }
 
     [Fact]

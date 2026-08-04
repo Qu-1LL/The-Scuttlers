@@ -150,7 +150,7 @@ Roles are typed (`Unassigned`, `Miner`, `Builder`, `Farmer`, `Fighter`, `Enemy`)
 typed as well. Important state machines include:
 
 - miners: select post, acquire a claim, reach/mine ore, deposit, wait for work/storage;
-- farmers: select farm, reach a soil slot, harvest, move to queen, feed, wait;
+- farmers: a valid ranch assignment is highest priority; otherwise select farm, reach a soil slot, harvest, move to queen, feed, then fall back to stored algae only when no ranch or algae-farm work is available;
 - builders: select scaffold, select storage source, withdraw, haul, deliver, construct;
 - fighters: select/hold station, acquire and pursue targets, attack, regroup, retreat, recover;
 - enemies: acquire target, move to colony, attack/breach, recover.
@@ -172,9 +172,13 @@ uses typed requirements, reservations, and builder staffing based on remaining r
 carry capacity. `Build First` scaffolds have priority; stable creation order resolves ties.
 
 Ranch soil is a special case: a 2x2 `SoilPatch` owns four independently growing `SoilTile` objects.
-Ownership/connectivity and plow paths are tile-based; `SoilArea` groups patches for selection and
-placement. Plow paths are rebuilt only when ranch membership changes and must use legal all-soil
-2x2 poses.
+`SoilArea` groups patches for placement and selection: clicking a soil patch selects its complete area,
+and clicking that area’s patch again selects the individual patch. An assigned farmer waits below the
+garage, then stations on a visible plow. The ranch rebuilds a deterministic serpentine sweep over legal,
+all-soil 2x2 plow footprints whenever membership changes; each completed row advances by two tiles before
+the plow returns to its garage-side start. It follows straight route segments with continuous fixed-point
+movement at 1.5x the normal vehicle speed and only stops for a turn. Each 90-degree plow turn lasts
+0.5 seconds of game time. Each movement or completed turn works every tile in the 2x2 footprint.
 
 ## 7. World generation and mining
 

@@ -466,36 +466,21 @@ public sealed partial class MenuController
         var columnGap = (int)MathF.Round(10f * layoutScale);
         var rowGap = (int)MathF.Round(10f * layoutScale);
         var scrollbarGutter = 10;
-        var visibleOptionCount = 0;
-        for (var index = 0; index < options.Count; index++)
-        {
-            if (!IsBuildOptionTemporarilyHidden(options[index]))
-            {
-                visibleOptionCount++;
-            }
-        }
 
         var cardSize = Math.Max(
             72,
             (int)MathF.Floor((viewportBounds.Width - scrollbarGutter - (columnGap * (columns - 1))) / (float)columns));
-        var rowCount = (int)MathF.Ceiling(visibleOptionCount / (float)columns);
+        var rowCount = (int)MathF.Ceiling(options.Count / (float)columns);
         var contentHeight = rowCount == 0 ? 0 : (rowCount * cardSize) + (Math.Max(0, rowCount - 1) * rowGap);
         maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
         BuildGridScroll = Clamp(BuildGridScroll, 0f, maxScroll);
 
-        var cards = new List<BuildCardRect>(visibleOptionCount);
-        var visibleIndex = 0;
+        var cards = new List<BuildCardRect>(options.Count);
         for (var index = 0; index < options.Count; index++)
         {
             var factory = options[index];
-            if (IsBuildOptionTemporarilyHidden(factory))
-            {
-                continue;
-            }
-
-            var column = visibleIndex % columns;
-            var row = visibleIndex / columns;
-            visibleIndex++;
+            var column = index % columns;
+            var row = index / columns;
             var x = viewportBounds.X + ((cardSize + columnGap) * column);
             var y = viewportBounds.Y + ((cardSize + rowGap) * row) - (int)MathF.Round(BuildGridScroll);
             var bounds = new Rectangle(x, y, cardSize, cardSize);
