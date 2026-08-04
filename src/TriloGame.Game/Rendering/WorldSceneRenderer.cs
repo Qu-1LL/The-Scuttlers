@@ -203,7 +203,7 @@ public sealed class WorldSceneRenderer
         {
             DrawWorldTextureNative(
                 context,
-                "Trilobite",
+                TrilobiteSpriteCatalog.ResolveTextureKey(context.Sprites, trilobite),
                 GetCreatureWorldPosition(trilobite, interpolationAlpha),
                 trilobite.GetInterpolatedFacingRadians(interpolationAlpha),
                 color: Color.White);
@@ -363,7 +363,11 @@ public sealed class WorldSceneRenderer
 
         foreach (var trilobite in cave.Trilobites)
         {
-            if (context.Sprites.TryGet("Trilobite", out var texture))
+            // The shadow is extruded from the sprite's own alpha, so it has to be the SAME sprite the
+            // trilobite is drawn with - a farmer's silhouette is not the unassigned one's.
+            if (context.Sprites.TryGet(
+                    TrilobiteSpriteCatalog.ResolveTextureKey(context.Sprites, trilobite),
+                    out var texture))
             {
                 DrawProjectedShadow(
                     context,
@@ -889,7 +893,7 @@ public sealed class WorldSceneRenderer
             var facingRadians = trilobite.GetInterpolatedFacingRadians(interpolationAlpha);
             DrawWorldTextureNative(
                 context,
-                "Trilobite",
+                TrilobiteSpriteCatalog.ResolveTextureKey(context.Sprites, trilobite),
                 worldPosition,
                 facingRadians,
                 color: GetCreatureDrawColor(session, trilobite));

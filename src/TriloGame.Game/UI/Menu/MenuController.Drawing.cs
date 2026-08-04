@@ -44,6 +44,19 @@ public sealed partial class MenuController
                 new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 66, Math.Max(100, (layout.PreviewBounds.Width / 2) + 12), 20),
                 new Color(135, 173, 187));
 
+            if (!string.IsNullOrWhiteSpace(layout.BuildPreviewCostText) &&
+                layout.BuildPreviewCostBounds is { } costBounds)
+            {
+                // Warmer than the size line beside it: the cost is the one number on this panel the
+                // player has to weigh against their stockpile, so it should not read as a caption.
+                DrawTextFitted(
+                    context,
+                    layout.BuildPreviewCostText,
+                    costBounds,
+                    new Color(232, 205, 138),
+                    minScale: 0.56f);
+            }
+
             DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
 
             DrawPreviewTexture(
@@ -406,7 +419,12 @@ public sealed partial class MenuController
 
         var portraitBounds = new Rectangle(row.Bounds.X + 14, row.Bounds.Y + 10, 56, 56);
         DrawFrame(context, portraitBounds, new Color(11, 23, 33), new Color(163, 217, 235));
-        DrawPreviewTexture(context, "Trilobite", Inset(portraitBounds, 7));
+        // FromAssignment is the role the row's trilobites currently hold, so the portrait shows the
+        // same sprite they wear in the cave rather than a generic one for every row.
+        DrawPreviewTexture(
+            context,
+            TrilobiteSpriteCatalog.ResolveTextureKey(context.Sprites, row.FromAssignment),
+            Inset(portraitBounds, 7));
         DrawTextFitted(
             context,
             row.Entry.Count.ToString(),

@@ -306,6 +306,13 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, ItemCatalog.Algae.Name, "Textures/Algae");
         _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.38f, 1f, 2.1f));
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
+        // Per-role trilobite art, registered optionally: a role whose sprite has not been drawn yet
+        // simply stays unregistered and TrilobiteSpriteCatalog falls it back to the default above.
+        foreach (var roleTextureKey in TrilobiteSpriteCatalog.GetRoleTextureKeys())
+        {
+            TryRegisterOptionalTexture(sprites, roleTextureKey, $"Textures/{roleTextureKey}");
+        }
+
         RegisterTexture(sprites, "Enemy", "Textures/Enemy");
         RegisterTexture(sprites, "AntHole", "Textures/AntHole");
         RegisterTexture(sprites, "CaveCrystal", "Textures/CaveCrystalClean");

@@ -388,6 +388,153 @@ public sealed class MenuControllerTests
         Assert.Equal(0, (int)getAssignmentCount.Invoke(null, [storage])!);
     }
 
+    [Fact]
+    public void BuildingsTab_PreviewShowsWhatTheBuildingCostsToPutUp()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
+        var (costText, costBounds, _) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        Assert.Equal("Cost: 20 Rock", costText);
+        Assert.True(costBounds.HasValue);
+    }
+
+    // The preview must price a building at exactly what its scaffold will demand - a number the
+    // player reads before placing and then has to deliver afterwards is worthless if the two can
+    // drift apart.
+    [Fact]
+    public void BuildingsTab_PreviewCostMatchesTheScaffoldRecipe()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
+        var (costText, _, _) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        var scaffolding = new Scaffolding(session, new AlgaeFarm(session));
+        var scaffoldCost = string.Join(
+            ", ",
+            scaffolding.RecipeRequired.Select(requirement =>
+                $"{requirement.Amount} {requirement.Category?.ToString() ?? ItemCatalog.GetName(requirement.SpecificResource!.Value)}"));
+
+        Assert.Equal($"Cost: {scaffoldCost}", costText);
+    }
+
+    // Almost every shipped building has a recipe - the station buildings inherit theirs from
+    // StationBuilding rather than declaring it - so this uses a building with none at all. The row
+    // still renders, because a missing row reads as a rendering gap rather than as missing data.
+    [Fact]
+    public void BuildingsTab_PreviewReportsNoneWhenABuildingHasNoRecipe()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new NoRecipeBuilding(game), session));
+        var (costText, costBounds, _) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        Assert.Equal("Cost: None", costText);
+        Assert.True(costBounds.HasValue);
+    }
+
+    [Fact]
+    public void BuildingsTab_PreviewPricesInheritedStationRecipes()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new Turret(game), session));
+        var (costText, _, _) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        Assert.Equal("Cost: 20 Rock", costText);
+    }
+
+    [Fact]
+    public void BuildingsTab_PreviewListsEveryRequirementOfAMultiPartRecipe()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new TwoPartRecipeBuilding(game), session));
+        var (costText, _, _) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        Assert.Equal("Cost: 14 Rock, 3 Malachite", costText);
+    }
+
+    [Fact]
+    public void BuildingsTab_CostRowSitsBetweenTheSizeLineAndTheDescription()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
+        var (_, costBounds, descriptionViewport) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        Assert.True(costBounds.HasValue);
+        // Below the name and size rows, which end 86px into the panel.
+        Assert.True(costBounds!.Value.Y >= 86, $"cost row overlaps the size line at Y {costBounds.Value.Y}");
+        Assert.True(
+            costBounds.Value.Bottom <= descriptionViewport.Y,
+            $"cost row bottom {costBounds.Value.Bottom} overlaps the description at {descriptionViewport.Y}");
+    }
+
+    // The panel also has to survive the smallest window the layout allows, where the preview drops
+    // to its floor height and the description viewport is squeezed hardest.
+    [Fact]
+    public void BuildingsTab_DescriptionKeepsAUsableViewportAtTheSmallestPanel()
+    {
+        var session = new GameSession();
+        session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
+        var (_, costBounds, descriptionViewport) = GetBuildPreviewCost(session, new Point(720, 380));
+
+        Assert.True(costBounds.HasValue);
+        Assert.True(descriptionViewport.Height >= 24, $"description collapsed to {descriptionViewport.Height}px");
+        Assert.True(costBounds!.Value.Bottom <= descriptionViewport.Y);
+    }
+
+    [Fact]
+    public void BuildingsTab_HasNoCostRowWithoutAnActiveBuilding()
+    {
+        var session = new GameSession();
+        var (costText, costBounds, _) = GetBuildPreviewCost(session, new Point(1440, 900));
+
+        Assert.Null(costText);
+        Assert.False(costBounds.HasValue);
+    }
+
+    private static (string? CostText, Rectangle? CostBounds, Rectangle DescriptionViewport) GetBuildPreviewCost(
+        GameSession session,
+        Point viewport)
+    {
+        var menu = new MenuController();
+        var getLayout = typeof(MenuController).GetMethod(
+            "GetLayout",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.OpenPanel("buildings");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session])!;
+        var costText = (string?)layout.GetType().GetProperty("BuildPreviewCostText")!.GetValue(layout);
+        var costBounds = (Rectangle?)layout.GetType().GetProperty("BuildPreviewCostBounds")!.GetValue(layout);
+        var textLayout = layout.GetType().GetProperty("BuildPreviewDescriptionLayout")!.GetValue(layout)!;
+        var descriptionViewport = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        return (costText, costBounds, descriptionViewport);
+    }
+
+    private sealed class NoRecipeBuilding : Building
+    {
+        public NoRecipeBuilding(GameSession session)
+            : base("Cairn", new GridPoint(2, 2), [[1, 1], [1, 1]], session, hasStation: false)
+        {
+            TextureKey = "Storage";
+            Description = "A building that declares no recipe at all.";
+        }
+    }
+
+    private sealed class TwoPartRecipeBuilding : Building
+    {
+        public TwoPartRecipeBuilding(GameSession session)
+            : base("Assay Bench", new GridPoint(2, 2), [[1, 1], [1, 1]], session, hasStation: false)
+        {
+            TextureKey = "Storage";
+            Description = "A bench that wants two different materials.";
+            Recipe =
+            [
+                ResourceRequirement.ForCategory(ResourceCategory.Rock, 14),
+                ResourceRequirement.ForResource(ResourceName.Malachite, 3)
+            ];
+        }
+    }
+
     private sealed class LongDescriptionBuilding : Building
     {
         public LongDescriptionBuilding(GameSession session)

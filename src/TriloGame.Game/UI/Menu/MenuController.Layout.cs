@@ -72,6 +72,22 @@ public sealed partial class MenuController
             _buildPreviewScrollKey = activeBuildPreviewKey;
         }
 
+        // The cost sits on its own row under the size, and the description starts below it. Every
+        // offset in this panel is fixed pixels, so the description viewport gives up the same 14px at
+        // any panel height - which is why the row is packed tight against the size line above it and
+        // the description follows 6px later rather than the 12px the size line used to get. At the
+        // smallest window the preview is only 160px tall, and a more generous spacing here left the
+        // description too short for even one line plus its scrollbar thumb.
+        var buildPreviewCostBounds = activeBuildPreview is null
+            ? (Rectangle?)null
+            : new Rectangle(
+                previewBounds.X + 12,
+                previewBounds.Y + 86,
+                Math.Max(100, (previewBounds.Width / 2) + 12),
+                20);
+        var buildPreviewCostText = activeBuildPreview is null
+            ? null
+            : FormatConstructionCost(activeBuildPreview.Recipe);
         var buildPreviewDescriptionViewportBounds = activeBuildPreview is null
             ? new Rectangle(
                 previewBounds.X + 12,
@@ -80,9 +96,9 @@ public sealed partial class MenuController
                 previewBounds.Height - 56)
             : new Rectangle(
                 previewBounds.X + 12,
-                previewBounds.Y + 98,
+                previewBounds.Y + 112,
                 Math.Max(140, (previewBounds.Width / 2) - 18),
-                previewBounds.Height - 110);
+                Math.Max(32, previewBounds.Height - 124));
         var buildPreviewDescriptionLayout = GumScrollableText.Build(
             buildPreviewDescriptionViewportBounds,
             activeBuildPreview?.Description ?? "Hover over a building card or click one to keep it selected here.",
@@ -396,6 +412,8 @@ public sealed partial class MenuController
             contentFrameBounds,
             tabs,
             previewBounds,
+            buildPreviewCostBounds,
+            buildPreviewCostText,
             buildPreviewDescriptionLayout,
             buildGridFrameBounds,
             buildGridViewportBounds,
@@ -663,6 +681,30 @@ public sealed partial class MenuController
         return total;
     }
 
+    // What a building costs to put up, for the build menu's preview panel.
+    //
+    // This is the same recipe the scaffold will demand once the site is placed, so the number the
+    // player reads here is the number they will have to deliver - it is not a separate estimate.
+    //
+    // A building with no recipe reports "None" rather than being left off the panel. Silently
+    // omitting the row makes a missing recipe look like a rendering gap; and it is worth surfacing,
+    // because Scaffolding throws on a recipe-less building rather than treating it as free.
+    private static string FormatConstructionCost(IReadOnlyList<ResourceRequirement>? recipe)
+    {
+        if (recipe is null || recipe.Count == 0)
+        {
+            return "Cost: None";
+        }
+
+        var requirements = new string[recipe.Count];
+        for (var index = 0; index < recipe.Count; index++)
+        {
+            requirements[index] = FormatRequirement(recipe[index]);
+        }
+
+        return $"Cost: {string.Join(", ", requirements)}";
+    }
+
     private static string FormatRequirement(ResourceRequirement requirement)
     {
         var label = requirement.SpecificResource is { } resourceType
@@ -799,6 +841,8 @@ public sealed partial class MenuController
         Rectangle ContentFrameBounds,
         IReadOnlyList<LabeledRect> Tabs,
         Rectangle PreviewBounds,
+        Rectangle? BuildPreviewCostBounds,
+        string? BuildPreviewCostText,
         GumScrollableTextLayout BuildPreviewDescriptionLayout,
         Rectangle BuildGridFrameBounds,
         Rectangle BuildGridViewportBounds,
