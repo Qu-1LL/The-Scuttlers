@@ -23,7 +23,19 @@ public sealed partial class MenuController
     private GumUiRenderer? _gumUi;
     private bool _renamingSelectedTrilobite;
     private string _renameBuffer = string.Empty;
-    private string? _buildPreviewScrollKey;
+
+    // One object per scrollable area, each owning its offset, its measured extent and the identity of
+    // the content it is showing. What this replaced was six loose floats plus a separate
+    // _buildPreviewScrollKey string, with the clamp written out at each wheel site and the reset
+    // written out again in two more places - four edits in four files for every new scrollable panel,
+    // and a forgotten reset showing up as a panel that opens already scrolled into someone else's
+    // content. Track() now does that reset as a consequence of pointing a region at new content.
+    private readonly ScrollRegion _buildGridScroll = new();
+    private readonly ScrollRegion _buildPreviewDescriptionScroll = new();
+    private readonly ScrollRegion _assignmentActiveScroll = new();
+    private readonly ScrollRegion _assignmentUnassignedScroll = new();
+    private readonly ScrollRegion _selectedInventoryScroll = new();
+    private readonly ScrollRegion _selectedDescriptionScroll = new();
 
     public object? SelectedObject { get; private set; }
 
@@ -37,17 +49,17 @@ public sealed partial class MenuController
 
     public string AssignmentFilter { get; private set; } = "miner";
 
-    public float BuildGridScroll { get; private set; }
+    public float BuildGridScroll => _buildGridScroll.Offset;
 
-    public float AssignmentActiveScroll { get; private set; }
+    public float AssignmentActiveScroll => _assignmentActiveScroll.Offset;
 
-    public float AssignmentUnassignedScroll { get; private set; }
+    public float AssignmentUnassignedScroll => _assignmentUnassignedScroll.Offset;
 
-    public float SelectedInventoryScroll { get; private set; }
+    public float SelectedInventoryScroll => _selectedInventoryScroll.Offset;
 
-    public float BuildPreviewDescriptionScroll { get; private set; }
+    public float BuildPreviewDescriptionScroll => _buildPreviewDescriptionScroll.Offset;
 
-    public float SelectedDescriptionScroll { get; private set; }
+    public float SelectedDescriptionScroll => _selectedDescriptionScroll.Offset;
 
     public bool IsRenamingSelectedTrilobite => _renamingSelectedTrilobite;
 
@@ -93,13 +105,20 @@ public sealed partial class MenuController
         HoveredBuildOption = null;
         SelectedBuildOption = null;
         AssignmentFilter = "miner";
-        BuildGridScroll = 0f;
-        AssignmentActiveScroll = 0f;
-        AssignmentUnassignedScroll = 0f;
-        SelectedInventoryScroll = 0f;
-        BuildPreviewDescriptionScroll = 0f;
-        SelectedDescriptionScroll = 0f;
-        _buildPreviewScrollKey = null;
+        foreach (var region in EnumerateScrollRegions())
+        {
+            region.Reset();
+        }
+    }
+
+    private IEnumerable<ScrollRegion> EnumerateScrollRegions()
+    {
+        yield return _buildGridScroll;
+        yield return _buildPreviewDescriptionScroll;
+        yield return _assignmentActiveScroll;
+        yield return _assignmentUnassignedScroll;
+        yield return _selectedInventoryScroll;
+        yield return _selectedDescriptionScroll;
     }
 
     public void SetSelectedObject(object? selectedObject)
@@ -107,8 +126,8 @@ public sealed partial class MenuController
         if (!ReferenceEquals(SelectedObject, selectedObject))
         {
             CancelRenameSelectedTrilobite();
-            SelectedInventoryScroll = 0f;
-            SelectedDescriptionScroll = 0f;
+            _selectedInventoryScroll.ScrollTo(0f);
+            _selectedDescriptionScroll.ScrollTo(0f);
         }
 
         SelectedObject = selectedObject;
@@ -220,8 +239,8 @@ public sealed partial class MenuController
     {
         var layout = GetLayout(viewport, null);
         return !PanelOpen
-            ? layout.MenuButton.Contains(point)
-            : layout.PanelBounds.Contains(point);
+            ? layout.Chrome.MenuButton.Contains(point)
+            : layout.Chrome.PanelBounds.Contains(point);
     }
 
     public bool HandleWheel(Point point, int delta, Point viewport, GameSession session)
@@ -233,37 +252,39 @@ public sealed partial class MenuController
         }
 
         var layout = GetLayout(viewport, session);
-        if (!layout.PanelBounds.Contains(point))
+        if (!layout.Chrome.PanelBounds.Contains(point))
         {
             return false;
         }
 
-        if (ActiveTab == TabBuildings && layout.BuildPreviewDescriptionLayout.ViewportBounds.Contains(point))
+        // Each region clamps itself against the extent layout measured for it, so the wheel handler
+        // no longer repeats a Clamp against a matching MaxScroll field at every site.
+        if (ActiveTab == TabBuildings && layout.Build.DescriptionLayout.ViewportBounds.Contains(point))
         {
-            BuildPreviewDescriptionScroll = Clamp(BuildPreviewDescriptionScroll + delta, 0f, layout.BuildPreviewDescriptionLayout.MaxScroll);
+            _buildPreviewDescriptionScroll.ScrollBy(delta);
         }
-        else if (ActiveTab == TabBuildings && layout.BuildGridFrameBounds.Contains(point))
+        else if (ActiveTab == TabBuildings && layout.Build.GridFrameBounds.Contains(point))
         {
-            BuildGridScroll = Clamp(BuildGridScroll + delta, 0f, layout.BuildGridMaxScroll);
+            _buildGridScroll.ScrollBy(delta);
         }
         else if (ActiveTab == TabAssignments)
         {
-            if (layout.AssignmentActiveBounds.Contains(point))
+            if (layout.Assignments.ActiveBounds.Contains(point))
             {
-                AssignmentActiveScroll = Clamp(AssignmentActiveScroll + delta, 0f, layout.AssignmentActiveMaxScroll);
+                _assignmentActiveScroll.ScrollBy(delta);
             }
-            else if (layout.AssignmentUnassignedBounds.Contains(point))
+            else if (layout.Assignments.UnassignedBounds.Contains(point))
             {
-                AssignmentUnassignedScroll = Clamp(AssignmentUnassignedScroll + delta, 0f, layout.AssignmentUnassignedMaxScroll);
+                _assignmentUnassignedScroll.ScrollBy(delta);
             }
         }
-        else if (ActiveTab == TabSelected && layout.SelectedDescriptionLayout.ViewportBounds.Contains(point))
+        else if (ActiveTab == TabSelected && layout.Selected.DescriptionLayout.ViewportBounds.Contains(point))
         {
-            SelectedDescriptionScroll = Clamp(SelectedDescriptionScroll + delta, 0f, layout.SelectedDescriptionLayout.MaxScroll);
+            _selectedDescriptionScroll.ScrollBy(delta);
         }
-        else if (ActiveTab == TabSelected && layout.SelectedInventoryFrameBounds?.Contains(point) == true)
+        else if (ActiveTab == TabSelected && layout.Selected.InventoryFrameBounds?.Contains(point) == true)
         {
-            SelectedInventoryScroll = Clamp(SelectedInventoryScroll + delta, 0f, layout.SelectedInventoryMaxScroll);
+            _selectedInventoryScroll.ScrollBy(delta);
         }
 
         return true;
@@ -279,7 +300,7 @@ public sealed partial class MenuController
         }
 
         var layout = GetLayout(viewport, session);
-        HoveredBuildOption = layout.BuildCards
+        HoveredBuildOption = layout.Build.Cards
             .FirstOrDefault(card => card.Bounds.Contains(point))
             .Factory;
     }
@@ -290,7 +311,7 @@ public sealed partial class MenuController
         var layout = GetLayout(viewport, session);
         if (!PanelOpen)
         {
-            if (layout.MenuButton.Contains(point))
+            if (layout.Chrome.MenuButton.Contains(point))
             {
                 OpenPanel();
                 return MenuInteractionResult.ConsumedWithSelectSound;
@@ -299,13 +320,13 @@ public sealed partial class MenuController
             return MenuInteractionResult.NotHandled;
         }
 
-        if (layout.CollapseButton.Contains(point))
+        if (layout.Chrome.CollapseButton.Contains(point))
         {
             ClosePanel();
             return MenuInteractionResult.ConsumedWithSelectSound;
         }
 
-        foreach (var tab in layout.Tabs)
+        foreach (var tab in layout.Chrome.Tabs)
         {
             if (!tab.Bounds.Contains(point))
             {
@@ -324,7 +345,7 @@ public sealed partial class MenuController
 
         if (ActiveTab == TabBuildings)
         {
-            foreach (var card in layout.BuildCards)
+            foreach (var card in layout.Build.Cards)
             {
                 if (!card.Bounds.Contains(point))
                 {
@@ -339,7 +360,7 @@ public sealed partial class MenuController
         }
         else if (ActiveTab == TabAssignments)
         {
-            foreach (var filter in layout.AssignmentFilters)
+            foreach (var filter in layout.Assignments.Filters)
             {
                 if (!filter.Bounds.Contains(point))
                 {
@@ -350,7 +371,7 @@ public sealed partial class MenuController
                 return MenuInteractionResult.ConsumedWithSelectSound;
             }
 
-            foreach (var row in layout.ActiveAssignmentRows)
+            foreach (var row in layout.Assignments.ActiveRows)
             {
                 if (row.Bounds.Contains(point))
                 {
@@ -358,7 +379,7 @@ public sealed partial class MenuController
                 }
             }
 
-            foreach (var row in layout.UnassignedAssignmentRows)
+            foreach (var row in layout.Assignments.UnassignedRows)
             {
                 if (row.Bounds.Contains(point))
                 {
@@ -370,42 +391,42 @@ public sealed partial class MenuController
         {
             if (_renamingSelectedTrilobite)
             {
-                if (layout.SelectedRenameFieldBounds.Contains(point))
+                if (layout.Selected.RenameFieldBounds.Contains(point))
                 {
                     return MenuInteractionResult.ConsumedSilently;
                 }
 
-                if (layout.SelectedRenamePrimaryButtonBounds?.Contains(point) == true)
+                if (layout.Selected.RenamePrimaryButtonBounds?.Contains(point) == true)
                 {
                     CommitRenameSelectedTrilobite();
                     return MenuInteractionResult.ConsumedWithSelectSound;
                 }
 
-                if (layout.SelectedRenameSecondaryButtonBounds?.Contains(point) == true)
+                if (layout.Selected.RenameSecondaryButtonBounds?.Contains(point) == true)
                 {
                     CancelRenameSelectedTrilobite();
                     return MenuInteractionResult.ConsumedWithSelectSound;
                 }
             }
-            else if (SelectedObject is Trilobite && layout.SelectedRenamePrimaryButtonBounds?.Contains(point) == true)
+            else if (SelectedObject is Trilobite && layout.Selected.RenamePrimaryButtonBounds?.Contains(point) == true)
             {
                 BeginRenameSelectedTrilobite();
                 return MenuInteractionResult.ConsumedWithSelectSound;
             }
 
             if (SelectedObject is Scaffolding scaffolding &&
-                layout.BuildFirstSelectedBounds?.Contains(point) == true)
+                layout.Selected.BuildFirstBounds?.Contains(point) == true)
             {
                 return MenuInteractionResult.WithSelectSound(scaffolding.ToggleBuildFirst());
             }
 
-            if (layout.DeleteSelectedBounds.Contains(point))
+            if (layout.Selected.DeleteBounds.Contains(point))
             {
                 return MenuInteractionResult.WithSelectSound(DeleteSelectedObject());
             }
         }
 
-        return layout.PanelBounds.Contains(point)
+        return layout.Chrome.PanelBounds.Contains(point)
             ? MenuInteractionResult.ConsumedSilently
             : MenuInteractionResult.NotHandled;
     }
@@ -426,10 +447,10 @@ public sealed partial class MenuController
         var layout = GetLayout(viewport, session);
         if (!PanelOpen)
         {
-            var menuHovered = layout.MenuButton.Contains(_pointerPoint);
+            var menuHovered = layout.Chrome.MenuButton.Contains(_pointerPoint);
             DrawIconButton(
                 context,
-                layout.MenuButton,
+                layout.Chrome.MenuButton,
                 menuHovered ? new Color(47, 63, 78) : new Color(32, 46, 58),
                 menuHovered ? new Color(180, 219, 233) : new Color(107, 151, 169),
                 menuHovered ? new Color(233, 247, 252) : new Color(200, 226, 236),
@@ -437,13 +458,13 @@ public sealed partial class MenuController
             return;
         }
 
-        DrawPanelFrame(context, layout.PanelBounds);
-        var headerTextX = layout.CollapseButton.Right + (int)MathF.Round(12f * layout.LayoutScale);
-        var headerTextWidth = Math.Max(64, layout.PanelBounds.Right - headerTextX - layout.ContentPadding);
-        var collapseHovered = layout.CollapseButton.Contains(_pointerPoint);
+        DrawPanelFrame(context, layout.Chrome.PanelBounds);
+        var headerTextX = layout.Chrome.CollapseButton.Right + (int)MathF.Round(12f * layout.Chrome.LayoutScale);
+        var headerTextWidth = Math.Max(64, layout.Chrome.PanelBounds.Right - headerTextX - layout.Chrome.ContentPadding);
+        var collapseHovered = layout.Chrome.CollapseButton.Contains(_pointerPoint);
         DrawIconButton(
             context,
-            layout.CollapseButton,
+            layout.Chrome.CollapseButton,
             collapseHovered ? new Color(28, 52, 69) : new Color(19, 39, 54),
             collapseHovered ? new Color(174, 224, 237) : new Color(101, 154, 173),
             collapseHovered ? Color.White : new Color(213, 235, 243),
@@ -451,16 +472,16 @@ public sealed partial class MenuController
         DrawTextFitted(
             context,
             "Colony Menu",
-            new Rectangle(headerTextX, layout.PanelBounds.Y + (int)MathF.Round(16f * layout.LayoutScale), headerTextWidth, (int)MathF.Round(30f * layout.LayoutScale)),
+            new Rectangle(headerTextX, layout.Chrome.PanelBounds.Y + (int)MathF.Round(16f * layout.Chrome.LayoutScale), headerTextWidth, (int)MathF.Round(30f * layout.Chrome.LayoutScale)),
             Color.White,
             large: true);
         DrawText(
             context,
             "Build structures and manage colony assignments.",
-            new Vector2(headerTextX, layout.PanelBounds.Y + MathF.Round(50f * layout.LayoutScale)),
+            new Vector2(headerTextX, layout.Chrome.PanelBounds.Y + MathF.Round(50f * layout.Chrome.LayoutScale)),
             new Color(141, 183, 199));
 
-        foreach (var tab in layout.Tabs)
+        foreach (var tab in layout.Chrome.Tabs)
         {
             var active = ActiveTab == tab.Key;
             var hovered = tab.Bounds.Contains(_pointerPoint);

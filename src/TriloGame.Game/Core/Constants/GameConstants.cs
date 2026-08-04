@@ -53,9 +53,20 @@ public static class GameConstants
     public const int CaveFloorHoleProtectedRadius = 8;
     // Water bodies. Sized to read as lakes rather than puddles: each cluster is a cellular blob
     // up to CaveFloorHoleMaxClusterSize on a side, and the tile budget decides how much floods.
-    public const int CaveFloorHoleMinTileCount = 120;
-    public const int CaveFloorHoleMaxTileCount = 340;
-    public const int CaveFloorHoleTileDivisor = 40;
+    //
+    // The budget is in TILES, not lakes, so how many lakes appear is the budget over the average
+    // blob size - measured at 55-80 tiles per lake. The DIVISOR is what actually binds on a normal
+    // cave: a generated map runs 6,500-11,700 open tiles, so the raw division lands inside the clamp
+    // and the bounds only catch unusually small or large caves.
+    //
+    // Halved from 40 to make lakes appear more often. Measured over five generated caves either
+    // side of the change: 2-5 lakes (mean 3.6) before, 7-10 (mean 8.2) after, with the mean lake
+    // holding at roughly 70 tiles - so the budget buys MORE lakes rather than bigger ones, which is
+    // the point. The clamp bounds doubled with it because the new budget clears the old 340 cap
+    // outright on any normal cave, and leaving that in place would have swallowed the increase.
+    public const int CaveFloorHoleMinTileCount = 240;
+    public const int CaveFloorHoleMaxTileCount = 680;
+    public const int CaveFloorHoleTileDivisor = 20;
     public const int CaveFloorHoleMinClusterSize = 7;
     // Structural floor of the cellular mask, independent of the tuning above: the generator forces
     // a 3x3 core, so a mask smaller than that cannot be built. Kept separate because tying the

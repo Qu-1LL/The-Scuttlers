@@ -64,6 +64,9 @@ public sealed partial class GameApp
             case SettingsMenuInteractionOutcome.DisplayModeChanged:
                 SetDisplayModeSetting(result.DisplayMode);
                 return true;
+            case SettingsMenuInteractionOutcome.ResolutionStepRequested:
+                StepWindowedResolution(result.ResolutionStep);
+                return true;
             case SettingsMenuInteractionOutcome.RequestedOpenTrilodex:
                 PlayUiSelectSound();
                 OpenTrilodexMenu(pauseSimulationIfNeeded: !_mainMenuOpen);
@@ -90,9 +93,10 @@ public sealed partial class GameApp
         _music.SetMusicEnabled(musicEnabled);
     }
 
-    // Borderless in both modes: fullscreen uses the desktop resolution, windowed returns to the
-    // fixed design size. MonoGame's hardware-mode-switch fullscreen is avoided so alt-tabbing and
-    // switching back does not renegotiate the display mode.
+    // Fullscreen is borderless at the desktop resolution; windowed is an ordinary OS window - title
+    // bar, minimise and close buttons, draggable edges - sized by the Resolution setting.
+    // MonoGame's hardware-mode-switch fullscreen is avoided so alt-tabbing and switching back does
+    // not renegotiate the display mode.
     private void SetDisplayModeSetting(GameDisplayMode displayMode)
     {
         if (_displayMode == displayMode)
@@ -120,15 +124,96 @@ public sealed partial class GameApp
         }
         else
         {
-            _graphics.PreferredBackBufferWidth = WindowedWidth;
-            _graphics.PreferredBackBufferHeight = WindowedHeight;
+            _graphics.PreferredBackBufferWidth = _windowedResolution.Width;
+            _graphics.PreferredBackBufferHeight = _windowedResolution.Height;
             _graphics.IsFullScreen = false;
         }
 
-        _graphics.ApplyChanges();
+        // The window chrome follows the mode. Borderless is what makes fullscreen cover the screen
+        // without a hardware mode switch; windowed wants the opposite - the OS title bar, with its
+        // minimise and close buttons, and edges the player can drag.
+        //
+        // Applied on BOTH sides of ApplyChanges, and the second call is the load-bearing one.
+        //
+        // SDL ignores SDL_SetWindowBordered and SDL_SetWindowResizable while a window is fullscreen,
+        // but MonoGame's setters cache the value they were handed regardless. Setting the flags only
+        // beforehand therefore left the fullscreen -> windowed switch believing it had removed the
+        // border when SDL had discarded the call: the window came back with no title bar, and it
+        // only appeared on the NEXT ConfigureDisplayMode (a resolution change), because by then the
+        // window was no longer fullscreen and the same call finally landed. Repeating the assignment
+        // after ApplyChanges has exited fullscreen is what makes the transition itself apply.
+        //
+        // The call before ApplyChanges is still worth keeping: MonoGame re-asserts the border from
+        // its own cached flag while tearing down fullscreen, so leaving it stale there would fight
+        // the transition on the way in.
+        // Everything from here until the mode has settled is US resizing the window, not the player,
+        // so HandleViewportResize must not mistake it for a chosen size - see the flag's declaration.
+        // Saved and restored rather than cleared, so this composes when ApplyDisplayMode has already
+        // raised it around the whole transition; clearing here would drop the guard while its
+        // trailing HandleViewportResize still had to run.
+        var wasApplyingDisplayMode = _applyingDisplayMode;
+        _applyingDisplayMode = true;
+        try
+        {
+            ApplyWindowChrome();
+            _graphics.ApplyChanges();
+            ApplyWindowChrome();
+        }
+        finally
+        {
+            _applyingDisplayMode = wasApplyingDisplayMode;
+        }
+    }
+
+    private void ApplyWindowChrome()
+    {
+        Window.IsBorderless = _displayMode == GameDisplayMode.Fullscreen;
+        Window.AllowUserResizing = _displayMode == GameDisplayMode.Windowed;
+    }
+
+    // The sizes the Resolution setting can offer on this machine. Bounded by the desktop so the
+    // player cannot put the title bar - now their only way to move or close a window - off-screen.
+    private IReadOnlyList<GameResolution> GetSelectableResolutions()
+    {
+        var display = GraphicsDevice.Adapter.CurrentDisplayMode;
+        return GameResolutions.GetSelectable(display.Width, display.Height);
+    }
+
+    private void StepWindowedResolution(int direction)
+    {
+        // Inert in fullscreen: the desktop already decides the resolution there, so a step would
+        // silently change a size the player cannot see the effect of. The row is drawn greyed to
+        // match - see SettingsMenuRenderer.DrawResolutionRow.
+        if (_displayMode != GameDisplayMode.Windowed)
+        {
+            return;
+        }
+
+        var next = GameResolutions.Step(GetSelectableResolutions(), _windowedResolution, direction);
+        if (next == _windowedResolution)
+        {
+            return;
+        }
+
+        PlayUiSelectSound();
+        _windowedResolution = next;
+        ApplyDisplayMode();
     }
 
     private void ApplyDisplayMode()
+    {
+        _applyingDisplayMode = true;
+        try
+        {
+            ApplyDisplayModeCore();
+        }
+        finally
+        {
+            _applyingDisplayMode = false;
+        }
+    }
+
+    private void ApplyDisplayModeCore()
     {
         ConfigureDisplayMode();
         // ApplyChanges is EXPECTED to resize the window synchronously and fire Window.ClientSizeChanged

@@ -67,13 +67,11 @@ public sealed class WallBuildingSelectionTests
         var group = Assert.IsType<WallSelection>(WallBuildingSelection.Resolve(walls.Right, horizontal));
         var menu = new MenuController();
         var viewport = new Point(1440, 900);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.OpenPanel("selected");
         menu.SetSelectedObject(group);
 
-        var layout = getLayout!.Invoke(menu, [viewport, walls.Cave.Session]);
-        var deleteBounds = (Rectangle)layout!.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
+        var deleteBounds = menu.GetLayout(viewport, walls.Cave.Session).Selected.DeleteBounds;
 
         var handled = menu.HandleClick(deleteBounds.Center, viewport, null!, walls.Cave.Session);
 

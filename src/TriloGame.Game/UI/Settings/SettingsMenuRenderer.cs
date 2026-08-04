@@ -7,32 +7,32 @@ namespace TriloGame.Game.UI.Settings;
 
 public sealed class SettingsMenuRenderer
 {
-    private static readonly GumUiFrameStyle PanelFrameStyle = new(new Color(8, 19, 29, 247), new Color(77, 122, 140), 3, 16);
-    private static readonly GumUiFrameStyle TopHudOpenFrameStyle = new(new Color(27, 65, 88), new Color(163, 217, 235), 2, 14);
+    private static readonly GumUiFrameStyle PanelFrameStyle = new(UiPalette.SurfaceOverlay, UiPalette.BorderPanel, 3, 16);
+    private static readonly GumUiFrameStyle TopHudOpenFrameStyle = new(UiPalette.SurfaceSelected, UiPalette.BorderFocus, 2, 14);
     private static readonly GumUiButtonStyle TopHudButtonStyle = new(
-        new GumUiFrameStyle(new Color(16, 38, 54), new Color(54, 88, 107), 2, 14),
-        new GumUiFrameStyle(new Color(22, 50, 71), new Color(125, 179, 196), 2, 14),
-        Color.White,
+        new GumUiFrameStyle(UiPalette.SurfaceRaised, UiPalette.BorderControl, 2, 14),
+        new GumUiFrameStyle(UiPalette.SurfaceRaisedHover, UiPalette.BorderHover, 2, 14),
+        UiPalette.TextPrimary,
         GumTextStyle.Small);
     private static readonly GumUiButtonStyle ChromeButtonStyle = new(
-        new GumUiFrameStyle(new Color(22, 44, 60), new Color(110, 149, 167), 2, 10),
-        new GumUiFrameStyle(new Color(36, 64, 82), new Color(188, 221, 234), 2, 10),
-        Color.White);
+        new GumUiFrameStyle(UiPalette.SurfaceControl, UiPalette.BorderControlStrong, 2, 10),
+        new GumUiFrameStyle(UiPalette.SurfaceControlHover, UiPalette.BorderHoverStrong, 2, 10),
+        UiPalette.TextPrimary);
     private static readonly GumUiButtonStyle TrilodexButtonStyle = new(
-        new GumUiFrameStyle(new Color(152, 125, 74), new Color(233, 201, 143), 2, 12),
-        new GumUiFrameStyle(new Color(180, 147, 92), new Color(255, 229, 170), 2, 12),
-        new Color(18, 26, 34),
+        new GumUiFrameStyle(UiPalette.AccentGold, UiPalette.AccentGoldBorder, 2, 12),
+        new GumUiFrameStyle(UiPalette.AccentGoldHover, UiPalette.AccentGoldBorderHover, 2, 12),
+        UiPalette.TextOnAccent,
         GumTextStyle.Small);
     // Selected display mode reads as an active toggle rather than a pressable button.
     private static readonly GumUiButtonStyle DisplayModeSelectedStyle = new(
-        new GumUiFrameStyle(new Color(27, 65, 88), new Color(163, 217, 235), 2, 10),
-        new GumUiFrameStyle(new Color(34, 78, 104), new Color(196, 235, 249), 2, 10),
-        Color.White,
+        new GumUiFrameStyle(UiPalette.SurfaceSelected, UiPalette.BorderFocus, 2, 10),
+        new GumUiFrameStyle(UiPalette.SurfaceSelectedHover, UiPalette.BorderHoverStrong, 2, 10),
+        UiPalette.TextPrimary,
         GumTextStyle.Small);
     private static readonly GumUiButtonStyle ReturnToMenuButtonStyle = new(
-        new GumUiFrameStyle(new Color(61, 92, 76), new Color(129, 170, 149), 2, 12),
-        new GumUiFrameStyle(new Color(82, 113, 96), new Color(185, 230, 204), 2, 12),
-        Color.White,
+        new GumUiFrameStyle(UiPalette.AccentGreen, UiPalette.AccentGreenBorder, 2, 12),
+        new GumUiFrameStyle(UiPalette.AccentGreenHover, UiPalette.AccentGreenBorderHover, 2, 12),
+        UiPalette.TextPrimary,
         GumTextStyle.Small);
 
     public void Draw(
@@ -44,7 +44,10 @@ public sealed class SettingsMenuRenderer
         bool isMainMenuOpen,
         int volumePercent,
         bool musicEnabled,
-        GameDisplayMode displayMode)
+        GameDisplayMode displayMode,
+        GameResolution resolution,
+        bool canStepResolutionDown = true,
+        bool canStepResolutionUp = true)
     {
         if (!isMainMenuOpen)
         {
@@ -56,7 +59,18 @@ public sealed class SettingsMenuRenderer
             return;
         }
 
-        DrawPanel(gumUiRenderer, rendering, viewport, pointer, isMainMenuOpen, volumePercent, musicEnabled, displayMode);
+        DrawPanel(
+            gumUiRenderer,
+            rendering,
+            viewport,
+            pointer,
+            isMainMenuOpen,
+            volumePercent,
+            musicEnabled,
+            displayMode,
+            resolution,
+            canStepResolutionDown,
+            canStepResolutionUp);
     }
 
     private static void DrawTopHudButton(GumUiRenderer gumUiRenderer, Point viewport, Point pointer, bool isOpen)
@@ -64,12 +78,12 @@ public sealed class SettingsMenuRenderer
         var buttonBounds = SettingsMenuLayout.GetSettingsButtonBounds(viewport);
         var buttonHovered = buttonBounds.Contains(pointer);
         GumUiChrome.DrawFrame(gumUiRenderer, buttonBounds, isOpen ? TopHudOpenFrameStyle : (buttonHovered ? TopHudButtonStyle.HoverFrame : TopHudButtonStyle.NormalFrame));
-        DrawGearIcon(gumUiRenderer, new Rectangle(buttonBounds.X + 12, buttonBounds.Y + 10, 24, 24), Color.White);
+        DrawGearIcon(gumUiRenderer, new Rectangle(buttonBounds.X + 12, buttonBounds.Y + 10, 24, 24), UiPalette.TextPrimary);
         GumUiText.AddFittedCentered(
             gumUiRenderer,
             new Rectangle(buttonBounds.X + 40, buttonBounds.Y, buttonBounds.Width - 46, buttonBounds.Height),
             "Settings",
-            Color.White,
+            UiPalette.TextPrimary,
             GumTextStyle.Small);
     }
 
@@ -81,45 +95,54 @@ public sealed class SettingsMenuRenderer
         bool isMainMenuOpen,
         int volumePercent,
         bool musicEnabled,
-        GameDisplayMode displayMode)
+        GameDisplayMode displayMode,
+        GameResolution resolution,
+        bool canStepResolutionDown,
+        bool canStepResolutionUp)
     {
         var includeQuitToMainMenu = !isMainMenuOpen;
-        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport, includeQuitToMainMenu);
-        var closeBounds = SettingsMenuLayout.GetCloseButtonBounds(panelBounds);
-        var backBounds = SettingsMenuLayout.GetBackButtonBounds(panelBounds);
-        var titleBounds = new Rectangle(panelBounds.X + 20, panelBounds.Y + 16, panelBounds.Width - 40, 26);
-        var valueBounds = SettingsMenuLayout.GetVolumeValueBounds(panelBounds);
-        var volumeDownBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
-        var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
-        var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
-        var volumeFillBounds = SettingsMenuLayout.GetVolumeFillBounds(volumeBarBounds, volumePercent);
-        var musicToggleBounds = SettingsMenuLayout.GetMusicToggleBounds(panelBounds);
-        var musicCheckboxBounds = SettingsMenuLayout.GetMusicCheckboxBounds(panelBounds);
-        var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
-        var returnBounds = includeQuitToMainMenu
-            ? SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds)
-            : Rectangle.Empty;
+        var layout = SettingsMenuLayout.BuildPanel(viewport, includeQuitToMainMenu);
 
-        gumUiRenderer.AddFilledRectangle(new Rectangle(0, 0, viewport.X, viewport.Y), new Color(0, 0, 0, isMainMenuOpen ? 180 : 96));
-        GumUiChrome.DrawFrame(gumUiRenderer, panelBounds, PanelFrameStyle);
+        gumUiRenderer.AddFilledRectangle(
+            new Rectangle(0, 0, viewport.X, viewport.Y),
+            isMainMenuOpen ? UiPalette.ScrimForMainMenu : UiPalette.ScrimForGameplay);
+        GumUiChrome.DrawFrame(gumUiRenderer, layout.Panel, PanelFrameStyle);
 
-        DrawChromeButton(gumUiRenderer, closeBounds, closeBounds.Contains(pointer), "X", GumTextStyle.Small);
-        GumUiText.AddFittedCentered(gumUiRenderer, titleBounds, "Settings", Color.White, GumTextStyle.Ui);
-        GumUiText.AddFittedCentered(gumUiRenderer, valueBounds, $"Volume: {Math.Clamp(volumePercent, 0, 100)}%", new Color(216, 232, 239), GumTextStyle.Small);
+        DrawChromeButton(gumUiRenderer, layout.Close, layout.Close.Contains(pointer), "X", GumTextStyle.Small);
+        GumUiText.AddFittedCentered(gumUiRenderer, layout.Title, "Settings", UiPalette.TextPrimary, GumTextStyle.Ui);
+        GumUiText.AddFittedCentered(
+            gumUiRenderer,
+            layout.VolumeValue,
+            $"Volume: {Math.Clamp(volumePercent, 0, 100)}%",
+            UiPalette.TextSecondary,
+            GumTextStyle.Small);
 
-        DrawChromeButton(gumUiRenderer, volumeDownBounds, volumeDownBounds.Contains(pointer), "-", GumTextStyle.Ui);
-        DrawChromeButton(gumUiRenderer, volumeUpBounds, volumeUpBounds.Contains(pointer), "+", GumTextStyle.Ui);
-        DrawVolumeBar(gumUiRenderer, volumeBarBounds, volumeFillBounds, volumeBarBounds.Contains(pointer));
-        DrawMusicToggle(gumUiRenderer, musicToggleBounds, musicCheckboxBounds, musicToggleBounds.Contains(pointer), musicEnabled);
-        DrawDisplayModeRow(gumUiRenderer, panelBounds, pointer, displayMode);
-        DrawTrilodexButton(gumUiRenderer, trilodexBounds, trilodexBounds.Contains(pointer));
+        DrawChromeButton(gumUiRenderer, layout.VolumeDown, layout.VolumeDown.Contains(pointer), "-", GumTextStyle.Ui);
+        DrawChromeButton(gumUiRenderer, layout.VolumeUp, layout.VolumeUp.Contains(pointer), "+", GumTextStyle.Ui);
+        DrawVolumeBar(
+            gumUiRenderer,
+            layout.VolumeBar,
+            SettingsMenuLayout.GetVolumeFillBounds(layout.VolumeBar, volumePercent),
+            layout.VolumeBar.Contains(pointer));
+        DrawMusicToggle(gumUiRenderer, layout.MusicToggle, layout.MusicCheckbox, layout.MusicToggle.Contains(pointer), musicEnabled);
+        DrawDisplayModeRow(gumUiRenderer, layout, pointer, displayMode);
+        DrawResolutionRow(gumUiRenderer, layout, pointer, displayMode, resolution, canStepResolutionDown, canStepResolutionUp);
+        GumUiChrome.DrawButton(gumUiRenderer, layout.Trilodex, "Trilodex", layout.Trilodex.Contains(pointer), TrilodexButtonStyle);
 
         if (includeQuitToMainMenu)
         {
-            DrawReturnToMainMenuButton(gumUiRenderer, returnBounds, returnBounds.Contains(pointer));
+            GumUiChrome.DrawButton(
+                gumUiRenderer,
+                layout.ReturnToMainMenu,
+                "Return To Main Menu",
+                layout.ReturnToMainMenu.Contains(pointer),
+                ReturnToMenuButtonStyle);
         }
 
-        DrawBackButton(gumUiRenderer, rendering, backBounds, backBounds.Contains(pointer));
+        // DismissHint is laid out but deliberately not drawn - it was not drawn before this refactor
+        // either, and a refactor is the wrong place to add visible text. The row is kept so the
+        // footer reserves its space and Back has somewhere to sit.
+        DrawBackButton(gumUiRenderer, rendering, layout.Back, layout.Back.Contains(pointer));
     }
 
     private static void DrawChromeButton(GumUiRenderer gumUiRenderer, Rectangle bounds, bool hovered, string label, GumTextStyle textStyle)
@@ -131,35 +154,33 @@ public sealed class SettingsMenuRenderer
     {
         gumUiRenderer.AddRoundedFrame(
             bounds,
-            hovered ? new Color(14, 29, 41) : new Color(10, 22, 32),
-            hovered ? new Color(159, 209, 224) : new Color(74, 114, 132),
+            hovered ? UiPalette.SurfaceBase : UiPalette.SurfaceSunken,
+            hovered ? UiPalette.BorderHover : UiPalette.BorderPanel,
             2,
             12);
-        gumUiRenderer.AddRoundedRectangle(fillBounds, new Color(143, 205, 226), 10);
+        gumUiRenderer.AddRoundedRectangle(fillBounds, UiPalette.BorderFocus, 10);
     }
 
     private static void DrawMusicToggle(GumUiRenderer gumUiRenderer, Rectangle bounds, Rectangle checkboxBounds, bool hovered, bool musicEnabled)
     {
-        var border = hovered ? new Color(188, 221, 234) : new Color(110, 149, 167);
         gumUiRenderer.AddRoundedFrame(
             checkboxBounds,
-            musicEnabled ? new Color(61, 92, 76) : new Color(10, 22, 32),
-            border,
+            musicEnabled ? UiPalette.AccentGreen : UiPalette.SurfaceSunken,
+            hovered ? UiPalette.BorderHoverStrong : UiPalette.BorderControlStrong,
             2,
             6);
 
         if (musicEnabled)
         {
-            var checkColor = new Color(231, 248, 235);
             gumUiRenderer.AddLine(
                 new Vector2(checkboxBounds.X + 7, checkboxBounds.Y + 15),
                 new Vector2(checkboxBounds.X + 12, checkboxBounds.Bottom - 8),
-                checkColor,
+                UiPalette.TextPrimary,
                 3);
             gumUiRenderer.AddLine(
                 new Vector2(checkboxBounds.X + 12, checkboxBounds.Bottom - 8),
                 new Vector2(checkboxBounds.Right - 6, checkboxBounds.Y + 7),
-                checkColor,
+                UiPalette.TextPrimary,
                 3);
         }
 
@@ -167,57 +188,100 @@ public sealed class SettingsMenuRenderer
             gumUiRenderer,
             new Rectangle(checkboxBounds.Right + 12, bounds.Y, Math.Max(0, bounds.Right - checkboxBounds.Right - 12), bounds.Height),
             "Music",
-            Color.White,
+            UiPalette.TextPrimary,
             GumTextStyle.Small);
     }
 
     private static void DrawDisplayModeRow(
         GumUiRenderer gumUiRenderer,
-        Rectangle panelBounds,
+        SettingsPanelLayout layout,
         Point pointer,
         GameDisplayMode displayMode)
     {
         GumUiText.AddFittedLeft(
             gumUiRenderer,
-            SettingsMenuLayout.GetDisplayModeLabelBounds(panelBounds),
+            layout.DisplayModeLabel,
             "Display",
-            new Color(216, 232, 239),
+            UiPalette.TextSecondary,
             GumTextStyle.Small);
 
-        var fullscreenBounds = SettingsMenuLayout.GetFullscreenButtonBounds(panelBounds);
-        var windowedBounds = SettingsMenuLayout.GetWindowedButtonBounds(panelBounds);
         var isFullscreen = displayMode == GameDisplayMode.Fullscreen;
+        var unselected = ChromeButtonStyle with { TextStyle = GumTextStyle.Small };
 
         GumUiChrome.DrawButton(
             gumUiRenderer,
-            fullscreenBounds,
+            layout.Fullscreen,
             "Fullscreen",
-            fullscreenBounds.Contains(pointer),
-            isFullscreen ? DisplayModeSelectedStyle : ChromeButtonStyle with { TextStyle = GumTextStyle.Small });
+            layout.Fullscreen.Contains(pointer),
+            isFullscreen ? DisplayModeSelectedStyle : unselected);
         GumUiChrome.DrawButton(
             gumUiRenderer,
-            windowedBounds,
+            layout.Windowed,
             "Windowed",
-            windowedBounds.Contains(pointer),
-            isFullscreen ? ChromeButtonStyle with { TextStyle = GumTextStyle.Small } : DisplayModeSelectedStyle);
+            layout.Windowed.Contains(pointer),
+            isFullscreen ? unselected : DisplayModeSelectedStyle);
     }
 
-    private static void DrawTrilodexButton(GumUiRenderer gumUiRenderer, Rectangle bounds, bool hovered)
+    // Resolution is a windowed-only setting: fullscreen is borderless at the desktop resolution, so
+    // there is nothing to pick. Rather than hide the row on that mode - which would move everything
+    // below it every time the player toggles - the row stays put and goes inert, and the label says
+    // why. A control that disappears reads as a bug; one that greys out reads as a rule.
+    private static void DrawResolutionRow(
+        GumUiRenderer gumUiRenderer,
+        SettingsPanelLayout layout,
+        Point pointer,
+        GameDisplayMode displayMode,
+        GameResolution resolution,
+        bool canStepDown,
+        bool canStepUp)
     {
-        GumUiChrome.DrawButton(gumUiRenderer, bounds, "Trilodex", hovered, TrilodexButtonStyle);
-    }
+        var isWindowed = displayMode == GameDisplayMode.Windowed;
+        GumUiText.AddFittedLeft(
+            gumUiRenderer,
+            layout.ResolutionLabel,
+            isWindowed ? "Resolution" : "Resolution (windowed only)",
+            isWindowed ? UiPalette.TextSecondary : UiPalette.DisabledTextStrong,
+            GumTextStyle.Small);
 
-    private static void DrawReturnToMainMenuButton(GumUiRenderer gumUiRenderer, Rectangle bounds, bool hovered)
-    {
-        GumUiChrome.DrawButton(gumUiRenderer, bounds, "Return To Main Menu", hovered, ReturnToMenuButtonStyle);
+        var arrowStyle = ChromeButtonStyle with { TextStyle = GumTextStyle.Ui };
+        // Greyed rather than omitted at the ends of the list, so the player can see there is no
+        // larger or smaller size instead of wondering why a tap did nothing. The disabled treatment
+        // now comes from the shared chrome rather than a bespoke draw path.
+        GumUiChrome.DrawButton(
+            gumUiRenderer,
+            layout.ResolutionDown,
+            "<",
+            layout.ResolutionDown.Contains(pointer),
+            arrowStyle,
+            enabled: isWindowed && canStepDown);
+        GumUiChrome.DrawButton(
+            gumUiRenderer,
+            layout.ResolutionUp,
+            ">",
+            layout.ResolutionUp.Contains(pointer),
+            arrowStyle,
+            enabled: isWindowed && canStepUp);
+
+        gumUiRenderer.AddRoundedFrame(
+            layout.ResolutionValue,
+            UiPalette.SurfaceBase,
+            isWindowed ? UiPalette.BorderValue : UiPalette.DisabledValueBorder,
+            2,
+            10);
+        GumUiText.AddFittedCentered(
+            gumUiRenderer,
+            layout.ResolutionValue,
+            resolution.Label,
+            isWindowed ? UiPalette.TextPrimary : UiPalette.DisabledValueText,
+            GumTextStyle.Small);
     }
 
     private static void DrawBackButton(GumUiRenderer gumUiRenderer, RenderingContext rendering, Rectangle bounds, bool hovered)
     {
         gumUiRenderer.AddRoundedFrame(
             bounds,
-            hovered ? new Color(32, 61, 80) : new Color(20, 43, 58),
-            hovered ? new Color(180, 219, 233) : new Color(107, 151, 169),
+            hovered ? UiPalette.SurfaceControlHover : UiPalette.SurfaceControl,
+            hovered ? UiPalette.BorderHoverStrong : UiPalette.BorderControlStrong,
             2,
             12);
         if (!rendering.Sprites.TryGet("BackArrow", out var backArrowTexture))
@@ -228,36 +292,34 @@ public sealed class SettingsMenuRenderer
         gumUiRenderer.AddSprite(
             new Rectangle(bounds.X + 9, bounds.Y + 7, Math.Max(0, bounds.Width - 18), Math.Max(0, bounds.Height - 14)),
             backArrowTexture,
-            Color.White);
+            UiPalette.TextPrimary);
     }
 
     private static void DrawGearIcon(GumUiRenderer gumUiRenderer, Rectangle bounds, Color color)
     {
-        var iconSize = Math.Min(bounds.Width, bounds.Height);
-        if (iconSize <= 0)
+        var center = new Vector2(bounds.Center.X, bounds.Center.Y);
+        var outerRadius = Math.Min(bounds.Width, bounds.Height) * 0.45f;
+        var innerRadius = outerRadius * 0.52f;
+        const int toothCount = 8;
+
+        for (var index = 0; index < toothCount; index++)
         {
-            return;
+            var angle = MathHelper.TwoPi * index / toothCount;
+            var direction = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+            gumUiRenderer.AddLine(
+                center + (direction * innerRadius),
+                center + (direction * outerRadius),
+                color,
+                3);
         }
 
-        var centerSize = Math.Max(8, iconSize / 2);
-        var toothThickness = Math.Max(2, iconSize / 8);
-        var toothLength = Math.Max(3, iconSize / 6);
-        var centerBounds = new Rectangle(
-            bounds.Center.X - (centerSize / 2),
-            bounds.Center.Y - (centerSize / 2),
-            centerSize,
-            centerSize);
-        gumUiRenderer.AddFilledRectangle(centerBounds, color);
-
-        gumUiRenderer.AddFilledRectangle(new Rectangle(centerBounds.Center.X - (toothThickness / 2), bounds.Y, toothThickness, toothLength), color);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(centerBounds.Center.X - (toothThickness / 2), bounds.Bottom - toothLength, toothThickness, toothLength), color);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(bounds.X, centerBounds.Center.Y - (toothThickness / 2), toothLength, toothThickness), color);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(bounds.Right - toothLength, centerBounds.Center.Y - (toothThickness / 2), toothLength, toothThickness), color);
-
-        var diagonalTooth = Math.Max(3, toothThickness + 1);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(bounds.X + toothThickness, bounds.Y + toothThickness, diagonalTooth, diagonalTooth), color);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(bounds.Right - toothThickness - diagonalTooth, bounds.Y + toothThickness, diagonalTooth, diagonalTooth), color);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(bounds.X + toothThickness, bounds.Bottom - toothThickness - diagonalTooth, diagonalTooth, diagonalTooth), color);
-        gumUiRenderer.AddFilledRectangle(new Rectangle(bounds.Right - toothThickness - diagonalTooth, bounds.Bottom - toothThickness - diagonalTooth, diagonalTooth, diagonalTooth), color);
+        for (var index = 0; index < toothCount; index++)
+        {
+            var angle = MathHelper.TwoPi * index / toothCount;
+            var nextAngle = MathHelper.TwoPi * (index + 1) / toothCount;
+            var from = center + (new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * innerRadius);
+            var to = center + (new Vector2(MathF.Cos(nextAngle), MathF.Sin(nextAngle)) * innerRadius);
+            gumUiRenderer.AddLine(from, to, color, 2);
+        }
     }
 }

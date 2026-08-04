@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using TriloGame.Game.UI.Gum;
 
 namespace TriloGame.Game.UI.Settings;
 
@@ -12,7 +13,8 @@ public enum SettingsMenuInteractionOutcome
     MusicToggled,
     RequestedOpenTrilodex,
     RequestedReturnToMainMenu,
-    DisplayModeChanged
+    DisplayModeChanged,
+    ResolutionStepRequested
 }
 
 public enum GameDisplayMode
@@ -21,11 +23,35 @@ public enum GameDisplayMode
     Fullscreen
 }
 
+// The panel's clickable regions, as ids. The map from id to rectangle lives in the layout, and the
+// map from id to outcome lives in one switch below - so a control is added by naming it here and
+// placing it there, with no hit-test branch to insert in the right position.
+internal enum SettingsControl
+{
+    TopHudButton,
+    Close,
+    Back,
+    VolumeDown,
+    VolumeUp,
+    VolumeBar,
+    MusicToggle,
+    Fullscreen,
+    Windowed,
+    ResolutionDown,
+    ResolutionUp,
+    Trilodex,
+    ReturnToMainMenu
+}
+
 public readonly record struct SettingsMenuInteractionResult(
     SettingsMenuInteractionOutcome Outcome,
     int VolumePercent = 0,
     bool MusicEnabled = true,
-    GameDisplayMode DisplayMode = GameDisplayMode.Windowed)
+    GameDisplayMode DisplayMode = GameDisplayMode.Windowed,
+    // -1 or +1 for ResolutionStepRequested. A DIRECTION rather than a resolution, because which
+    // sizes exist depends on the desktop the game is running on - something the menu has no business
+    // knowing. The host steps its own list; see GameApp.StepWindowedResolution.
+    int ResolutionStep = 0)
 {
     public bool Handled => Outcome != SettingsMenuInteractionOutcome.None;
 }
@@ -81,7 +107,43 @@ public sealed class SettingsMenuController
             return true;
         }
 
-        return IsOpen && SettingsMenuLayout.GetPanelBounds(viewport, allowQuitToMainMenu).Contains(point);
+        return IsOpen && SettingsMenuLayout.BuildPanel(viewport, allowQuitToMainMenu).Panel.Contains(point);
+    }
+
+    // One region list, ordered topmost-first, built from the same layout the renderer draws from.
+    // Exposed internally so a test can assert the panel has no overlapping controls without having to
+    // replay a chain of branches - see UiRegionMap.FindOverlaps.
+    internal static UiRegionMap<SettingsControl> BuildRegions(
+        SettingsPanelLayout layout,
+        Point viewport,
+        bool includeTopHudButton,
+        bool allowQuitToMainMenu,
+        bool isOpen)
+    {
+        var regions = new UiRegionMap<SettingsControl>();
+        regions.AddIf(
+            includeTopHudButton,
+            SettingsControl.TopHudButton,
+            SettingsMenuLayout.GetSettingsButtonBounds(viewport));
+
+        if (!isOpen)
+        {
+            return regions;
+        }
+
+        return regions
+            .Add(SettingsControl.Close, layout.Close)
+            .Add(SettingsControl.Back, layout.Back)
+            .Add(SettingsControl.VolumeDown, layout.VolumeDown)
+            .Add(SettingsControl.VolumeUp, layout.VolumeUp)
+            .Add(SettingsControl.VolumeBar, layout.VolumeBar)
+            .Add(SettingsControl.MusicToggle, layout.MusicToggle)
+            .Add(SettingsControl.Fullscreen, layout.Fullscreen)
+            .Add(SettingsControl.Windowed, layout.Windowed)
+            .Add(SettingsControl.ResolutionDown, layout.ResolutionDown)
+            .Add(SettingsControl.ResolutionUp, layout.ResolutionUp)
+            .Add(SettingsControl.Trilodex, layout.Trilodex)
+            .AddIf(allowQuitToMainMenu, SettingsControl.ReturnToMainMenu, layout.ReturnToMainMenu);
     }
 
     public SettingsMenuInteractionResult HandlePointerUp(
@@ -92,93 +154,69 @@ public sealed class SettingsMenuController
         int volumePercent,
         bool musicEnabled)
     {
-        if (includeTopHudButton && SettingsMenuLayout.GetSettingsButtonBounds(viewport).Contains(point))
+        var layout = SettingsMenuLayout.BuildPanel(viewport, allowQuitToMainMenu);
+        var regions = BuildRegions(layout, viewport, includeTopHudButton, allowQuitToMainMenu, IsOpen);
+
+        if (!regions.TryHit(point, out var control, out _))
         {
-            return new SettingsMenuInteractionResult(
+            // Nothing clickable was hit. Inside the panel that is dead space and the click is
+            // swallowed; outside it, the click dismisses.
+            if (!IsOpen)
+            {
+                return default;
+            }
+
+            return layout.Panel.Contains(point)
+                ? new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.Consumed)
+                : new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedClose);
+        }
+
+        return control switch
+        {
+            SettingsControl.TopHudButton => new SettingsMenuInteractionResult(
                 IsOpen
                     ? SettingsMenuInteractionOutcome.RequestedClose
-                    : SettingsMenuInteractionOutcome.RequestedOpen);
-        }
-
-        if (!IsOpen)
-        {
-            return default;
-        }
-
-        var panelBounds = SettingsMenuLayout.GetPanelBounds(viewport, allowQuitToMainMenu);
-        var volumeDownBounds = SettingsMenuLayout.GetVolumeDownButtonBounds(panelBounds);
-        var volumeUpBounds = SettingsMenuLayout.GetVolumeUpButtonBounds(panelBounds);
-        var volumeBarBounds = SettingsMenuLayout.GetVolumeBarBounds(panelBounds);
-        var musicToggleBounds = SettingsMenuLayout.GetMusicToggleBounds(panelBounds);
-        var trilodexBounds = SettingsMenuLayout.GetTrilodexButtonBounds(panelBounds);
-        if (SettingsMenuLayout.GetCloseButtonBounds(panelBounds).Contains(point) ||
-            SettingsMenuLayout.GetBackButtonBounds(panelBounds).Contains(point))
-        {
-            return new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedClose);
-        }
-
-        if (volumeDownBounds.Contains(point))
-        {
-            return new SettingsMenuInteractionResult(
+                    : SettingsMenuInteractionOutcome.RequestedOpen),
+            SettingsControl.Close or SettingsControl.Back =>
+                new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedClose),
+            SettingsControl.VolumeDown => new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.VolumeChanged,
-                Math.Clamp(volumePercent - SettingsMenuLayout.VolumeStep, 0, 100));
-        }
-
-        if (volumeUpBounds.Contains(point))
-        {
-            return new SettingsMenuInteractionResult(
+                Math.Clamp(volumePercent - SettingsMenuLayout.VolumeStep, 0, 100)),
+            SettingsControl.VolumeUp => new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.VolumeChanged,
-                Math.Clamp(volumePercent + SettingsMenuLayout.VolumeStep, 0, 100));
-        }
-
-        if (volumeBarBounds.Contains(point))
-        {
-            return new SettingsMenuInteractionResult(
+                Math.Clamp(volumePercent + SettingsMenuLayout.VolumeStep, 0, 100)),
+            SettingsControl.VolumeBar => new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.VolumeChanged,
-                SettingsMenuLayout.GetSnappedVolumeFromBar(volumeBarBounds, point.X));
-        }
-
-        if (musicToggleBounds.Contains(point))
-        {
-            return new SettingsMenuInteractionResult(
+                SettingsMenuLayout.GetSnappedVolumeFromBar(layout.VolumeBar, point.X)),
+            SettingsControl.MusicToggle => new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.MusicToggled,
                 volumePercent,
-                !musicEnabled);
-        }
-
-        if (SettingsMenuLayout.GetFullscreenButtonBounds(panelBounds).Contains(point))
-        {
-            return new SettingsMenuInteractionResult(
+                !musicEnabled),
+            SettingsControl.Fullscreen => new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.DisplayModeChanged,
                 volumePercent,
                 musicEnabled,
-                GameDisplayMode.Fullscreen);
-        }
-
-        if (SettingsMenuLayout.GetWindowedButtonBounds(panelBounds).Contains(point))
-        {
-            return new SettingsMenuInteractionResult(
+                GameDisplayMode.Fullscreen),
+            SettingsControl.Windowed => new SettingsMenuInteractionResult(
                 SettingsMenuInteractionOutcome.DisplayModeChanged,
                 volumePercent,
                 musicEnabled,
-                GameDisplayMode.Windowed);
-        }
-
-        if (trilodexBounds.Contains(point))
-        {
-            return new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedOpenTrilodex);
-        }
-
-        if (allowQuitToMainMenu && SettingsMenuLayout.GetReturnToMainMenuButtonBounds(panelBounds).Contains(point))
-        {
-            return new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedReturnToMainMenu);
-        }
-
-        if (!panelBounds.Contains(point))
-        {
-            return new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedClose);
-        }
-
-        return new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.Consumed);
+                GameDisplayMode.Windowed),
+            SettingsControl.ResolutionDown => new SettingsMenuInteractionResult(
+                SettingsMenuInteractionOutcome.ResolutionStepRequested,
+                volumePercent,
+                musicEnabled,
+                ResolutionStep: -1),
+            SettingsControl.ResolutionUp => new SettingsMenuInteractionResult(
+                SettingsMenuInteractionOutcome.ResolutionStepRequested,
+                volumePercent,
+                musicEnabled,
+                ResolutionStep: 1),
+            SettingsControl.Trilodex =>
+                new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedOpenTrilodex),
+            SettingsControl.ReturnToMainMenu =>
+                new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.RequestedReturnToMainMenu),
+            _ => new SettingsMenuInteractionResult(SettingsMenuInteractionOutcome.Consumed)
+        };
     }
 }

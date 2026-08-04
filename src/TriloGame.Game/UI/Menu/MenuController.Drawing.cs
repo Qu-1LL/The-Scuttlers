@@ -14,20 +14,20 @@ public sealed partial class MenuController
 {
     private void DrawBuildingsTab(RenderingContext context, MenuLayout layout, GameSession session)
     {
-        DrawFrame(context, layout.ContentFrameBounds, new Color(13, 28, 40), new Color(35, 56, 72));
-        DrawFrame(context, layout.PreviewBounds, new Color(18, 37, 52), new Color(74, 114, 132));
-        DrawFrame(context, layout.BuildGridFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+        DrawFrame(context, layout.Chrome.ContentFrameBounds, UiPalette.SurfacePanel, UiPalette.BorderSubtle);
+        DrawFrame(context, layout.Build.PreviewBounds, UiPalette.SurfaceRaised, UiPalette.BorderPanel);
+        DrawFrame(context, layout.Build.GridFrameBounds, UiPalette.SurfacePanel, UiPalette.BorderContent);
 
         DrawTextFitted(
             context,
             "BUILDING PREVIEW",
-            new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 8, layout.PreviewBounds.Width - 24, 24),
-            new Color(159, 195, 210));
+            new Rectangle(layout.Build.PreviewBounds.X + 12, layout.Build.PreviewBounds.Y + 8, layout.Build.PreviewBounds.Width - 24, 24),
+            UiPalette.TextLabel);
         DrawTextFitted(
             context,
             "BUILDINGS",
-            new Rectangle(layout.BuildGridFrameBounds.X + 12, layout.BuildGridFrameBounds.Y + 8, layout.BuildGridFrameBounds.Width - 24, 24),
-            new Color(159, 195, 210));
+            new Rectangle(layout.Build.GridFrameBounds.X + 12, layout.Build.GridFrameBounds.Y + 8, layout.Build.GridFrameBounds.Width - 24, 24),
+            UiPalette.TextLabel);
 
         var activeFactory = HoveredBuildOption ?? SelectedBuildOption;
         if (activeFactory is not null)
@@ -35,103 +35,103 @@ public sealed partial class MenuController
             DrawTextFitted(
                 context,
                 activeFactory.Name,
-                new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 36, Math.Max(100, (layout.PreviewBounds.Width / 2) + 12), 28),
+                new Rectangle(layout.Build.PreviewBounds.X + 12, layout.Build.PreviewBounds.Y + 36, Math.Max(100, (layout.Build.PreviewBounds.Width / 2) + 12), 28),
                 Color.White,
                 large: true);
             DrawTextFitted(
                 context,
                 $"Size: {activeFactory.Size.X} x {activeFactory.Size.Y}",
-                new Rectangle(layout.PreviewBounds.X + 12, layout.PreviewBounds.Y + 66, Math.Max(100, (layout.PreviewBounds.Width / 2) + 12), 20),
-                new Color(135, 173, 187));
+                new Rectangle(layout.Build.PreviewBounds.X + 12, layout.Build.PreviewBounds.Y + 66, Math.Max(100, (layout.Build.PreviewBounds.Width / 2) + 12), 20),
+                UiPalette.TextCaption);
 
-            if (!string.IsNullOrWhiteSpace(layout.BuildPreviewCostText) &&
-                layout.BuildPreviewCostBounds is { } costBounds)
+            if (!string.IsNullOrWhiteSpace(layout.Build.CostText) &&
+                layout.Build.CostBounds is { } costBounds)
             {
                 // Warmer than the size line beside it: the cost is the one number on this panel the
                 // player has to weigh against their stockpile, so it should not read as a caption.
                 DrawTextFitted(
                     context,
-                    layout.BuildPreviewCostText,
+                    layout.Build.CostText,
                     costBounds,
-                    new Color(232, 205, 138),
+                    UiPalette.AccentCost,
                     minScale: 0.56f);
             }
 
-            DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
+            DrawScrollableText(context, layout.Build.DescriptionLayout, UiPalette.TextBody, GumTextStyle.Small);
 
             DrawPreviewTexture(
                 context,
                 activeFactory.TextureKey,
-                new Rectangle(layout.PreviewBounds.Right - 160, layout.PreviewBounds.Y + 22, 132, 132));
+                new Rectangle(layout.Build.PreviewBounds.Right - 160, layout.Build.PreviewBounds.Y + 22, 132, 132));
         }
         else
         {
-            DrawScrollableText(context, layout.BuildPreviewDescriptionLayout, new Color(210, 228, 236), GumTextStyle.Small);
+            DrawScrollableText(context, layout.Build.DescriptionLayout, UiPalette.TextMuted, GumTextStyle.Small);
         }
-        DrawScrollbar(context, layout.BuildPreviewDescriptionLayout.ScrollbarTrackBounds, layout.BuildPreviewDescriptionLayout.ScrollbarThumbBounds);
+        DrawScrollbar(context, layout.Build.DescriptionLayout.ScrollbarTrackBounds, layout.Build.DescriptionLayout.ScrollbarThumbBounds);
 
-        foreach (var card in layout.BuildCards)
+        foreach (var card in layout.Build.Cards)
         {
             var isSelected = SelectedBuildOption?.Name == card.Factory.Name;
             var isHovered = HoveredBuildOption?.Name == card.Factory.Name || card.Bounds.Contains(_pointerPoint);
             DrawBuildCard(context, card, isSelected, isHovered);
         }
 
-        DrawScrollbar(context, layout.BuildGridScrollbarTrackBounds, layout.BuildGridScrollbarThumbBounds);
+        DrawScrollbar(context, layout.Build.GridScrollbarTrackBounds, layout.Build.GridScrollbarThumbBounds);
     }
 
     private void DrawAssignmentsTab(RenderingContext context, MenuLayout layout, GameSession session)
     {
-        foreach (var filter in layout.AssignmentFilters)
+        foreach (var filter in layout.Assignments.Filters)
         {
             var active = AssignmentFilter == filter.Key;
             var hovered = filter.Bounds.Contains(_pointerPoint);
             DrawTabButton(context, filter.Bounds, filter.Label, active, hovered);
         }
 
-        DrawFrame(context, layout.AssignmentActiveBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+        DrawFrame(context, layout.Assignments.ActiveBounds, UiPalette.SurfacePanel, UiPalette.BorderContent);
         DrawText(
             context,
             "Unassigned",
-            new Vector2(layout.AssignmentUnassignedLabelBounds.X, layout.AssignmentUnassignedLabelBounds.Y),
-            new Color(226, 238, 244));
-        DrawFrame(context, layout.AssignmentUnassignedBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+            new Vector2(layout.Assignments.UnassignedLabelBounds.X, layout.Assignments.UnassignedLabelBounds.Y),
+            UiPalette.TextBody);
+        DrawFrame(context, layout.Assignments.UnassignedBounds, UiPalette.SurfacePanel, UiPalette.BorderContent);
 
-        if (layout.ActiveAssignmentRows.Count == 0)
+        if (layout.Assignments.ActiveRows.Count == 0)
         {
             DrawWrappedText(
                 context,
                 "No trilobites are in this assignment.",
-                Inset(layout.AssignmentActiveViewportBounds, 8),
-                new Color(210, 228, 236));
+                Inset(layout.Assignments.ActiveViewportBounds, 8),
+                UiPalette.TextMuted);
         }
 
-        foreach (var row in layout.ActiveAssignmentRows)
+        foreach (var row in layout.Assignments.ActiveRows)
         {
             DrawAssignmentRow(context, row);
         }
 
-        if (layout.UnassignedAssignmentRows.Count == 0)
+        if (layout.Assignments.UnassignedRows.Count == 0)
         {
             DrawWrappedText(
                 context,
                 "No unassigned trilobites are available.",
-                Inset(layout.AssignmentUnassignedViewportBounds, 8),
-                new Color(210, 228, 236));
+                Inset(layout.Assignments.UnassignedViewportBounds, 8),
+                UiPalette.TextMuted);
         }
 
-        foreach (var row in layout.UnassignedAssignmentRows)
+        foreach (var row in layout.Assignments.UnassignedRows)
         {
             DrawAssignmentRow(context, row);
         }
 
-        DrawScrollbar(context, layout.AssignmentActiveScrollbarTrackBounds, layout.AssignmentActiveScrollbarThumbBounds);
-        DrawScrollbar(context, layout.AssignmentUnassignedScrollbarTrackBounds, layout.AssignmentUnassignedScrollbarThumbBounds);
+        DrawScrollbar(context, layout.Assignments.ActiveScrollbarTrackBounds, layout.Assignments.ActiveScrollbarThumbBounds);
+        DrawScrollbar(context, layout.Assignments.UnassignedScrollbarTrackBounds, layout.Assignments.UnassignedScrollbarThumbBounds);
     }
 
     private void DrawSelectedTab(RenderingContext context, MenuLayout layout)
     {
-        DrawFrame(context, layout.SelectedBounds, new Color(18, 37, 52), new Color(74, 114, 132));
+        DrawFrame(context, layout.Selected.Bounds, UiPalette.SurfaceRaised, UiPalette.BorderPanel);
 
         var title = SelectedObject is Creature creature ? creature.Name : (SelectedObject as Core.Buildings.Building)?.Name ?? "No Selection";
         var objectType = SelectedObject is Creature ? "Trilobite" : "Building";
@@ -148,7 +148,7 @@ public sealed partial class MenuController
             ? $"Assigned Trilobites: {GetSelectedBuildingAssignmentCount(selectedBuilding)}"
             : null;
         var canRename = SelectedObject is Trilobite;
-        var headerBounds = new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 10, layout.SelectedBounds.Width - 32, 22);
+        var headerBounds = new Rectangle(layout.Selected.Bounds.X + 16, layout.Selected.Bounds.Y + 10, layout.Selected.Bounds.Width - 32, 22);
         var healthBounds = healthText is null
             ? Rectangle.Empty
             : new Rectangle(headerBounds.Right - Math.Min(156, headerBounds.Width / 2), headerBounds.Y, Math.Min(156, headerBounds.Width / 2), headerBounds.Height);
@@ -160,58 +160,58 @@ public sealed partial class MenuController
             context,
             "SELECTED OBJECT",
             titleHeaderBounds,
-            new Color(159, 195, 210));
+            UiPalette.TextLabel);
         if (healthText is not null)
         {
             DrawTextFittedRight(
                 context,
                 healthText,
                 healthBounds,
-                new Color(210, 228, 236));
+                UiPalette.TextMuted);
         }
         DrawTextFitted(
             context,
             title,
-            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 38, layout.SelectedBounds.Width - 32, 30),
+            new Rectangle(layout.Selected.Bounds.X + 16, layout.Selected.Bounds.Y + 38, layout.Selected.Bounds.Width - 32, 30),
             Color.White,
             large: true);
         DrawTextFitted(
             context,
             objectType,
-            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 72, layout.SelectedBounds.Width - 32, 20),
-            new Color(135, 173, 187));
+            new Rectangle(layout.Selected.Bounds.X + 16, layout.Selected.Bounds.Y + 72, layout.Selected.Bounds.Width - 32, 20),
+            UiPalette.TextCaption);
         DrawTextFitted(
             context,
             assignmentText,
-            new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 98, layout.SelectedBounds.Width - 32, 20),
-            new Color(135, 173, 187));
+            new Rectangle(layout.Selected.Bounds.X + 16, layout.Selected.Bounds.Y + 98, layout.Selected.Bounds.Width - 32, 20),
+            UiPalette.TextCaption);
         if (buildingAssignmentText is not null)
         {
             DrawTextFitted(
                 context,
                 buildingAssignmentText,
-                new Rectangle(layout.SelectedBounds.X + 16, layout.SelectedBounds.Y + 124, layout.SelectedBounds.Width - 32, 20),
-                new Color(135, 173, 187));
+                new Rectangle(layout.Selected.Bounds.X + 16, layout.Selected.Bounds.Y + 124, layout.Selected.Bounds.Width - 32, 20),
+                UiPalette.TextCaption);
         }
 
         if (SelectedObject is Trilobite selectedTrilobite &&
-            layout.SelectedTraitSummaryBounds is { } traitBounds)
+            layout.Selected.TraitSummaryBounds is { } traitBounds)
         {
             DrawTextFitted(
                 context,
                 $"Trait: {selectedTrilobite.TraitState.GetTraitSummary()}",
                 traitBounds,
-                new Color(210, 228, 236));
+                UiPalette.TextMuted);
         }
 
-        if (!string.IsNullOrWhiteSpace(layout.SelectedRecipeText) &&
-            layout.SelectedRecipeBounds is { } recipeBounds)
+        if (!string.IsNullOrWhiteSpace(layout.Selected.RecipeText) &&
+            layout.Selected.RecipeBounds is { } recipeBounds)
         {
             DrawTextFitted(
                 context,
-                layout.SelectedRecipeText,
+                layout.Selected.RecipeText,
                 recipeBounds,
-                new Color(210, 228, 236),
+                UiPalette.TextMuted,
                 minScale: 0.56f);
         }
 
@@ -220,23 +220,23 @@ public sealed partial class MenuController
             DrawTextFitted(
                 context,
                 "NAME",
-                new Rectangle(layout.SelectedRenameFieldBounds.X, layout.SelectedRenameFieldBounds.Y - 20, layout.SelectedRenameFieldBounds.Width, 18),
-                new Color(159, 195, 210));
+                new Rectangle(layout.Selected.RenameFieldBounds.X, layout.Selected.RenameFieldBounds.Y - 20, layout.Selected.RenameFieldBounds.Width, 18),
+                UiPalette.TextLabel);
             DrawFrame(
                 context,
-                layout.SelectedRenameFieldBounds,
+                layout.Selected.RenameFieldBounds,
                 _renamingSelectedTrilobite ? new Color(21, 49, 67) : new Color(12, 28, 40),
                 _renamingSelectedTrilobite ? new Color(158, 214, 229) : new Color(66, 105, 124));
             DrawTextFitted(
                 context,
                 _renamingSelectedTrilobite ? $"{_renameBuffer}|" : title,
-                Inset(layout.SelectedRenameFieldBounds, 10),
+                Inset(layout.Selected.RenameFieldBounds, 10),
                 Color.White,
                 minScale: 0.6f);
 
             if (_renamingSelectedTrilobite)
             {
-                if (layout.SelectedRenamePrimaryButtonBounds is { } saveBounds)
+                if (layout.Selected.RenamePrimaryButtonBounds is { } saveBounds)
                 {
                     DrawButton(
                         context,
@@ -247,7 +247,7 @@ public sealed partial class MenuController
                         Color.White);
                 }
 
-                if (layout.SelectedRenameSecondaryButtonBounds is { } cancelBounds)
+                if (layout.Selected.RenameSecondaryButtonBounds is { } cancelBounds)
                 {
                     DrawButton(
                         context,
@@ -258,7 +258,7 @@ public sealed partial class MenuController
                         Color.White);
                 }
             }
-            else if (layout.SelectedRenamePrimaryButtonBounds is { } renameBounds)
+            else if (layout.Selected.RenamePrimaryButtonBounds is { } renameBounds)
             {
                 DrawButton(
                     context,
@@ -274,48 +274,48 @@ public sealed partial class MenuController
                 out var inventoryTitle,
                 out var inventoryAmountText,
                 out var emptyInventoryText) &&
-            layout.SelectedInventoryFrameBounds is { } inventoryFrameBounds)
+            layout.Selected.InventoryFrameBounds is { } inventoryFrameBounds)
         {
-            DrawFrame(context, inventoryFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+            DrawFrame(context, inventoryFrameBounds, UiPalette.SurfacePanel, UiPalette.BorderContent);
             DrawTextFitted(
                 context,
                 inventoryTitle,
                 new Rectangle(inventoryFrameBounds.X + 12, inventoryFrameBounds.Y + 8, inventoryFrameBounds.Width / 2, 20),
-                new Color(159, 195, 210));
+                UiPalette.TextLabel);
             DrawTextFittedRight(
                 context,
                 inventoryAmountText,
                 new Rectangle(inventoryFrameBounds.Right - 120, inventoryFrameBounds.Y + 8, 108, 20),
-                new Color(210, 228, 236));
+                UiPalette.TextMuted);
 
-            if (layout.SelectedInventoryEntries.Count == 0)
+            if (layout.Selected.InventoryEntries.Count == 0)
             {
                 DrawWrappedText(
                     context,
                     emptyInventoryText,
-                    Inset(layout.SelectedInventoryViewportBounds ?? inventoryFrameBounds, 10),
-                    new Color(210, 228, 236));
+                    Inset(layout.Selected.InventoryViewportBounds ?? inventoryFrameBounds, 10),
+                    UiPalette.TextMuted);
             }
             else
             {
-                foreach (var entry in layout.SelectedInventoryEntries)
+                foreach (var entry in layout.Selected.InventoryEntries)
                 {
                     DrawInventoryEntry(context, entry);
                 }
             }
 
-            DrawScrollbar(context, layout.SelectedInventoryScrollbarTrackBounds, layout.SelectedInventoryScrollbarThumbBounds);
+            DrawScrollbar(context, layout.Selected.InventoryScrollbarTrackBounds, layout.Selected.InventoryScrollbarThumbBounds);
         }
 
-        if (layout.SelectedDescriptionLayout.ViewportBounds.Width > 0 &&
-            layout.SelectedDescriptionLayout.ViewportBounds.Height > 0)
+        if (layout.Selected.DescriptionLayout.ViewportBounds.Width > 0 &&
+            layout.Selected.DescriptionLayout.ViewportBounds.Height > 0)
         {
-            DrawScrollableText(context, layout.SelectedDescriptionLayout, new Color(226, 238, 244), GumTextStyle.Small);
-            DrawScrollbar(context, layout.SelectedDescriptionLayout.ScrollbarTrackBounds, layout.SelectedDescriptionLayout.ScrollbarThumbBounds);
+            DrawScrollableText(context, layout.Selected.DescriptionLayout, UiPalette.TextBody, GumTextStyle.Small);
+            DrawScrollbar(context, layout.Selected.DescriptionLayout.ScrollbarTrackBounds, layout.Selected.DescriptionLayout.ScrollbarThumbBounds);
         }
 
         if (SelectedObject is Scaffolding scaffolding &&
-            layout.BuildFirstSelectedBounds is { } buildFirstBounds)
+            layout.Selected.BuildFirstBounds is { } buildFirstBounds)
         {
             var buildFirstHovered = buildFirstBounds.Contains(_pointerPoint);
             DrawButton(
@@ -327,17 +327,17 @@ public sealed partial class MenuController
                 Color.White);
         }
 
-        var hovered = layout.DeleteSelectedBounds.Contains(_pointerPoint);
+        var hovered = layout.Selected.DeleteBounds.Contains(_pointerPoint);
         DrawButton(
             context,
-            layout.DeleteSelectedBounds,
+            layout.Selected.DeleteBounds,
             SelectedObject is Creature ? "Kill Trilobite" : "Delete Building",
             hovered ? new Color(184, 86, 79) : new Color(163, 74, 67),
             hovered ? new Color(255, 195, 188) : new Color(242, 176, 170),
             Color.White);
     }
 
-    private static int GetSelectedBuildingAssignmentCount(Building building)
+    internal static int GetSelectedBuildingAssignmentCount(Building building)
     {
         return building switch
         {
@@ -382,7 +382,7 @@ public sealed partial class MenuController
     private void DrawPanelFrame(RenderingContext context, Rectangle bounds)
     {
         DrawShadow(context, bounds, 4, 16, new Color(0, 0, 0, 90));
-        DrawRoundedFrame(context, bounds, new Color(8, 19, 29, 247), new Color(77, 122, 140), 3, 16);
+        DrawRoundedFrame(context, bounds, UiPalette.SurfaceOverlay, UiPalette.BorderPanel, 3, 16);
     }
 
     private void DrawFrame(RenderingContext context, Rectangle bounds, Color fill, Color border)
@@ -395,15 +395,15 @@ public sealed partial class MenuController
     private void DrawBuildCard(RenderingContext context, BuildCardRect card, bool isSelected, bool isHovered)
     {
         var fill = isSelected
-            ? new Color(27, 65, 88)
-            : isHovered ? new Color(22, 50, 71) : new Color(16, 38, 54);
+            ? UiPalette.SurfaceSelected
+            : isHovered ? UiPalette.SurfaceRaisedHover : UiPalette.SurfaceRaised;
         var border = isSelected
-            ? new Color(163, 217, 235)
-            : isHovered ? new Color(125, 179, 196) : new Color(54, 88, 107);
+            ? UiPalette.BorderFocus
+            : isHovered ? UiPalette.BorderHover : UiPalette.BorderControl;
         DrawFrame(context, card.Bounds, fill, border);
 
         var iconFrame = new Rectangle(card.Bounds.X + 8, card.Bounds.Y + 34, card.Bounds.Width - 16, card.Bounds.Height - 44);
-        DrawFrame(context, iconFrame, new Color(11, 23, 33), new Color(63, 98, 117));
+        DrawFrame(context, iconFrame, UiPalette.SurfaceSunken, new Color(63, 98, 117));
         DrawTextCentered(context, card.Factory.Name, new Rectangle(card.Bounds.X + 6, card.Bounds.Y + 6, card.Bounds.Width - 12, 20), Color.White, minScale: 0.58f);
         DrawPreviewTexture(context, card.Factory.TextureKey, Inset(iconFrame, 6));
     }
@@ -414,11 +414,11 @@ public sealed partial class MenuController
         DrawFrame(
             context,
             row.Bounds,
-            hovered ? new Color(22, 50, 71) : new Color(16, 38, 54),
-            hovered ? new Color(125, 179, 196) : new Color(54, 88, 107));
+            hovered ? UiPalette.SurfaceRaisedHover : UiPalette.SurfaceRaised,
+            hovered ? UiPalette.BorderHover : UiPalette.BorderControl);
 
         var portraitBounds = new Rectangle(row.Bounds.X + 14, row.Bounds.Y + 10, 56, 56);
-        DrawFrame(context, portraitBounds, new Color(11, 23, 33), new Color(163, 217, 235));
+        DrawFrame(context, portraitBounds, UiPalette.SurfaceSunken, UiPalette.BorderFocus);
         // FromAssignment is the role the row's trilobites currently hold, so the portrait shows the
         // same sprite they wear in the cave rather than a generic one for every row.
         DrawPreviewTexture(
@@ -439,15 +439,15 @@ public sealed partial class MenuController
         DrawFrame(
             context,
             entry.Bounds,
-            hovered ? new Color(22, 50, 71) : new Color(16, 38, 54),
-            hovered ? new Color(125, 179, 196) : new Color(54, 88, 107));
+            hovered ? UiPalette.SurfaceRaisedHover : UiPalette.SurfaceRaised,
+            hovered ? UiPalette.BorderHover : UiPalette.BorderControl);
 
         var quantityBadgeBounds = new Rectangle(entry.Bounds.Right - 60, entry.Bounds.Y + 8, 50, 22);
-        DrawFrame(context, quantityBadgeBounds, new Color(10, 22, 32), new Color(80, 122, 141));
+        DrawFrame(context, quantityBadgeBounds, UiPalette.SurfaceSunken, new Color(80, 122, 141));
         DrawTextFittedRight(context, entry.Quantity.ToString(), Inset(quantityBadgeBounds, 5), Color.White, minScale: 0.62f);
 
         var iconBounds = new Rectangle(entry.Bounds.X + 10, entry.Bounds.Y + 34, entry.Bounds.Width - 20, Math.Max(24, entry.Bounds.Height - 72));
-        DrawFrame(context, iconBounds, new Color(11, 23, 33), new Color(63, 98, 117));
+        DrawFrame(context, iconBounds, UiPalette.SurfaceSunken, new Color(63, 98, 117));
         DrawPreviewTexture(context, entry.TextureKey, Inset(iconBounds, 6));
 
         DrawTextCentered(

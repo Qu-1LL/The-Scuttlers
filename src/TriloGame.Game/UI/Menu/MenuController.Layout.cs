@@ -10,7 +10,7 @@ namespace TriloGame.Game.UI.Menu;
 
 public sealed partial class MenuController
 {
-    private MenuLayout GetLayout(Point viewport, GameSession? session)
+    internal MenuLayout GetLayout(Point viewport, GameSession? session)
     {
         var metrics = GetMetrics(viewport);
         var menuButton = new Rectangle(metrics.ButtonX, metrics.ButtonY, metrics.ButtonWidth, metrics.ButtonHeight);
@@ -63,14 +63,11 @@ public sealed partial class MenuController
             out var buildGridMaxScroll,
             out var buildGridScrollbarTrack,
             out var buildGridScrollbarThumb);
-        BuildGridScroll = Clamp(BuildGridScroll, 0f, buildGridMaxScroll);
+        _buildGridScroll.SetMaxOffset(buildGridMaxScroll);
         var activeBuildPreview = HoveredBuildOption ?? SelectedBuildOption;
-        var activeBuildPreviewKey = activeBuildPreview?.Name ?? string.Empty;
-        if (!string.Equals(_buildPreviewScrollKey, activeBuildPreviewKey, StringComparison.Ordinal))
-        {
-            BuildPreviewDescriptionScroll = 0f;
-            _buildPreviewScrollKey = activeBuildPreviewKey;
-        }
+        // Pointing the region at the previewed building is what zeroes its offset when the preview
+        // changes. The _buildPreviewScrollKey field this replaced existed for nothing else.
+        _buildPreviewDescriptionScroll.Track(activeBuildPreview?.Name ?? string.Empty);
 
         // The cost sits on its own row under the size, and the description starts below it. Every
         // offset in this panel is fixed pixels, so the description viewport gives up the same 14px at
@@ -103,8 +100,8 @@ public sealed partial class MenuController
             buildPreviewDescriptionViewportBounds,
             activeBuildPreview?.Description ?? "Hover over a building card or click one to keep it selected here.",
             GumTextStyle.Small,
-            BuildPreviewDescriptionScroll);
-        BuildPreviewDescriptionScroll = buildPreviewDescriptionLayout.Scroll;
+            _buildPreviewDescriptionScroll.Offset);
+        _buildPreviewDescriptionScroll.SetMaxOffset(buildPreviewDescriptionLayout.MaxScroll);
 
         var selectedBounds = contentBounds;
         var selectedScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
@@ -216,7 +213,7 @@ public sealed partial class MenuController
                 out selectedInventoryMaxScroll,
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
-            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+            _selectedInventoryScroll.SetMaxOffset(selectedInventoryMaxScroll);
 
             var selectedDescriptionViewportBounds = new Rectangle(
                 selectedBounds.X + 16,
@@ -227,8 +224,8 @@ public sealed partial class MenuController
                 selectedDescriptionViewportBounds,
                 "Kill this trilobite immediately. This uses the normal in-game removal flow and clears the current selection afterward.",
                 GumTextStyle.Small,
-                SelectedDescriptionScroll);
-            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+                _selectedDescriptionScroll.Offset);
+            _selectedDescriptionScroll.SetMaxOffset(selectedDescriptionLayout.MaxScroll);
         }
         else if (SelectedObject is IResourceStorage storage)
         {
@@ -254,7 +251,7 @@ public sealed partial class MenuController
                 out selectedInventoryMaxScroll,
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
-            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+            _selectedInventoryScroll.SetMaxOffset(selectedInventoryMaxScroll);
         }
         else if (SelectedObject is Scaffolding scaffolding)
         {
@@ -298,7 +295,7 @@ public sealed partial class MenuController
                 out selectedInventoryMaxScroll,
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
-            SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+            _selectedInventoryScroll.SetMaxOffset(selectedInventoryMaxScroll);
 
             var selectedDescriptionViewportBounds = new Rectangle(
                 selectedBounds.X + 16,
@@ -309,8 +306,8 @@ public sealed partial class MenuController
                 selectedDescriptionViewportBounds,
                 BuildSelectedDescriptionText(scaffolding),
                 GumTextStyle.Small,
-                SelectedDescriptionScroll);
-            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+                _selectedDescriptionScroll.Offset);
+            _selectedDescriptionScroll.SetMaxOffset(selectedDescriptionLayout.MaxScroll);
         }
         else if (SelectedObject is Creature or Building)
         {
@@ -327,8 +324,8 @@ public sealed partial class MenuController
                 selectedDescriptionViewportBounds,
                 BuildSelectedDescriptionText(SelectedObject),
                 GumTextStyle.Small,
-                SelectedDescriptionScroll);
-            SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+                _selectedDescriptionScroll.Offset);
+            _selectedDescriptionScroll.SetMaxOffset(selectedDescriptionLayout.MaxScroll);
         }
 
         var assignmentScale = Clamp(contentBounds.Height / 760f, 0.84f, 1.16f);
@@ -385,7 +382,7 @@ public sealed partial class MenuController
         var activeAssignmentRows = BuildAssignmentRows(
             assignmentActiveViewportBounds,
             activeEntries,
-            AssignmentActiveScroll,
+            _assignmentActiveScroll.Offset,
             AssignmentFilter,
             "unassigned",
             out var activeMaxScroll,
@@ -394,63 +391,74 @@ public sealed partial class MenuController
         var unassignedAssignmentRows = BuildAssignmentRows(
             assignmentUnassignedViewportBounds,
             unassignedEntries,
-            AssignmentUnassignedScroll,
+            _assignmentUnassignedScroll.Offset,
             "unassigned",
             AssignmentFilter,
             out var unassignedMaxScroll,
             out var unassignedTrackBounds,
             out var unassignedThumbBounds);
-        AssignmentActiveScroll = Clamp(AssignmentActiveScroll, 0f, activeMaxScroll);
-        AssignmentUnassignedScroll = Clamp(AssignmentUnassignedScroll, 0f, unassignedMaxScroll);
+        _assignmentActiveScroll.SetMaxOffset(activeMaxScroll);
+        _assignmentUnassignedScroll.SetMaxOffset(unassignedMaxScroll);
 
+        // Constructed with NAMED arguments, per panel.
+        //
+        // This was one 46-field positional record. Adding a field meant inserting it at the matching
+        // index in the declaration and here, and two same-typed fields transposed compiled cleanly and
+        // rendered wrong - there is no type error between two Rectangles. Grouping by panel keeps each
+        // constructor short enough to read, and naming the arguments means a transposition is now a
+        // compile error rather than a rendering bug.
         return new MenuLayout(
-            metrics.LayoutScale,
-            metrics.ContentPadding,
-            menuButton,
-            collapseButton,
-            panelBounds,
-            contentFrameBounds,
-            tabs,
-            previewBounds,
-            buildPreviewCostBounds,
-            buildPreviewCostText,
-            buildPreviewDescriptionLayout,
-            buildGridFrameBounds,
-            buildGridViewportBounds,
-            buildCards,
-            buildGridMaxScroll,
-            buildGridScrollbarTrack,
-            buildGridScrollbarThumb,
-            selectedBounds,
-            selectedRenameFieldBounds,
-            selectedRenamePrimaryButtonBounds,
-            selectedRenameSecondaryButtonBounds,
-            selectedTraitSummaryBounds,
-            selectedRecipeBounds,
-            selectedRecipeText,
-            selectedInventoryFrameBounds,
-            selectedInventoryViewportBounds,
-            selectedInventoryEntries,
-            selectedInventoryMaxScroll,
-            selectedInventoryScrollbarTrackBounds,
-            selectedInventoryScrollbarThumbBounds,
-            selectedDescriptionLayout,
-            deleteSelectedBounds,
-            buildFirstSelectedBounds,
-            assignmentFilters,
-            assignmentActiveBounds,
-            assignmentActiveViewportBounds,
-            assignmentUnassignedLabelBounds,
-            assignmentUnassignedBounds,
-            assignmentUnassignedViewportBounds,
-            activeAssignmentRows,
-            unassignedAssignmentRows,
-            activeMaxScroll,
-            activeTrackBounds,
-            activeThumbBounds,
-            unassignedMaxScroll,
-            unassignedTrackBounds,
-            unassignedThumbBounds);
+            Chrome: new MenuChromeLayout(
+                LayoutScale: metrics.LayoutScale,
+                ContentPadding: metrics.ContentPadding,
+                MenuButton: menuButton,
+                CollapseButton: collapseButton,
+                PanelBounds: panelBounds,
+                ContentFrameBounds: contentFrameBounds,
+                Tabs: tabs),
+            Build: new BuildPanelLayout(
+                PreviewBounds: previewBounds,
+                CostBounds: buildPreviewCostBounds,
+                CostText: buildPreviewCostText,
+                DescriptionLayout: buildPreviewDescriptionLayout,
+                GridFrameBounds: buildGridFrameBounds,
+                GridViewportBounds: buildGridViewportBounds,
+                Cards: buildCards,
+                GridMaxScroll: buildGridMaxScroll,
+                GridScrollbarTrackBounds: buildGridScrollbarTrack,
+                GridScrollbarThumbBounds: buildGridScrollbarThumb),
+            Selected: new SelectedPanelLayout(
+                Bounds: selectedBounds,
+                RenameFieldBounds: selectedRenameFieldBounds,
+                RenamePrimaryButtonBounds: selectedRenamePrimaryButtonBounds,
+                RenameSecondaryButtonBounds: selectedRenameSecondaryButtonBounds,
+                TraitSummaryBounds: selectedTraitSummaryBounds,
+                RecipeBounds: selectedRecipeBounds,
+                RecipeText: selectedRecipeText,
+                InventoryFrameBounds: selectedInventoryFrameBounds,
+                InventoryViewportBounds: selectedInventoryViewportBounds,
+                InventoryEntries: selectedInventoryEntries,
+                InventoryMaxScroll: selectedInventoryMaxScroll,
+                InventoryScrollbarTrackBounds: selectedInventoryScrollbarTrackBounds,
+                InventoryScrollbarThumbBounds: selectedInventoryScrollbarThumbBounds,
+                DescriptionLayout: selectedDescriptionLayout,
+                DeleteBounds: deleteSelectedBounds,
+                BuildFirstBounds: buildFirstSelectedBounds),
+            Assignments: new AssignmentPanelLayout(
+                Filters: assignmentFilters,
+                ActiveBounds: assignmentActiveBounds,
+                ActiveViewportBounds: assignmentActiveViewportBounds,
+                UnassignedLabelBounds: assignmentUnassignedLabelBounds,
+                UnassignedBounds: assignmentUnassignedBounds,
+                UnassignedViewportBounds: assignmentUnassignedViewportBounds,
+                ActiveRows: activeAssignmentRows,
+                UnassignedRows: unassignedAssignmentRows,
+                ActiveMaxScroll: activeMaxScroll,
+                ActiveScrollbarTrackBounds: activeTrackBounds,
+                ActiveScrollbarThumbBounds: activeThumbBounds,
+                UnassignedMaxScroll: unassignedMaxScroll,
+                UnassignedScrollbarTrackBounds: unassignedTrackBounds,
+                UnassignedScrollbarThumbBounds: unassignedThumbBounds));
     }
 
     private IReadOnlyList<LabeledRect> BuildTabs(MenuMetrics metrics)
@@ -499,7 +507,7 @@ public sealed partial class MenuController
         var rowCount = (int)MathF.Ceiling(visibleOptionCount / (float)columns);
         var contentHeight = rowCount == 0 ? 0 : (rowCount * cardSize) + (Math.Max(0, rowCount - 1) * rowGap);
         maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
-        BuildGridScroll = Clamp(BuildGridScroll, 0f, maxScroll);
+        _buildGridScroll.SetMaxOffset(maxScroll);
 
         var cards = new List<BuildCardRect>(visibleOptionCount);
         var visibleIndex = 0;
@@ -737,7 +745,7 @@ public sealed partial class MenuController
         var rowCount = (int)MathF.Ceiling(entries.Count / (float)columns);
         var contentHeight = rowCount == 0 ? 0 : (rowCount * cardHeight) + (Math.Max(0, rowCount - 1) * rowGap);
         maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
-        SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, maxScroll);
+        _selectedInventoryScroll.SetMaxOffset(maxScroll);
 
         var cards = new List<InventoryEntryRect>(entries.Count);
         for (var index = 0; index < entries.Count; index++)
@@ -807,15 +815,15 @@ public sealed partial class MenuController
         return MathF.Max(min, MathF.Min(max, value));
     }
 
-    private readonly record struct LabeledRect(string Key, string Label, Rectangle Bounds);
+    internal readonly record struct LabeledRect(string Key, string Label, Rectangle Bounds);
 
-    private readonly record struct BuildCardRect(Factory Factory, Rectangle Bounds);
+    internal readonly record struct BuildCardRect(Factory Factory, Rectangle Bounds);
 
-    private readonly record struct AssignmentRowRect(string FromAssignment, string ToAssignment, AssignmentEntryViewModel Entry, Rectangle Bounds);
+    internal readonly record struct AssignmentRowRect(string FromAssignment, string ToAssignment, AssignmentEntryViewModel Entry, Rectangle Bounds);
 
     private readonly record struct InventoryEntryData(string ResourceType, int Quantity, string TextureKey);
 
-    private readonly record struct InventoryEntryRect(string ResourceType, string TextureKey, int Quantity, Rectangle Bounds);
+    internal readonly record struct InventoryEntryRect(string ResourceType, string TextureKey, int Quantity, Rectangle Bounds);
 
     private readonly record struct MenuMetrics(
         float LayoutScale,
@@ -832,52 +840,72 @@ public sealed partial class MenuController
         int TabHeight,
         int HeaderHeight);
 
-    private sealed record MenuLayout(
+    // The panel chrome: everything outside the tab bodies.
+    internal sealed record MenuChromeLayout(
         float LayoutScale,
         int ContentPadding,
         Rectangle MenuButton,
         Rectangle CollapseButton,
         Rectangle PanelBounds,
         Rectangle ContentFrameBounds,
-        IReadOnlyList<LabeledRect> Tabs,
+        IReadOnlyList<LabeledRect> Tabs);
+
+    internal sealed record BuildPanelLayout(
         Rectangle PreviewBounds,
-        Rectangle? BuildPreviewCostBounds,
-        string? BuildPreviewCostText,
-        GumScrollableTextLayout BuildPreviewDescriptionLayout,
-        Rectangle BuildGridFrameBounds,
-        Rectangle BuildGridViewportBounds,
-        IReadOnlyList<BuildCardRect> BuildCards,
-        float BuildGridMaxScroll,
-        Rectangle? BuildGridScrollbarTrackBounds,
-        Rectangle? BuildGridScrollbarThumbBounds,
-        Rectangle SelectedBounds,
-        Rectangle SelectedRenameFieldBounds,
-        Rectangle? SelectedRenamePrimaryButtonBounds,
-        Rectangle? SelectedRenameSecondaryButtonBounds,
-        Rectangle? SelectedTraitSummaryBounds,
-        Rectangle? SelectedRecipeBounds,
-        string? SelectedRecipeText,
-        Rectangle? SelectedInventoryFrameBounds,
-        Rectangle? SelectedInventoryViewportBounds,
-        IReadOnlyList<InventoryEntryRect> SelectedInventoryEntries,
-        float SelectedInventoryMaxScroll,
-        Rectangle? SelectedInventoryScrollbarTrackBounds,
-        Rectangle? SelectedInventoryScrollbarThumbBounds,
-        GumScrollableTextLayout SelectedDescriptionLayout,
-        Rectangle DeleteSelectedBounds,
-        Rectangle? BuildFirstSelectedBounds,
-        IReadOnlyList<LabeledRect> AssignmentFilters,
-        Rectangle AssignmentActiveBounds,
-        Rectangle AssignmentActiveViewportBounds,
-        Rectangle AssignmentUnassignedLabelBounds,
-        Rectangle AssignmentUnassignedBounds,
-        Rectangle AssignmentUnassignedViewportBounds,
-        IReadOnlyList<AssignmentRowRect> ActiveAssignmentRows,
-        IReadOnlyList<AssignmentRowRect> UnassignedAssignmentRows,
-        float AssignmentActiveMaxScroll,
-        Rectangle? AssignmentActiveScrollbarTrackBounds,
-        Rectangle? AssignmentActiveScrollbarThumbBounds,
-        float AssignmentUnassignedMaxScroll,
-        Rectangle? AssignmentUnassignedScrollbarTrackBounds,
-        Rectangle? AssignmentUnassignedScrollbarThumbBounds);
+        Rectangle? CostBounds,
+        string? CostText,
+        GumScrollableTextLayout DescriptionLayout,
+        Rectangle GridFrameBounds,
+        Rectangle GridViewportBounds,
+        IReadOnlyList<BuildCardRect> Cards,
+        float GridMaxScroll,
+        Rectangle? GridScrollbarTrackBounds,
+        Rectangle? GridScrollbarThumbBounds);
+
+    internal sealed record SelectedPanelLayout(
+        Rectangle Bounds,
+        Rectangle RenameFieldBounds,
+        Rectangle? RenamePrimaryButtonBounds,
+        Rectangle? RenameSecondaryButtonBounds,
+        Rectangle? TraitSummaryBounds,
+        Rectangle? RecipeBounds,
+        string? RecipeText,
+        Rectangle? InventoryFrameBounds,
+        Rectangle? InventoryViewportBounds,
+        IReadOnlyList<InventoryEntryRect> InventoryEntries,
+        float InventoryMaxScroll,
+        Rectangle? InventoryScrollbarTrackBounds,
+        Rectangle? InventoryScrollbarThumbBounds,
+        GumScrollableTextLayout DescriptionLayout,
+        Rectangle DeleteBounds,
+        Rectangle? BuildFirstBounds);
+
+    internal sealed record AssignmentPanelLayout(
+        IReadOnlyList<LabeledRect> Filters,
+        Rectangle ActiveBounds,
+        Rectangle ActiveViewportBounds,
+        Rectangle UnassignedLabelBounds,
+        Rectangle UnassignedBounds,
+        Rectangle UnassignedViewportBounds,
+        IReadOnlyList<AssignmentRowRect> ActiveRows,
+        IReadOnlyList<AssignmentRowRect> UnassignedRows,
+        float ActiveMaxScroll,
+        Rectangle? ActiveScrollbarTrackBounds,
+        Rectangle? ActiveScrollbarThumbBounds,
+        float UnassignedMaxScroll,
+        Rectangle? UnassignedScrollbarTrackBounds,
+        Rectangle? UnassignedScrollbarThumbBounds);
+
+    // Four groups instead of 46 loose fields. Each is short enough to read in one screen, and a
+    // caller reaching for `layout.Build.Cards` says which panel it means.
+    //
+    // internal rather than private so tests can consume it directly - the assembly already grants
+    // InternalsVisibleTo("TriloGame.Tests"). The tests used to reach in with
+    // GetType().GetProperty("BuildCards"), 46 reflection sites in one file, which meant renaming a
+    // layout field did not break the build: it broke at runtime, inside a test, as a null.
+    internal sealed record MenuLayout(
+        MenuChromeLayout Chrome,
+        BuildPanelLayout Build,
+        SelectedPanelLayout Selected,
+        AssignmentPanelLayout Assignments);
 }

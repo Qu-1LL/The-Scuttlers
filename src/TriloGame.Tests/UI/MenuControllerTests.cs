@@ -24,9 +24,8 @@ public sealed class MenuControllerTests
         menu.OpenPanel();
 
         var viewport = new Point(1440, 900);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var buildGridFrameBounds = (Rectangle)layout!.GetType().GetProperty("BuildGridFrameBounds")!.GetValue(layout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var buildGridFrameBounds = layout.Build.GridFrameBounds;
         var framePaddingPoint = new Point(buildGridFrameBounds.X + 8, buildGridFrameBounds.Y + 8);
 
         var handled = menu.HandleWheel(framePaddingPoint, 90, viewport, session);
@@ -142,9 +141,8 @@ public sealed class MenuControllerTests
         menu.OpenPanel("selected");
 
         var viewport = new Point(960, 420);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var inventoryFrameBounds = (Rectangle?)layout!.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(layout);
+        var layout = menu.GetLayout(viewport, session);
+        var inventoryFrameBounds = layout.Selected.InventoryFrameBounds;
         Assert.True(inventoryFrameBounds.HasValue);
         var scrollPoint = new Point(inventoryFrameBounds.Value.X + 8, inventoryFrameBounds.Value.Y + 8);
 
@@ -165,15 +163,13 @@ public sealed class MenuControllerTests
         menu.OpenPanel("selected");
 
         var viewport = new Point(960, 720);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var renameBounds = (Rectangle)layout!.GetType().GetProperty("SelectedRenameFieldBounds")!.GetValue(layout)!;
-        var inventoryFrameBounds = (Rectangle?)layout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(layout);
-        var inventoryEntries = layout.GetType().GetProperty("SelectedInventoryEntries")!.GetValue(layout)!;
-        var inventoryEntryCount = (int)inventoryEntries.GetType().GetProperty("Count")!.GetValue(inventoryEntries)!;
-        var textLayout = layout.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
-        var killTextBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
-        var deleteBounds = (Rectangle)layout.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var renameBounds = layout.Selected.RenameFieldBounds;
+        var inventoryFrameBounds = layout.Selected.InventoryFrameBounds;
+        var inventoryEntryCount = layout.Selected.InventoryEntries.Count;
+        var textLayout = layout.Selected.DescriptionLayout;
+        var killTextBounds = textLayout.ViewportBounds;
+        var deleteBounds = layout.Selected.DeleteBounds;
 
         Assert.True(inventoryFrameBounds.HasValue);
         Assert.True(inventoryFrameBounds.Value.Y > renameBounds.Bottom);
@@ -192,11 +188,10 @@ public sealed class MenuControllerTests
         menu.OpenPanel("buildings");
 
         var viewport = new Point(960, 260);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var textLayout = layout!.GetType().GetProperty("BuildPreviewDescriptionLayout")!.GetValue(layout)!;
-        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
-        var maxScroll = (float)textLayout.GetType().GetProperty("MaxScroll")!.GetValue(textLayout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var textLayout = layout.Build.DescriptionLayout;
+        var viewportBounds = textLayout.ViewportBounds;
+        var maxScroll = textLayout.MaxScroll;
         Assert.True(maxScroll > 0f);
 
         var handled = menu.HandleWheel(viewportBounds.Center, 90, viewport, session);
@@ -212,14 +207,13 @@ public sealed class MenuControllerTests
         var building = new LongDescriptionBuilding(session);
         var menu = new MenuController();
         var viewport = new Point(960, 420);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.SetSelectedObject(building);
         menu.OpenPanel("selected");
 
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var textLayout = layout!.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
-        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var textLayout = layout.Selected.DescriptionLayout;
+        var viewportBounds = textLayout.ViewportBounds;
 
         Assert.True(viewportBounds.Y >= 160);
     }
@@ -231,7 +225,6 @@ public sealed class MenuControllerTests
         var scaffolding = new Scaffolding(session, new Storage(session));
         var menu = new MenuController();
         var viewport = new Point(960, 520);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         Assert.Equal(12, scaffolding.Deposit(ResourceName.Malachite, 12));
         Assert.Equal(8, scaffolding.Deposit(ResourceName.Sandstone, 8));
@@ -239,17 +232,15 @@ public sealed class MenuControllerTests
         menu.SetSelectedObject(scaffolding);
         menu.OpenPanel("selected");
 
-        var layout = getLayout!.Invoke(menu, [viewport, session])!;
-        var recipeText = (string?)layout.GetType().GetProperty("SelectedRecipeText")!.GetValue(layout);
-        var recipeBounds = (Rectangle?)layout.GetType().GetProperty("SelectedRecipeBounds")!.GetValue(layout);
-        var inventoryFrameBounds = (Rectangle?)layout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(layout);
-        var inventoryEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedInventoryEntries")!.GetValue(layout)!)
-            .Cast<object>()
-            .ToDictionary(
-                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
-                entry => (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!);
-        var textLayout = layout.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
-        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var recipeText = layout.Selected.RecipeText;
+        var recipeBounds = layout.Selected.RecipeBounds;
+        var inventoryFrameBounds = layout.Selected.InventoryFrameBounds;
+        var inventoryEntries = layout.Selected.InventoryEntries.ToDictionary(
+            entry => entry.ResourceType,
+            entry => entry.Quantity);
+        var textLayout = layout.Selected.DescriptionLayout;
+        var viewportBounds = textLayout.ViewportBounds;
 
         Assert.Equal("Recipe: 20 Rock", recipeText);
         Assert.True(recipeBounds.HasValue);
@@ -268,15 +259,14 @@ public sealed class MenuControllerTests
         var building = new LongDescriptionBuilding(session);
         var menu = new MenuController();
         var viewport = new Point(960, 420);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.SetSelectedObject(building);
         menu.OpenPanel("selected");
 
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var textLayout = layout!.GetType().GetProperty("SelectedDescriptionLayout")!.GetValue(layout)!;
-        var viewportBounds = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
-        var maxScroll = (float)textLayout.GetType().GetProperty("MaxScroll")!.GetValue(textLayout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var textLayout = layout.Selected.DescriptionLayout;
+        var viewportBounds = textLayout.ViewportBounds;
+        var maxScroll = textLayout.MaxScroll;
         Assert.True(maxScroll > 0f);
 
         var handled = menu.HandleWheel(viewportBounds.Center, 90, viewport, session);
@@ -292,13 +282,12 @@ public sealed class MenuControllerTests
         var miningPost = TestWorldFactory.BuildMiningPost(cave, session, new GridPoint(2, 6));
         var menu = new MenuController();
         var viewport = new Point(1440, 900);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.OpenPanel("selected");
         menu.SetSelectedObject(miningPost);
 
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var deleteBounds = (Rectangle)layout!.GetType().GetProperty("DeleteSelectedBounds")!.GetValue(layout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var deleteBounds = layout.Selected.DeleteBounds;
 
         var result = menu.HandleClick(deleteBounds.Center, viewport, session);
 
@@ -315,13 +304,10 @@ public sealed class MenuControllerTests
         session.UnlockedBuildings.Add(new Factory(game => new AlgaeFarm(game), session));
         var menu = new MenuController();
         var viewport = new Point(1440, 900);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.OpenPanel("buildings");
-        var layout = getLayout!.Invoke(menu, [viewport, session]);
-        var buildCards = (System.Collections.IEnumerable)layout!.GetType().GetProperty("BuildCards")!.GetValue(layout)!;
-        var firstCard = buildCards.Cast<object>().First();
-        var bounds = (Rectangle)firstCard.GetType().GetProperty("Bounds")!.GetValue(firstCard)!;
+        var layout = menu.GetLayout(viewport, session);
+        var bounds = layout.Build.Cards[0].Bounds;
 
         var result = menu.HandleClick(bounds.Center, viewport, session);
 
@@ -341,17 +327,11 @@ public sealed class MenuControllerTests
         session.UnlockedBuildings.Add(new Factory(game => new Turret(game), session));
         var menu = new MenuController();
         var viewport = new Point(1440, 900);
-        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.OpenPanel("buildings");
 
-        var layout = getLayout!.Invoke(menu, [viewport, session])!;
-        var buildCards = ((System.Collections.IEnumerable)layout.GetType().GetProperty("BuildCards")!.GetValue(layout)!)
-            .Cast<object>()
-            .ToArray();
-        var buildNames = buildCards
-            .Select(card => ((Factory)card.GetType().GetProperty("Factory")!.GetValue(card)!).Name)
-            .ToArray();
+        var layout = menu.GetLayout(viewport, session);
+        var buildNames = layout.Build.Cards.Select(card => card.Factory.Name).ToArray();
 
         Assert.Equal(["Turret"], buildNames);
         Assert.Equal("Turret", menu.SelectedBuildOption?.Name);
@@ -377,15 +357,10 @@ public sealed class MenuControllerTests
         fighter.SetAssignedBuilding(turret);
         Assert.True(turret.Assign(fighter));
 
-        var getAssignmentCount = typeof(MenuController).GetMethod(
-            "GetSelectedBuildingAssignmentCount",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-        Assert.NotNull(getAssignmentCount);
-        Assert.Equal(2, (int)getAssignmentCount!.Invoke(null, [miningPost])!);
-        Assert.Equal(1, (int)getAssignmentCount.Invoke(null, [algaeFarm])!);
-        Assert.Equal(1, (int)getAssignmentCount.Invoke(null, [turret])!);
-        Assert.Equal(0, (int)getAssignmentCount.Invoke(null, [storage])!);
+        Assert.Equal(2, MenuController.GetSelectedBuildingAssignmentCount(miningPost));
+        Assert.Equal(1, MenuController.GetSelectedBuildingAssignmentCount(algaeFarm));
+        Assert.Equal(1, MenuController.GetSelectedBuildingAssignmentCount(turret));
+        Assert.Equal(0, MenuController.GetSelectedBuildingAssignmentCount(storage));
     }
 
     [Fact]
@@ -496,17 +471,14 @@ public sealed class MenuControllerTests
         Point viewport)
     {
         var menu = new MenuController();
-        var getLayout = typeof(MenuController).GetMethod(
-            "GetLayout",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         menu.OpenPanel("buildings");
 
-        var layout = getLayout!.Invoke(menu, [viewport, session])!;
-        var costText = (string?)layout.GetType().GetProperty("BuildPreviewCostText")!.GetValue(layout);
-        var costBounds = (Rectangle?)layout.GetType().GetProperty("BuildPreviewCostBounds")!.GetValue(layout);
-        var textLayout = layout.GetType().GetProperty("BuildPreviewDescriptionLayout")!.GetValue(layout)!;
-        var descriptionViewport = (Rectangle)textLayout.GetType().GetProperty("ViewportBounds")!.GetValue(textLayout)!;
+        var layout = menu.GetLayout(viewport, session);
+        var costText = layout.Build.CostText;
+        var costBounds = layout.Build.CostBounds;
+        var textLayout = layout.Build.DescriptionLayout;
+        var descriptionViewport = textLayout.ViewportBounds;
         return (costText, costBounds, descriptionViewport);
     }
 

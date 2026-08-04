@@ -98,9 +98,15 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private bool _debugAntHolePlacementMode;
     private bool _cameraPanDragActive;
     private bool _selectionDragActive;
-    // Design size used whenever the game is not fullscreen.
-    private const int WindowedWidth = 1440;
-    private const int WindowedHeight = 900;
+    // The size the window takes whenever the game is not fullscreen. No longer a constant: it is the
+    // Resolution setting, and it also tracks the window when the player drags its edge, so returning
+    // from fullscreen lands on whatever size they last chose rather than resetting to the design size.
+    private GameResolution _windowedResolution = GameResolutions.Default;
+    // Set while ConfigureDisplayMode is driving the window, so the resize events that follow are not
+    // read back as the player picking a size. Toggling the border fires ClientSizeChanged with a
+    // client area that has just lost or gained the title bar's height, and recording that would
+    // quietly turn a chosen 1920x1080 into an off-by-a-title-bar custom size.
+    private bool _applyingDisplayMode;
     // Fullscreen at startup. WindowedWidth/Height stay the size the Windowed setting returns to, so
     // toggling out of fullscreen still lands on the design resolution rather than on whatever the
     // desktop happens to be.
@@ -148,8 +154,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         PlayApi = new GamePlayApi(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
-        // Fixed-size borderless window: no user resizing and no title bar, so the only way the
-        // viewport changes is the display-mode toggle in the settings menu.
+        // Startup is fullscreen, which is borderless and not resizable. ConfigureDisplayMode owns
+        // both flags from here on and flips them with the mode - windowed gets its title bar and a
+        // draggable edge back. Set here as well because that runs before the graphics device exists.
         Window.AllowUserResizing = false;
         Window.IsBorderless = true;
         Window.ClientSizeChanged += (_, _) => HandleViewportResize();
@@ -2375,7 +2382,10 @@ public sealed partial class GameApp
             _mainMenuOpen,
             _audio.VolumePercent,
             _music.IsMusicEnabled,
-            _displayMode);
+            _displayMode,
+            _windowedResolution,
+            GameResolutions.CanStep(GetSelectableResolutions(), _windowedResolution, -1),
+            GameResolutions.CanStep(GetSelectableResolutions(), _windowedResolution, 1));
     }
 
     private void DrawResourceHud()
@@ -3565,6 +3575,17 @@ public sealed partial class GameApp
             Window.ClientBounds.Height);
         _cameraViewportWidth = Window.ClientBounds.Width;
         _cameraViewportHeight = Window.ClientBounds.Height;
+
+        // A windowed resize the PLAYER caused - dragging the window edge - is them choosing a size,
+        // so record it: the Resolution row then reports the size the window actually is, and
+        // toggling to fullscreen and back returns to it. Resizes we caused ourselves are skipped,
+        // because there the size we asked for is already authoritative and the client area may not
+        // have caught up with the border yet. Fullscreen sizes are never recorded: that is the
+        // desktop's resolution, not a windowed size to come back to.
+        if (_displayMode == GameDisplayMode.Windowed && !_applyingDisplayMode)
+        {
+            _windowedResolution = new GameResolution(Window.ClientBounds.Width, Window.ClientBounds.Height);
+        }
     }
 
     private void SpawnDebugEnemy()
