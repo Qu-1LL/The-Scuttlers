@@ -43,9 +43,13 @@ internal static class GumScrollableText
 
                 var trackHeight = viewportBounds.Height;
                 var contentHeight = Math.Max(metrics.LineHeight, lineCount * metrics.LineHeight);
+                // The minimum thumb is itself capped by the track. Passing the bare minThumbHeight as
+                // the lower bound throws whenever a viewport is shorter than it - Math.Clamp rejects
+                // min > max rather than picking one - so a panel that merely got cramped took the
+                // whole menu down. A thumb can never be taller than the track it slides in anyway.
                 var thumbHeight = Math.Clamp(
                     (int)MathF.Round(trackHeight * (viewportBounds.Height / (float)Math.Max(viewportBounds.Height, contentHeight))),
-                    minThumbHeight,
+                    Math.Min(minThumbHeight, trackHeight),
                     trackHeight);
                 var travel = Math.Max(0, trackHeight - thumbHeight);
                 var thumbY = viewportBounds.Y + (int)MathF.Round(travel * (scroll / maxScroll));

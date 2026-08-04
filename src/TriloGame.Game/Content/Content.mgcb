@@ -208,6 +208,11 @@
 /processor:TextureProcessor
 /build:Textures/Mycocore.png
 
+#begin Textures/MinerTrilobite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/MinerTrilobite.png
+
 #begin Textures/MiningPost.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -322,6 +327,21 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Storage.png
+
+#begin Textures/BuilderTrilobite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/BuilderTrilobite.png
+
+#begin Textures/FarmerTrilobite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/FarmerTrilobite.png
+
+#begin Textures/FighterTrilobite.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/FighterTrilobite.png
 
 #begin Textures/Trilobite.png
 /importer:TextureImporter

@@ -236,7 +236,9 @@ are Core-owned.
 The frame is a presentation pipeline, not a simulation driver. `WorldSceneRenderer` handles the
 world pass: parallax background, floor, walls/ore/crystals, buildings, soil crops, creatures,
 vehicles, particles, and world-space debug overlays. `CameraController` handles world/screen
-conversion and zoom/pan.
+conversion and zoom/pan. Trilobites resolve to their active role's sprite when that optional asset is
+registered, otherwise they use the default sprite; the entity-occluder and cast-shadow passes use
+that same resolved texture so lighting silhouettes stay visually correct.
 
 `Rendering/Lighting` contains a presentation-only radiance-cascade pipeline. It derives blocker,
 reveal, and intact-ore emission data from a camera-cull tile grid, keeps creature alpha silhouettes

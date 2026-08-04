@@ -17,6 +17,7 @@ public sealed class Factory
         Size = sample.Size;
         Description = sample.Description;
         HasStation = sample.HasStation;
+        Recipe = sample.GetRecipe();
         ConstructionCost = sample.GetConstructionCost();
     }
 
@@ -31,6 +32,11 @@ public sealed class Factory
     public string Description { get; }
 
     public bool HasStation { get; }
+
+    // The materials a scaffold has to be fed before this building goes up. Snapshotted here so the
+    // build menu can price a building without instantiating one per frame - Scaffolding reads the
+    // same list off the real building when the site is placed.
+    public IReadOnlyList<ResourceRequirement>? Recipe { get; }
 
     public IReadOnlyList<ResourceRequirement>? ConstructionCost { get; }
 
