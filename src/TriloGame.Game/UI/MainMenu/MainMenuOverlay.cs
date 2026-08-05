@@ -90,6 +90,6 @@ public sealed class MainMenuOverlayRenderer
         GumUiChrome.DrawButton(gumUi, layout.SettingsButtonBounds, "Settings", layout.SettingsButtonBounds.Contains(pointer), SettingsButtonStyle);
         GumUiChrome.DrawButton(gumUi, layout.TrilodexButtonBounds, "Trilodex", layout.TrilodexButtonBounds.Contains(pointer), TrilodexButtonStyle);
         GumUiChrome.DrawButton(gumUi, layout.QuitButtonBounds, "Quit Game", layout.QuitButtonBounds.Contains(pointer), QuitButtonStyle);
-        GumUiText.AddFittedCentered(gumUi, layout.TitleBounds, "Welcome to The Scuttlers", Color.White, GumTextStyle.UiLarge);
+        GumUiText.AddFittedCentered(gumUi, layout.TitleBounds, "Welcome to Exuvia", Color.White, GumTextStyle.UiLarge);
     }
 }
