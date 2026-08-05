@@ -5,6 +5,9 @@ namespace TriloGame.Game.UI.Input;
 
 public sealed class InputController
 {
+    private Point _mousePoint;
+    private Point _previousMousePoint;
+
     public KeyboardState CurrentKeyboard { get; private set; }
 
     public KeyboardState PreviousKeyboard { get; private set; }
@@ -19,15 +22,26 @@ public sealed class InputController
 
     public void BeginFrame()
     {
-        PreviousKeyboard = CurrentKeyboard;
-        PreviousMouse = CurrentMouse;
-        CurrentKeyboard = Keyboard.GetState();
-        CurrentMouse = Mouse.GetState();
+        var currentMouse = Mouse.GetState();
+        BeginFrame(
+            Keyboard.GetState(),
+            currentMouse,
+            SdlWindowPointer.GetPosition(currentMouse.Position));
     }
 
-    public Point MousePoint => CurrentMouse.Position;
+    internal void BeginFrame(KeyboardState keyboard, MouseState mouse, Point mousePoint)
+    {
+        PreviousKeyboard = CurrentKeyboard;
+        PreviousMouse = CurrentMouse;
+        _previousMousePoint = _mousePoint;
+        CurrentKeyboard = keyboard;
+        CurrentMouse = mouse;
+        _mousePoint = mousePoint;
+    }
 
-    public Point MouseDelta => CurrentMouse.Position - PreviousMouse.Position;
+    public Point MousePoint => _mousePoint;
+
+    public Point MouseDelta => _mousePoint - _previousMousePoint;
 
     public int WheelDelta => CurrentMouse.ScrollWheelValue - PreviousMouse.ScrollWheelValue;
 
@@ -57,7 +71,7 @@ public sealed class InputController
 
     public void BeginDrag()
     {
-        DragStartPoint = CurrentMouse.Position;
+        DragStartPoint = _mousePoint;
         Dragging = false;
     }
 
@@ -68,7 +82,7 @@ public sealed class InputController
             return;
         }
 
-        var delta = CurrentMouse.Position - DragStartPoint;
+        var delta = _mousePoint - DragStartPoint;
         Dragging = Dragging || delta.ToVector2().Length() > threshold;
     }
 
