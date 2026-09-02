@@ -24,8 +24,6 @@ public sealed class GameSessionRuntimeState
 
     public bool ShowHitboxes { get; set; }
 
-    public bool ShowInteractionZones { get; set; }
-
     public List<ProjectileFlight> ActiveProjectileFlights { get; } = [];
 
     private readonly Dictionary<int, double> _damageFlashRemainingMs = [];

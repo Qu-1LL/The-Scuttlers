@@ -1,7 +1,6 @@
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -11,20 +10,6 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class AlgaeFarm : Building
 {
-    private static readonly InteractionZoneDefinition[] WorkZones =
-    [
-        new(
-            "Crop work area",
-            InteractionZonePurpose.Work,
-            new GridPoint(0, 0),
-            new GridPoint(2, 3),
-            [
-                new GridPoint(0, 0), new GridPoint(1, 0),
-                new GridPoint(0, 1), new GridPoint(1, 1),
-                new GridPoint(0, 2), new GridPoint(1, 2)
-            ])
-    ];
-
     private sealed class TraversalNode
     {
         public TraversalNode(GridPoint location)
@@ -45,7 +30,7 @@ public sealed class AlgaeFarm : Building
     private TraversalNode? _traversalHead;
 
     public AlgaeFarm(GameSession session)
-        : base("Algae Farm", new GridPoint(2, 3), [[1, 1], [1, 1], [1, 1]], session, false)
+        : base("Algae Farm", new GridPoint(2, 3), [[1, 1], [1, 1], [1, 1]], session, true)
     {
         TextureKey = "AlgaeFarm";
         Period = 30;
@@ -76,8 +61,6 @@ public sealed class AlgaeFarm : Building
     public int[][] TraversalPath { get; private set; }
 
     public IReadOnlyCollection<Creature> Assignments => _assignments;
-
-    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => WorkZones;
 
     public override int[][] RotateMap()
     {

@@ -2,7 +2,6 @@ using System.Numerics;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
@@ -32,29 +31,11 @@ public sealed class Turret : StationBuilding
         new(null, new Vector2(TileConstants.TileSize * 2f, TileConstants.TileSize)),
         new(null, new Vector2(TileConstants.TileSize, TileConstants.TileSize * 2f))
     ];
-    private static readonly InteractionZoneDefinition[] TurretZones =
-    [
-        new(
-            "Hosted stations",
-            InteractionZonePurpose.Station,
-            new GridPoint(0, 0),
-            new GridPoint(3, 3),
-            [new GridPoint(1, 1), new GridPoint(2, 2)],
-            IsNavigationTarget: false),
-        new(
-            "Approach",
-            InteractionZonePurpose.Approach,
-            new GridPoint(0, -1),
-            new GridPoint(3, 1),
-            [new GridPoint(0, -1), new GridPoint(1, -1), new GridPoint(2, -1)])
-    ];
     private readonly Dictionary<Creature, int> _remainingReloadTicks = [];
 
     public override int ProjectionRadius => GameConstants.TurretProjectionRadius;
 
     public Enemy? Target { get; private set; }
-
-    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => TurretZones;
 
     public Turret(GameSession session)
         : base(
@@ -158,13 +139,6 @@ public sealed class Turret : StationBuilding
             return false;
         }
 
-        if (creature.ReservedZone is { Purpose: InteractionZonePurpose.Approach } approachZone &&
-            ReferenceEquals(approachZone.Owner, this) &&
-            creature.IsAtReservedInteractionSlot())
-        {
-            return true;
-        }
-
         var currentTile = Cave.GetTile(creature.Location);
         return currentTile is not null &&
                currentTile.Neighbors.Any(neighbor => ReferenceEquals(neighbor.Built, this));
@@ -180,7 +154,6 @@ public sealed class Turret : StationBuilding
         if (IsCreatureStationed(creature) && TryGetAssignedWorldPosition(creature, out var existingWorldPosition))
         {
             creature.HostOnBuilding(this, existingWorldPosition);
-            ReserveHostedStation(creature);
             return true;
         }
 
@@ -192,17 +165,7 @@ public sealed class Turret : StationBuilding
         }
 
         creature.HostOnBuilding(this, worldPosition);
-        ReserveHostedStation(creature);
         return true;
-    }
-
-    private void ReserveHostedStation(Creature creature)
-    {
-        creature.ReleaseInteractionReservation();
-        if (TryGetInteractionZone(InteractionZonePurpose.Station, out var stationZone))
-        {
-            creature.TryReserveInteractionZone(stationZone);
-        }
     }
 
     public override bool TryRestoreCreatureLocomotion(Creature creature)

@@ -38,6 +38,30 @@ public sealed class GamePlayApiTests
     }
 
     [Fact]
+    public void PlaceBuilding_RecognizesGrindingMillAlias()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var host = new FakeGamePlayHost(session);
+        var api = new GamePlayApi(host);
+        var location = TestWorldFactory.FindBuildLocation(cave, new GrindingMill(host.Session), preserveReachability: true);
+
+        Assert.True(api.PlaceBuilding("grinding_mill", location));
+        Assert.Contains(cave.GetBuildingList(), building => building is GrindingMill && building.Location == location);
+    }
+
+    [Fact]
+    public void PlaceBuilding_RecognizesBakeryAlias()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var host = new FakeGamePlayHost(session);
+        var api = new GamePlayApi(host);
+        var location = TestWorldFactory.FindBuildLocation(cave, new Bakery(host.Session), preserveReachability: true);
+
+        Assert.True(api.PlaceBuilding("bakery", location));
+        Assert.Contains(cave.GetBuildingList(), building => building is Bakery && building.Location == location);
+    }
+
+    [Fact]
     public void PlaceBuilding_AppliesRotationToFootprint()
     {
         var host = new FakeGamePlayHost();

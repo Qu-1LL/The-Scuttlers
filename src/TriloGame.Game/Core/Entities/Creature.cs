@@ -2,7 +2,6 @@ using System.Numerics;
 using TriloGame.Game.Audio;
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Combat;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Vehicles;
@@ -13,7 +12,6 @@ namespace TriloGame.Game.Core.Entities;
 
 public class Creature
 {
-    private const int InteractionArrivalTolerancePixels = 12;
     private const int IdleCandidateAttempts = 8;
     private const int IdleMinimumRestTicks = 10;
     private const int IdleRestTickRange = 31;
@@ -148,10 +146,6 @@ public class Creature
 
     public int DesiredRouteIndex => _activeRouteIndex;
 
-    public InteractionZone? ReservedZone { get; private set; }
-
-    public int? ReservedZoneSlot { get; private set; }
-
     public float RotationRadians { get; set; }
 
     public float PreviousRotationRadians { get; private set; }
@@ -181,7 +175,6 @@ public class Creature
             {
                 _tasks.Clear();
                 CancelMovement();
-                ReleaseInteractionReservation();
                 ClearBfsTraversal();
                 ResetIdleState();
             }
@@ -334,106 +327,19 @@ public class Creature
     {
         _tasks.Clear();
         CancelMovement();
-        ReleaseInteractionReservation();
         ClearBfsTraversal();
     }
 
-    public bool TryReserveInteractionZone(InteractionZone zone)
+    // Interaction is derived from the building footprint, so no worker needs to reserve a destination before travelling.
+    public bool IsAtBuildingInteractionTile(Building building)
     {
-        if (ReferenceEquals(ReservedZone, zone) && ReservedZoneSlot.HasValue)
-        {
-            return zone.TryRenew(this, Session.TickCount, ReservedZoneSlot.Value);
-        }
-
-        ReleaseInteractionReservation();
-        if (!zone.TryReserve(this, Session.TickCount, out var slotIndex))
-        {
-            Activity = CreatureActivity.WaitingForSlot;
-            return false;
-        }
-
-        ReservedZone = zone;
-        ReservedZoneSlot = slotIndex;
-        return true;
-    }
-
-    public void ReleaseInteractionReservation()
-    {
-        ReservedZone?.Release(this);
-        ReservedZone = null;
-        ReservedZoneSlot = null;
-    }
-
-    public bool TryGetReservedZonePosition(out WorldPoint position)
-    {
-        if (ReservedZone is not null &&
-            ReservedZoneSlot is { } slotIndex &&
-            slotIndex >= 0 &&
-            slotIndex < ReservedZone.SlotPositions.Count)
-        {
-            position = ReservedZone.SlotPositions[slotIndex];
-            return true;
-        }
-
-        position = default;
-        return false;
-    }
-
-    public bool IsAtReservedInteractionSlot()
-    {
-        if (ReservedZone is not { } zone || !ReservedZoneSlot.HasValue)
+        if (Cave is null || !ReferenceEquals(building.Cave, Cave))
         {
             return false;
         }
 
-        // A reservation claims capacity for the purpose; a shared building field may terminate
-        // on any walkable zone with that purpose (for example, any scaffold work edge).
-        var tolerance = WorldUnits.FromPixels(InteractionArrivalTolerancePixels);
-        var toleranceSquared = (long)tolerance * tolerance;
-        var zones = zone.Owner.InteractionZones;
-        for (var zoneIndex = 0; zoneIndex < zones.Count; zoneIndex++)
-        {
-            var candidateZone = zones[zoneIndex];
-            if (candidateZone.Purpose != zone.Purpose || !candidateZone.IsNavigationTarget)
-            {
-                continue;
-            }
-
-            for (var slotIndex = 0; slotIndex < candidateZone.SlotPositions.Count; slotIndex++)
-            {
-                if ((Position - candidateZone.SlotPositions[slotIndex]).LengthSquared <= toleranceSquared &&
-                    Velocity.Length <= BaseSpeed)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    public bool TryMoveInteractionReservation(GridPoint targetCell)
-    {
-        if (ReservedZone is null || !ReservedZoneSlot.HasValue)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < ReservedZone.SlotPositions.Count; index++)
-        {
-            if (ReservedZone.SlotPositions[index].ToGridPoint() != targetCell ||
-                !ReservedZone.TryMoveReservation(this, Session.TickCount, index))
-            {
-                continue;
-            }
-
-            ReservedZoneSlot = index;
-            BeginMovement(ReservedZone.SlotPositions[index]);
-            return true;
-        }
-
-        Activity = CreatureActivity.WaitingForSlot;
-        return false;
+        var tile = Cave.GetTile(CurrentCell);
+        return tile is not null && building.IsInteractionTile(tile);
     }
 
     public bool RestartBehavior(bool clearQueue = true)
@@ -642,7 +548,6 @@ public class Creature
         var preserveMomentum = HasActiveMovement;
         var currentVelocity = Velocity;
         ClearTaskQueue();
-        ReleaseInteractionReservation();
         ClearBfsTraversal();
         ClearRouteContinuation();
         _activeRoute.Clear();
@@ -749,7 +654,6 @@ public class Creature
             }
             else if (_blockedTicks >= 60)
             {
-                ReleaseInteractionReservation();
                 CancelMovement();
                 _movementBackoffTicks = 1 + (Id % 5);
                 Activity = CreatureActivity.WaitingForSlot;
@@ -860,7 +764,7 @@ public class Creature
     protected bool TryAdvanceIdleBehavior()
     {
         if (!CanUseIdleMovement || Cave is null || !IsLocomotionEnabled ||
-            ReservedZone is not null || HasPendingImpulse || Session.Danger)
+            HasPendingImpulse || Session.Danger)
         {
             ResetIdleBehavior();
             return false;
@@ -1844,75 +1748,6 @@ public class Creature
         return TryBeginFieldRoute(field, kind, sharedFieldName: null, building, clearExisting: false);
     }
 
-    public bool NavigateToInteractionZone(
-        Building building,
-        InteractionZonePurpose purpose,
-        bool clearExisting = true)
-    {
-        if (!EnsureReadyForNavigation())
-        {
-            return false;
-        }
-
-        if (clearExisting)
-        {
-            ClearTaskQueue();
-        }
-
-        if (!TryReserveAvailableInteractionZone(building, purpose))
-        {
-            return false;
-        }
-
-        if (IsAtReservedInteractionSlot())
-        {
-            return true;
-        }
-
-        // All walkable interaction slots are zeroes in the building field, so this avoids
-        // allocating a destination-specific point field for each reservation.
-        if (NavigateToBuilding(building, clearExisting: false))
-        {
-            return true;
-        }
-
-        ReleaseInteractionReservation();
-        return false;
-    }
-
-    // Reserve any usable edge for the requested purpose so multi-edge buildings do not bottleneck on their first zone.
-    private bool TryReserveAvailableInteractionZone(Building building, InteractionZonePurpose purpose)
-    {
-        if (ReservedZone is { } currentZone &&
-            ReferenceEquals(currentZone.Owner, building) &&
-            currentZone.Purpose == purpose &&
-            currentZone.IsNavigationTarget &&
-            ReservedZoneSlot is { } currentSlot &&
-            currentZone.TryRenew(this, Session.TickCount, currentSlot))
-        {
-            return true;
-        }
-
-        ReleaseInteractionReservation();
-        var zones = building.InteractionZones;
-        for (var index = 0; index < zones.Count; index++)
-        {
-            var zone = zones[index];
-            if (zone.Purpose != purpose || !zone.IsNavigationTarget ||
-                !zone.TryReserve(this, Session.TickCount, out var slotIndex))
-            {
-                continue;
-            }
-
-            ReservedZone = zone;
-            ReservedZoneSlot = slotIndex;
-            return true;
-        }
-
-        Activity = CreatureActivity.WaitingForSlot;
-        return false;
-    }
-
     public bool QueueMovePath(IReadOnlyList<GridPoint> path)
     {
         if (!EnsureReadyForNavigation())
@@ -1955,15 +1790,6 @@ public class Creature
         {
             _movementBackoffTicks--;
             return null;
-        }
-
-        if (ReservedZone is not null &&
-            (!ReservedZone.Owner.OwnsInteractionZone(ReservedZone) ||
-             !ReservedZoneSlot.HasValue ||
-             !ReservedZone.TryRenew(this, Session.TickCount, ReservedZoneSlot.Value)))
-        {
-            ReleaseInteractionReservation();
-            Activity = CreatureActivity.WaitingForSlot;
         }
 
         // Driveable vehicles advance on the driver's turn instead of through the creature's own task queue.
@@ -2058,14 +1884,14 @@ public class Creature
         }
 
         var actions = new HashSet<Building>();
-        if (currentTile.Built is { HasStation: true } currentBuilding)
+        if (currentTile.Built is { } currentBuilding && currentBuilding.IsInteractionTile(currentTile))
         {
             actions.Add(currentBuilding);
         }
 
         foreach (var neighbor in currentTile.Neighbors)
         {
-            if (neighbor.Built is { HasStation: false } building)
+            if (neighbor.Built is { } building && building.IsInteractionTile(currentTile))
             {
                 actions.Add(building);
             }

@@ -64,13 +64,7 @@ public sealed class TrilobiteBuildingAssignmentTests
         Assert.True(farm.Assign(farmer));
         Assert.Equal(1, farmer.AddToInventory(ResourceName.Sandstone, 1));
 
-        Assert.True(farmer.NavigateToInteractionZone(
-            farm,
-            TriloGame.Game.Core.Interaction.InteractionZonePurpose.Work));
-        while (farmer.HasActiveMovement)
-        {
-            cave.AdvanceCreatureMovement();
-        }
+        Assert.True(farmer.IsAtBuildingInteractionTile(farm));
 
         var nextLocation = farm.GetNextTraversalLocation(farmer.Location);
         Assert.NotNull(nextLocation);

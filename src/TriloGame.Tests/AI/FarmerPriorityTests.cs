@@ -1,7 +1,6 @@
 using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Tests.AI;
@@ -81,15 +80,13 @@ public sealed class FarmerPriorityTests
         var storage = new Storage(session);
         Assert.True(cave.Build(storage, new GridPoint(8, 6)));
         Assert.Equal(5, storage.Deposit(ResourceName.Algae, 5));
-        var transferZone = Assert.Single(storage.InteractionZones, zone => zone.Purpose == InteractionZonePurpose.ResourceTransfer);
         var farmer = TestWorldFactory.SpawnTrilobite(
             cave,
             session,
-            transferZone.SlotPositions[0].ToGridPoint(),
+            GetInteractionLocation(storage),
             "Farmer",
             "farmer");
 
-        Assert.True(farmer.TryReserveInteractionZone(transferZone));
         Assert.True(farmer.RunRoleState(FarmerState.SelectFarm));
 
         Assert.Equal(5, farmer.Inventory.GetAmount(ResourceName.Algae));
@@ -111,5 +108,205 @@ public sealed class FarmerPriorityTests
 
         Assert.Same(algaeFarm, farmer.GetAssignedAlgaeFarm());
         Assert.Equal(5, storage.GetStoredAmount(ResourceName.Algae));
+    }
+
+    [Fact]
+    public void StoredMealDelivery_PreemptsStoredAlgaeDelivery()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var algaeStorage = new Storage(session);
+        Assert.True(cave.Build(algaeStorage, new GridPoint(6, 6)));
+        Assert.Equal(5, algaeStorage.Deposit(ResourceName.Algae, 5));
+        var mill = new GrindingMill(session);
+        Assert.True(cave.Build(mill, new GridPoint(14, 6)));
+        Assert.Equal(5, mill.DepositInput(ResourceName.Algae, 5));
+        for (var process = 1; process <= 5; process++)
+        {
+            session.TickCount = process * mill.ProcessingIntervalTicks;
+            Assert.Equal(1, mill.Tick(cave));
+        }
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(mill),
+            "Farmer",
+            "farmer");
+
+        Assert.True(farmer.RunRoleState(FarmerState.SelectFarm));
+
+        Assert.Equal(5, farmer.Inventory.GetAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(0, mill.GetOutputAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(5, algaeStorage.GetStoredAmount(ResourceName.Algae));
+        Assert.Equal(FarmerState.FeedQueen, farmer.FarmerState);
+    }
+
+    [Fact]
+    public void StoredMealDelivery_WaitsUntilTheGrindingMillHasAFullCarryLoad()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var mill = new GrindingMill(session);
+        Assert.True(cave.Build(mill, new GridPoint(8, 6)));
+        Assert.Equal(4, mill.DepositInput(ResourceName.Algae, 4));
+        for (var batch = 1; batch <= 4; batch++)
+        {
+            session.TickCount = batch * mill.ProcessingIntervalTicks;
+            Assert.Equal(1, mill.Tick(cave));
+        }
+
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(mill),
+            "Farmer",
+            "farmer");
+
+        Assert.False(farmer.RunRoleState(FarmerState.SelectFarm));
+
+        Assert.Equal(FarmerState.WaitForFarm, farmer.FarmerState);
+        Assert.Equal(4, mill.GetOutputAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(0, mill.GetOutputCollectorCount(ResourceName.AlgaeMeal));
+        Assert.Equal(0, farmer.Inventory.GetAmount(ResourceName.AlgaeMeal));
+    }
+
+    [Fact]
+    public void FarmerWithAlgae_DepositsIntoReachableGrindingMillBeforeFeedingQueen()
+    {
+        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var mill = new GrindingMill(session);
+        Assert.True(cave.Build(mill, new GridPoint(8, 6)));
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(mill),
+            "Farmer",
+            "farmer");
+        Assert.Equal(5, farmer.AddToInventory(ResourceName.Algae, 5));
+
+        Assert.True(farmer.RunRoleState(FarmerState.MoveToQueen));
+
+        Assert.Equal(0, farmer.Inventory.GetAmount(ResourceName.Algae));
+        Assert.Equal(5, mill.GetInputAmount(ResourceName.Algae));
+        Assert.Equal(0, queen.NutritionCount);
+    }
+
+    [Fact]
+    public void FarmerWithAlgae_DepositsIntoLeastFilledCompatibleProcessingBuilding()
+    {
+        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(32, 16, new GridPoint(16, 0));
+        var firstMill = new GrindingMill(session);
+        var bakery = new Bakery(session);
+        var secondMill = new GrindingMill(session);
+        Assert.True(cave.Build(firstMill, new GridPoint(4, 7)));
+        Assert.True(cave.Build(bakery, new GridPoint(14, 7)));
+        Assert.True(cave.Build(secondMill, new GridPoint(24, 7)));
+        Assert.Equal(150, firstMill.DepositInput(ResourceName.Algae, 150));
+        Assert.Equal(100, bakery.DepositInput(ResourceName.Algae, 100));
+        Assert.Equal(150, secondMill.DepositInput(ResourceName.Algae, 150));
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(bakery),
+            "Farmer",
+            "farmer");
+        Assert.Equal(5, farmer.AddToInventory(ResourceName.Algae, 5));
+
+        Assert.True(farmer.RunRoleState(FarmerState.MoveToQueen));
+
+        Assert.Equal(150, firstMill.GetInputAmount(ResourceName.Algae));
+        Assert.Equal(105, bakery.GetInputAmount(ResourceName.Algae));
+        Assert.Equal(150, secondMill.GetInputAmount(ResourceName.Algae));
+        Assert.Equal(0, farmer.Inventory.GetAmount(ResourceName.Algae));
+        Assert.Equal(0, queen.NutritionCount);
+    }
+
+    [Fact]
+    public void FarmerWithAlgaeMeal_DepositsIntoBakeryBeforeFeedingQueen()
+    {
+        var (session, cave, queen) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var bakery = new Bakery(session);
+        Assert.True(cave.Build(bakery, new GridPoint(8, 6)));
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(bakery),
+            "Farmer",
+            "farmer");
+        Assert.Equal(5, farmer.AddToInventory(ResourceName.AlgaeMeal, 5));
+
+        Assert.True(farmer.RunRoleState(FarmerState.MoveToQueen));
+
+        Assert.Equal(5, bakery.GetInputAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(0, farmer.Inventory.GetAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(0, queen.NutritionCount);
+    }
+
+    [Fact]
+    public void StoredPieDelivery_CollectsBakeryOutputBeforeLowerNutritionFood()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var bakery = new Bakery(session);
+        Assert.True(cave.Build(bakery, new GridPoint(8, 6)));
+        Assert.Equal(5, bakery.DepositInput(ResourceName.Algae, 5));
+        Assert.Equal(5, bakery.DepositInput(ResourceName.AlgaeMeal, 5));
+        for (var batch = 1; batch <= 5; batch++)
+        {
+            session.TickCount = batch * bakery.ProcessingIntervalTicks;
+            Assert.Equal(1, bakery.Tick(cave));
+        }
+
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(bakery),
+            "Farmer",
+            "farmer");
+
+        Assert.True(farmer.RunRoleState(FarmerState.SelectFarm));
+
+        Assert.Equal(5, farmer.Inventory.GetAmount(ResourceName.AlgaePie));
+        Assert.Equal(0, bakery.GetOutputAmount(ResourceName.AlgaePie));
+        Assert.Equal(FarmerState.FeedQueen, farmer.FarmerState);
+    }
+
+    [Fact]
+    public void StoredAlgaeSearch_DoesNotWithdrawGrindingMillInput()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var mill = new GrindingMill(session);
+        Assert.True(cave.Build(mill, new GridPoint(8, 6)));
+        Assert.Equal(5, mill.DepositInput(ResourceName.Algae, 5));
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(mill),
+            "Farmer",
+            "farmer");
+
+        Assert.False(farmer.RunRoleState(FarmerState.SelectFarm));
+
+        Assert.Equal(0, farmer.Inventory.GetAmount(ResourceName.Algae));
+        Assert.Equal(5, mill.GetInputAmount(ResourceName.Algae));
+        Assert.Equal(FarmerState.WaitForFarm, farmer.FarmerState);
+    }
+
+    private static GridPoint GetInteractionLocation(Building building)
+    {
+        foreach (var tile in building.TileArray)
+        {
+            if (building.IsInteractionTile(tile))
+            {
+                return tile.Coordinates;
+            }
+
+            foreach (var neighbor in tile.Neighbors)
+            {
+                if (building.IsInteractionTile(neighbor))
+                {
+                    return neighbor.Coordinates;
+                }
+            }
+        }
+
+        throw new InvalidOperationException($"No interaction tile exists for {building.Name}.");
     }
 }

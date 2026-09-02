@@ -23,6 +23,7 @@ public sealed partial class Cave : Graph
     private readonly List<Building> _buildingList = [];
     private readonly List<MiningPost> _miningPosts = [];
     private readonly List<AlgaeFarm> _algaeFarms = [];
+    private readonly List<GrindingMill> _grindingMills = [];
     private readonly List<Barracks> _barracks = [];
     private readonly List<Turret> _turrets = [];
     private readonly List<Radar> _radars = [];
@@ -258,6 +259,8 @@ public sealed partial class Cave : Graph
 
     public IReadOnlyList<AlgaeFarm> GetAlgaeFarms() => _algaeFarms;
 
+    public IReadOnlyList<GrindingMill> GetGrindingMills() => _grindingMills;
+
     public IReadOnlyList<Barracks> GetBarracksList() => _barracks;
 
     public IReadOnlyList<Turret> GetTurretList() => _turrets;
@@ -422,6 +425,9 @@ public sealed partial class Cave : Graph
                 _algaeFarms.Add(farm);
                 RefreshOpenAlgaeFarmAvailability();
                 break;
+            case GrindingMill mill:
+                _grindingMills.Add(mill);
+                break;
             case Turret turret:
                 _turrets.Add(turret);
                 _fighterStationAssignmentCounts[turret] = turret.GetVolume();
@@ -472,6 +478,9 @@ public sealed partial class Cave : Graph
             case AlgaeFarm farm:
                 _algaeFarms.Remove(farm);
                 RefreshOpenAlgaeFarmAvailability();
+                break;
+            case GrindingMill mill:
+                _grindingMills.Remove(mill);
                 break;
             case Turret turret:
                 _turrets.Remove(turret);
@@ -1013,12 +1022,6 @@ public sealed partial class Cave : Graph
         foreach (var creature in GetCreatures().ToArray())
         {
             var creatureWasAffected = false;
-            if (ReferenceEquals(creature.ReservedZone?.Owner, building))
-            {
-                creature.ReleaseInteractionReservation();
-                creatureWasAffected = true;
-            }
-
             if (building is StationBuilding stationBuilding &&
                 (stationBuilding.IsCreatureStationed(creature) || creature.IsHostedOnBuilding(stationBuilding)))
             {

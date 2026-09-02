@@ -3,7 +3,6 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Shared.Math;
 
@@ -224,11 +223,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal(post.Capacity, post.Deposit(ResourceName.Sandstone, post.Capacity));
         Assert.Equal(1, miner.AddToInventory(ResourceName.Sandstone, 1));
 
-        Assert.True(miner.NavigateToInteractionZone(post, InteractionZonePurpose.ResourceTransfer));
-        while (miner.HasActiveMovement)
-        {
-            cave.AdvanceCreatureMovement();
-        }
+        Assert.True(miner.IsAtBuildingInteractionTile(post));
 
         var depositCueCount = 0;
         session.AudioCueRequested += cue => depositCueCount += cue == GameAudioCue.CreatureDeposit ? 1 : 0;
@@ -240,7 +235,6 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal(CreatureActivity.WaitingForSlot, miner.Activity);
         Assert.Equal(MinerState.WaitForStorage, miner.MinerState);
         Assert.Equal(WorkerRoleFailureReason.NoStorage, miner.LastRoleFailure);
-        Assert.Null(miner.ReservedZone);
     }
 
     [Fact]
@@ -254,11 +248,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal(post.Capacity - 1, post.Deposit(ResourceName.Sandstone, post.Capacity - 1));
         Assert.Equal(5, miner.AddToInventory(ResourceName.Sandstone, 5));
 
-        Assert.True(miner.NavigateToInteractionZone(post, InteractionZonePurpose.ResourceTransfer));
-        while (miner.HasActiveMovement)
-        {
-            cave.AdvanceCreatureMovement();
-        }
+        Assert.True(miner.IsAtBuildingInteractionTile(post));
 
         Assert.False(miner.RunRoleState(MinerState.DepositInventory));
 
@@ -266,7 +256,6 @@ public sealed class TrilobiteMiningPostSelectionTests
         Assert.Equal(CreatureActivity.WaitingForSlot, miner.Activity);
         Assert.Equal(MinerState.WaitForStorage, miner.MinerState);
         Assert.Equal(WorkerRoleFailureReason.NoStorage, miner.LastRoleFailure);
-        Assert.Null(miner.ReservedZone);
     }
 
     [Fact]
@@ -279,11 +268,7 @@ public sealed class TrilobiteMiningPostSelectionTests
         post.Assign(miner, null);
         Assert.Equal(1, miner.AddToInventory(ResourceName.Sandstone, 1));
 
-        Assert.True(miner.NavigateToInteractionZone(post, InteractionZonePurpose.ResourceTransfer));
-        while (miner.HasActiveMovement)
-        {
-            cave.AdvanceCreatureMovement();
-        }
+        Assert.True(miner.IsAtBuildingInteractionTile(post));
 
         var depositCueCount = 0;
         session.AudioCueRequested += cue => depositCueCount += cue == GameAudioCue.CreatureDeposit ? 1 : 0;

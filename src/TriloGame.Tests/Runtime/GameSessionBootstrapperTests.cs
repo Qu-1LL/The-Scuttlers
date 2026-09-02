@@ -24,6 +24,8 @@ public sealed class GameSessionBootstrapperTests
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Garage");
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Silo");
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Turret");
+        Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Grinding Mill");
+        Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Bakery");
         Assert.NotNull(queen);
     }
 

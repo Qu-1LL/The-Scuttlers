@@ -54,7 +54,7 @@ public sealed class MovementReplayTests
                        $"{creature.FacingDirection.X},{creature.FacingDirection.Y}:" +
                        $"{creature.Role}:{creature.Activity}:{creature.MovementCohort}:" +
                        $"{creature.IdleDestination}:{creature.IdleRestTicks}:" +
-                       $"{creature.ReservedZone?.Id}:{creature.ActiveMiningClaim}:" +
+                       $"{creature.ActiveMiningClaim}:" +
                        $"{hitbox?.Id},{hitbox?.Shape.Kind},{hitbox?.PreferredTarget?.Id}:" +
                        $"{creature.Health}:{creature.DamageFlashSequence}:" +
                        $"{creature.Inventory.Type},{creature.Inventory.Amount}";

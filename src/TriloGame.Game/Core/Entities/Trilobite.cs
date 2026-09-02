@@ -3,7 +3,6 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.Traits;
 using TriloGame.Game.Shared.Math;
@@ -18,7 +17,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     private bool _fleeingToQueen;
     private MineTileResult? _pendingMiningStrikeResult;
     private GridPoint? _farmerHarvestTarget;
-    private Building? _farmerAlgaeStorageSource;
+    private Building? _farmerFoodSource;
+    private ResourceName? _farmerFoodResource;
+    private Building? _farmerProcessingBuilding;
     private bool _fighterPreferAssignedStation = true;
     private bool _depositInventoryBeforeRole;
 
@@ -219,7 +220,8 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         BuilderState = BuilderState.Idle;
         FighterState = FighterState.Idle;
         _farmerHarvestTarget = null;
-        _farmerAlgaeStorageSource = null;
+        ClearFarmerFoodSource();
+        _farmerProcessingBuilding = null;
         _fighterPreferAssignedStation = true;
         LastRoleFailure = WorkerRoleFailureReason.None;
     }
@@ -307,7 +309,8 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
                 : QueueFarmerState(FarmerState.MoveToFarmSlot, WorkerRoleFailureReason.TargetInvalid, result: false),
             FarmerState.MoveToQueen => AdvanceFarmerMoveToQueen(),
             FarmerState.FeedQueen => AdvanceFarmerFeedQueen(),
-            FarmerState.MoveToStoredAlgae => AdvanceFarmerMoveToStoredAlgae(),
+            FarmerState.MoveToProcessingBuilding => AdvanceFarmerMoveToProcessingBuilding(),
+            FarmerState.MoveToStoredFood => AdvanceFarmerMoveToStoredFood(),
             FarmerState.WaitForFarm => QueueFarmerState(FarmerState.Idle, WorkerRoleFailureReason.NoWork, result: false),
             _ => QueueFarmerState(FarmerState.Idle, WorkerRoleFailureReason.TargetInvalid, result: false)
         };
@@ -356,11 +359,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.ResourceTransfer } transferZone ||
-            !ReferenceEquals(transferZone.Owner, post) ||
-            !IsAtReservedInteractionSlot())
+        if (!IsAtBuildingInteractionTile(post))
         {
-            if (!NavigateToInteractionZone(post, InteractionZonePurpose.ResourceTransfer))
+            if (!NavigateToBuilding(post))
             {
                 LastRoleFailure = WorkerRoleFailureReason.NoReachablePath;
                 return false;
@@ -383,7 +384,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         _depositInventoryBeforeRole = false;
-        ReleaseInteractionReservation();
         return RunRole();
     }
 
@@ -392,7 +392,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         accepted = 0;
         if (!HasInventory())
         {
-            ReleaseInteractionReservation();
             return true;
         }
 
@@ -423,7 +422,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         accepted = 0;
         if (!HasInventory())
         {
-            ReleaseInteractionReservation();
             return true;
         }
 
@@ -456,7 +454,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             SetActivity(CreatureActivity.WaitingForSlot);
         }
 
-        ReleaseInteractionReservation();
         return accepted > 0;
     }
 
@@ -784,19 +781,55 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     public int FeedQueenAlgae(Queen queen)
     {
-        if (!HasInventory() || Inventory.Type != ResourceName.Algae)
+        if (Inventory.GetAmount(ResourceName.Algae) <= 0)
         {
             return 0;
         }
 
-        var result = queen.FeedAlgae(Inventory.Amount, this, Cave);
+        var result = queen.FeedAlgae(Inventory.GetAmount(ResourceName.Algae), this, Cave);
         if (result.Accepted <= 0)
         {
             return 0;
         }
 
-        RemoveFromInventory(result.Accepted);
+        RemoveFromInventory(ResourceName.Algae, result.Accepted);
         return result.Accepted;
+    }
+
+    public int FeedQueenFood(Queen queen)
+    {
+        var resourceType = GetCarriedFarmerFoodResource();
+        if (!resourceType.HasValue)
+        {
+            return 0;
+        }
+
+        var result = queen.FeedResource(resourceType.Value, Inventory.GetAmount(resourceType.Value), this, Cave);
+        if (result.Accepted <= 0)
+        {
+            return 0;
+        }
+
+        RemoveFromInventory(resourceType.Value, result.Accepted);
+        return result.Accepted;
+    }
+
+    // More nutritious food is prioritized so a mixed carry feeds the queen efficiently.
+    private ResourceName? GetCarriedFarmerFoodResource()
+    {
+        if (Inventory.GetAmount(ResourceName.AlgaePie) > 0)
+        {
+            return ResourceName.AlgaePie;
+        }
+
+        if (Inventory.GetAmount(ResourceName.AlgaeMeal) > 0)
+        {
+            return ResourceName.AlgaeMeal;
+        }
+
+        return Inventory.GetAmount(ResourceName.Algae) > 0
+            ? ResourceName.Algae
+            : null;
     }
 
     public Building? GetAssignedBuilding() => AssignedBuilding;
@@ -1254,9 +1287,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         FighterPathMode = "station";
-        var startedNavigation = station is Turret
-            ? NavigateToInteractionZone(station, InteractionZonePurpose.Approach)
-            : NavigateToBuilding(station);
+        var startedNavigation = NavigateToBuilding(station);
         if (startedNavigation)
         {
             return true;
@@ -1446,14 +1477,12 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return TryNavigateAlgaeFarms(excludedFarms);
         }
 
-        if (ReservedZone is { Purpose: InteractionZonePurpose.Work } reservedWorkZone &&
-            ReferenceEquals(reservedWorkZone.Owner, farm) &&
-            IsAtReservedInteractionSlot())
+        if (farm.IsLocationOnFarm(Location))
         {
             return AdvanceFarmerMoveToFarmSlot();
         }
 
-        if (!NavigateToInteractionZone(farm, InteractionZonePurpose.Work))
+        if (!NavigateToBuilding(farm))
         {
             ReleaseAssignedBuilding();
             excludedFarms.Add(farm);
@@ -1473,7 +1502,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
         if (HasInventory())
         {
-            if (Inventory.Type == ResourceName.Algae)
+            if (GetCarriedFarmerFoodResource().HasValue)
             {
                 return AdvanceFarmerMoveToQueen();
             }
@@ -1484,7 +1513,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         if (SelectAlgaeFarm(GetAssignedAlgaeFarm()) is null)
         {
             ReleaseAssignedBuilding();
-            return TryNavigateStoredAlgae();
+            return TryNavigateStoredFood();
         }
 
         return TryNavigateAlgaeFarms();
@@ -1504,11 +1533,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.Work } workZone ||
-            !ReferenceEquals(workZone.Owner, farm) ||
-            !IsAtReservedInteractionSlot())
+        if (!farm.IsLocationOnFarm(Location))
         {
-            if (!NavigateToInteractionZone(farm, InteractionZonePurpose.Work))
+            if (!NavigateToBuilding(farm))
             {
                 ReleaseAssignedBuilding();
                 QueueFarmerState(FarmerState.SelectFarm);
@@ -1527,7 +1554,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        if (!TryMoveInteractionReservation(nextLocation.Value))
+        if (!PerformMove(nextLocation.Value))
         {
             QueueFarmerState(FarmerState.MoveToFarmSlot);
             return false;
@@ -1551,7 +1578,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        if (!IsAtReservedInteractionSlot() || CurrentCell != nextLocation)
+        if (!farm.IsLocationOnFarm(CurrentCell) || CurrentCell != nextLocation)
         {
             QueueFarmerState(FarmerState.MoveToFarmSlot);
             return false;
@@ -1575,10 +1602,16 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        if (!HasInventory() || Inventory.Type != ResourceName.Algae)
+        var resourceType = GetCarriedFarmerFoodResource();
+        if (!resourceType.HasValue)
         {
             QueueFarmerState(FarmerState.SelectFarm);
             return false;
+        }
+
+        if (TryNavigateProcessingBuilding(resourceType.Value))
+        {
+            return true;
         }
 
         var queen = GetQueen();
@@ -1594,7 +1627,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         ClearTaskQueue();
-        if (!NavigateToInteractionZone(queen, InteractionZonePurpose.Feeding, clearExisting: false))
+        if (!NavigateToBuilding(queen, clearExisting: false))
         {
             QueueFarmerState(FarmerState.MoveToQueen);
             return false;
@@ -1640,7 +1673,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         }
 
         SetActivity(CreatureActivity.Feeding);
-        var fed = FeedQueenAlgae(queen);
+        var fed = FeedQueenFood(queen);
         if (fed <= 0)
         {
             QueueFarmerState(FarmerState.MoveToQueen);
@@ -2043,11 +2076,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
         if (ShouldDepositMinerInventory(miningPost))
         {
-            if (ReservedZone is not { Purpose: InteractionZonePurpose.ResourceTransfer } transferZone ||
-                !ReferenceEquals(transferZone.Owner, miningPost) ||
-                !IsAtReservedInteractionSlot())
+            if (!IsAtBuildingInteractionTile(miningPost))
             {
-                if (!NavigateToInteractionZone(miningPost, InteractionZonePurpose.ResourceTransfer))
+                if (!NavigateToBuilding(miningPost))
                 {
                     ReleaseAssignedBuilding();
                     QueueMinerState(MinerState.SelectPost);
@@ -2670,9 +2701,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
     private bool IsAtResourceStorageSource(Building building)
     {
-        return ReservedZone is { Purpose: InteractionZonePurpose.ResourceTransfer } zone &&
-               ReferenceEquals(zone.Owner, building) &&
-               IsAtReservedInteractionSlot();
+        return IsAtBuildingInteractionTile(building);
     }
 
     public bool CanActOnScaffold(Scaffolding scaffold)
@@ -2811,16 +2840,23 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
         return (Cave?.GetBuildingBfsFieldValue(scaffold, Location) ?? int.MaxValue) != int.MaxValue;
     }
 
+    // Keep an existing build assignment while its asynchronous navigation field is being published.
+    private bool IsBuildingNavigationFieldPending(Building building)
+    {
+        return Cave?.UsesAsyncBuildingNavigationField(building) == true &&
+               building.PublishedNavigationField is null;
+    }
+
     public Scaffolding? EnsureBuilderAssignment(bool actionableOnly = false, IEnumerable<Scaffolding>? excludeScaffolds = null)
     {
         var excluded = excludeScaffolds?.ToHashSet() ?? [];
         var assignedScaffold = GetAssignedScaffolding();
         if (assignedScaffold is not null &&
             assignedScaffold.IsInProgress() &&
-            CanReachScaffolding(assignedScaffold) &&
+            (CanReachScaffolding(assignedScaffold) || IsBuildingNavigationFieldPending(assignedScaffold)) &&
             !excluded.Contains(assignedScaffold) &&
             CanAssignToScaffold(assignedScaffold) &&
-            (!actionableOnly || CanActOnScaffold(assignedScaffold)))
+            (!actionableOnly || CanActOnScaffold(assignedScaffold) || IsBuildingNavigationFieldPending(assignedScaffold)))
         {
             assignedScaffold.Assign(this);
             return assignedScaffold;
@@ -2861,11 +2897,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return false;
         }
 
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.ResourceTransfer } transferZone ||
-            !ReferenceEquals(transferZone.Owner, post) ||
-            !IsAtReservedInteractionSlot())
+        if (!IsAtBuildingInteractionTile(post))
         {
-            if (!NavigateToInteractionZone(post, InteractionZonePurpose.ResourceTransfer))
+            if (!NavigateToBuilding(post))
             {
                 return false;
             }
@@ -2994,9 +3028,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return AdvanceBuilderWithdrawMaterial();
         }
 
-        if (!NavigateToInteractionZone(
-                supplyOption.Value.SourceBuilding,
-                InteractionZonePurpose.ResourceTransfer))
+        if (!NavigateToBuilding(supplyOption.Value.SourceBuilding))
         {
             scaffold.ReleaseMaterialReservation(this);
             ClearBuilderSourcePost();
@@ -3041,7 +3073,7 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
         if (!IsAtResourceStorageSource(sourceBuilding))
         {
-            if (!NavigateToInteractionZone(sourceBuilding, InteractionZonePurpose.ResourceTransfer))
+            if (!NavigateToBuilding(sourceBuilding))
             {
                 scaffold.ReleaseMaterialReservation(this);
                 ClearBuilderSourcePost();
@@ -3080,7 +3112,6 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
 
         BuilderSourcePost = null;
         BuilderSourceBuilding = null;
-        ReleaseInteractionReservation();
         return AdvanceBuilderDepositMaterial();
     }
 
@@ -3109,12 +3140,17 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return AdvanceBuilderDepositExtraInventory();
         }
 
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.Construction } deliveryZone ||
-            !ReferenceEquals(deliveryZone.Owner, scaffold) ||
-            !IsAtReservedInteractionSlot())
+        if (!IsAtBuildingInteractionTile(scaffold))
         {
-            if (!NavigateToInteractionZone(scaffold, InteractionZonePurpose.Construction))
+            if (!NavigateToBuilding(scaffold))
             {
+                if (Cave?.UsesAsyncBuildingNavigationField(scaffold) == true &&
+                    scaffold.PublishedNavigationField is null)
+                {
+                    QueueBuilderState(BuilderState.DepositMaterial);
+                    return false;
+                }
+
                 scaffold.ReleaseMaterialReservation(this);
                 QueueBuilderState(BuilderState.DepositExtraInventory);
                 return false;
@@ -3164,11 +3200,9 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
             return AdvanceBuilderSelectScaffold();
         }
 
-        if (ReservedZone is not { Purpose: InteractionZonePurpose.Construction } workZone ||
-            !ReferenceEquals(workZone.Owner, scaffold) ||
-            !IsAtReservedInteractionSlot())
+        if (!IsAtBuildingInteractionTile(scaffold))
         {
-            if (!NavigateToInteractionZone(scaffold, InteractionZonePurpose.Construction))
+            if (!NavigateToBuilding(scaffold))
             {
                 QueueBuilderState(BuilderState.SelectScaffold);
                 return false;

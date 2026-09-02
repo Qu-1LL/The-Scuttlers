@@ -31,9 +31,8 @@ their role tasks after the move.
 - `1`-`4`: choose a tick speed; while the BFS section is active, `1`-`3` select a field
 - `P`: spawn one debug enemy
 
-The debug menu contains `Show Role Labels`, `Show Hitboxes`, and `Show Zones` toggles. Hitboxes
-are lime circles. Interaction zones are cyan rectangles, and reserved slots are amber. Hovering a
-visible hitbox or zone shows its owner and dimensions; selected or hovered moving creatures show
+The debug menu contains `Show Role Labels` and `Show Hitboxes` toggles. Hitboxes are lime circles.
+Hovering a visible hitbox shows its owner and dimensions; selected or hovered moving creatures show
 their desired route.
 
 Mining swings display a translucent magenta action hurtbox. Melee swings display a translucent

@@ -475,72 +475,13 @@ public sealed class BfsField
             return;
         }
 
-        var hasNavigationTargets = false;
-        for (var zoneIndex = 0; zoneIndex < building.InteractionZones.Count; zoneIndex++)
+        var interactionTiles = building.GetNavigationSeedTiles(cave);
+        for (var tileIndex = 0; tileIndex < interactionTiles.Count; tileIndex++)
         {
-            var zone = building.InteractionZones[zoneIndex];
-            if (!zone.IsNavigationTarget)
-            {
-                continue;
-            }
-
-            hasNavigationTargets = true;
-            for (var slotIndex = 0; slotIndex < zone.SlotPositions.Count; slotIndex++)
-            {
-                var tile = cave.GetTile(zone.SlotPositions[slotIndex].ToGridPoint());
-                if (tile is not null && IsTilePassableToField(tile) && _covered[tile.Id])
-                {
-                    AddSeed(tile);
-                }
-            }
-        }
-
-        if (hasNavigationTargets)
-        {
-            return;
-        }
-
-        if (building.NavigationSeedMode == BuildingNavigationSeedMode.AdjacentExteriorPassableTiles)
-        {
-            foreach (var tile in building.TileArray)
-            {
-                foreach (var neighbor in tile.Neighbors)
-                {
-                    if (ReferenceEquals(neighbor.Built, building) ||
-                        !IsTilePassableToField(neighbor) ||
-                        !_covered[neighbor.Id])
-                    {
-                        continue;
-                    }
-
-                    AddSeed(neighbor);
-                }
-            }
-
-            return;
-        }
-
-        foreach (var tile in building.TileArray)
-        {
-            if (ReferenceEquals(tile.Built, building) && IsTilePassableToField(tile) && _covered[tile.Id])
+            var tile = interactionTiles[tileIndex];
+            if (IsTilePassableToField(tile) && _covered[tile.Id])
             {
                 AddSeed(tile);
-            }
-        }
-
-        if (_seedIds.Count > 0)
-        {
-            return;
-        }
-
-        foreach (var tile in building.TileArray)
-        {
-            foreach (var neighbor in tile.Neighbors)
-            {
-                if (IsTilePassableToField(neighbor) && _covered[neighbor.Id])
-                {
-                    AddSeed(neighbor);
-                }
             }
         }
     }

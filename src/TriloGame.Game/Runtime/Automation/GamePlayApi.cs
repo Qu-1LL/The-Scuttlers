@@ -308,8 +308,6 @@ public sealed class GamePlayApi
             creature.MovementCohort,
             creature.IdleDestination?.ToWorldPixels(),
             creature.IdleRestTicks,
-            creature.ReservedZone?.Id,
-            creature.ReservedZone?.Name,
             route,
             hurtboxSnapshot,
             combatTargetId,
@@ -325,8 +323,10 @@ public sealed class GamePlayApi
         return buildingType.Trim().ToLowerInvariant() switch
         {
             "algaefarm" or "algae_farm" or "farm" => new AlgaeFarm(session),
+            "bakery" => new Bakery(session),
             "barracks" => new Barracks(session),
             "garage" => new Garage(session),
+            "grindingmill" or "grinding_mill" or "mill" => new GrindingMill(session),
             "miningpost" or "mining_post" or "mine" => new MiningPost(session),
             "radar" => new Radar(session),
             "silo" => new Silo(session),

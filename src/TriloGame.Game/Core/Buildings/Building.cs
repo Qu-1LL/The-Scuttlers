@@ -11,7 +11,6 @@ namespace TriloGame.Game.Core.Buildings;
 public class Building : IBuildPlacementDragTarget
 {
     private readonly List<World.Tile> _projectedTiles = [];
-    private readonly List<InteractionZone> _interactionZones = [];
     private BfsField? _bfsField;
 
     public Building(string name, GridPoint size, int[][] openMap, GameSession session, bool hasStation)
@@ -112,36 +111,6 @@ public class Building : IBuildPlacementDragTarget
     public virtual GridPoint DragPlacementStep => Size;
 
     public IReadOnlyList<World.Tile> ProjectedTiles => _projectedTiles;
-
-    public IReadOnlyList<InteractionZone> InteractionZones => _interactionZones;
-
-    public bool TryGetInteractionZone(InteractionZonePurpose purpose, out InteractionZone zone)
-    {
-        for (var index = 0; index < _interactionZones.Count; index++)
-        {
-            if (_interactionZones[index].Purpose == purpose)
-            {
-                zone = _interactionZones[index];
-                return true;
-            }
-        }
-
-        zone = null!;
-        return false;
-    }
-
-    public bool OwnsInteractionZone(InteractionZone zone)
-    {
-        for (var index = 0; index < _interactionZones.Count; index++)
-        {
-            if (ReferenceEquals(_interactionZones[index], zone))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     public virtual int ProjectionRadius => 0;
 
@@ -302,37 +271,7 @@ public class Building : IBuildPlacementDragTarget
             return seeds;
         }
 
-        // Interaction slots are the arrival contract for a building field.  Fall back to the
-        // legacy footprint rules only for buildings that do not define any walkable zone.
         var seen = new HashSet<int>();
-        var hasNavigationTargets = false;
-        for (var zoneIndex = 0; zoneIndex < _interactionZones.Count; zoneIndex++)
-        {
-            var zone = _interactionZones[zoneIndex];
-            if (!zone.IsNavigationTarget)
-            {
-                continue;
-            }
-
-            hasNavigationTargets = true;
-            for (var slotIndex = 0; slotIndex < zone.SlotPositions.Count; slotIndex++)
-            {
-                var tile = cave.GetTile(zone.SlotPositions[slotIndex].ToGridPoint());
-                if (tile is not null &&
-                    tile.CreatureFits() &&
-                    cave.IsTileReachable(tile) &&
-                    seen.Add(tile.Id))
-                {
-                    seeds.Add(tile);
-                }
-            }
-        }
-
-        if (hasNavigationTargets)
-        {
-            return seeds;
-        }
-
         if (NavigationSeedMode == BuildingNavigationSeedMode.InteriorPassableOwnedTiles)
         {
             foreach (var tile in TileArray)
@@ -368,6 +307,30 @@ public class Building : IBuildPlacementDragTarget
         return seeds;
     }
 
+    // Built stationable buildings are used from their passable footprint; all other buildings use a passable adjacent tile.
+    public bool IsInteractionTile(World.Tile tile)
+    {
+        if (!tile.CreatureFits())
+        {
+            return false;
+        }
+
+        if (HasStation)
+        {
+            return ReferenceEquals(tile.Built, this);
+        }
+
+        foreach (var neighbor in tile.Neighbors)
+        {
+            if (ReferenceEquals(neighbor.Built, this))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public virtual int RestoreHealth()
     {
         Health = MaxHealth;
@@ -394,7 +357,6 @@ public class Building : IBuildPlacementDragTarget
 
     public virtual void CleanupBeforeRemoval(object? source = null)
     {
-        ClearInteractionZones();
         ClearProjectedTiles();
     }
 
@@ -406,91 +368,6 @@ public class Building : IBuildPlacementDragTarget
     public virtual void OnBuilt(World.Cave cave)
     {
         RefreshProjectedTiles(cave);
-        RefreshInteractionZones();
-    }
-
-    protected virtual IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => [];
-
-    protected void RefreshInteractionZones()
-    {
-        ClearInteractionZones();
-        if (Location is null)
-        {
-            return;
-        }
-
-        var definitions = GetInteractionZoneDefinitions();
-        for (var index = 0; index < definitions.Count; index++)
-        {
-            _interactionZones.Add(CreateInteractionZone(index, definitions[index]));
-        }
-    }
-
-    private InteractionZone CreateInteractionZone(int zoneIndex, InteractionZoneDefinition definition)
-    {
-        var transformedCells = new GridPoint[definition.Size.X * definition.Size.Y];
-        var cellIndex = 0;
-        for (var y = 0; y < definition.Size.Y; y++)
-        {
-            for (var x = 0; x < definition.Size.X; x++)
-            {
-                transformedCells[cellIndex++] = TransformLocalCell(new GridPoint(
-                    definition.Origin.X + x,
-                    definition.Origin.Y + y));
-            }
-        }
-
-        var minX = transformedCells.Min(point => point.X);
-        var minY = transformedCells.Min(point => point.Y);
-        var maxX = transformedCells.Max(point => point.X);
-        var maxY = transformedCells.Max(point => point.Y);
-        var location = Location!.Value;
-        var bounds = new WorldRectangle(
-            ((location.X + minX) * WorldUnits.UnitsPerTile) - WorldUnits.UnitsPerHalfTile,
-            ((location.Y + minY) * WorldUnits.UnitsPerTile) - WorldUnits.UnitsPerHalfTile,
-            (maxX - minX + 1) * WorldUnits.UnitsPerTile,
-            (maxY - minY + 1) * WorldUnits.UnitsPerTile);
-
-        var slots = new WorldPoint[definition.Slots.Count];
-        for (var index = 0; index < definition.Slots.Count; index++)
-        {
-            var transformed = TransformLocalCell(definition.Slots[index]);
-            slots[index] = WorldPoint.FromGridPoint(new GridPoint(
-                location.X + transformed.X,
-                location.Y + transformed.Y));
-        }
-
-        return new InteractionZone(
-            checked((Id * 100) + zoneIndex),
-            this,
-            definition.Name,
-            definition.Purpose,
-            bounds,
-            slots,
-            definition.IsNavigationTarget);
-    }
-
-    private GridPoint TransformLocalCell(GridPoint point)
-    {
-        var width = DisplayBaseSize.X;
-        var height = DisplayBaseSize.Y;
-        return GetDisplayRotationTurns() switch
-        {
-            1 => new GridPoint(height - 1 - point.Y, point.X),
-            2 => new GridPoint(width - 1 - point.X, height - 1 - point.Y),
-            3 => new GridPoint(point.Y, width - 1 - point.X),
-            _ => point
-        };
-    }
-
-    private void ClearInteractionZones()
-    {
-        for (var index = 0; index < _interactionZones.Count; index++)
-        {
-            _interactionZones[index].ClearReservations();
-        }
-
-        _interactionZones.Clear();
     }
 
     public virtual int Tick(World.Cave cave)

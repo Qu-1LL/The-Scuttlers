@@ -211,6 +211,30 @@ public sealed class EnemyBehaviorTests
     }
 
     [Fact]
+    public void EnemyMove_ReplacesStaleDirectPursuitWithColonyRouteWhenTargetDies()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(36, 12, new GridPoint(1, 1));
+        var enemyLocation = new GridPoint(24, 6);
+        var enemy = new Enemy("Retargeting Ant", enemyLocation, session);
+        Assert.True(cave.Spawn(enemy, cave.GetTile(enemyLocation)!));
+        var target = TestWorldFactory.SpawnTrilobite(cave, session, new GridPoint(27, 6), "Fleeing Target");
+        cave.RefreshBfsField("colony");
+        session.Combat.BeginTick(cave);
+
+        Assert.True(enemy.EnemyStep1());
+        Assert.True(enemy.HasActiveMovement);
+        Assert.Equal(RouteContinuationKind.None, enemy.ActiveRouteContinuationKind);
+
+        target.TakeDamage(target.Health, enemy);
+        cave.RefreshBfsField("colony");
+
+        Assert.True(enemy.Move() is true);
+        Assert.True(enemy.HasActiveMovement);
+        Assert.Equal(RouteContinuationKind.SharedBfsField, enemy.ActiveRouteContinuationKind);
+        Assert.Equal(EnemyCombatState.MoveToColony, enemy.CombatState);
+    }
+
+    [Fact]
     public void EnemyMove_InterruptsActiveRouteForAdjacentHostile()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(30, 10, new GridPoint(1, 1));

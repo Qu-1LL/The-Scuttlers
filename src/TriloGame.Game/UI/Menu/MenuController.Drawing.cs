@@ -141,6 +141,7 @@ public sealed partial class MenuController
         var assignmentText = SelectedObject switch
         {
             Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
+            IProcessingBuilding processingBuilding => $"Processing: every {processingBuilding.ProcessingIntervalTicks} ticks",
             IResourceStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
             _ => $"Type: {title}"
         };
@@ -270,7 +271,34 @@ public sealed partial class MenuController
             }
         }
 
-        if (TryGetSelectedInventorySummary(
+        if (SelectedObject is IProcessingBuilding processing &&
+            layout.SelectedProcessingInputFrameBounds is { } inputFrameBounds &&
+            layout.SelectedProcessingInputViewportBounds is { } inputViewportBounds &&
+            layout.SelectedProcessingOutputFrameBounds is { } outputFrameBounds &&
+            layout.SelectedProcessingOutputViewportBounds is { } outputViewportBounds)
+        {
+            DrawProcessingInventorySection(
+                context,
+                inputFrameBounds,
+                inputViewportBounds,
+                "INPUTS",
+                GetProcessingResourceSummary(processing, isInput: true),
+                layout.SelectedProcessingInputEntries,
+                "No input resources are configured.",
+                layout.SelectedProcessingInputScrollbarTrackBounds,
+                layout.SelectedProcessingInputScrollbarThumbBounds);
+            DrawProcessingInventorySection(
+                context,
+                outputFrameBounds,
+                outputViewportBounds,
+                "OUTPUTS",
+                GetProcessingResourceSummary(processing, isInput: false),
+                layout.SelectedProcessingOutputEntries,
+                "No output resources are configured.",
+                layout.SelectedProcessingOutputScrollbarTrackBounds,
+                layout.SelectedProcessingOutputScrollbarThumbBounds);
+        }
+        else if (TryGetSelectedInventorySummary(
                 out var inventoryTitle,
                 out var inventoryAmountText,
                 out var emptyInventoryText) &&
@@ -345,8 +373,79 @@ public sealed partial class MenuController
             AlgaeFarm farm => farm.GetVolume(),
             StationBuilding station => station.GetVolume(),
             Scaffolding scaffolding => scaffolding.GetVolume(),
+            IProcessingBuilding processing when building is IProcessingOutputAssignmentBuilding assignments =>
+                GetProcessingOutputCollectorCount(processing, assignments),
             _ => 0
         };
+    }
+
+    private static int GetProcessingOutputCollectorCount(
+        IProcessingBuilding processing,
+        IProcessingOutputAssignmentBuilding assignments)
+    {
+        var count = 0;
+        for (var index = 0; index < processing.OutputDefinitions.Count; index++)
+        {
+            count += assignments.GetOutputCollectorCount(processing.OutputDefinitions[index].ResourceType);
+        }
+
+        return count;
+    }
+
+    // Draw one half of a processing building's inventory, keeping input and output inventory distinct.
+    private void DrawProcessingInventorySection(
+        RenderingContext context,
+        Rectangle frameBounds,
+        Rectangle viewportBounds,
+        string title,
+        string amountText,
+        IReadOnlyList<InventoryEntryRect> entries,
+        string emptyText,
+        Rectangle? scrollbarTrackBounds,
+        Rectangle? scrollbarThumbBounds)
+    {
+        DrawFrame(context, frameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+        DrawTextFitted(
+            context,
+            title,
+            new Rectangle(frameBounds.X + 12, frameBounds.Y + 8, frameBounds.Width / 2, 20),
+            new Color(159, 195, 210));
+        DrawTextFittedRight(
+            context,
+            amountText,
+            new Rectangle(frameBounds.Right - 120, frameBounds.Y + 8, 108, 20),
+            new Color(210, 228, 236));
+
+        if (entries.Count == 0)
+        {
+            DrawWrappedText(context, emptyText, Inset(viewportBounds, 10), new Color(210, 228, 236));
+        }
+        else
+        {
+            foreach (var entry in entries)
+            {
+                DrawInventoryEntry(context, entry);
+            }
+        }
+
+        DrawScrollbar(context, scrollbarTrackBounds, scrollbarThumbBounds);
+    }
+
+    private static string GetProcessingResourceSummary(IProcessingBuilding processing, bool isInput)
+    {
+        var definitions = isInput ? processing.InputDefinitions : processing.OutputDefinitions;
+        var amount = 0;
+        var capacity = 0;
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            var definition = definitions[index];
+            amount += isInput
+                ? processing.GetInputAmount(definition.ResourceType)
+                : processing.GetOutputAmount(definition.ResourceType);
+            capacity += definition.Capacity;
+        }
+
+        return $"{amount}/{capacity}";
     }
 
     private bool TryGetSelectedInventorySummary(
@@ -442,9 +541,12 @@ public sealed partial class MenuController
             hovered ? new Color(22, 50, 71) : new Color(16, 38, 54),
             hovered ? new Color(125, 179, 196) : new Color(54, 88, 107));
 
-        var quantityBadgeBounds = new Rectangle(entry.Bounds.Right - 60, entry.Bounds.Y + 8, 50, 22);
+        var quantityBadgeBounds = new Rectangle(entry.Bounds.Right - 78, entry.Bounds.Y + 8, 68, 22);
         DrawFrame(context, quantityBadgeBounds, new Color(10, 22, 32), new Color(80, 122, 141));
-        DrawTextFittedRight(context, entry.Quantity.ToString(), Inset(quantityBadgeBounds, 5), Color.White, minScale: 0.62f);
+        var quantityText = entry.Capacity is { } capacity
+            ? $"{entry.Quantity}/{capacity}"
+            : entry.Quantity.ToString();
+        DrawTextFittedRight(context, quantityText, Inset(quantityBadgeBounds, 5), Color.White, minScale: 0.52f);
 
         var iconBounds = new Rectangle(entry.Bounds.X + 10, entry.Bounds.Y + 34, entry.Bounds.Width - 20, Math.Max(24, entry.Bounds.Height - 72));
         DrawFrame(context, iconBounds, new Color(11, 23, 33), new Color(63, 98, 117));

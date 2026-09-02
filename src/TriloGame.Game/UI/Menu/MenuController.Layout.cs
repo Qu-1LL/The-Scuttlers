@@ -120,6 +120,18 @@ public sealed partial class MenuController
         float selectedInventoryMaxScroll = 0f;
         Rectangle? selectedInventoryScrollbarTrackBounds = null;
         Rectangle? selectedInventoryScrollbarThumbBounds = null;
+        Rectangle? selectedProcessingInputFrameBounds = null;
+        Rectangle? selectedProcessingInputViewportBounds = null;
+        IReadOnlyList<InventoryEntryRect> selectedProcessingInputEntries = [];
+        float selectedProcessingInputMaxScroll = 0f;
+        Rectangle? selectedProcessingInputScrollbarTrackBounds = null;
+        Rectangle? selectedProcessingInputScrollbarThumbBounds = null;
+        Rectangle? selectedProcessingOutputFrameBounds = null;
+        Rectangle? selectedProcessingOutputViewportBounds = null;
+        IReadOnlyList<InventoryEntryRect> selectedProcessingOutputEntries = [];
+        float selectedProcessingOutputMaxScroll = 0f;
+        Rectangle? selectedProcessingOutputScrollbarTrackBounds = null;
+        Rectangle? selectedProcessingOutputScrollbarThumbBounds = null;
         var selectedDetailTop = selectedBounds.Y + 118;
         GumScrollableTextLayout selectedDescriptionLayout = default;
         if (SelectedObject is Trilobite)
@@ -213,6 +225,7 @@ public sealed partial class MenuController
                 selectedInventoryViewportBounds.Value,
                 inventoryEntries,
                 selectedScale,
+                SelectedInventoryScroll,
                 out selectedInventoryMaxScroll,
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
@@ -229,6 +242,53 @@ public sealed partial class MenuController
                 GumTextStyle.Small,
                 SelectedDescriptionScroll);
             SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
+        }
+        else if (SelectedObject is IProcessingBuilding processing)
+        {
+            var selectedBodyTop = selectedDetailTop + (int)MathF.Round(14f * selectedScale);
+            var selectedBodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(14f * selectedScale);
+            var sectionGap = Math.Max(8, (int)MathF.Round(12f * selectedScale));
+            var sectionHeight = Math.Max(64, (selectedBodyBottom - selectedBodyTop - sectionGap) / 2);
+            selectedProcessingInputFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedBodyTop,
+                selectedBounds.Width - 32,
+                sectionHeight);
+            selectedProcessingOutputFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedProcessingInputFrameBounds.Value.Bottom + sectionGap,
+                selectedBounds.Width - 32,
+                sectionHeight);
+            selectedProcessingInputViewportBounds = new Rectangle(
+                selectedProcessingInputFrameBounds.Value.X + 10,
+                selectedProcessingInputFrameBounds.Value.Y + 38,
+                selectedProcessingInputFrameBounds.Value.Width - 20,
+                Math.Max(24, selectedProcessingInputFrameBounds.Value.Height - 48));
+            selectedProcessingOutputViewportBounds = new Rectangle(
+                selectedProcessingOutputFrameBounds.Value.X + 10,
+                selectedProcessingOutputFrameBounds.Value.Y + 38,
+                selectedProcessingOutputFrameBounds.Value.Width - 20,
+                Math.Max(24, selectedProcessingOutputFrameBounds.Value.Height - 48));
+
+            selectedProcessingInputEntries = BuildInventoryLayout(
+                selectedProcessingInputViewportBounds.Value,
+                BuildProcessingInventoryEntries(processing, isInput: true),
+                selectedScale,
+                SelectedProcessingInputScroll,
+                out selectedProcessingInputMaxScroll,
+                out selectedProcessingInputScrollbarTrackBounds,
+                out selectedProcessingInputScrollbarThumbBounds);
+            SelectedProcessingInputScroll = Clamp(SelectedProcessingInputScroll, 0f, selectedProcessingInputMaxScroll);
+
+            selectedProcessingOutputEntries = BuildInventoryLayout(
+                selectedProcessingOutputViewportBounds.Value,
+                BuildProcessingInventoryEntries(processing, isInput: false),
+                selectedScale,
+                SelectedProcessingOutputScroll,
+                out selectedProcessingOutputMaxScroll,
+                out selectedProcessingOutputScrollbarTrackBounds,
+                out selectedProcessingOutputScrollbarThumbBounds);
+            SelectedProcessingOutputScroll = Clamp(SelectedProcessingOutputScroll, 0f, selectedProcessingOutputMaxScroll);
         }
         else if (SelectedObject is IResourceStorage storage)
         {
@@ -251,6 +311,7 @@ public sealed partial class MenuController
                 selectedInventoryViewportBounds.Value,
                 inventoryEntries,
                 selectedScale,
+                SelectedInventoryScroll,
                 out selectedInventoryMaxScroll,
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
@@ -295,6 +356,7 @@ public sealed partial class MenuController
                 selectedInventoryViewportBounds.Value,
                 inventoryEntries,
                 selectedScale,
+                SelectedInventoryScroll,
                 out selectedInventoryMaxScroll,
                 out selectedInventoryScrollbarTrackBounds,
                 out selectedInventoryScrollbarThumbBounds);
@@ -434,6 +496,18 @@ public sealed partial class MenuController
             selectedInventoryMaxScroll,
             selectedInventoryScrollbarTrackBounds,
             selectedInventoryScrollbarThumbBounds,
+            selectedProcessingInputFrameBounds,
+            selectedProcessingInputViewportBounds,
+            selectedProcessingInputEntries,
+            selectedProcessingInputMaxScroll,
+            selectedProcessingInputScrollbarTrackBounds,
+            selectedProcessingInputScrollbarThumbBounds,
+            selectedProcessingOutputFrameBounds,
+            selectedProcessingOutputViewportBounds,
+            selectedProcessingOutputEntries,
+            selectedProcessingOutputMaxScroll,
+            selectedProcessingOutputScrollbarTrackBounds,
+            selectedProcessingOutputScrollbarThumbBounds,
             selectedDescriptionLayout,
             deleteSelectedBounds,
             buildFirstSelectedBounds,
@@ -590,6 +664,27 @@ public sealed partial class MenuController
         return result;
     }
 
+    // Processing panels list configured resources even when empty so their independent limits stay visible.
+    private static IReadOnlyList<InventoryEntryData> BuildProcessingInventoryEntries(IProcessingBuilding processing, bool isInput)
+    {
+        var definitions = isInput ? processing.InputDefinitions : processing.OutputDefinitions;
+        var result = new List<InventoryEntryData>(definitions.Count);
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            var definition = definitions[index];
+            var amount = isInput
+                ? processing.GetInputAmount(definition.ResourceType)
+                : processing.GetOutputAmount(definition.ResourceType);
+            result.Add(new InventoryEntryData(
+                ItemCatalog.GetName(definition.ResourceType),
+                amount,
+                ItemCatalog.GetTextureKey(definition.ResourceType),
+                definition.Capacity));
+        }
+
+        return result;
+    }
+
     private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(Scaffolding scaffolding)
     {
         var result = new List<InventoryEntryData>();
@@ -707,6 +802,7 @@ public sealed partial class MenuController
         Rectangle viewportBounds,
         IReadOnlyList<InventoryEntryData> entries,
         float layoutScale,
+        float scroll,
         out float maxScroll,
         out Rectangle? scrollbarTrackBounds,
         out Rectangle? scrollbarThumbBounds)
@@ -722,7 +818,7 @@ public sealed partial class MenuController
         var rowCount = (int)MathF.Ceiling(entries.Count / (float)columns);
         var contentHeight = rowCount == 0 ? 0 : (rowCount * cardHeight) + (Math.Max(0, rowCount - 1) * rowGap);
         maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
-        SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, maxScroll);
+        scroll = Clamp(scroll, 0f, maxScroll);
 
         var cards = new List<InventoryEntryRect>(entries.Count);
         for (var index = 0; index < entries.Count; index++)
@@ -730,14 +826,14 @@ public sealed partial class MenuController
             var column = index % columns;
             var row = index / columns;
             var x = viewportBounds.X + ((cardWidth + columnGap) * column);
-            var y = viewportBounds.Y + ((cardHeight + rowGap) * row) - (int)MathF.Round(SelectedInventoryScroll);
+            var y = viewportBounds.Y + ((cardHeight + rowGap) * row) - (int)MathF.Round(scroll);
             var bounds = new Rectangle(x, y, cardWidth, cardHeight);
             if (bounds.Bottom < viewportBounds.Top || bounds.Top > viewportBounds.Bottom)
             {
                 continue;
             }
 
-            cards.Add(new InventoryEntryRect(entries[index].ResourceType, entries[index].TextureKey, entries[index].Quantity, bounds));
+            cards.Add(new InventoryEntryRect(entries[index].ResourceType, entries[index].TextureKey, entries[index].Quantity, entries[index].Capacity, bounds));
         }
 
         if (maxScroll <= 0f)
@@ -750,7 +846,7 @@ public sealed partial class MenuController
         var trackHeight = viewportBounds.Height;
         var thumbHeight = Math.Max(32f, (viewportBounds.Height / (float)contentHeight) * trackHeight);
         var travel = Math.Max(0f, trackHeight - thumbHeight);
-        var ratio = maxScroll <= 0f ? 0f : SelectedInventoryScroll / maxScroll;
+        var ratio = maxScroll <= 0f ? 0f : scroll / maxScroll;
         var thumbY = viewportBounds.Y + (int)MathF.Round(ratio * travel);
         var scrollbarX = viewportBounds.Right - 6;
         scrollbarTrackBounds = new Rectangle(scrollbarX, viewportBounds.Y, 6, trackHeight);
@@ -798,9 +894,9 @@ public sealed partial class MenuController
 
     private readonly record struct AssignmentRowRect(string FromAssignment, string ToAssignment, AssignmentEntryViewModel Entry, Rectangle Bounds);
 
-    private readonly record struct InventoryEntryData(string ResourceType, int Quantity, string TextureKey);
+    private readonly record struct InventoryEntryData(string ResourceType, int Quantity, string TextureKey, int? Capacity = null);
 
-    private readonly record struct InventoryEntryRect(string ResourceType, string TextureKey, int Quantity, Rectangle Bounds);
+    private readonly record struct InventoryEntryRect(string ResourceType, string TextureKey, int Quantity, int? Capacity, Rectangle Bounds);
 
     private readonly record struct MenuMetrics(
         float LayoutScale,
@@ -848,6 +944,18 @@ public sealed partial class MenuController
         float SelectedInventoryMaxScroll,
         Rectangle? SelectedInventoryScrollbarTrackBounds,
         Rectangle? SelectedInventoryScrollbarThumbBounds,
+        Rectangle? SelectedProcessingInputFrameBounds,
+        Rectangle? SelectedProcessingInputViewportBounds,
+        IReadOnlyList<InventoryEntryRect> SelectedProcessingInputEntries,
+        float SelectedProcessingInputMaxScroll,
+        Rectangle? SelectedProcessingInputScrollbarTrackBounds,
+        Rectangle? SelectedProcessingInputScrollbarThumbBounds,
+        Rectangle? SelectedProcessingOutputFrameBounds,
+        Rectangle? SelectedProcessingOutputViewportBounds,
+        IReadOnlyList<InventoryEntryRect> SelectedProcessingOutputEntries,
+        float SelectedProcessingOutputMaxScroll,
+        Rectangle? SelectedProcessingOutputScrollbarTrackBounds,
+        Rectangle? SelectedProcessingOutputScrollbarThumbBounds,
         GumScrollableTextLayout SelectedDescriptionLayout,
         Rectangle DeleteSelectedBounds,
         Rectangle? BuildFirstSelectedBounds,

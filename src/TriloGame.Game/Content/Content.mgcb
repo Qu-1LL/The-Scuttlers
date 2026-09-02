@@ -43,10 +43,30 @@
 /processor:TextureProcessor
 /build:Textures/Algae.png
 
+#begin Textures/Algae_Meal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Algae_Meal.png
+
+#begin Textures/Algae_Pie.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Algae_Pie.png
+
+#begin Textures/Bakery.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Bakery.png
+
 #begin Textures/Garage.png
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/Garage.png
+
+#begin Textures/GrindingMill.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/GrindingMill.png
 
 #begin Textures/AntHole.png
 /importer:TextureImporter

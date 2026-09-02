@@ -1,6 +1,5 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Events;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
@@ -11,15 +10,6 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class MiningPost : Building, IResourceStorage, IStorage
 {
-    private static readonly IReadOnlyList<InteractionZoneDefinition> ZoneDefinitions =
-    [
-        new("Resource transfer", InteractionZonePurpose.ResourceTransfer, new GridPoint(0, 0), new GridPoint(3, 3),
-            [
-                new GridPoint(0, 0), new GridPoint(1, 0), new GridPoint(2, 0),
-                new GridPoint(0, 1), new GridPoint(1, 1), new GridPoint(2, 1),
-                new GridPoint(0, 2), new GridPoint(1, 2), new GridPoint(2, 2)
-            ])
-    ];
     private readonly Dictionary<ResourceName, int> _inventory = [];
     private readonly Dictionary<Creature, string?> _assignments = [];
     private readonly Dictionary<Creature, ResourceReservation> _materialReservations = [];
@@ -54,8 +44,6 @@ public sealed class MiningPost : Building, IResourceStorage, IStorage
     public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.Asynchronous;
 
     public int Radius { get; }
-
-    protected override IReadOnlyList<InteractionZoneDefinition> GetInteractionZoneDefinitions() => ZoneDefinitions;
 
     public bool MineableQueuesReady { get; private set; }
 

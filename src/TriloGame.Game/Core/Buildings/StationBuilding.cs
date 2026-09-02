@@ -149,11 +149,6 @@ public abstract class StationBuilding : Building, IStationBuilding
         }
 
         Cave?.SyncStationAssignmentCount(this, _assignedStationIndices.Count);
-        if (ReferenceEquals(creature.ReservedZone?.Owner, this))
-        {
-            creature.ReleaseInteractionReservation();
-        }
-
         return true;
     }
 

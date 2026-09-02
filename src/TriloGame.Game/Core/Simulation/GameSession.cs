@@ -30,6 +30,7 @@ public sealed class GameSession
         Resources = new Dictionary<ResourceName, int>
         {
             [ResourceName.Algae] = 0,
+            [ResourceName.AlgaeMeal] = 0,
             [ResourceName.Sandstone] = 0,
             [ResourceName.Malachite] = 0,
             [ResourceName.Magnetite] = 0,

@@ -9,7 +9,6 @@ using TriloGame.Game.Core.Buildings;
 using TriloGame.Game.Core.Constants;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
-using TriloGame.Game.Core.Interaction;
 using TriloGame.Game.Core.Movement;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
@@ -139,7 +138,6 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             value => _infiniteDraft = value,
             SetFullMapVisibility,
             value => _session.Runtime.ShowHitboxes = value,
-            value => _session.Runtime.ShowInteractionZones = value,
             PlayUiSelectSound);
         _roundManager.RoundStarted += HandleRoundStarted;
         _roundManager.RoundEnded += HandleRoundEnded;
@@ -304,6 +302,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, OreType.CHITINSTONE.Name, "Textures/Chitinstone");
         RegisterTexture(sprites, OreType.MYCOCORE.Name, "Textures/Mycocore");
         RegisterTexture(sprites, ItemCatalog.Algae.Name, "Textures/Algae");
+        RegisterTexture(sprites, ItemCatalog.AlgaeMeal.TextureKey, "Textures/Algae_Meal");
+        RegisterTexture(sprites, ItemCatalog.AlgaePie.TextureKey, "Textures/Algae_Pie");
         _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.38f, 1f, 2.1f));
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
         // Per-role trilobite art, registered optionally: a role whose sprite has not been drawn yet
@@ -319,6 +319,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Scaffold", "Textures/Scaffold");
         RegisterTexture(sprites, "Queen", "Textures/Queen");
         RegisterTexture(sprites, "AlgaeFarm", "Textures/AlgaeFarm");
+        RegisterTexture(sprites, "Bakery", "Textures/Bakery");
         RegisterTexture(sprites, "Garage", "Textures/Garage");
         RegisterTexture(sprites, "Silo", "Textures/Silo");
         RegisterTexture(sprites, "Plow", "Textures/Plow");
@@ -347,6 +348,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "Storage", "Textures/Storage");
         RegisterTexture(sprites, "Smith", "Textures/Smith");
         RegisterTexture(sprites, "MiningPost", "Textures/MiningPost");
+        RegisterTexture(sprites, "GrindingMill", "Textures/GrindingMill");
         RegisterTexture(sprites, "Radar", "Textures/Radar");
         RegisterTexture(sprites, "Barracks", "Textures/Barracks");
         RegisterTexture(sprites, "Turret", "Textures/Turret");
@@ -1318,8 +1320,7 @@ public sealed partial class GameApp
                 _session.Runtime.NoCostBuildPlacement,
                 _infiniteDraft,
                 _showFullMapVisibility,
-                _session.Runtime.ShowHitboxes,
-                _session.Runtime.ShowInteractionZones))
+                _session.Runtime.ShowHitboxes))
         {
             return;
         }
@@ -2051,19 +2052,6 @@ public sealed partial class GameApp
 
     private void DrawContinuousWorldDebug(Cave cave)
     {
-        if (_session.Runtime.ShowInteractionZones)
-        {
-            var buildings = cave.GetBuildingList();
-            for (var buildingIndex = 0; buildingIndex < buildings.Count; buildingIndex++)
-            {
-                var zones = buildings[buildingIndex].InteractionZones;
-                for (var zoneIndex = 0; zoneIndex < zones.Count; zoneIndex++)
-                {
-                    DrawInteractionZone(zones[zoneIndex]);
-                }
-            }
-        }
-
         if (_session.Runtime.ShowHitboxes)
         {
             DrawCreatureHitboxes(cave.GetTrilobiteList());
@@ -2113,40 +2101,6 @@ public sealed partial class GameApp
         }
     }
 
-    private void DrawInteractionZone(InteractionZone zone)
-    {
-        var bounds = zone.WorldBounds;
-        var topLeft = _camera.WorldToScreen(new Vector2(
-            bounds.X / (float)WorldUnits.UnitsPerPixel,
-            bounds.Y / (float)WorldUnits.UnitsPerPixel));
-        var bottomRight = _camera.WorldToScreen(new Vector2(
-            bounds.Right / (float)WorldUnits.UnitsPerPixel,
-            bounds.Bottom / (float)WorldUnits.UnitsPerPixel));
-        var screenBounds = new Rectangle(
-            (int)MathF.Round(MathF.Min(topLeft.X, bottomRight.X)),
-            (int)MathF.Round(MathF.Min(topLeft.Y, bottomRight.Y)),
-            Math.Max(1, (int)MathF.Round(MathF.Abs(bottomRight.X - topLeft.X))),
-            Math.Max(1, (int)MathF.Round(MathF.Abs(bottomRight.Y - topLeft.Y))));
-        var cyan = new Color(58, 224, 239, 220);
-        _spriteBatch.Draw(_rendering.WhitePixel, screenBounds, new Color(58, 224, 239, 34));
-        DrawScreenLine(new Vector2(screenBounds.Left, screenBounds.Top), new Vector2(screenBounds.Right, screenBounds.Top), cyan, 2f);
-        DrawScreenLine(new Vector2(screenBounds.Right, screenBounds.Top), new Vector2(screenBounds.Right, screenBounds.Bottom), cyan, 2f);
-        DrawScreenLine(new Vector2(screenBounds.Right, screenBounds.Bottom), new Vector2(screenBounds.Left, screenBounds.Bottom), cyan, 2f);
-        DrawScreenLine(new Vector2(screenBounds.Left, screenBounds.Bottom), new Vector2(screenBounds.Left, screenBounds.Top), cyan, 2f);
-
-        for (var index = 0; index < zone.SlotPositions.Count; index++)
-        {
-            if (!zone.IsReserved(index))
-            {
-                continue;
-            }
-
-            var center = _camera.WorldToScreen(ToFrameworkVector(zone.SlotPositions[index].ToWorldPixels()));
-            var marker = new Rectangle((int)center.X - 5, (int)center.Y - 5, 10, 10);
-            _spriteBatch.Draw(_rendering.WhitePixel, marker, new Color(255, 187, 58, 230));
-        }
-    }
-
     private void DrawDesiredRoute(Creature creature)
     {
         if (creature.Activity != CreatureActivity.Moving || creature.DesiredRouteIndex >= creature.DesiredRoute.Count)
@@ -2166,7 +2120,7 @@ public sealed partial class GameApp
 
     private void DrawWorldDebugTooltip(Cave cave)
     {
-        if (!_session.Runtime.ShowHitboxes && !_session.Runtime.ShowInteractionZones)
+        if (!_session.Runtime.ShowHitboxes)
         {
             return;
         }
@@ -2174,8 +2128,7 @@ public sealed partial class GameApp
         var inspection = WorldDebugInspector.Inspect(
             cave,
             ToWorldPoint(_camera.ScreenToWorld(_input.MousePoint)),
-            _session.Runtime.ShowHitboxes,
-            _session.Runtime.ShowInteractionZones);
+            _session.Runtime.ShowHitboxes);
         if (!inspection.HasValue)
         {
             return;
@@ -2706,7 +2659,6 @@ public sealed partial class GameApp
             _infiniteDraft,
             _showFullMapVisibility,
             _session.Runtime.ShowHitboxes,
-            _session.Runtime.ShowInteractionZones,
             pointer);
         DrawWrappedScreenText(
             ["` closes this panel. F3 toggles metrics."],

@@ -264,7 +264,9 @@ public sealed class Enemy : Creature
             return EnemyStep2();
         }
 
-        return EnemyStep3();
+        // The nearby scan already ran above; continue directly into colony pursuit
+        // instead of spending another scan on the same decision.
+        return EnemyStep3(searchNearbyTarget: false);
     }
 
     public bool EnemyStep2()
@@ -299,10 +301,13 @@ public sealed class Enemy : Creature
             return true;
         }
 
-        return RecoverEnemy(CombatNoOpReason.InvalidState);
+        // A failed attack command invalidates this engagement for the current turn.
+        // Drop the stale target and resume colony pursuit rather than recovering in place.
+        ClearEnemyTarget();
+        return EnemyStep3(searchNearbyTarget: false);
     }
 
-    public bool EnemyStep3()
+    public bool EnemyStep3(bool searchNearbyTarget = true)
     {
         CombatState = EnemyCombatState.MoveToColony;
         if (!EnsureEnemyState())
@@ -315,7 +320,7 @@ public sealed class Enemy : Creature
             ClearEnemyTarget();
         }
 
-        if (EnemyTarget is null)
+        if (searchNearbyTarget && EnemyTarget is null)
         {
             TryAcquireNearbyTarget();
         }
@@ -455,7 +460,9 @@ public sealed class Enemy : Creature
         if (!moved)
         {
             ClearTaskQueue();
-            return EnemyStep3();
+            // The nearby scan already ran before this step; retry colony pursuit
+            // without reopening the same target-search branch.
+            return EnemyStep3(searchNearbyTarget: false);
         }
 
         RecordEnemyIntent(
@@ -533,6 +540,17 @@ public sealed class Enemy : Creature
                 CancelMovement();
                 ClearTaskQueue();
                 return EnemyStep2();
+            }
+
+            // A dead or lost target can leave a direct pursuit route active. Preserve
+            // colony/wall routes, but replace stale combat routes immediately.
+            if (EnemyTarget is null &&
+                !IsStreamingSharedFieldRoute("colony") &&
+                !IsStreamingSharedFieldRoute("wall"))
+            {
+                CancelMovement();
+                ClearTaskQueue();
+                return EnemyStep3(searchNearbyTarget: false);
             }
 
             return false;

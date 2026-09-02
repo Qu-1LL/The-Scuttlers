@@ -124,6 +124,10 @@ public sealed class ResourceStockpileSystem
                 {
                     AddStorage(storage);
                 }
+                else if (building is IProcessingBuilding processing)
+                {
+                    AddProcessing(processing);
+                }
             }
         }
 
@@ -146,6 +150,24 @@ public sealed class ResourceStockpileSystem
             }
 
             _totals[pair.Key] = _totals.GetValueOrDefault(pair.Key, 0) + pair.Value;
+        }
+    }
+
+    // Processing input and output both remain visible in the colony's aggregate resource HUD.
+    private void AddProcessing(IProcessingBuilding processing)
+    {
+        AddProcessingResources(processing.GetInputResources());
+        AddProcessingResources(processing.GetOutputResources());
+    }
+
+    private void AddProcessingResources(IReadOnlyDictionary<ResourceName, int> resources)
+    {
+        foreach (var pair in resources)
+        {
+            if (pair.Value > 0)
+            {
+                _totals[pair.Key] = _totals.GetValueOrDefault(pair.Key, 0) + pair.Value;
+            }
         }
     }
 

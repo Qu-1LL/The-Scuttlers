@@ -99,7 +99,7 @@ new game reveals the initial cave after bootstrap. The default runtime starts un
 100, and 50 ms.
 
 The current starter building catalog includes soil patch, garage, silo, algae farm, barracks,
-turret, wall, mining post, and radar. Other building classes already exist, including queen,
+turret, wall, mining post, grinding mill, and radar. Other building classes already exist, including queen,
 storage, scaffolding, ranch, smith, and factory abstractions.
 
 ## 6. Deterministic simulation model
@@ -150,7 +150,7 @@ Roles are typed (`Unassigned`, `Miner`, `Builder`, `Farmer`, `Fighter`, `Enemy`)
 typed as well. Important state machines include:
 
 - miners: select post, acquire a claim, reach/mine ore, deposit, wait for work/storage;
-- farmers: a valid ranch assignment is highest priority; otherwise select farm, reach a soil slot, harvest, move to queen, feed, then fall back to stored algae only when no ranch or algae-farm work is available;
+- farmers: a valid ranch assignment is highest priority; otherwise select farm, reach a soil slot, harvest, and deposit algae into a reachable mill with capacity before direct queen feeding. When ranch/farm work is unavailable, they haul stored algae meal before stored algae; processor output is reserved only when its current amount can fill every assigned farmer's carrying capacity, preventing partial collection trips; algae meal feeds the queen at twice algae's nutrition;
 - builders: select scaffold, select storage source, withdraw, haul, deliver, construct;
 - fighters: select/hold station, acquire and pursue targets, attack, regroup, retreat, recover;
 - enemies: acquire target, move to colony, attack/breach, recover.
@@ -160,11 +160,14 @@ local moves. Role tasks resume after explicit movement commands complete.
 
 ### Economy and construction
 
-Resources are represented by typed `ResourceName` values, including algae, sandstone, magnetite,
+Resources are represented by typed `ResourceName` values, including algae, algae meal, sandstone, magnetite,
 malachite, perotene, ilmenite, cochinium, lumenite, chitinstone, and mycocore. `Core/Economy`
 contains the shared item catalog, storage interfaces, inventories, resource requirements, and
 category-aware construction requirements. `Runtime/ResourceStockpileSystem` aggregates storage for
-HUD/tooling and withdraws in deterministic building order.
+HUD/tooling and withdraws in deterministic building order. The Grinding Mill is a processing building:
+it has a 500-algae input buffer and a separate 500-Algae Meal output buffer, and on every fifth
+simulation tick converts one input algae into one output algae meal. Food nutrition is
+catalog-driven: algae is worth one nutrition and algae meal is worth two toward the queen's nutrition quota.
 
 Trilobites normally carry up to five items and can carry multiple resource types. Compatibility
 callers of the older single-type inventory API observe the first carried resource. Scaffolding

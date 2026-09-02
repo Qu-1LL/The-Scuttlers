@@ -106,9 +106,10 @@ Movement and interaction invariants:
 - terrain/building topology remains cell based; creatures and hosted bodies do not belong to tiles
 - creatures collide only with environment blockers; creature bodies may overlap one another
 - normal locomotion and explicit impulses do not push other creature bodies
-- interaction work requires a live slot reservation, exact slot position, and low speed
+- interaction work uses geometry-derived tiles: passable owned tiles for stationable buildings,
+  passable adjacent tiles for other built buildings and scaffolds
 - path construction may be deferred by the deterministic per-tick budget
-- keep reservations and state commits single threaded
+- keep interaction state commits single threaded
 
 Run the strict 200-trilobite/50-ant reference-machine gates with
 `TRILO_ENFORCE_PERF_BUDGETS=1`; ordinary test runs still execute and report the benchmark without

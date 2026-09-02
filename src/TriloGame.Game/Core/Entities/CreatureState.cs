@@ -80,7 +80,8 @@ public enum FarmerState
     Harvest,
     MoveToQueen,
     FeedQueen,
-    MoveToStoredAlgae,
+    MoveToProcessingBuilding,
+    MoveToStoredFood,
     WaitForFarm
 }
 

@@ -105,8 +105,6 @@ public sealed class WorkerFleeBehaviorTests
 
     private static long MinWorldDistanceToQueen(Creature creature, Queen queen)
     {
-        var feedingZone = queen.InteractionZones.Single(zone =>
-            zone.Purpose == TriloGame.Game.Core.Interaction.InteractionZonePurpose.Feeding);
-        return feedingZone.SlotPositions.Min(position => (position - creature.Position).LengthSquared);
+        return queen.GetFeedTiles().Min(tile => (WorldPoint.FromGridPoint(tile.Coordinates) - creature.Position).LengthSquared);
     }
 }

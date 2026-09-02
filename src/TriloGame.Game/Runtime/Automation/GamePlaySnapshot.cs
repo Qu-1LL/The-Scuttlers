@@ -39,8 +39,6 @@ public sealed record CreatureSnapshot(
     MovementCohort MovementCohort,
     Vector2? IdleDestination,
     int IdleRestTicks,
-    int? ReservedZoneId,
-    string? ReservedZone,
     IReadOnlyList<Vector2> DesiredRoute,
     CombatHitboxSnapshot? ActiveHurtbox,
     int? CombatTargetId,

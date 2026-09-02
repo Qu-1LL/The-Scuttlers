@@ -45,6 +45,10 @@ public sealed partial class MenuController
 
     public float SelectedInventoryScroll { get; private set; }
 
+    public float SelectedProcessingInputScroll { get; private set; }
+
+    public float SelectedProcessingOutputScroll { get; private set; }
+
     public float BuildPreviewDescriptionScroll { get; private set; }
 
     public float SelectedDescriptionScroll { get; private set; }
@@ -97,6 +101,8 @@ public sealed partial class MenuController
         AssignmentActiveScroll = 0f;
         AssignmentUnassignedScroll = 0f;
         SelectedInventoryScroll = 0f;
+        SelectedProcessingInputScroll = 0f;
+        SelectedProcessingOutputScroll = 0f;
         BuildPreviewDescriptionScroll = 0f;
         SelectedDescriptionScroll = 0f;
         _buildPreviewScrollKey = null;
@@ -108,6 +114,8 @@ public sealed partial class MenuController
         {
             CancelRenameSelectedTrilobite();
             SelectedInventoryScroll = 0f;
+            SelectedProcessingInputScroll = 0f;
+            SelectedProcessingOutputScroll = 0f;
             SelectedDescriptionScroll = 0f;
         }
 
@@ -260,6 +268,14 @@ public sealed partial class MenuController
         else if (ActiveTab == TabSelected && layout.SelectedDescriptionLayout.ViewportBounds.Contains(point))
         {
             SelectedDescriptionScroll = Clamp(SelectedDescriptionScroll + delta, 0f, layout.SelectedDescriptionLayout.MaxScroll);
+        }
+        else if (ActiveTab == TabSelected && layout.SelectedProcessingInputFrameBounds?.Contains(point) == true)
+        {
+            SelectedProcessingInputScroll = Clamp(SelectedProcessingInputScroll + delta, 0f, layout.SelectedProcessingInputMaxScroll);
+        }
+        else if (ActiveTab == TabSelected && layout.SelectedProcessingOutputFrameBounds?.Contains(point) == true)
+        {
+            SelectedProcessingOutputScroll = Clamp(SelectedProcessingOutputScroll + delta, 0f, layout.SelectedProcessingOutputMaxScroll);
         }
         else if (ActiveTab == TabSelected && layout.SelectedInventoryFrameBounds?.Contains(point) == true)
         {

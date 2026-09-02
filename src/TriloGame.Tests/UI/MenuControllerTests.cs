@@ -155,6 +155,79 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
+    public void SelectedProcessingBuildingLayout_ShowsSeparateInputAndOutputResourcesWithCapacities()
+    {
+        var session = new GameSession();
+        var mill = new GrindingMill(session);
+        Assert.Equal(17, mill.DepositInput(ResourceName.Algae, 17));
+        var menu = new MenuController();
+        var viewport = new Point(960, 720);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.SetSelectedObject(mill);
+        menu.OpenPanel("selected");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session])!;
+        var inputFrame = (Rectangle?)layout.GetType().GetProperty("SelectedProcessingInputFrameBounds")!.GetValue(layout);
+        var outputFrame = (Rectangle?)layout.GetType().GetProperty("SelectedProcessingOutputFrameBounds")!.GetValue(layout);
+        var inputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingInputEntries")!.GetValue(layout)!)
+            .Cast<object>()
+            .ToDictionary(
+                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
+                entry => (
+                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
+                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
+        var outputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingOutputEntries")!.GetValue(layout)!)
+            .Cast<object>()
+            .ToDictionary(
+                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
+                entry => (
+                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
+                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
+
+        Assert.True(inputFrame.HasValue);
+        Assert.True(outputFrame.HasValue);
+        Assert.True(inputFrame.Value.Bottom < outputFrame.Value.Y);
+        Assert.Equal((17, 500), inputEntries["Algae"]);
+        Assert.Equal((0, 500), outputEntries["Algae Meal"]);
+    }
+
+    [Fact]
+    public void SelectedBakeryLayout_ShowsBothInputResourcesAndPieOutputCapacity()
+    {
+        var session = new GameSession();
+        var bakery = new Bakery(session);
+        Assert.Equal(17, bakery.DepositInput(ResourceName.Algae, 17));
+        Assert.Equal(9, bakery.DepositInput(ResourceName.AlgaeMeal, 9));
+        var menu = new MenuController();
+        var viewport = new Point(960, 720);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.SetSelectedObject(bakery);
+        menu.OpenPanel("selected");
+
+        var layout = getLayout!.Invoke(menu, [viewport, session])!;
+        var inputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingInputEntries")!.GetValue(layout)!)
+            .Cast<object>()
+            .ToDictionary(
+                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
+                entry => (
+                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
+                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
+        var outputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingOutputEntries")!.GetValue(layout)!)
+            .Cast<object>()
+            .ToDictionary(
+                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
+                entry => (
+                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
+                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
+
+        Assert.Equal((17, 250), inputEntries["Algae"]);
+        Assert.Equal((9, 250), inputEntries["Algae Meal"]);
+        Assert.Equal((0, 250), outputEntries["Algae Pie"]);
+    }
+
+    [Fact]
     public void SelectedTrilobiteLayout_ShowsInventoryBelowRenameAndKillTextAboveButton()
     {
         var session = new GameSession();

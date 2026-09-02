@@ -69,6 +69,8 @@ public sealed class GameSessionBootstrapper
         session.UnlockedBuildings.Add(new Factory(game => new Turret(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Wall(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new MiningPost(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new GrindingMill(game), session));
+        session.UnlockedBuildings.Add(new Factory(game => new Bakery(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Radar(game), session));
     }
 
