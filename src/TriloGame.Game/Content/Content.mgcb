@@ -53,6 +53,21 @@
 /processor:TextureProcessor
 /build:Textures/Algae_Pie.png
 
+#begin Textures/Gloop.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Gloop.png
+
+#begin Textures/Gloop_Meal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Gloop_Meal.png
+
+#begin Textures/Gloop_Pie.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/Gloop_Pie.png
+
 #begin Textures/Bakery.png
 /importer:TextureImporter
 /processor:TextureProcessor
@@ -297,6 +312,21 @@
 /importer:TextureImporter
 /processor:TextureProcessor
 /build:Textures/SoilTile_Algae_3.png
+
+#begin Textures/SoilTile_Gloop_1.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Gloop_1.png
+
+#begin Textures/SoilTile_Gloop_2.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Gloop_2.png
+
+#begin Textures/SoilTile_Gloop_3.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/build:Textures/SoilTile_Gloop_3.png
 
 #begin Textures/Radar.png
 /importer:TextureImporter

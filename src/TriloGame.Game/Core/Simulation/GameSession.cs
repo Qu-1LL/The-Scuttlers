@@ -41,6 +41,7 @@ public sealed class GameSession
         EventBus.Subscribe(GameEvents.StorageInventoryChanged, HandleStorageInventoryChanged);
         BfsFields = new Dictionary<string, BfsField>(StringComparer.Ordinal);
         UnlockedBuildings = [];
+        UnlockedPlantTypes = [];
         ProgressionDex = TriloDex.Global;
         SkillTree = new SkillTree(ProgressionDex);
         GlobalResearch = new GlobalResearch();
@@ -64,6 +65,8 @@ public sealed class GameSession
     public Dictionary<string, BfsField> BfsFields { get; set; }
 
     public List<Factory> UnlockedBuildings { get; }
+
+    public List<GrowableResourceType> UnlockedPlantTypes { get; }
 
     public TriloDex ProgressionDex { get; }
 

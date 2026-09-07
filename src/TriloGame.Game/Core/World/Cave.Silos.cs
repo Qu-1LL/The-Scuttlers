@@ -11,16 +11,10 @@ public sealed partial class Cave
 
     public IReadOnlyList<Silo> GetSilos() => _silos;
 
-    internal bool TryTransferPlowAlgaeToAdjacentSilo(Plow plow)
+    internal bool TryTransferPlowPlantResourcesToAdjacentSilo(Plow plow)
     {
         if (!ReferenceEquals(plow.Cave, this) ||
             plow.Location is not { } location)
-        {
-            return false;
-        }
-
-        var availableAlgae = plow.GetInventory().GetValueOrDefault(ResourceName.Algae, 0);
-        if (availableAlgae <= 0)
         {
             return false;
         }
@@ -38,13 +32,20 @@ public sealed partial class Cave
                 continue;
             }
 
-            var accepted = silo.Deposit(ResourceName.Algae, availableAlgae);
-            if (accepted > 0)
+            var transferred = 0;
+            var plantTypes = GrowableResourceType.GetAll();
+            for (var index = 0; index < plantTypes.Count; index++)
             {
-                plow.Withdraw(ResourceName.Algae, accepted);
+                var resourceType = plantTypes[index].Resource;
+                var accepted = silo.Deposit(resourceType, plow.GetInventory().GetValueOrDefault(resourceType, 0));
+                if (accepted > 0)
+                {
+                    plow.Withdraw(resourceType, accepted);
+                    transferred += accepted;
+                }
             }
 
-            return accepted > 0;
+            return transferred > 0;
         }
 
         return false;
@@ -62,7 +63,7 @@ public sealed partial class Cave
             garage.AddAdjacentSilo(silo);
         }
 
-        garage.TryOffloadAlgaeToAdjacentSilos();
+        garage.TryOffloadPlantResourcesToAdjacentSilos();
     }
 
     private void DetachGarageFromAdjacentSilos(Garage garage)
@@ -107,7 +108,7 @@ public sealed partial class Cave
 
         for (var index = 0; index < adjacentGarages.Count; index++)
         {
-            adjacentGarages[index].TryOffloadAlgaeToAdjacentSilos();
+            adjacentGarages[index].TryOffloadPlantResourcesToAdjacentSilos();
         }
     }
 

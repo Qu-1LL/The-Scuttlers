@@ -9,6 +9,9 @@ The project is currently a single MonoGame game assembly with layered modules in
   - entities, buildings, world state, pathfinding, economy, events
   - shared item/storage contracts live under `Core/Economy` so trilobites, stockpiles, and
     storage buildings can exchange resources through one typed catalog and common interfaces
+  - item metadata carries safe optional resource, plant, and food classifications; `IProcessor`
+    exposes classification-based input and output buffers, so capacity is shared by a resource
+    class while concrete resource contents and same-plant recipes remain visible and deterministic
   - construction recipes flow through typed resource requirements that can target either exact
     resources or whole resource categories, with scaffolding resolving category matches through
     storage query helpers before builders haul exact items

@@ -105,20 +105,31 @@ public sealed partial class Trilobite
     // Prefer the most nutritious stored food before selecting lower-value alternatives.
     private (Building Source, ResourceName ResourceType)? FindStoredFoodSource()
     {
-        var pieSource = FindStoredFoodSource(ResourceName.AlgaePie);
-        if (pieSource is not null)
+        Building? bestSource = null;
+        ResourceName? bestResource = null;
+        var bestNutrition = 0;
+        var resources = ItemCatalog.GetStockpileOrder();
+        for (var index = 0; index < resources.Count; index++)
         {
-            return (pieSource, ResourceName.AlgaePie);
+            var resource = resources[index];
+            if (resource.NutritionValue <= bestNutrition)
+            {
+                continue;
+            }
+
+            var source = FindStoredFoodSource(resource.Resource);
+            if (source is null)
+            {
+                continue;
+            }
+
+            bestSource = source;
+            bestResource = resource.Resource;
+            bestNutrition = resource.NutritionValue;
         }
 
-        var mealSource = FindStoredFoodSource(ResourceName.AlgaeMeal);
-        if (mealSource is not null)
-        {
-            return (mealSource, ResourceName.AlgaeMeal);
-        }
-
-        return FindStoredFoodSource(ResourceName.Algae) is { } algaeSource
-            ? (algaeSource, ResourceName.Algae)
+        return bestSource is not null && bestResource.HasValue
+            ? (bestSource, bestResource.Value)
             : null;
     }
 
@@ -189,7 +200,7 @@ public sealed partial class Trilobite
     {
         return source switch
         {
-            IProcessingBuilding processing => processing.GetOutputAmount(resourceType),
+            IProcessor processor => processor.GetOutputAmount(resourceType),
             IResourceStorage storage => storage.GetStoredAmount(resourceType),
             _ => 0
         };
@@ -199,7 +210,7 @@ public sealed partial class Trilobite
     {
         return source switch
         {
-            IProcessingBuilding processing => processing.WithdrawOutput(resourceType, amount),
+            IProcessor processor => processor.WithdrawOutput(resourceType, amount),
             IResourceStorage storage => storage.Withdraw(resourceType, amount),
             _ => 0
         };
@@ -269,9 +280,9 @@ public sealed partial class Trilobite
         }
 
         var processingBuilding = _farmerProcessingBuilding;
-        if (processingBuilding is not IProcessingBuilding processing ||
+        if (processingBuilding is not IProcessor processor ||
             processingBuilding.Cave != Cave ||
-            processing.GetInputSpace(resourceType.Value) <= 0)
+            processor.GetInputSpace(resourceType.Value) <= 0)
         {
             _farmerProcessingBuilding = null;
             return AdvanceFarmerMoveToQueen();
@@ -306,14 +317,14 @@ public sealed partial class Trilobite
         for (var index = 0; index < buildings.Count; index++)
         {
             var building = buildings[index];
-            if (building is not IProcessingBuilding processing ||
-                processing.GetInputSpace(resourceType) <= 0 ||
+            if (building is not IProcessor processor ||
+                processor.GetInputSpace(resourceType) <= 0 ||
                 !CanReachResourceStorage(building))
             {
                 continue;
             }
 
-            var inputAmount = processing.GetInputAmount(resourceType);
+            var inputAmount = processor.GetInputAmount(resourceType);
             var distance = Cave.GetBuildingBfsFieldValue(building, Location);
             var key = GetOwnedBuildingSelectionKey(building);
             if (best is null ||
@@ -333,7 +344,7 @@ public sealed partial class Trilobite
 
     private bool DepositFarmerResourceAtProcessingBuilding(Building processingBuilding, ResourceName resourceType)
     {
-        var processing = (IProcessingBuilding)processingBuilding;
+        var processing = (IProcessor)processingBuilding;
         var accepted = processing.DepositInput(resourceType, Inventory.GetAmount(resourceType));
         _farmerProcessingBuilding = null;
         if (accepted <= 0)

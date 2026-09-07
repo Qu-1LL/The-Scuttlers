@@ -304,6 +304,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, ItemCatalog.Algae.Name, "Textures/Algae");
         RegisterTexture(sprites, ItemCatalog.AlgaeMeal.TextureKey, "Textures/Algae_Meal");
         RegisterTexture(sprites, ItemCatalog.AlgaePie.TextureKey, "Textures/Algae_Pie");
+        RegisterTexture(sprites, ItemCatalog.Gloop.TextureKey, "Textures/Gloop");
+        RegisterTexture(sprites, ItemCatalog.GloopMeal.TextureKey, "Textures/Gloop_Meal");
+        RegisterTexture(sprites, ItemCatalog.GloopPie.TextureKey, "Textures/Gloop_Pie");
         _worldSpriteEffects.RegisterAlphaPulse(OreType.LUMENITE.Name, new AlphaPulseEffect(0.38f, 1f, 2.1f));
         RegisterTexture(sprites, "Trilobite", "Textures/Trilobite");
         // Per-role trilobite art, registered optionally: a role whose sprite has not been drawn yet
@@ -345,6 +348,9 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
         RegisterTexture(sprites, "SoilTile_Algae_1", "Textures/SoilTile_Algae_1");
         RegisterTexture(sprites, "SoilTile_Algae_2", "Textures/SoilTile_Algae_2");
         RegisterTexture(sprites, "SoilTile_Algae_3", "Textures/SoilTile_Algae_3");
+        RegisterTexture(sprites, "SoilTile_Gloop_1", "Textures/SoilTile_Gloop_1");
+        RegisterTexture(sprites, "SoilTile_Gloop_2", "Textures/SoilTile_Gloop_2");
+        RegisterTexture(sprites, "SoilTile_Gloop_3", "Textures/SoilTile_Gloop_3");
         RegisterTexture(sprites, "Storage", "Textures/Storage");
         RegisterTexture(sprites, "Smith", "Textures/Smith");
         RegisterTexture(sprites, "MiningPost", "Textures/MiningPost");

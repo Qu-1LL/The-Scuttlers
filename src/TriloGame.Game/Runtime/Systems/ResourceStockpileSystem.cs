@@ -124,9 +124,9 @@ public sealed class ResourceStockpileSystem
                 {
                     AddStorage(storage);
                 }
-                else if (building is IProcessingBuilding processing)
+                else if (building is IProcessor processor)
                 {
-                    AddProcessing(processing);
+                    AddProcessing(processor);
                 }
             }
         }
@@ -154,10 +154,10 @@ public sealed class ResourceStockpileSystem
     }
 
     // Processing input and output both remain visible in the colony's aggregate resource HUD.
-    private void AddProcessing(IProcessingBuilding processing)
+    private void AddProcessing(IProcessor processor)
     {
-        AddProcessingResources(processing.GetInputResources());
-        AddProcessingResources(processing.GetOutputResources());
+        AddProcessingResources(processor.GetInputResources());
+        AddProcessingResources(processor.GetOutputResources());
     }
 
     private void AddProcessingResources(IReadOnlyDictionary<ResourceName, int> resources)

@@ -134,7 +134,7 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
             TryProcessSoilTile(cave, point);
         }
 
-        cave.TryTransferPlowAlgaeToAdjacentSilo(this);
+        cave.TryTransferPlowPlantResourcesToAdjacentSilo(this);
     }
 
     protected override void OnStationCreature(Creature creature)
@@ -183,7 +183,7 @@ public sealed class Plow : Vehicle, IDriveable, IStorage
             }
         }
 
-        return soilTile.Ranch?.Garage is { } garage && soilTile.Plant(garage.ChosenResource);
+        return soilTile.Ranch is { } ranch && soilTile.Plant(ranch.ChosenResource);
     }
 
     private bool TryStoreExact(ResourceName resourceType, int amount)

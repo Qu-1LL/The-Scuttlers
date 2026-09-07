@@ -114,6 +114,15 @@ public sealed partial class MenuController
         Rectangle? selectedTraitSummaryBounds = null;
         Rectangle? selectedRecipeBounds = null;
         string? selectedRecipeText = null;
+        Rectangle? selectedRanchCropLabelBounds = null;
+        string? selectedRanchCropText = null;
+        Rectangle? selectedRanchChangeCropBounds = null;
+        Rectangle? selectedRanchCropSelectionFrameBounds = null;
+        Rectangle? selectedRanchCropSelectionViewportBounds = null;
+        IReadOnlyList<RanchCropOptionRect> selectedRanchCropOptions = [];
+        float selectedRanchCropSelectionMaxScroll = 0f;
+        Rectangle? selectedRanchCropSelectionScrollbarTrackBounds = null;
+        Rectangle? selectedRanchCropSelectionScrollbarThumbBounds = null;
         Rectangle? selectedInventoryFrameBounds = null;
         Rectangle? selectedInventoryViewportBounds = null;
         IReadOnlyList<InventoryEntryRect> selectedInventoryEntries = [];
@@ -122,13 +131,13 @@ public sealed partial class MenuController
         Rectangle? selectedInventoryScrollbarThumbBounds = null;
         Rectangle? selectedProcessingInputFrameBounds = null;
         Rectangle? selectedProcessingInputViewportBounds = null;
-        IReadOnlyList<InventoryEntryRect> selectedProcessingInputEntries = [];
+        IReadOnlyList<ProcessingInventoryGroupRect> selectedProcessingInputGroups = [];
         float selectedProcessingInputMaxScroll = 0f;
         Rectangle? selectedProcessingInputScrollbarTrackBounds = null;
         Rectangle? selectedProcessingInputScrollbarThumbBounds = null;
         Rectangle? selectedProcessingOutputFrameBounds = null;
         Rectangle? selectedProcessingOutputViewportBounds = null;
-        IReadOnlyList<InventoryEntryRect> selectedProcessingOutputEntries = [];
+        IReadOnlyList<ProcessingInventoryGroupRect> selectedProcessingOutputGroups = [];
         float selectedProcessingOutputMaxScroll = 0f;
         Rectangle? selectedProcessingOutputScrollbarTrackBounds = null;
         Rectangle? selectedProcessingOutputScrollbarThumbBounds = null;
@@ -243,7 +252,7 @@ public sealed partial class MenuController
                 SelectedDescriptionScroll);
             SelectedDescriptionScroll = selectedDescriptionLayout.Scroll;
         }
-        else if (SelectedObject is IProcessingBuilding processing)
+        else if (SelectedObject is IProcessor processing)
         {
             var selectedBodyTop = selectedDetailTop + (int)MathF.Round(14f * selectedScale);
             var selectedBodyBottom = deleteSelectedBounds.Y - (int)MathF.Round(14f * selectedScale);
@@ -270,9 +279,10 @@ public sealed partial class MenuController
                 selectedProcessingOutputFrameBounds.Value.Width - 20,
                 Math.Max(24, selectedProcessingOutputFrameBounds.Value.Height - 48));
 
-            selectedProcessingInputEntries = BuildInventoryLayout(
+            selectedProcessingInputGroups = BuildProcessingInventoryLayout(
                 selectedProcessingInputViewportBounds.Value,
-                BuildProcessingInventoryEntries(processing, isInput: true),
+                processing,
+                isInput: true,
                 selectedScale,
                 SelectedProcessingInputScroll,
                 out selectedProcessingInputMaxScroll,
@@ -280,15 +290,82 @@ public sealed partial class MenuController
                 out selectedProcessingInputScrollbarThumbBounds);
             SelectedProcessingInputScroll = Clamp(SelectedProcessingInputScroll, 0f, selectedProcessingInputMaxScroll);
 
-            selectedProcessingOutputEntries = BuildInventoryLayout(
+            selectedProcessingOutputGroups = BuildProcessingInventoryLayout(
                 selectedProcessingOutputViewportBounds.Value,
-                BuildProcessingInventoryEntries(processing, isInput: false),
+                processing,
+                isInput: false,
                 selectedScale,
                 SelectedProcessingOutputScroll,
                 out selectedProcessingOutputMaxScroll,
                 out selectedProcessingOutputScrollbarTrackBounds,
                 out selectedProcessingOutputScrollbarThumbBounds);
             SelectedProcessingOutputScroll = Clamp(SelectedProcessingOutputScroll, 0f, selectedProcessingOutputMaxScroll);
+        }
+        else if (SelectedObject is Ranch ranch)
+        {
+            var cropRowTop = selectedDetailTop + (int)MathF.Round(14f * selectedScale);
+            var cropRowHeight = Math.Max(34, (int)MathF.Round(42f * selectedScale));
+            var cropRowGap = Math.Max(8, (int)MathF.Round(10f * selectedScale));
+            var cropButtonWidth = Math.Min(
+                (int)MathF.Round(148f * selectedScale),
+                Math.Max(112, selectedBounds.Width / 3));
+            selectedRanchCropLabelBounds = new Rectangle(
+                selectedBounds.X + 16,
+                cropRowTop,
+                Math.Max(96, selectedBounds.Width - 32 - cropButtonWidth - cropRowGap),
+                cropRowHeight);
+            selectedRanchCropText = $"CROP: {ranch.ChosenResource.Name}";
+            selectedRanchChangeCropBounds = new Rectangle(
+                selectedRanchCropLabelBounds.Value.Right + cropRowGap,
+                cropRowTop,
+                cropButtonWidth,
+                cropRowHeight);
+
+            var minimumStorageHeight = Math.Max(72, (int)MathF.Round(96f * selectedScale));
+            var selectedStorageTop = Math.Min(
+                selectedRanchCropLabelBounds.Value.Bottom + cropRowGap,
+                deleteSelectedBounds.Y - minimumStorageHeight - 14);
+            var selectedStorageFrameBounds = new Rectangle(
+                selectedBounds.X + 16,
+                selectedStorageTop,
+                selectedBounds.Width - 32,
+                Math.Max(minimumStorageHeight, deleteSelectedBounds.Y - selectedStorageTop - 14));
+            var selectedStorageViewportBounds = new Rectangle(
+                selectedStorageFrameBounds.X + 10,
+                selectedStorageFrameBounds.Y + 38,
+                selectedStorageFrameBounds.Width - 20,
+                Math.Max(48, selectedStorageFrameBounds.Height - 48));
+
+            if (_selectingRanchCrop)
+            {
+                selectedRanchCropSelectionFrameBounds = selectedStorageFrameBounds;
+                selectedRanchCropSelectionViewportBounds = selectedStorageViewportBounds;
+                IReadOnlyList<GrowableResourceType> unlockedPlantTypes = session?.UnlockedPlantTypes ?? [];
+                selectedRanchCropOptions = BuildRanchCropOptionLayout(
+                    selectedRanchCropSelectionViewportBounds.Value,
+                    unlockedPlantTypes,
+                    selectedScale,
+                    SelectedRanchCropScroll,
+                    out selectedRanchCropSelectionMaxScroll,
+                    out selectedRanchCropSelectionScrollbarTrackBounds,
+                    out selectedRanchCropSelectionScrollbarThumbBounds);
+                SelectedRanchCropScroll = Clamp(SelectedRanchCropScroll, 0f, selectedRanchCropSelectionMaxScroll);
+            }
+            else
+            {
+                selectedInventoryFrameBounds = selectedStorageFrameBounds;
+                selectedInventoryViewportBounds = selectedStorageViewportBounds;
+                var inventoryEntries = BuildInventoryEntries(ranch);
+                selectedInventoryEntries = BuildInventoryLayout(
+                    selectedInventoryViewportBounds.Value,
+                    inventoryEntries,
+                    selectedScale,
+                    SelectedInventoryScroll,
+                    out selectedInventoryMaxScroll,
+                    out selectedInventoryScrollbarTrackBounds,
+                    out selectedInventoryScrollbarThumbBounds);
+                SelectedInventoryScroll = Clamp(SelectedInventoryScroll, 0f, selectedInventoryMaxScroll);
+            }
         }
         else if (SelectedObject is IResourceStorage storage)
         {
@@ -490,6 +567,15 @@ public sealed partial class MenuController
             selectedTraitSummaryBounds,
             selectedRecipeBounds,
             selectedRecipeText,
+            selectedRanchCropLabelBounds,
+            selectedRanchCropText,
+            selectedRanchChangeCropBounds,
+            selectedRanchCropSelectionFrameBounds,
+            selectedRanchCropSelectionViewportBounds,
+            selectedRanchCropOptions,
+            selectedRanchCropSelectionMaxScroll,
+            selectedRanchCropSelectionScrollbarTrackBounds,
+            selectedRanchCropSelectionScrollbarThumbBounds,
             selectedInventoryFrameBounds,
             selectedInventoryViewportBounds,
             selectedInventoryEntries,
@@ -498,13 +584,13 @@ public sealed partial class MenuController
             selectedInventoryScrollbarThumbBounds,
             selectedProcessingInputFrameBounds,
             selectedProcessingInputViewportBounds,
-            selectedProcessingInputEntries,
+            selectedProcessingInputGroups,
             selectedProcessingInputMaxScroll,
             selectedProcessingInputScrollbarTrackBounds,
             selectedProcessingInputScrollbarThumbBounds,
             selectedProcessingOutputFrameBounds,
             selectedProcessingOutputViewportBounds,
-            selectedProcessingOutputEntries,
+            selectedProcessingOutputGroups,
             selectedProcessingOutputMaxScroll,
             selectedProcessingOutputScrollbarTrackBounds,
             selectedProcessingOutputScrollbarThumbBounds,
@@ -664,25 +750,176 @@ public sealed partial class MenuController
         return result;
     }
 
-    // Processing panels list configured resources even when empty so their independent limits stay visible.
-    private static IReadOnlyList<InventoryEntryData> BuildProcessingInventoryEntries(IProcessingBuilding processing, bool isInput)
+    private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(IStorage storage)
     {
-        var definitions = isInput ? processing.InputDefinitions : processing.OutputDefinitions;
-        var result = new List<InventoryEntryData>(definitions.Count);
-        for (var index = 0; index < definitions.Count; index++)
+        var result = new List<InventoryEntryData>();
+        foreach (var pair in storage.GetInventory())
         {
-            var definition = definitions[index];
-            var amount = isInput
-                ? processing.GetInputAmount(definition.ResourceType)
-                : processing.GetOutputAmount(definition.ResourceType);
-            result.Add(new InventoryEntryData(
-                ItemCatalog.GetName(definition.ResourceType),
-                amount,
-                ItemCatalog.GetTextureKey(definition.ResourceType),
-                definition.Capacity));
+            if (pair.Value <= 0)
+            {
+                continue;
+            }
+
+            result.Add(new InventoryEntryData(ItemCatalog.GetName(pair.Key), pair.Value, ItemCatalog.GetTextureKey(pair.Key)));
         }
 
         return result;
+    }
+
+    // Build classification buckets so one shared limit is shown above the resources occupying it.
+    private static IReadOnlyList<ProcessingInventoryGroupData> BuildProcessingInventoryGroups(
+        IProcessor processing,
+        bool isInput)
+    {
+        var definitions = isInput ? processing.InputDefinitions : processing.OutputDefinitions;
+        var result = new List<ProcessingInventoryGroupData>(definitions.Count);
+        var resources = ItemCatalog.GetStockpileOrder();
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            var definition = definitions[index];
+            var entries = new List<InventoryEntryData>();
+            for (var resourceIndex = 0; resourceIndex < resources.Count; resourceIndex++)
+            {
+                var resource = resources[resourceIndex].Resource;
+                if (!definition.Matches(resource))
+                {
+                    continue;
+                }
+
+                var amount = isInput
+                    ? processing.GetInputAmount(resource)
+                    : processing.GetOutputAmount(resource);
+                if (amount <= 0)
+                {
+                    continue;
+                }
+
+                entries.Add(new InventoryEntryData(
+                    resources[resourceIndex].Name,
+                    amount,
+                    resources[resourceIndex].TextureKey));
+            }
+
+            result.Add(new ProcessingInventoryGroupData(
+                definition.Label,
+                isInput ? processing.GetInputAmount(definition) : processing.GetOutputAmount(definition),
+                isInput ? processing.GetInputCapacity(definition) : processing.GetOutputCapacity(definition),
+                entries));
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<ProcessingInventoryGroupRect> BuildProcessingInventoryLayout(
+        Rectangle viewportBounds,
+        IProcessor processing,
+        bool isInput,
+        float layoutScale,
+        float requestedScroll,
+        out float maxScroll,
+        out Rectangle? scrollbarTrackBounds,
+        out Rectangle? scrollbarThumbBounds)
+    {
+        const int columns = 4;
+        var groups = BuildProcessingInventoryGroups(processing, isInput);
+        var columnGap = (int)MathF.Round(10f * layoutScale);
+        var rowGap = (int)MathF.Round(10f * layoutScale);
+        var groupHeaderHeight = Math.Max(20, (int)MathF.Round(24f * layoutScale));
+        var groupHeaderGap = Math.Max(6, (int)MathF.Round(8f * layoutScale));
+        var groupGap = Math.Max(10, (int)MathF.Round(14f * layoutScale));
+        var emptyHeight = Math.Max(20, (int)MathF.Round(24f * layoutScale));
+        var scrollbarGutter = 10;
+        var cardWidth = Math.Max(
+            76,
+            (int)MathF.Floor((viewportBounds.Width - scrollbarGutter - (columnGap * (columns - 1))) / (float)columns));
+        var cardHeight = Math.Max((int)MathF.Round(132f * layoutScale), cardWidth + (int)MathF.Round(34f * layoutScale));
+        var contentHeight = 0;
+        for (var index = 0; index < groups.Count; index++)
+        {
+            var rowCount = (int)MathF.Ceiling(groups[index].Entries.Count / (float)columns);
+            var entriesHeight = rowCount == 0
+                ? emptyHeight
+                : (rowCount * cardHeight) + (Math.Max(0, rowCount - 1) * rowGap);
+            contentHeight += groupHeaderHeight + groupHeaderGap + entriesHeight;
+            if (index < groups.Count - 1)
+            {
+                contentHeight += groupGap;
+            }
+        }
+
+        maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
+        var scroll = Clamp(requestedScroll, 0f, maxScroll);
+        var groupRects = new List<ProcessingInventoryGroupRect>(groups.Count);
+        var currentY = viewportBounds.Y - (int)MathF.Round(scroll);
+        for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+        {
+            var group = groups[groupIndex];
+            var headerBounds = new Rectangle(
+                viewportBounds.X,
+                currentY,
+                Math.Max(64, viewportBounds.Width - scrollbarGutter),
+                groupHeaderHeight);
+            var entriesTop = headerBounds.Bottom + groupHeaderGap;
+            var entries = new List<InventoryEntryRect>(group.Entries.Count);
+            var rowCount = (int)MathF.Ceiling(group.Entries.Count / (float)columns);
+            var entriesHeight = rowCount == 0
+                ? emptyHeight
+                : (rowCount * cardHeight) + (Math.Max(0, rowCount - 1) * rowGap);
+            var emptyBounds = new Rectangle(
+                viewportBounds.X,
+                entriesTop,
+                Math.Max(64, viewportBounds.Width - scrollbarGutter),
+                emptyHeight);
+
+            for (var entryIndex = 0; entryIndex < group.Entries.Count; entryIndex++)
+            {
+                var column = entryIndex % columns;
+                var row = entryIndex / columns;
+                var bounds = new Rectangle(
+                    viewportBounds.X + ((cardWidth + columnGap) * column),
+                    entriesTop + ((cardHeight + rowGap) * row),
+                    cardWidth,
+                    cardHeight);
+                if (bounds.Bottom < viewportBounds.Top || bounds.Top > viewportBounds.Bottom)
+                {
+                    continue;
+                }
+
+                var entry = group.Entries[entryIndex];
+                entries.Add(new InventoryEntryRect(entry.ResourceType, entry.TextureKey, entry.Quantity, entry.Capacity, bounds));
+            }
+
+            var groupBottom = entriesTop + entriesHeight;
+            if (groupBottom >= viewportBounds.Top && headerBounds.Top <= viewportBounds.Bottom)
+            {
+                groupRects.Add(new ProcessingInventoryGroupRect(
+                    group.Label,
+                    group.Quantity,
+                    group.Capacity,
+                    headerBounds,
+                    emptyBounds,
+                    entries));
+            }
+
+            currentY = groupBottom + groupGap;
+        }
+
+        if (maxScroll <= 0f)
+        {
+            scrollbarTrackBounds = null;
+            scrollbarThumbBounds = null;
+            return groupRects;
+        }
+
+        var trackHeight = viewportBounds.Height;
+        var thumbHeight = Math.Max(32f, (viewportBounds.Height / (float)contentHeight) * trackHeight);
+        var travel = Math.Max(0f, trackHeight - thumbHeight);
+        var ratio = scroll / maxScroll;
+        var thumbY = viewportBounds.Y + (int)MathF.Round(ratio * travel);
+        var scrollbarX = viewportBounds.Right - 6;
+        scrollbarTrackBounds = new Rectangle(scrollbarX, viewportBounds.Y, 6, trackHeight);
+        scrollbarThumbBounds = new Rectangle(scrollbarX, thumbY, 6, (int)MathF.Round(thumbHeight));
+        return groupRects;
     }
 
     private static IReadOnlyList<InventoryEntryData> BuildInventoryEntries(Scaffolding scaffolding)
@@ -854,6 +1091,57 @@ public sealed partial class MenuController
         return cards;
     }
 
+    private static IReadOnlyList<RanchCropOptionRect> BuildRanchCropOptionLayout(
+        Rectangle viewportBounds,
+        IReadOnlyList<GrowableResourceType> plantTypes,
+        float layoutScale,
+        float scroll,
+        out float maxScroll,
+        out Rectangle? scrollbarTrackBounds,
+        out Rectangle? scrollbarThumbBounds)
+    {
+        var rowHeight = Math.Max(42, (int)MathF.Round(50f * layoutScale));
+        var rowGap = Math.Max(8, (int)MathF.Round(10f * layoutScale));
+        var contentHeight = plantTypes.Count == 0
+            ? 0
+            : (plantTypes.Count * rowHeight) + ((plantTypes.Count - 1) * rowGap);
+        maxScroll = Math.Max(0f, contentHeight - viewportBounds.Height);
+        scroll = Clamp(scroll, 0f, maxScroll);
+
+        var options = new List<RanchCropOptionRect>(plantTypes.Count);
+        for (var index = 0; index < plantTypes.Count; index++)
+        {
+            var bounds = new Rectangle(
+                viewportBounds.X,
+                viewportBounds.Y + ((rowHeight + rowGap) * index) - (int)MathF.Round(scroll),
+                Math.Max(64, viewportBounds.Width - 10),
+                rowHeight);
+            if (bounds.Bottom < viewportBounds.Top || bounds.Top > viewportBounds.Bottom)
+            {
+                continue;
+            }
+
+            options.Add(new RanchCropOptionRect(plantTypes[index], bounds));
+        }
+
+        if (maxScroll <= 0f)
+        {
+            scrollbarTrackBounds = null;
+            scrollbarThumbBounds = null;
+            return options;
+        }
+
+        var trackHeight = viewportBounds.Height;
+        var thumbHeight = Math.Max(32f, (viewportBounds.Height / (float)contentHeight) * trackHeight);
+        var travel = Math.Max(0f, trackHeight - thumbHeight);
+        var ratio = scroll / maxScroll;
+        var thumbY = viewportBounds.Y + (int)MathF.Round(ratio * travel);
+        var scrollbarX = viewportBounds.Right - 6;
+        scrollbarTrackBounds = new Rectangle(scrollbarX, viewportBounds.Y, 6, trackHeight);
+        scrollbarThumbBounds = new Rectangle(scrollbarX, thumbY, 6, (int)MathF.Round(thumbHeight));
+        return options;
+    }
+
     private static MenuMetrics GetMetrics(Point viewport)
     {
         var layoutScale = Clamp(viewport.Y / 920f, 0.82f, 1.16f);
@@ -898,6 +1186,22 @@ public sealed partial class MenuController
 
     private readonly record struct InventoryEntryRect(string ResourceType, string TextureKey, int Quantity, int? Capacity, Rectangle Bounds);
 
+    private readonly record struct ProcessingInventoryGroupData(
+        string Label,
+        int Quantity,
+        int Capacity,
+        IReadOnlyList<InventoryEntryData> Entries);
+
+    private readonly record struct ProcessingInventoryGroupRect(
+        string Label,
+        int Quantity,
+        int Capacity,
+        Rectangle HeaderBounds,
+        Rectangle EmptyBounds,
+        IReadOnlyList<InventoryEntryRect> Entries);
+
+    private readonly record struct RanchCropOptionRect(GrowableResourceType ResourceType, Rectangle Bounds);
+
     private readonly record struct MenuMetrics(
         float LayoutScale,
         int ButtonWidth,
@@ -938,6 +1242,15 @@ public sealed partial class MenuController
         Rectangle? SelectedTraitSummaryBounds,
         Rectangle? SelectedRecipeBounds,
         string? SelectedRecipeText,
+        Rectangle? SelectedRanchCropLabelBounds,
+        string? SelectedRanchCropText,
+        Rectangle? SelectedRanchChangeCropBounds,
+        Rectangle? SelectedRanchCropSelectionFrameBounds,
+        Rectangle? SelectedRanchCropSelectionViewportBounds,
+        IReadOnlyList<RanchCropOptionRect> SelectedRanchCropOptions,
+        float SelectedRanchCropSelectionMaxScroll,
+        Rectangle? SelectedRanchCropSelectionScrollbarTrackBounds,
+        Rectangle? SelectedRanchCropSelectionScrollbarThumbBounds,
         Rectangle? SelectedInventoryFrameBounds,
         Rectangle? SelectedInventoryViewportBounds,
         IReadOnlyList<InventoryEntryRect> SelectedInventoryEntries,
@@ -946,13 +1259,13 @@ public sealed partial class MenuController
         Rectangle? SelectedInventoryScrollbarThumbBounds,
         Rectangle? SelectedProcessingInputFrameBounds,
         Rectangle? SelectedProcessingInputViewportBounds,
-        IReadOnlyList<InventoryEntryRect> SelectedProcessingInputEntries,
+        IReadOnlyList<ProcessingInventoryGroupRect> SelectedProcessingInputGroups,
         float SelectedProcessingInputMaxScroll,
         Rectangle? SelectedProcessingInputScrollbarTrackBounds,
         Rectangle? SelectedProcessingInputScrollbarThumbBounds,
         Rectangle? SelectedProcessingOutputFrameBounds,
         Rectangle? SelectedProcessingOutputViewportBounds,
-        IReadOnlyList<InventoryEntryRect> SelectedProcessingOutputEntries,
+        IReadOnlyList<ProcessingInventoryGroupRect> SelectedProcessingOutputGroups,
         float SelectedProcessingOutputMaxScroll,
         Rectangle? SelectedProcessingOutputScrollbarTrackBounds,
         Rectangle? SelectedProcessingOutputScrollbarThumbBounds,

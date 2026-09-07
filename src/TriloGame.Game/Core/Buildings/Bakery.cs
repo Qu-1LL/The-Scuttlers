@@ -7,17 +7,29 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAssignmentBuilding
+public sealed class Bakery : Building, IProcessor, IProcessingOutputAssignmentBuilding
 {
     private const int ResourceCapacity = 250;
     private static readonly IReadOnlyList<ProcessingResourceDefinition> InputResourceDefinitions =
     [
-        new(ResourceName.Algae, AmountPerProcess: 1, Capacity: ResourceCapacity),
-        new(ResourceName.AlgaeMeal, AmountPerProcess: 1, Capacity: ResourceCapacity)
+        ProcessingResourceDefinitions.ForFoodType(
+            "RAW PLANTS",
+            ResourceClassificationValues.Raw,
+            amountPerProcess: 1,
+            capacity: ResourceCapacity),
+        ProcessingResourceDefinitions.ForFoodType(
+            "MEALS",
+            ResourceClassificationValues.Meal,
+            amountPerProcess: 1,
+            capacity: ResourceCapacity)
     ];
     private static readonly IReadOnlyList<ProcessingResourceDefinition> OutputResourceDefinitions =
     [
-        new(ResourceName.AlgaePie, AmountPerProcess: 1, Capacity: ResourceCapacity)
+        ProcessingResourceDefinitions.ForFoodType(
+            "PIES",
+            ResourceClassificationValues.Pie,
+            amountPerProcess: 1,
+            capacity: ResourceCapacity)
     ];
     private readonly Dictionary<ResourceName, int> _inputs = [];
     private readonly Dictionary<ResourceName, int> _outputs = [];
@@ -28,7 +40,7 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
     {
         TextureKey = "Bakery";
         Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
-        Description = "Processes algae and Algae Meal into Algae Pie. Holds 250 of each input and 250 pies.";
+        Description = "Bakes each raw plant with its matching meal into a pie. Holds 250 raw plants, 250 meals, and 250 pies.";
     }
 
     public IReadOnlyList<ProcessingResourceDefinition> InputDefinitions => InputResourceDefinitions;
@@ -49,18 +61,36 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
 
     public int GetOutputAmount(ResourceName resourceType) => _outputs.GetValueOrDefault(resourceType, 0);
 
-    public int GetInputCapacity(ResourceName resourceType) => GetCapacity(InputResourceDefinitions, resourceType);
+    public int GetInputAmount(ProcessingResourceDefinition definition) => GetClassifiedAmount(_inputs, definition);
 
-    public int GetOutputCapacity(ResourceName resourceType) => GetCapacity(OutputResourceDefinitions, resourceType);
+    public int GetOutputAmount(ProcessingResourceDefinition definition) => GetClassifiedAmount(_outputs, definition);
 
-    public int GetInputSpace(ResourceName resourceType)
+    public int GetInputCapacity(ResourceName resourceType) =>
+        TryGetDefinition(InputResourceDefinitions, resourceType, out var definition) ? definition.Capacity : 0;
+
+    public int GetOutputCapacity(ResourceName resourceType) =>
+        TryGetDefinition(OutputResourceDefinitions, resourceType, out var definition) ? definition.Capacity : 0;
+
+    public int GetInputCapacity(ProcessingResourceDefinition definition) =>
+        ContainsDefinition(InputResourceDefinitions, definition) ? definition.Capacity : 0;
+
+    public int GetOutputCapacity(ProcessingResourceDefinition definition) =>
+        ContainsDefinition(OutputResourceDefinitions, definition) ? definition.Capacity : 0;
+
+    public int GetInputSpace(ResourceName resourceType) =>
+        TryGetDefinition(InputResourceDefinitions, resourceType, out var definition) ? GetInputSpace(definition) : 0;
+
+    public int GetOutputSpace(ResourceName resourceType) =>
+        TryGetDefinition(OutputResourceDefinitions, resourceType, out var definition) ? GetOutputSpace(definition) : 0;
+
+    public int GetInputSpace(ProcessingResourceDefinition definition)
     {
-        return System.Math.Max(0, GetInputCapacity(resourceType) - GetInputAmount(resourceType));
+        return System.Math.Max(0, GetInputCapacity(definition) - GetInputAmount(definition));
     }
 
-    public int GetOutputSpace(ResourceName resourceType)
+    public int GetOutputSpace(ProcessingResourceDefinition definition)
     {
-        return System.Math.Max(0, GetOutputCapacity(resourceType) - GetOutputAmount(resourceType));
+        return System.Math.Max(0, GetOutputCapacity(definition) - GetOutputAmount(definition));
     }
 
     public int GetOutputCollectorCount(ResourceName resourceType)
@@ -91,7 +121,7 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
         return capacity;
     }
 
-    // Only reserve a new collector when the current output can fill every collector's full load.
+    // Reserve one collector per output resource as soon as food is available.
     public bool CanAssignOutputCollector(Trilobite collector, ResourceName resourceType)
     {
         if (!HasOutputDefinition(resourceType))
@@ -104,8 +134,7 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
             return assignedResource == resourceType;
         }
 
-        var requiredOutput = GetAssignedOutputCarryingCapacity(resourceType) + collector.InventoryCapacity;
-        return GetOutputAmount(resourceType) >= requiredOutput;
+        return GetOutputAmount(resourceType) > 0 && GetOutputCollectorCount(resourceType) == 0;
     }
 
     public bool TryAssignOutputCollector(Trilobite collector, ResourceName resourceType)
@@ -138,7 +167,12 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
 
     public int DepositInput(ResourceName resourceType, int amount)
     {
-        var accepted = System.Math.Min(GetInputSpace(resourceType), amount);
+        if (!TryGetDefinition(InputResourceDefinitions, resourceType, out var definition))
+        {
+            return 0;
+        }
+
+        var accepted = System.Math.Min(GetInputSpace(definition), amount);
         if (accepted <= 0)
         {
             return 0;
@@ -163,16 +197,17 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
         return taken;
     }
 
-    // Convert one complete algae-and-meal batch only when the pie output has room.
+    // Match a raw plant to its own meal so mixed plant inputs can never produce the wrong pie.
     public override int Tick(World.Cave cave)
     {
-        if (Session.TickCount % ProcessingIntervalTicks != 0 || !CanProcessBatch())
+        if (Session.TickCount % ProcessingIntervalTicks != 0 ||
+            !TryGetProcessableBatch(out var plantResource, out var mealResource, out var pieResource))
         {
             return 0;
         }
 
-        ConsumeInputBatch();
-        ProduceOutputBatch();
+        ConsumeInputBatch(plantResource, mealResource);
+        ProduceOutputBatch(pieResource);
         return 1;
     }
 
@@ -198,48 +233,52 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
         }
     }
 
-    private bool CanProcessBatch()
+    private bool TryGetProcessableBatch(
+        out ResourceName plantResource,
+        out ResourceName mealResource,
+        out ResourceName pieResource)
     {
-        for (var index = 0; index < InputResourceDefinitions.Count; index++)
+        plantResource = default;
+        mealResource = default;
+        pieResource = default;
+        var resources = ItemCatalog.GetStockpileOrder();
+        for (var index = 0; index < resources.Count; index++)
         {
-            var input = InputResourceDefinitions[index];
-            if (GetInputAmount(input.ResourceType) < input.AmountPerProcess)
+            var candidate = resources[index].Resource;
+            if (!TryGetDefinition(InputResourceDefinitions, candidate, out var plantInput) ||
+                !ItemCatalog.HasClassification(candidate, ResourceClassificationKeys.FoodType, ResourceClassificationValues.Raw) ||
+                GetInputAmount(candidate) < plantInput.AmountPerProcess ||
+                !ItemCatalog.TryGetRelatedPlantResource(candidate, ResourceClassificationValues.Meal, out var matchingMeal) ||
+                !TryGetDefinition(InputResourceDefinitions, matchingMeal, out var mealInput) ||
+                GetInputAmount(matchingMeal) < mealInput.AmountPerProcess ||
+                !ItemCatalog.TryGetRelatedPlantResource(candidate, ResourceClassificationValues.Pie, out var matchingPie) ||
+                GetOutputSpace(matchingPie) < plantInput.AmountPerProcess)
             {
-                return false;
+                continue;
             }
+
+            plantResource = candidate;
+            mealResource = matchingMeal;
+            pieResource = matchingPie;
+            return true;
         }
 
-        for (var index = 0; index < OutputResourceDefinitions.Count; index++)
-        {
-            var output = OutputResourceDefinitions[index];
-            if (GetOutputSpace(output.ResourceType) < output.AmountPerProcess)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return false;
     }
 
-    private void ConsumeInputBatch()
+    private void ConsumeInputBatch(ResourceName plantResource, ResourceName mealResource)
     {
-        for (var index = 0; index < InputResourceDefinitions.Count; index++)
-        {
-            var input = InputResourceDefinitions[index];
-            _inputs[input.ResourceType] -= input.AmountPerProcess;
-            EmitResourceChanged(input.ResourceType, -input.AmountPerProcess);
-        }
+        _inputs[plantResource]--;
+        EmitResourceChanged(plantResource, -1);
+        _inputs[mealResource]--;
+        EmitResourceChanged(mealResource, -1);
     }
 
-    private void ProduceOutputBatch()
+    private void ProduceOutputBatch(ResourceName pieResource)
     {
-        for (var index = 0; index < OutputResourceDefinitions.Count; index++)
-        {
-            var output = OutputResourceDefinitions[index];
-            _outputs.TryAdd(output.ResourceType, 0);
-            _outputs[output.ResourceType] += output.AmountPerProcess;
-            EmitResourceChanged(output.ResourceType, output.AmountPerProcess);
-        }
+        _outputs.TryAdd(pieResource, 0);
+        _outputs[pieResource]++;
+        EmitResourceChanged(pieResource, 1);
     }
 
     private void ClearResources(Dictionary<ResourceName, int> resources)
@@ -255,24 +294,29 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
         resources.Clear();
     }
 
-    private static int GetCapacity(IReadOnlyList<ProcessingResourceDefinition> definitions, ResourceName resourceType)
+    private static int GetClassifiedAmount(
+        IReadOnlyDictionary<ResourceName, int> resources,
+        ProcessingResourceDefinition definition)
     {
-        for (var index = 0; index < definitions.Count; index++)
+        var amount = 0;
+        foreach (var pair in resources)
         {
-            if (definitions[index].ResourceType == resourceType)
+            if (pair.Value > 0 && definition.Matches(pair.Key))
             {
-                return definitions[index].Capacity;
+                amount += pair.Value;
             }
         }
 
-        return 0;
+        return amount;
     }
 
-    private static bool HasOutputDefinition(ResourceName resourceType)
+    private static bool ContainsDefinition(
+        IReadOnlyList<ProcessingResourceDefinition> definitions,
+        ProcessingResourceDefinition definition)
     {
-        for (var index = 0; index < OutputResourceDefinitions.Count; index++)
+        for (var index = 0; index < definitions.Count; index++)
         {
-            if (OutputResourceDefinitions[index].ResourceType == resourceType)
+            if (definitions[index] == definition)
             {
                 return true;
             }
@@ -280,6 +324,27 @@ public sealed class Bakery : Building, IProcessingBuilding, IProcessingOutputAss
 
         return false;
     }
+
+    private static bool TryGetDefinition(
+        IReadOnlyList<ProcessingResourceDefinition> definitions,
+        ResourceName resourceType,
+        out ProcessingResourceDefinition definition)
+    {
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            if (definitions[index].Matches(resourceType))
+            {
+                definition = definitions[index];
+                return true;
+            }
+        }
+
+        definition = default;
+        return false;
+    }
+
+    private static bool HasOutputDefinition(ResourceName resourceType) =>
+        TryGetDefinition(OutputResourceDefinitions, resourceType, out _);
 
     private void EmitResourceChanged(ResourceName resourceType, int resourceDelta)
     {

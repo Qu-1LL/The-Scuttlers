@@ -9,20 +9,22 @@ namespace TriloGame.Tests.UI;
 public sealed class ResourceHudTests
 {
     [Fact]
-    public void BuildEntries_UsesCatalogTextureKeysIncludingAlgaeIcon()
+    public void BuildEntries_UsesCatalogTextureKeysIncludingPlantIcons()
     {
         var stockpile = new ResourceStockpileSnapshot(
         [
             new ResourceStockpileEntry(ResourceName.Algae, 5),
+            new ResourceStockpileEntry(ResourceName.Gloop, 4),
             new ResourceStockpileEntry(ResourceName.Sandstone, 8),
             new ResourceStockpileEntry(ResourceName.Lumenite, 3)
         ]);
 
         var entries = ResourceHudModelBuilder.BuildEntries(stockpile);
 
-        Assert.Equal("SoilTile_Algae_3", entries[0].TextureKey);
-        Assert.Equal(OreType.SANDSTONE.Name, entries[1].TextureKey);
-        Assert.Equal(OreType.LUMENITE.Name, entries[2].TextureKey);
+        Assert.Equal(ItemCatalog.Algae.TextureKey, entries[0].TextureKey);
+        Assert.Equal(ItemCatalog.Gloop.TextureKey, entries[1].TextureKey);
+        Assert.Equal(OreType.SANDSTONE.Name, entries[2].TextureKey);
+        Assert.Equal(OreType.LUMENITE.Name, entries[3].TextureKey);
     }
 
     [Fact]

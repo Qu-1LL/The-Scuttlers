@@ -1,27 +1,22 @@
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Shared.Math;
-using TriloGame.Game.Shared.Utilities;
 
 namespace TriloGame.Game.Core.Buildings;
 
 public sealed class SoilTile
 {
-    private const double DefaultGrowthConstant = 0d;
-    private const double RanchGrowthMedian = 0.35d;
-    private const double RanchGrowthStandardDeviation = 0.2d;
-    private const double MaxRanchGrowthConstant = 0.99d;
     private const int DormantGrowthLevel = 0;
     private const int MinActiveGrowthLevel = 1;
     private const int MaxGrowthLevel = 3;
     private const int DefaultReturnedAlgaeAmount = 5;
-    private const double GrowthChanceThreshold = 0.7d;
+    internal const int GrowthRollIntervalTicks = 5;
+    private const double GrowthAdvanceChance = 0.10d;
     private const string DormantTextureKey = "SoilTile_0";
 
     public SoilTile(SoilPatch parentPatch, GridPoint localOffset)
     {
         ParentPatch = parentPatch;
         LocalOffset = localOffset;
-        GrowthConstant = DefaultGrowthConstant;
         GrowthLevel = DormantGrowthLevel;
         ReturnedAlgaeAmount = DefaultReturnedAlgaeAmount;
         LastTickMod = 0;
@@ -33,8 +28,6 @@ public sealed class SoilTile
     public GridPoint LocalOffset { get; }
 
     public Ranch? Ranch { get; internal set; }
-
-    public double GrowthConstant { get; private set; }
 
     public int GrowthLevel { get; private set; }
 
@@ -69,7 +62,7 @@ public sealed class SoilTile
             return 0;
         }
 
-        if (random.NextDouble() <= GrowthChanceThreshold)
+        if (random.NextDouble() >= GrowthAdvanceChance)
         {
             return 0;
         }
@@ -87,7 +80,7 @@ public sealed class SoilTile
 
         var harvested = ReturnedAlgaeAmount;
         SetGrowthLevel(MinActiveGrowthLevel);
-        LastTickMod = ParentPatch.Session.TickCount % 10;
+        LastTickMod = ParentPatch.Session.TickCount % GrowthRollIntervalTicks;
         return harvested;
     }
 
@@ -112,30 +105,12 @@ public sealed class SoilTile
         if (GrowthLevel <= DormantGrowthLevel)
         {
             SetGrowthLevel(MinActiveGrowthLevel);
-            LastTickMod = ParentPatch.Session.TickCount % 10;
+            LastTickMod = ParentPatch.Session.TickCount % GrowthRollIntervalTicks;
             return true;
         }
 
         RefreshTextureKey();
         return changed;
-    }
-
-    internal void TileAddedToRanch()
-    {
-        GrowthConstant = Math.Clamp(
-            RandomUtil.NextNormal(RanchGrowthMedian, RanchGrowthStandardDeviation),
-            0d,
-            MaxRanchGrowthConstant);
-    }
-
-    internal void TileRemovedFromRanch()
-    {
-        GrowthConstant = DefaultGrowthConstant;
-    }
-
-    internal void SetGrowthConstant(double value)
-    {
-        GrowthConstant = Math.Max(0d, value);
     }
 
     internal void SetReturnedAlgaeAmount(int amount)

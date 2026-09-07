@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Runtime.Bootstrap;
 
@@ -26,6 +27,8 @@ public sealed class GameSessionBootstrapperTests
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Turret");
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Grinding Mill");
         Assert.Contains(result.Session.UnlockedBuildings, factory => factory.Name == "Bakery");
+        Assert.Contains(GrowableResourceType.ALGAE, result.Session.UnlockedPlantTypes);
+        Assert.Contains(GrowableResourceType.GLOOP, result.Session.UnlockedPlantTypes);
         Assert.NotNull(queen);
     }
 

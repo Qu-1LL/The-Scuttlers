@@ -155,7 +155,61 @@ public sealed class MenuControllerTests
     }
 
     [Fact]
-    public void SelectedProcessingBuildingLayout_ShowsSeparateInputAndOutputResourcesWithCapacities()
+    public void SelectedRanchCropPicker_ReplacesStorageAndSelectsUnlockedCrop()
+    {
+        var session = new GameSession();
+        session.UnlockedPlantTypes.Add(GrowableResourceType.ALGAE);
+        session.UnlockedPlantTypes.Add(GrowableResourceType.GLOOP);
+        var ranch = new Ranch(session);
+        var menu = new MenuController();
+        var viewport = new Point(960, 720);
+        var getLayout = typeof(MenuController).GetMethod("GetLayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        menu.SetSelectedObject(ranch);
+        menu.OpenPanel("selected");
+
+        var initialLayout = getLayout!.Invoke(menu, [viewport, session])!;
+        var cropText = (string?)initialLayout.GetType().GetProperty("SelectedRanchCropText")!.GetValue(initialLayout);
+        var changeCropBounds = (Rectangle?)initialLayout.GetType().GetProperty("SelectedRanchChangeCropBounds")!.GetValue(initialLayout);
+        var inventoryFrame = (Rectangle?)initialLayout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(initialLayout);
+
+        Assert.Equal("CROP: Algae", cropText);
+        Assert.True(changeCropBounds.HasValue);
+        Assert.True(inventoryFrame.HasValue);
+
+        var openResult = menu.HandleClick(changeCropBounds.Value.Center, viewport, session);
+
+        Assert.True(openResult.Consumed);
+        Assert.True(menu.IsSelectingRanchCrop);
+
+        var pickerLayout = getLayout.Invoke(menu, [viewport, session])!;
+        var pickerFrame = (Rectangle?)pickerLayout.GetType().GetProperty("SelectedRanchCropSelectionFrameBounds")!.GetValue(pickerLayout);
+        var pickerInventoryFrame = (Rectangle?)pickerLayout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(pickerLayout);
+        var gloopOption = ((System.Collections.IEnumerable)pickerLayout.GetType().GetProperty("SelectedRanchCropOptions")!.GetValue(pickerLayout)!)
+            .Cast<object>()
+            .Single(option => Equals(
+                GrowableResourceType.GLOOP,
+                option.GetType().GetProperty("ResourceType")!.GetValue(option)));
+        var gloopBounds = (Rectangle)gloopOption.GetType().GetProperty("Bounds")!.GetValue(gloopOption)!;
+
+        Assert.True(pickerFrame.HasValue);
+        Assert.Null(pickerInventoryFrame);
+
+        var selectResult = menu.HandleClick(gloopBounds.Center, viewport, session);
+
+        Assert.True(selectResult.Consumed);
+        Assert.False(menu.IsSelectingRanchCrop);
+        Assert.Equal(GrowableResourceType.GLOOP, ranch.ChosenResource);
+
+        var selectedLayout = getLayout.Invoke(menu, [viewport, session])!;
+        Assert.Equal(
+            "CROP: Gloop",
+            (string?)selectedLayout.GetType().GetProperty("SelectedRanchCropText")!.GetValue(selectedLayout));
+        Assert.True(((Rectangle?)selectedLayout.GetType().GetProperty("SelectedInventoryFrameBounds")!.GetValue(selectedLayout)).HasValue);
+    }
+
+    [Fact]
+    public void SelectedProcessingBuildingLayout_ShowsSharedClassificationLimitsAboveTheirContents()
     {
         var session = new GameSession();
         var mill = new GrindingMill(session);
@@ -170,30 +224,32 @@ public sealed class MenuControllerTests
         var layout = getLayout!.Invoke(menu, [viewport, session])!;
         var inputFrame = (Rectangle?)layout.GetType().GetProperty("SelectedProcessingInputFrameBounds")!.GetValue(layout);
         var outputFrame = (Rectangle?)layout.GetType().GetProperty("SelectedProcessingOutputFrameBounds")!.GetValue(layout);
-        var inputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingInputEntries")!.GetValue(layout)!)
+        var inputGroups = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingInputGroups")!.GetValue(layout)!)
             .Cast<object>()
             .ToDictionary(
-                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
-                entry => (
-                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
-                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
-        var outputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingOutputEntries")!.GetValue(layout)!)
+                group => (string)group.GetType().GetProperty("Label")!.GetValue(group)!);
+        var outputGroups = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingOutputGroups")!.GetValue(layout)!)
             .Cast<object>()
             .ToDictionary(
-                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
-                entry => (
-                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
-                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
+                group => (string)group.GetType().GetProperty("Label")!.GetValue(group)!);
 
         Assert.True(inputFrame.HasValue);
         Assert.True(outputFrame.HasValue);
         Assert.True(inputFrame.Value.Bottom < outputFrame.Value.Y);
-        Assert.Equal((17, 500), inputEntries["Algae"]);
-        Assert.Equal((0, 500), outputEntries["Algae Meal"]);
+        Assert.Equal(17, (int)inputGroups["RAW PLANTS"].GetType().GetProperty("Quantity")!.GetValue(inputGroups["RAW PLANTS"])!);
+        Assert.Equal(500, (int)inputGroups["RAW PLANTS"].GetType().GetProperty("Capacity")!.GetValue(inputGroups["RAW PLANTS"])!);
+        var rawPlantEntries = ((System.Collections.IEnumerable)inputGroups["RAW PLANTS"].GetType().GetProperty("Entries")!.GetValue(inputGroups["RAW PLANTS"])!)
+            .Cast<object>()
+            .ToArray();
+        Assert.Single(rawPlantEntries);
+        Assert.Equal("Algae", (string)rawPlantEntries[0].GetType().GetProperty("ResourceType")!.GetValue(rawPlantEntries[0])!);
+        Assert.Equal(17, (int)rawPlantEntries[0].GetType().GetProperty("Quantity")!.GetValue(rawPlantEntries[0])!);
+        Assert.Equal(0, (int)outputGroups["MEALS"].GetType().GetProperty("Quantity")!.GetValue(outputGroups["MEALS"])!);
+        Assert.Equal(500, (int)outputGroups["MEALS"].GetType().GetProperty("Capacity")!.GetValue(outputGroups["MEALS"])!);
     }
 
     [Fact]
-    public void SelectedBakeryLayout_ShowsBothInputResourcesAndPieOutputCapacity()
+    public void SelectedBakeryLayout_ShowsRawMealAndPieClassificationLimits()
     {
         var session = new GameSession();
         var bakery = new Bakery(session);
@@ -207,24 +263,30 @@ public sealed class MenuControllerTests
         menu.OpenPanel("selected");
 
         var layout = getLayout!.Invoke(menu, [viewport, session])!;
-        var inputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingInputEntries")!.GetValue(layout)!)
+        var inputFrame = (Rectangle?)layout.GetType().GetProperty("SelectedProcessingInputFrameBounds")!.GetValue(layout);
+        var inputGroups = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingInputGroups")!.GetValue(layout)!)
             .Cast<object>()
             .ToDictionary(
-                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
-                entry => (
-                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
-                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
-        var outputEntries = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingOutputEntries")!.GetValue(layout)!)
+                group => (string)group.GetType().GetProperty("Label")!.GetValue(group)!);
+        var outputGroups = ((System.Collections.IEnumerable)layout.GetType().GetProperty("SelectedProcessingOutputGroups")!.GetValue(layout)!)
             .Cast<object>()
             .ToDictionary(
-                entry => (string)entry.GetType().GetProperty("ResourceType")!.GetValue(entry)!,
-                entry => (
-                    Quantity: (int)entry.GetType().GetProperty("Quantity")!.GetValue(entry)!,
-                    Capacity: Convert.ToInt32(entry.GetType().GetProperty("Capacity")!.GetValue(entry)!)));
+                group => (string)group.GetType().GetProperty("Label")!.GetValue(group)!);
 
-        Assert.Equal((17, 250), inputEntries["Algae"]);
-        Assert.Equal((9, 250), inputEntries["Algae Meal"]);
-        Assert.Equal((0, 250), outputEntries["Algae Pie"]);
+        Assert.Equal(17, (int)inputGroups["RAW PLANTS"].GetType().GetProperty("Quantity")!.GetValue(inputGroups["RAW PLANTS"])!);
+        Assert.Equal(250, (int)inputGroups["RAW PLANTS"].GetType().GetProperty("Capacity")!.GetValue(inputGroups["RAW PLANTS"])!);
+        Assert.Equal(0, (int)outputGroups["PIES"].GetType().GetProperty("Quantity")!.GetValue(outputGroups["PIES"])!);
+        Assert.Equal(250, (int)outputGroups["PIES"].GetType().GetProperty("Capacity")!.GetValue(outputGroups["PIES"])!);
+
+        Assert.True(inputFrame.HasValue);
+        Assert.True(menu.HandleWheel(inputFrame.Value.Center, 200, viewport, session));
+        var scrolledLayout = getLayout.Invoke(menu, [viewport, session])!;
+        var scrolledInputGroups = ((System.Collections.IEnumerable)scrolledLayout.GetType().GetProperty("SelectedProcessingInputGroups")!.GetValue(scrolledLayout)!)
+            .Cast<object>()
+            .ToDictionary(
+                group => (string)group.GetType().GetProperty("Label")!.GetValue(group)!);
+        Assert.Equal(9, (int)scrolledInputGroups["MEALS"].GetType().GetProperty("Quantity")!.GetValue(scrolledInputGroups["MEALS"])!);
+        Assert.Equal(250, (int)scrolledInputGroups["MEALS"].GetType().GetProperty("Capacity")!.GetValue(scrolledInputGroups["MEALS"])!);
     }
 
     [Fact]

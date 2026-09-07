@@ -212,7 +212,7 @@ public sealed class VehicleTests
     }
 
     [Fact]
-    public void PlowMove_PlantsDormantSoilTilesUsingGarageChosenResource()
+    public void PlowMove_PlantsDormantSoilTilesUsingRanchChosenResource()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 14, new GridPoint(0, 0));
         var soilPatch = TestWorldFactory.BuildSoilPatch(cave, session, new GridPoint(6, 6));
@@ -221,7 +221,8 @@ public sealed class VehicleTests
         var plow = new Plow(session);
 
         Assert.Same(garage, ranch.Garage);
-        Assert.Equal(GrowableResourceType.ALGAE, garage.ChosenResource);
+        session.UnlockedPlantTypes.Add(GrowableResourceType.GLOOP);
+        Assert.True(ranch.TrySetChosenResource(GrowableResourceType.GLOOP));
         Assert.True(cave.SpawnVehicle(plow, new GridPoint(5, 6)));
 
         plow.EnqueueMove(new GridPoint(6, 6));
@@ -229,15 +230,37 @@ public sealed class VehicleTests
 
         Assert.Equal(0, plow.GetInventoryTotal());
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(0, 0))!.GrowthLevel);
-        Assert.Equal(GrowableResourceType.ALGAE, soilPatch.GetSoilTile(new GridPoint(0, 0))!.PlantedResource);
-        Assert.Equal("SoilTile_Algae_1", soilPatch.GetSoilTile(new GridPoint(0, 0))!.TextureKey);
+        Assert.Equal(GrowableResourceType.GLOOP, soilPatch.GetSoilTile(new GridPoint(0, 0))!.PlantedResource);
+        Assert.Equal("SoilTile_Gloop_1", soilPatch.GetSoilTile(new GridPoint(0, 0))!.TextureKey);
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(0, 1))!.GrowthLevel);
-        Assert.Equal(GrowableResourceType.ALGAE, soilPatch.GetSoilTile(new GridPoint(0, 1))!.PlantedResource);
-        Assert.Equal("SoilTile_Algae_1", soilPatch.GetSoilTile(new GridPoint(0, 1))!.TextureKey);
+        Assert.Equal(GrowableResourceType.GLOOP, soilPatch.GetSoilTile(new GridPoint(0, 1))!.PlantedResource);
+        Assert.Equal("SoilTile_Gloop_1", soilPatch.GetSoilTile(new GridPoint(0, 1))!.TextureKey);
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(1, 0))!.GrowthLevel);
-        Assert.Equal(GrowableResourceType.ALGAE, soilPatch.GetSoilTile(new GridPoint(1, 0))!.PlantedResource);
+        Assert.Equal(GrowableResourceType.GLOOP, soilPatch.GetSoilTile(new GridPoint(1, 0))!.PlantedResource);
         Assert.Equal(1, soilPatch.GetSoilTile(new GridPoint(1, 1))!.GrowthLevel);
-        Assert.Equal(GrowableResourceType.ALGAE, soilPatch.GetSoilTile(new GridPoint(1, 1))!.PlantedResource);
+        Assert.Equal(GrowableResourceType.GLOOP, soilPatch.GetSoilTile(new GridPoint(1, 1))!.PlantedResource);
+    }
+
+    [Fact]
+    public void PlowMove_HarvestsThePlantTypeStoredOnTheSoilTile()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(18, 14, new GridPoint(0, 0));
+        var soilPatch = TestWorldFactory.BuildSoilPatch(cave, session, new GridPoint(6, 6));
+        soilPatch.SetAllPlantedResources(GrowableResourceType.GLOOP);
+        soilPatch.SetAllGrowthLevels(3);
+        TestWorldFactory.BuildGarage(cave, session, new GridPoint(4, 6));
+        var plow = new Plow(session);
+
+        Assert.True(cave.SpawnVehicle(plow, new GridPoint(5, 6)));
+
+        plow.EnqueueMove(new GridPoint(6, 6));
+        AdvancePlowUntilRouteCompletes(plow);
+
+        Assert.Equal(20, plow.GetInventoryTotal());
+        Assert.Equal(20, plow.GetInventory()[ResourceName.Gloop]);
+        Assert.All(
+            soilPatch.SoilTiles,
+            soilTile => Assert.Equal(GrowableResourceType.ALGAE, soilTile.PlantedResource));
     }
 
     [Fact]

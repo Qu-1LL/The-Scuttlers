@@ -12,6 +12,8 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Ranch : Building, IStorage
 {
+    private const int GarageWaitTicks = 100;
+
     private sealed class PlowPathNode
     {
         public PlowPathNode(GridPoint location, int rotationTurns)
@@ -51,6 +53,7 @@ public sealed class Ranch : Building, IStorage
         : base("Ranch", new GridPoint(1, 1), [[1]], session, false)
     {
         TextureKey = "Garage";
+        ChosenResource = GrowableResourceType.ALGAE;
         Description = "A ranch groups one garage with its connected soil tiles.";
     }
 
@@ -61,6 +64,8 @@ public sealed class Ranch : Building, IStorage
     public override BuildingNavigationMaintenanceMode NavigationFieldMaintenanceMode => BuildingNavigationMaintenanceMode.None;
 
     public Garage? Garage { get; private set; }
+
+    public GrowableResourceType ChosenResource { get; private set; }
 
     public IReadOnlyCollection<SoilTile> SoilTiles => _soilTiles;
 
@@ -87,6 +92,19 @@ public sealed class Ranch : Building, IStorage
     public int Deposit(ResourceName resourceType, int amount) => Garage?.Deposit(resourceType, amount) ?? 0;
 
     public int Withdraw(ResourceName resourceType, int amount) => Garage?.Withdraw(resourceType, amount) ?? 0;
+
+    // Ranch plows only plant crop types the colony has unlocked.
+    public bool TrySetChosenResource(GrowableResourceType resourceType)
+    {
+        ArgumentNullException.ThrowIfNull(resourceType);
+        if (!Session.UnlockedPlantTypes.Contains(resourceType))
+        {
+            return false;
+        }
+
+        ChosenResource = resourceType;
+        return true;
+    }
 
     public override int Tick(Cave cave)
     {
@@ -118,7 +136,7 @@ public sealed class Ranch : Building, IStorage
 
         if (Session.Danger)
         {
-            _garageWaitTicksRemaining = 20;
+            _garageWaitTicksRemaining = GarageWaitTicks;
             return 0;
         }
 
@@ -213,7 +231,7 @@ public sealed class Ranch : Building, IStorage
 
         _waitingFarmer = farmer;
         _waitingFarmerRestoreLocation = farmer.Location;
-        _garageWaitTicksRemaining = 20;
+        _garageWaitTicksRemaining = GarageWaitTicks;
         Cave.DisableCreatureLocomotion(farmer);
         farmer.HostOnBuilding(Garage, GetGarageWorldCenter(Garage), drawBelowBuildings: true);
         farmer.IsVisible = true;
@@ -308,7 +326,6 @@ public sealed class Ranch : Building, IStorage
         }
 
         soilTile.Ranch = this;
-        soilTile.TileAddedToRanch();
         if (soilTile.ParentPatch.SoilArea is { } soilArea)
         {
             _soilAreas.Add(soilArea);
@@ -332,7 +349,6 @@ public sealed class Ranch : Building, IStorage
         if (ReferenceEquals(soilTile.Ranch, this))
         {
             soilTile.Ranch = null;
-            soilTile.TileRemovedFromRanch();
         }
 
         if (soilTile.ParentPatch.SoilArea is { } soilArea && !ContainsSoilFromArea(soilArea))
@@ -379,7 +395,6 @@ public sealed class Ranch : Building, IStorage
             if (ReferenceEquals(soilTile.Ranch, this))
             {
                 soilTile.Ranch = null;
-                soilTile.TileRemovedFromRanch();
             }
         }
 
@@ -881,7 +896,7 @@ public sealed class Ranch : Building, IStorage
 
         _waitingFarmer = farmer;
         _waitingFarmerRestoreLocation = restoreLocation;
-        _garageWaitTicksRemaining = 20;
+        _garageWaitTicksRemaining = GarageWaitTicks;
         farmer.HostOnBuilding(garage, GetGarageWorldCenter(garage), drawBelowBuildings: true);
         farmer.IsVisible = true;
         farmer.ClearTaskQueue();

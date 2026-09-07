@@ -2,9 +2,48 @@ namespace TriloGame.Game.Core.Economy;
 
 public static class ItemCatalog
 {
-    public static readonly ItemType Algae = new(ResourceName.Algae, "Algae", "SoilTile_Algae_3", ResourceCategory.Organic, NutritionValue: 1);
-    public static readonly ItemType AlgaeMeal = new(ResourceName.AlgaeMeal, "Algae Meal", "Algae_Meal", ResourceCategory.Organic, NutritionValue: 2);
-    public static readonly ItemType AlgaePie = new(ResourceName.AlgaePie, "Algae Pie", "Algae_Pie", ResourceCategory.Organic, NutritionValue: 4);
+    public static readonly ItemType Algae = new(
+        ResourceName.Algae,
+        "Algae",
+        "Algae",
+        ResourceCategory.Organic,
+        nutritionValue: 1,
+        ResourceClassifications.Create(ResourceCategory.Organic, ResourceClassificationValues.Algae, ResourceClassificationValues.Raw));
+    public static readonly ItemType AlgaeMeal = new(
+        ResourceName.AlgaeMeal,
+        "Algae Meal",
+        "Algae_Meal",
+        ResourceCategory.Organic,
+        nutritionValue: 2,
+        ResourceClassifications.Create(ResourceCategory.Organic, ResourceClassificationValues.Algae, ResourceClassificationValues.Meal));
+    public static readonly ItemType AlgaePie = new(
+        ResourceName.AlgaePie,
+        "Algae Pie",
+        "Algae_Pie",
+        ResourceCategory.Organic,
+        nutritionValue: 4,
+        ResourceClassifications.Create(ResourceCategory.Organic, ResourceClassificationValues.Algae, ResourceClassificationValues.Pie));
+    public static readonly ItemType Gloop = new(
+        ResourceName.Gloop,
+        "Gloop",
+        "Gloop",
+        ResourceCategory.Organic,
+        nutritionValue: 1,
+        ResourceClassifications.Create(ResourceCategory.Organic, ResourceClassificationValues.Gloop, ResourceClassificationValues.Raw));
+    public static readonly ItemType GloopMeal = new(
+        ResourceName.GloopMeal,
+        "Gloop Meal",
+        "Gloop_Meal",
+        ResourceCategory.Organic,
+        nutritionValue: 2,
+        ResourceClassifications.Create(ResourceCategory.Organic, ResourceClassificationValues.Gloop, ResourceClassificationValues.Meal));
+    public static readonly ItemType GloopPie = new(
+        ResourceName.GloopPie,
+        "Gloop Pie",
+        "Gloop_Pie",
+        ResourceCategory.Organic,
+        nutritionValue: 4,
+        ResourceClassifications.Create(ResourceCategory.Organic, ResourceClassificationValues.Gloop, ResourceClassificationValues.Pie));
     public static readonly ItemType Sandstone = new(ResourceName.Sandstone, "Sandstone", OreType.SANDSTONE.Name, ResourceCategory.Rock);
     public static readonly ItemType Magnetite = new(ResourceName.Magnetite, "Magnetite", OreType.MAGNETITE.Name, ResourceCategory.Gravel);
     public static readonly ItemType Malachite = new(ResourceName.Malachite, "Malachite", OreType.MALACHITE.Name, ResourceCategory.Rock);
@@ -20,6 +59,9 @@ public static class ItemCatalog
         Algae,
         AlgaeMeal,
         AlgaePie,
+        Gloop,
+        GloopMeal,
+        GloopPie,
         Sandstone,
         Magnetite,
         Malachite,
@@ -36,6 +78,9 @@ public static class ItemCatalog
         [Algae.Resource] = Algae,
         [AlgaeMeal.Resource] = AlgaeMeal,
         [AlgaePie.Resource] = AlgaePie,
+        [Gloop.Resource] = Gloop,
+        [GloopMeal.Resource] = GloopMeal,
+        [GloopPie.Resource] = GloopPie,
         [Sandstone.Resource] = Sandstone,
         [Magnetite.Resource] = Magnetite,
         [Malachite.Resource] = Malachite,
@@ -52,6 +97,9 @@ public static class ItemCatalog
         [Algae.Name] = Algae,
         [AlgaeMeal.Name] = AlgaeMeal,
         [AlgaePie.Name] = AlgaePie,
+        [Gloop.Name] = Gloop,
+        [GloopMeal.Name] = GloopMeal,
+        [GloopPie.Name] = GloopPie,
         [Sandstone.Name] = Sandstone,
         [Magnetite.Name] = Magnetite,
         [Malachite.Name] = Malachite,
@@ -102,6 +150,46 @@ public static class ItemCatalog
     public static ResourceCategory GetCategory(ResourceName resource)
     {
         return Get(resource).Category;
+    }
+
+    public static string? GetClassification(ResourceName resource, string? classificationKey)
+    {
+        return TryGet(resource, out var itemType)
+            ? itemType.GetClassification(classificationKey)
+            : null;
+    }
+
+    public static bool HasClassification(ResourceName resource, string? classificationKey, string? classificationValue)
+    {
+        return TryGet(resource, out var itemType) && itemType.HasClassification(classificationKey, classificationValue);
+    }
+
+    // Resolve another food form from the same plant and resource type without assuming its name.
+    public static bool TryGetRelatedPlantResource(ResourceName sourceResource, string targetFoodType, out ResourceName relatedResource)
+    {
+        relatedResource = default;
+        var plantType = GetClassification(sourceResource, ResourceClassificationKeys.PlantType);
+        var resourceType = GetClassification(sourceResource, ResourceClassificationKeys.ResourceType);
+        if (plantType is null || resourceType is null)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < StockpileOrder.Length; index++)
+        {
+            var candidate = StockpileOrder[index];
+            if (!candidate.HasClassification(ResourceClassificationKeys.PlantType, plantType) ||
+                !candidate.HasClassification(ResourceClassificationKeys.ResourceType, resourceType) ||
+                !candidate.HasClassification(ResourceClassificationKeys.FoodType, targetFoodType))
+            {
+                continue;
+            }
+
+            relatedResource = candidate.Resource;
+            return true;
+        }
+
+        return false;
     }
 
     public static int GetNutritionValue(ResourceName resource)

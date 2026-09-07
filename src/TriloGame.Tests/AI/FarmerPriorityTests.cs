@@ -43,7 +43,7 @@ public sealed class FarmerPriorityTests
         Assert.True(farmer.DrawBelowBuildings);
         Assert.False(farmer.IsLocomotionEnabled);
 
-        for (var tick = 0; tick < 20; tick++)
+        for (var tick = 0; tick < 100; tick++)
         {
             ranch.Tick(cave);
         }
@@ -141,7 +141,28 @@ public sealed class FarmerPriorityTests
     }
 
     [Fact]
-    public void StoredMealDelivery_WaitsUntilTheGrindingMillHasAFullCarryLoad()
+    public void StoredGloopPieDelivery_IsRecognizedAsFarmerFood()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var storage = new Storage(session);
+        Assert.True(cave.Build(storage, new GridPoint(8, 6)));
+        Assert.Equal(5, storage.Deposit(ResourceName.GloopPie, 5));
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(storage),
+            "Farmer",
+            "farmer");
+
+        Assert.True(farmer.RunRoleState(FarmerState.SelectFarm));
+
+        Assert.Equal(5, farmer.Inventory.GetAmount(ResourceName.GloopPie));
+        Assert.Equal(0, storage.GetStoredAmount(ResourceName.GloopPie));
+        Assert.Equal(FarmerState.FeedQueen, farmer.FarmerState);
+    }
+
+    [Fact]
+    public void StoredMealDelivery_CollectsPartialGrindingMillOutput()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
         var mill = new GrindingMill(session);
@@ -160,12 +181,12 @@ public sealed class FarmerPriorityTests
             "Farmer",
             "farmer");
 
-        Assert.False(farmer.RunRoleState(FarmerState.SelectFarm));
+        Assert.True(farmer.RunRoleState(FarmerState.SelectFarm));
 
-        Assert.Equal(FarmerState.WaitForFarm, farmer.FarmerState);
-        Assert.Equal(4, mill.GetOutputAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(FarmerState.FeedQueen, farmer.FarmerState);
+        Assert.Equal(0, mill.GetOutputAmount(ResourceName.AlgaeMeal));
         Assert.Equal(0, mill.GetOutputCollectorCount(ResourceName.AlgaeMeal));
-        Assert.Equal(0, farmer.Inventory.GetAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(4, farmer.Inventory.GetAmount(ResourceName.AlgaeMeal));
     }
 
     [Fact]
@@ -265,6 +286,31 @@ public sealed class FarmerPriorityTests
 
         Assert.Equal(5, farmer.Inventory.GetAmount(ResourceName.AlgaePie));
         Assert.Equal(0, bakery.GetOutputAmount(ResourceName.AlgaePie));
+        Assert.Equal(FarmerState.FeedQueen, farmer.FarmerState);
+    }
+
+    [Fact]
+    public void StoredPieDelivery_CollectsPartialBakeryOutput()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 14, new GridPoint(12, 0));
+        var bakery = new Bakery(session);
+        Assert.True(cave.Build(bakery, new GridPoint(8, 6)));
+        Assert.Equal(1, bakery.DepositInput(ResourceName.Gloop, 1));
+        Assert.Equal(1, bakery.DepositInput(ResourceName.GloopMeal, 1));
+        session.TickCount = bakery.ProcessingIntervalTicks;
+        Assert.Equal(1, bakery.Tick(cave));
+
+        var farmer = TestWorldFactory.SpawnTrilobite(
+            cave,
+            session,
+            GetInteractionLocation(bakery),
+            "Farmer",
+            "farmer");
+
+        Assert.True(farmer.RunRoleState(FarmerState.SelectFarm));
+
+        Assert.Equal(1, farmer.Inventory.GetAmount(ResourceName.GloopPie));
+        Assert.Equal(0, bakery.GetOutputAmount(ResourceName.GloopPie));
         Assert.Equal(FarmerState.FeedQueen, farmer.FarmerState);
     }
 

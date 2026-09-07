@@ -181,7 +181,10 @@ garage, then stations on a visible plow. The ranch rebuilds a deterministic serp
 all-soil 2x2 plow footprints whenever membership changes; each completed row advances by two tiles before
 the plow returns to its garage-side start. It follows straight route segments with continuous fixed-point
 movement at 1.5x the normal vehicle speed and only stops for a turn. Each 90-degree plow turn lasts
-0.5 seconds of game time. Each movement or completed turn works every tile in the 2x2 footprint.
+0.5 seconds of game time. Each movement or completed turn works every tile in the 2x2 footprint. Planted
+soil starts at growth level 1 and makes a growth roll every five simulation ticks; each roll has a 10%
+chance to advance one level, otherwise it remains unchanged, up to level 3. After a completed plow cycle,
+the farmer waits 100 simulation ticks at the garage before the next plow can spawn; danger resets that wait.
 
 ## 7. World generation and mining
 

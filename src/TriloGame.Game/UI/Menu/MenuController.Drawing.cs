@@ -141,8 +141,9 @@ public sealed partial class MenuController
         var assignmentText = SelectedObject switch
         {
             Creature selectedCreature => $"Assignment: {selectedCreature.Assignment}",
-            IProcessingBuilding processingBuilding => $"Processing: every {processingBuilding.ProcessingIntervalTicks} ticks",
+            IProcessor processor => $"Processing: every {processor.ProcessingIntervalTicks} ticks",
             IResourceStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
+            IStorage storage => $"Stored: {storage.GetInventoryTotal()}/{storage.Capacity}",
             _ => $"Type: {title}"
         };
         var buildingAssignmentText = SelectedObject is Building selectedBuilding
@@ -271,7 +272,29 @@ public sealed partial class MenuController
             }
         }
 
-        if (SelectedObject is IProcessingBuilding processing &&
+        if (SelectedObject is Ranch &&
+            layout.SelectedRanchCropLabelBounds is { } cropLabelBounds &&
+            layout.SelectedRanchCropText is { } cropText &&
+            layout.SelectedRanchChangeCropBounds is { } changeCropBounds)
+        {
+            DrawFrame(context, cropLabelBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+            DrawTextFitted(
+                context,
+                cropText,
+                Inset(cropLabelBounds, 10),
+                new Color(210, 228, 236));
+
+            var cropButtonHovered = changeCropBounds.Contains(_pointerPoint);
+            DrawButton(
+                context,
+                changeCropBounds,
+                _selectingRanchCrop ? "Back" : "Change Crop",
+                cropButtonHovered ? new Color(39, 86, 109) : new Color(33, 75, 95),
+                cropButtonHovered ? new Color(160, 221, 237) : new Color(140, 207, 224),
+                Color.White);
+        }
+
+        if (SelectedObject is IProcessor processing &&
             layout.SelectedProcessingInputFrameBounds is { } inputFrameBounds &&
             layout.SelectedProcessingInputViewportBounds is { } inputViewportBounds &&
             layout.SelectedProcessingOutputFrameBounds is { } outputFrameBounds &&
@@ -282,9 +305,8 @@ public sealed partial class MenuController
                 inputFrameBounds,
                 inputViewportBounds,
                 "INPUTS",
-                GetProcessingResourceSummary(processing, isInput: true),
-                layout.SelectedProcessingInputEntries,
-                "No input resources are configured.",
+                layout.SelectedProcessingInputGroups,
+                "No input classifications are configured.",
                 layout.SelectedProcessingInputScrollbarTrackBounds,
                 layout.SelectedProcessingInputScrollbarThumbBounds);
             DrawProcessingInventorySection(
@@ -292,11 +314,54 @@ public sealed partial class MenuController
                 outputFrameBounds,
                 outputViewportBounds,
                 "OUTPUTS",
-                GetProcessingResourceSummary(processing, isInput: false),
-                layout.SelectedProcessingOutputEntries,
-                "No output resources are configured.",
+                layout.SelectedProcessingOutputGroups,
+                "No output classifications are configured.",
                 layout.SelectedProcessingOutputScrollbarTrackBounds,
                 layout.SelectedProcessingOutputScrollbarThumbBounds);
+        }
+        else if (SelectedObject is Ranch ranch &&
+            layout.SelectedRanchCropSelectionFrameBounds is { } cropSelectionFrameBounds &&
+            layout.SelectedRanchCropSelectionViewportBounds is { } cropSelectionViewportBounds)
+        {
+            DrawFrame(context, cropSelectionFrameBounds, new Color(13, 31, 44), new Color(53, 84, 102));
+            DrawTextFitted(
+                context,
+                "SELECT CROP",
+                new Rectangle(cropSelectionFrameBounds.X + 12, cropSelectionFrameBounds.Y + 8, cropSelectionFrameBounds.Width - 24, 20),
+                new Color(159, 195, 210));
+
+            if (layout.SelectedRanchCropOptions.Count == 0)
+            {
+                DrawWrappedText(
+                    context,
+                    "No plant types are unlocked yet.",
+                    Inset(cropSelectionViewportBounds, 10),
+                    new Color(210, 228, 236));
+            }
+            else
+            {
+                foreach (var option in layout.SelectedRanchCropOptions)
+                {
+                    var isSelected = Equals(option.ResourceType, ranch.ChosenResource);
+                    var isHovered = option.Bounds.Contains(_pointerPoint);
+                    DrawButton(
+                        context,
+                        option.Bounds,
+                        option.ResourceType.Name,
+                        isSelected
+                            ? isHovered ? new Color(52, 107, 89) : new Color(39, 88, 72)
+                            : isHovered ? new Color(39, 86, 109) : new Color(33, 75, 95),
+                        isSelected
+                            ? isHovered ? new Color(194, 239, 203) : new Color(171, 220, 181)
+                            : isHovered ? new Color(160, 221, 237) : new Color(140, 207, 224),
+                        Color.White);
+                }
+            }
+
+            DrawScrollbar(
+                context,
+                layout.SelectedRanchCropSelectionScrollbarTrackBounds,
+                layout.SelectedRanchCropSelectionScrollbarThumbBounds);
         }
         else if (TryGetSelectedInventorySummary(
                 out var inventoryTitle,
@@ -373,20 +438,31 @@ public sealed partial class MenuController
             AlgaeFarm farm => farm.GetVolume(),
             StationBuilding station => station.GetVolume(),
             Scaffolding scaffolding => scaffolding.GetVolume(),
-            IProcessingBuilding processing when building is IProcessingOutputAssignmentBuilding assignments =>
-                GetProcessingOutputCollectorCount(processing, assignments),
+            IProcessor processor when building is IProcessingOutputAssignmentBuilding assignments =>
+                GetProcessingOutputCollectorCount(processor, assignments),
             _ => 0
         };
     }
 
     private static int GetProcessingOutputCollectorCount(
-        IProcessingBuilding processing,
+        IProcessor processing,
         IProcessingOutputAssignmentBuilding assignments)
     {
         var count = 0;
-        for (var index = 0; index < processing.OutputDefinitions.Count; index++)
+        var resources = ItemCatalog.GetStockpileOrder();
+        for (var resourceIndex = 0; resourceIndex < resources.Count; resourceIndex++)
         {
-            count += assignments.GetOutputCollectorCount(processing.OutputDefinitions[index].ResourceType);
+            var resourceType = resources[resourceIndex].Resource;
+            for (var definitionIndex = 0; definitionIndex < processing.OutputDefinitions.Count; definitionIndex++)
+            {
+                if (!processing.OutputDefinitions[definitionIndex].Matches(resourceType))
+                {
+                    continue;
+                }
+
+                count += assignments.GetOutputCollectorCount(resourceType);
+                break;
+            }
         }
 
         return count;
@@ -398,8 +474,7 @@ public sealed partial class MenuController
         Rectangle frameBounds,
         Rectangle viewportBounds,
         string title,
-        string amountText,
-        IReadOnlyList<InventoryEntryRect> entries,
+        IReadOnlyList<ProcessingInventoryGroupRect> groups,
         string emptyText,
         Rectangle? scrollbarTrackBounds,
         Rectangle? scrollbarThumbBounds)
@@ -410,42 +485,44 @@ public sealed partial class MenuController
             title,
             new Rectangle(frameBounds.X + 12, frameBounds.Y + 8, frameBounds.Width / 2, 20),
             new Color(159, 195, 210));
-        DrawTextFittedRight(
-            context,
-            amountText,
-            new Rectangle(frameBounds.Right - 120, frameBounds.Y + 8, 108, 20),
-            new Color(210, 228, 236));
-
-        if (entries.Count == 0)
+        if (groups.Count == 0)
         {
             DrawWrappedText(context, emptyText, Inset(viewportBounds, 10), new Color(210, 228, 236));
         }
         else
         {
-            foreach (var entry in entries)
+            foreach (var group in groups)
             {
-                DrawInventoryEntry(context, entry);
+                DrawFrame(context, group.HeaderBounds, new Color(10, 22, 32), new Color(80, 122, 141));
+                DrawTextFitted(
+                    context,
+                    group.Label,
+                    Inset(group.HeaderBounds, 5),
+                    new Color(159, 195, 210));
+                DrawTextFittedRight(
+                    context,
+                    $"{group.Quantity}/{group.Capacity}",
+                    new Rectangle(group.HeaderBounds.Right - 96, group.HeaderBounds.Y + 3, 90, group.HeaderBounds.Height - 6),
+                    new Color(210, 228, 236));
+
+                if (group.Entries.Count == 0)
+                {
+                    DrawText(
+                        context,
+                        "Empty",
+                        new Vector2(group.EmptyBounds.X + 4, group.EmptyBounds.Y + 2),
+                        new Color(141, 183, 199));
+                    continue;
+                }
+
+                foreach (var entry in group.Entries)
+                {
+                    DrawInventoryEntry(context, entry);
+                }
             }
         }
 
         DrawScrollbar(context, scrollbarTrackBounds, scrollbarThumbBounds);
-    }
-
-    private static string GetProcessingResourceSummary(IProcessingBuilding processing, bool isInput)
-    {
-        var definitions = isInput ? processing.InputDefinitions : processing.OutputDefinitions;
-        var amount = 0;
-        var capacity = 0;
-        for (var index = 0; index < definitions.Count; index++)
-        {
-            var definition = definitions[index];
-            amount += isInput
-                ? processing.GetInputAmount(definition.ResourceType)
-                : processing.GetOutputAmount(definition.ResourceType);
-            capacity += definition.Capacity;
-        }
-
-        return $"{amount}/{capacity}";
     }
 
     private bool TryGetSelectedInventorySummary(
@@ -461,6 +538,11 @@ public sealed partial class MenuController
                 emptyText = "No materials delivered yet.";
                 return true;
             case IResourceStorage storage:
+                title = "STORAGE";
+                amountText = $"{storage.GetInventoryTotal()}/{storage.Capacity}";
+                emptyText = "No resources are stored here yet.";
+                return true;
+            case IStorage storage:
                 title = "STORAGE";
                 amountText = $"{storage.GetInventoryTotal()}/{storage.Capacity}";
                 emptyText = "No resources are stored here yet.";

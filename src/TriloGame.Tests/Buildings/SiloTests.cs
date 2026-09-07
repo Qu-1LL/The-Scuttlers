@@ -8,17 +8,19 @@ namespace TriloGame.Tests.Buildings;
 public sealed class SiloTests
 {
     [Fact]
-    public void SiloStoresOnlyAlgae()
+    public void SiloStoresRawPlantResources()
     {
         var session = new GameSession();
         var silo = new Silo(session);
 
         Assert.Equal(5000, silo.Capacity);
         Assert.Equal(2500, silo.Deposit(ResourceName.Algae, 2500));
+        Assert.Equal(300, silo.Deposit(ResourceName.Gloop, 300));
         Assert.Equal(0, silo.Deposit(ResourceName.Sandstone, 25));
-        Assert.Equal(2500, silo.GetInventoryTotal());
+        Assert.Equal(2800, silo.GetInventoryTotal());
 
         Assert.Equal(400, silo.Withdraw(ResourceName.Algae, 400));
+        Assert.Equal(300, silo.Withdraw(ResourceName.Gloop, 400));
         Assert.Equal(2100, silo.GetInventoryTotal());
     }
 
@@ -51,5 +53,20 @@ public sealed class SiloTests
         Assert.Equal(5, garage.GetInventory().GetValueOrDefault(ResourceName.Sandstone, 0));
         Assert.Equal(20, leftSilo.GetInventoryTotal());
         Assert.Equal(20, rightSilo.GetInventoryTotal());
+    }
+
+    [Fact]
+    public void GarageSplitsIncomingGloopBetweenAdjacentSilos()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(28, 16, new GridPoint(0, 0));
+        var leftSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(4, 6));
+        var garage = TestWorldFactory.BuildGarage(cave, session, new GridPoint(6, 6));
+        var rightSilo = TestWorldFactory.BuildSilo(cave, session, new GridPoint(8, 6));
+
+        Assert.Equal(40, garage.Deposit(ResourceName.Gloop, 40));
+
+        Assert.Equal(0, garage.GetInventory().GetValueOrDefault(ResourceName.Gloop, 0));
+        Assert.Equal(20, leftSilo.GetStoredAmount(ResourceName.Gloop));
+        Assert.Equal(20, rightSilo.GetStoredAmount(ResourceName.Gloop));
     }
 }

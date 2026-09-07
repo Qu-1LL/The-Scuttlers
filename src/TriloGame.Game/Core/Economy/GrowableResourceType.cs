@@ -3,10 +3,12 @@ namespace TriloGame.Game.Core.Economy;
 public sealed record GrowableResourceType(ItemType HarvestedItem)
 {
     public static readonly GrowableResourceType ALGAE = new(ItemCatalog.Algae);
+    public static readonly GrowableResourceType GLOOP = new(ItemCatalog.Gloop);
 
     private static readonly GrowableResourceType[] All =
     [
-        ALGAE
+        ALGAE,
+        GLOOP
     ];
 
     public string Name => HarvestedItem.Name;

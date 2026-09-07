@@ -8,10 +8,7 @@ namespace TriloGame.Game.Core.Buildings;
 
 public sealed class Silo : Building, IResourceStorage
 {
-    private readonly Dictionary<ResourceName, int> _inventory = new()
-    {
-        [ResourceName.Algae] = 0
-    };
+    private readonly Dictionary<ResourceName, int> _inventory = [];
     private readonly HashSet<Silo> _adjacentSilos = [];
     private int _rebalanceScopeDepth;
 
@@ -21,7 +18,7 @@ public sealed class Silo : Building, IResourceStorage
         TextureKey = "Silo";
         Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
         Capacity = 5000;
-        Description = $"A high-capacity algae silo that stores up to {Capacity} algae and balances with adjacent silos.";
+        Description = $"A high-capacity plant silo that stores up to {Capacity} raw plant resources and balances with adjacent silos.";
     }
 
     public int Capacity { get; }
@@ -50,7 +47,16 @@ public sealed class Silo : Building, IResourceStorage
         return ResourceInventoryHelper.FindStoredResource(requirement, maxAmount, GetStoredAmount);
     }
 
-    public int GetInventoryTotal() => _inventory[ResourceName.Algae];
+    public int GetInventoryTotal()
+    {
+        var total = 0;
+        foreach (var pair in _inventory)
+        {
+            total += pair.Value;
+        }
+
+        return total;
+    }
 
     public int GetInventorySpace() => Math.Max(0, Capacity - GetInventoryTotal());
 
@@ -61,10 +67,10 @@ public sealed class Silo : Building, IResourceStorage
             return 0;
         }
 
-        var accepted = AddStoredAlgae(amount);
+        var accepted = AddStoredResource(resourceType, amount);
         if (accepted > 0 && !IsRebalanceSuppressed)
         {
-            RebalanceAfterAddition();
+            RebalanceAfterAddition(resourceType);
         }
 
         return accepted;
@@ -77,10 +83,10 @@ public sealed class Silo : Building, IResourceStorage
             return 0;
         }
 
-        var taken = RemoveStoredAlgae(amount);
+        var taken = RemoveStoredResource(resourceType, amount);
         if (taken > 0 && !IsRebalanceSuppressed)
         {
-            RebalanceAfterRemoval();
+            RebalanceAfterRemoval(resourceType);
         }
 
         return taken;
@@ -89,13 +95,15 @@ public sealed class Silo : Building, IResourceStorage
     public override void CleanupBeforeRemoval(object? source = null)
     {
         _adjacentSilos.Clear();
-        var storedAlgae = _inventory[ResourceName.Algae];
-        if (storedAlgae > 0)
+        foreach (var pair in _inventory)
         {
-            EmitStorageInventoryChanged(ResourceName.Algae, -storedAlgae);
+            if (pair.Value > 0)
+            {
+                EmitStorageInventoryChanged(pair.Key, -pair.Value);
+            }
         }
 
-        _inventory[ResourceName.Algae] = 0;
+        _inventory.Clear();
         base.CleanupBeforeRemoval(source);
     }
 
@@ -116,7 +124,11 @@ public sealed class Silo : Building, IResourceStorage
     {
         if (_adjacentSilos.Count > 0 && Cave is not null)
         {
-            RebalanceAfterRemoval();
+            var plantTypes = GrowableResourceType.GetAll();
+            for (var index = 0; index < plantTypes.Count; index++)
+            {
+                RebalanceAfterRemoval(plantTypes[index].Resource);
+            }
         }
     }
 
@@ -134,7 +146,8 @@ public sealed class Silo : Building, IResourceStorage
 
     private static bool IsAcceptedResource(ResourceName resourceType)
     {
-        return resourceType == ResourceName.Algae;
+        return ItemCatalog.GetClassification(resourceType, ResourceClassificationKeys.PlantType) is not null &&
+               ItemCatalog.HasClassification(resourceType, ResourceClassificationKeys.FoodType, ResourceClassificationValues.Raw);
     }
 
     private void BeginRebalanceScope()
@@ -150,31 +163,32 @@ public sealed class Silo : Building, IResourceStorage
         }
     }
 
-    private int AddStoredAlgae(int amount)
+    private int AddStoredResource(ResourceName resourceType, int amount)
     {
         var accepted = Math.Min(GetInventorySpace(), amount);
         if (accepted > 0)
         {
-            _inventory[ResourceName.Algae] += accepted;
-            EmitStorageInventoryChanged(ResourceName.Algae, accepted);
+            _inventory.TryAdd(resourceType, 0);
+            _inventory[resourceType] += accepted;
+            EmitStorageInventoryChanged(resourceType, accepted);
         }
 
         return accepted;
     }
 
-    private int RemoveStoredAlgae(int amount)
+    private int RemoveStoredResource(ResourceName resourceType, int amount)
     {
-        var taken = Math.Min(GetInventoryTotal(), amount);
+        var taken = Math.Min(GetStoredAmount(resourceType), amount);
         if (taken > 0)
         {
-            _inventory[ResourceName.Algae] -= taken;
-            EmitStorageInventoryChanged(ResourceName.Algae, -taken);
+            _inventory[resourceType] -= taken;
+            EmitStorageInventoryChanged(resourceType, -taken);
         }
 
         return taken;
     }
 
-    private void RebalanceAfterAddition()
+    private void RebalanceAfterAddition(ResourceName resourceType)
     {
         if (Cave is null || _adjacentSilos.Count == 0 || IsRebalanceSuppressed)
         {
@@ -197,7 +211,7 @@ public sealed class Silo : Building, IResourceStorage
                     continue;
                 }
 
-                while (donor.TryPushToLowestAdjacentSilo(out var recipient))
+                while (donor.TryPushToLowestAdjacentSilo(resourceType, out var recipient))
                 {
                     EnqueueForRebalance(queue, queued, donor);
                     EnqueueForRebalance(queue, queued, recipient!);
@@ -212,7 +226,7 @@ public sealed class Silo : Building, IResourceStorage
         }
     }
 
-    private void RebalanceAfterRemoval()
+    private void RebalanceAfterRemoval(ResourceName resourceType)
     {
         if (Cave is null || _adjacentSilos.Count == 0 || IsRebalanceSuppressed)
         {
@@ -235,7 +249,7 @@ public sealed class Silo : Building, IResourceStorage
                     continue;
                 }
 
-                while (receiver.TryPullFromHighestAdjacentSilo(out var donor))
+                while (receiver.TryPullFromHighestAdjacentSilo(resourceType, out var donor))
                 {
                     EnqueueForRebalance(queue, queued, receiver);
                     EnqueueForRebalance(queue, queued, donor!);
@@ -268,43 +282,43 @@ public sealed class Silo : Building, IResourceStorage
         queue.Enqueue(silo);
     }
 
-    private bool TryPushToLowestAdjacentSilo(out Silo? recipient)
+    private bool TryPushToLowestAdjacentSilo(ResourceName resourceType, out Silo? recipient)
     {
-        recipient = SelectLowestAdjacentSiloWithSpace();
+        recipient = SelectLowestAdjacentSiloWithSpace(resourceType);
         if (recipient is null)
         {
             return false;
         }
 
-        var difference = GetInventoryTotal() - recipient.GetInventoryTotal();
+        var difference = GetStoredAmount(resourceType) - recipient.GetStoredAmount(resourceType);
         if (difference <= 1)
         {
             return false;
         }
 
         var transferAmount = Math.Min(recipient.GetInventorySpace(), difference / 2);
-        return transferAmount > 0 && TransferStoredAlgaeTo(recipient, transferAmount);
+        return transferAmount > 0 && TransferStoredResourceTo(recipient, resourceType, transferAmount);
     }
 
-    private bool TryPullFromHighestAdjacentSilo(out Silo? donor)
+    private bool TryPullFromHighestAdjacentSilo(ResourceName resourceType, out Silo? donor)
     {
-        donor = SelectHighestAdjacentSiloWithAlgae();
+        donor = SelectHighestAdjacentSiloWithResource(resourceType);
         if (donor is null)
         {
             return false;
         }
 
-        var difference = donor.GetInventoryTotal() - GetInventoryTotal();
+        var difference = donor.GetStoredAmount(resourceType) - GetStoredAmount(resourceType);
         if (difference <= 1)
         {
             return false;
         }
 
         var transferAmount = Math.Min(GetInventorySpace(), difference / 2);
-        return transferAmount > 0 && donor.TransferStoredAlgaeTo(this, transferAmount);
+        return transferAmount > 0 && donor.TransferStoredResourceTo(this, resourceType, transferAmount);
     }
 
-    private Silo? SelectLowestAdjacentSiloWithSpace()
+    private Silo? SelectLowestAdjacentSiloWithSpace(ResourceName resourceType)
     {
         Silo? best = null;
         foreach (var adjacentSilo in _adjacentSilos)
@@ -315,8 +329,8 @@ public sealed class Silo : Building, IResourceStorage
             }
 
             if (best is null ||
-                adjacentSilo.GetInventoryTotal() < best.GetInventoryTotal() ||
-                (adjacentSilo.GetInventoryTotal() == best.GetInventoryTotal() && CompareStableOrder(adjacentSilo, best) < 0))
+                adjacentSilo.GetStoredAmount(resourceType) < best.GetStoredAmount(resourceType) ||
+                (adjacentSilo.GetStoredAmount(resourceType) == best.GetStoredAmount(resourceType) && CompareStableOrder(adjacentSilo, best) < 0))
             {
                 best = adjacentSilo;
             }
@@ -325,19 +339,19 @@ public sealed class Silo : Building, IResourceStorage
         return best;
     }
 
-    private Silo? SelectHighestAdjacentSiloWithAlgae()
+    private Silo? SelectHighestAdjacentSiloWithResource(ResourceName resourceType)
     {
         Silo? best = null;
         foreach (var adjacentSilo in _adjacentSilos)
         {
-            if (adjacentSilo.Cave != Cave || adjacentSilo.GetInventoryTotal() <= 0)
+            if (adjacentSilo.Cave != Cave || adjacentSilo.GetStoredAmount(resourceType) <= 0)
             {
                 continue;
             }
 
             if (best is null ||
-                adjacentSilo.GetInventoryTotal() > best.GetInventoryTotal() ||
-                (adjacentSilo.GetInventoryTotal() == best.GetInventoryTotal() && CompareStableOrder(adjacentSilo, best) < 0))
+                adjacentSilo.GetStoredAmount(resourceType) > best.GetStoredAmount(resourceType) ||
+                (adjacentSilo.GetStoredAmount(resourceType) == best.GetStoredAmount(resourceType) && CompareStableOrder(adjacentSilo, best) < 0))
             {
                 best = adjacentSilo;
             }
@@ -346,7 +360,7 @@ public sealed class Silo : Building, IResourceStorage
         return best;
     }
 
-    private bool TransferStoredAlgaeTo(Silo recipient, int amount)
+    private bool TransferStoredResourceTo(Silo recipient, ResourceName resourceType, int amount)
     {
         if (ReferenceEquals(recipient, this) || amount <= 0)
         {
@@ -357,16 +371,16 @@ public sealed class Silo : Building, IResourceStorage
         recipient.BeginRebalanceScope();
         try
         {
-            var removed = RemoveStoredAlgae(amount);
+            var removed = RemoveStoredResource(resourceType, amount);
             if (removed <= 0)
             {
                 return false;
             }
 
-            var accepted = recipient.AddStoredAlgae(removed);
+            var accepted = recipient.AddStoredResource(resourceType, removed);
             if (accepted < removed)
             {
-                AddStoredAlgae(removed - accepted);
+                AddStoredResource(resourceType, removed - accepted);
             }
 
             return accepted > 0;

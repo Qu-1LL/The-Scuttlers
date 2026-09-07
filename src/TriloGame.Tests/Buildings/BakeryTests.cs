@@ -22,19 +22,56 @@ public sealed class BakeryTests
         Assert.Equal(new[] { 1, 0 }, bakery.OpenMap[0]);
         Assert.Equal(new[] { 1, 0 }, bakery.OpenMap[1]);
         Assert.Equal(new[] { 0, 0 }, bakery.OpenMap[2]);
-        Assert.IsAssignableFrom<IProcessingBuilding>(bakery);
+        Assert.IsAssignableFrom<IProcessor>(bakery);
         Assert.IsNotAssignableFrom<IResourceStorage>(bakery);
         Assert.Equal(5, bakery.ProcessingIntervalTicks);
         Assert.Collection(
             bakery.InputDefinitions,
-            input => Assert.Equal(new ProcessingResourceDefinition(ResourceName.Algae, 1, 250), input),
-            input => Assert.Equal(new ProcessingResourceDefinition(ResourceName.AlgaeMeal, 1, 250), input));
+            input => Assert.Equal(
+                new ProcessingResourceDefinition(
+                    "RAW PLANTS",
+                    ResourceClassificationKeys.FoodType,
+                    ResourceClassificationValues.Raw,
+                    1,
+                    250),
+                input),
+            input => Assert.Equal(
+                new ProcessingResourceDefinition(
+                    "MEALS",
+                    ResourceClassificationKeys.FoodType,
+                    ResourceClassificationValues.Meal,
+                    1,
+                    250),
+                input));
         Assert.Collection(
             bakery.OutputDefinitions,
-            output => Assert.Equal(new ProcessingResourceDefinition(ResourceName.AlgaePie, 1, 250), output));
+            output => Assert.Equal(
+                new ProcessingResourceDefinition(
+                    "PIES",
+                    ResourceClassificationKeys.FoodType,
+                    ResourceClassificationValues.Pie,
+                    1,
+                    250),
+                output));
         Assert.Equal(miningPost.Health, bakery.Health);
         Assert.Equal(miningPost.MaxHealth, bakery.MaxHealth);
         Assert.Equal(miningPost.Recipe, bakery.Recipe);
+    }
+
+    [Fact]
+    public void InputCapacity_IsSharedWithinRawPlantAndMealClassifications()
+    {
+        var session = new GameSession();
+        var bakery = new Bakery(session);
+
+        Assert.Equal(200, bakery.DepositInput(ResourceName.Algae, 200));
+        Assert.Equal(50, bakery.DepositInput(ResourceName.Gloop, 100));
+        Assert.Equal(0, bakery.GetInputSpace(ResourceName.Algae));
+        Assert.Equal(0, bakery.GetInputSpace(ResourceName.Gloop));
+        Assert.Equal(200, bakery.DepositInput(ResourceName.AlgaeMeal, 200));
+        Assert.Equal(50, bakery.DepositInput(ResourceName.GloopMeal, 100));
+        Assert.Equal(0, bakery.GetInputSpace(ResourceName.AlgaeMeal));
+        Assert.Equal(0, bakery.GetInputSpace(ResourceName.GloopMeal));
     }
 
     [Fact]
@@ -60,6 +97,42 @@ public sealed class BakeryTests
         Assert.Equal(2, bakery.GetInputAmount(ResourceName.Algae));
         Assert.Equal(2, bakery.GetInputAmount(ResourceName.AlgaeMeal));
         Assert.Equal(1, bakery.GetOutputAmount(ResourceName.AlgaePie));
+    }
+
+    [Fact]
+    public void Tick_ConsumesMatchingGloopAndMealToProduceGloopPie()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(10, 0));
+        var bakery = new Bakery(session);
+        Assert.True(cave.Build(bakery, new GridPoint(6, 6)));
+        Assert.Equal(2, bakery.DepositInput(ResourceName.Gloop, 2));
+        Assert.Equal(2, bakery.DepositInput(ResourceName.GloopMeal, 2));
+
+        session.TickCount = bakery.ProcessingIntervalTicks;
+
+        Assert.Equal(1, bakery.Tick(cave));
+        Assert.Equal(1, bakery.GetInputAmount(ResourceName.Gloop));
+        Assert.Equal(1, bakery.GetInputAmount(ResourceName.GloopMeal));
+        Assert.Equal(1, bakery.GetOutputAmount(ResourceName.GloopPie));
+        Assert.Equal(0, bakery.GetOutputAmount(ResourceName.AlgaePie));
+    }
+
+    [Fact]
+    public void Tick_DoesNotMixDifferentPlantTypesIntoAPie()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(10, 0));
+        var bakery = new Bakery(session);
+        Assert.True(cave.Build(bakery, new GridPoint(6, 6)));
+        Assert.Equal(1, bakery.DepositInput(ResourceName.Gloop, 1));
+        Assert.Equal(1, bakery.DepositInput(ResourceName.AlgaeMeal, 1));
+
+        session.TickCount = bakery.ProcessingIntervalTicks;
+
+        Assert.Equal(0, bakery.Tick(cave));
+        Assert.Equal(1, bakery.GetInputAmount(ResourceName.Gloop));
+        Assert.Equal(1, bakery.GetInputAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(0, bakery.GetOutputAmount(ResourceName.AlgaePie));
+        Assert.Equal(0, bakery.GetOutputAmount(ResourceName.GloopPie));
     }
 
     [Fact]
@@ -93,6 +166,7 @@ public sealed class BakeryTests
         }
 
         Assert.Equal(250, bakery.GetOutputAmount(ResourceName.AlgaePie));
+        Assert.Equal(0, bakery.GetOutputSpace(ResourceName.GloopPie));
         Assert.Equal(0, bakery.GetInputAmount(ResourceName.Algae));
         Assert.Equal(0, bakery.GetInputAmount(ResourceName.AlgaeMeal));
         Assert.Equal(1, bakery.DepositInput(ResourceName.Algae, 1));

@@ -61,7 +61,7 @@ public sealed class SoilPatch : Building
 
     public override int Tick(World.Cave cave)
     {
-        return Tick(RandomUtil.Shared, Session.TickCount % 10);
+        return Tick(RandomUtil.Shared, Session.TickCount % SoilTile.GrowthRollIntervalTicks);
     }
 
     internal int Tick(Random random, int currentTickMod)
@@ -115,24 +115,6 @@ public sealed class SoilPatch : Building
         return TryGetLocalOffset(worldLocation, out var localOffset)
             ? Harvest(localOffset)
             : 0;
-    }
-
-    internal void SetGrowthConstant(GridPoint localOffset, double value)
-    {
-        if (!TryGetSoilTileIndex(localOffset, out var index))
-        {
-            return;
-        }
-
-        _soilTiles[index].SetGrowthConstant(value);
-    }
-
-    internal void SetAllGrowthConstants(double value)
-    {
-        for (var index = 0; index < _soilTiles.Length; index++)
-        {
-            _soilTiles[index].SetGrowthConstant(value);
-        }
     }
 
     internal void SetReturnedAlgaeAmount(GridPoint localOffset, int amount)

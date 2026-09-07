@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Buildings;
+using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Entities;
 using TriloGame.Game.Core.Progression;
 using TriloGame.Game.Core.Simulation;
@@ -16,6 +17,7 @@ public sealed class GameSessionBootstrapper
         var session = new GameSession();
         InitializeSkillTreeRoot(session);
         PopulateUnlockedBuildings(session);
+        PopulateUnlockedPlantTypes(session);
 
         var cave = new Cave(session, worldGenerationMethod);
         var initialColony = BuildInitialColony(cave, session);
@@ -72,6 +74,13 @@ public sealed class GameSessionBootstrapper
         session.UnlockedBuildings.Add(new Factory(game => new GrindingMill(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Bakery(game), session));
         session.UnlockedBuildings.Add(new Factory(game => new Radar(game), session));
+    }
+
+    // Register the starter crop catalog independently from the buildings that can grow it.
+    private static void PopulateUnlockedPlantTypes(GameSession session)
+    {
+        session.UnlockedPlantTypes.Add(GrowableResourceType.ALGAE);
+        session.UnlockedPlantTypes.Add(GrowableResourceType.GLOOP);
     }
 
     // Place the queen and the starter mining post while preserving reachability constraints.

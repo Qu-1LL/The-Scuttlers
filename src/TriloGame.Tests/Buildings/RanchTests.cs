@@ -26,9 +26,6 @@ public sealed class RanchTests
         Assert.Equal(12, ranch.SoilTiles.Count);
         Assert.Single(ranch.SoilAreas);
         Assert.Equal(16, ranch.TileArray.Count);
-        Assert.All(firstPatch.SoilTiles, soilTile => Assert.InRange(soilTile.GrowthConstant, 0d, 0.99d));
-        Assert.All(secondPatch.SoilTiles, soilTile => Assert.InRange(soilTile.GrowthConstant, 0d, 0.99d));
-        Assert.All(thirdPatch.SoilTiles, soilTile => Assert.InRange(soilTile.GrowthConstant, 0d, 0.99d));
     }
 
     [Fact]
@@ -87,7 +84,6 @@ public sealed class RanchTests
         Assert.Equal(2, tallArea.SoilPatches.Count);
         Assert.Single(shortArea.SoilPatches);
         Assert.All(shortArea.SoilTiles, soilTile => Assert.Null(soilTile.Ranch));
-        Assert.All(shortArea.SoilTiles, soilTile => Assert.Equal(0d, soilTile.GrowthConstant));
     }
 
     [Fact]
@@ -161,11 +157,8 @@ public sealed class RanchTests
         Assert.True(cave.RemoveBuilding(bridgePatch, "test"));
 
         Assert.Null(bridgePatch.Cave);
-        Assert.All(bridgePatch.SoilTiles, soilTile => Assert.Equal(0d, soilTile.GrowthConstant));
         Assert.Same(ranch, connectedPatch.Ranch);
-        Assert.All(connectedPatch.SoilTiles, soilTile => Assert.InRange(soilTile.GrowthConstant, 0d, 0.99d));
         Assert.Null(disconnectedPatch.Ranch);
-        Assert.All(disconnectedPatch.SoilTiles, soilTile => Assert.Equal(0d, soilTile.GrowthConstant));
         Assert.Equal(4, ranch.SoilTiles.Count);
         Assert.Equal(8, ranch.TileArray.Count);
     }
@@ -191,7 +184,7 @@ public sealed class RanchTests
     }
 
     [Fact]
-    public void RemovingGarageResetsGrowthConstantsForAllRanchPatches()
+    public void RemovingGarageDetachesAllRanchSoilPatches()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(24, 12, new GridPoint(10, 0));
         var garage = TestWorldFactory.BuildGarage(cave, session, new GridPoint(2, 6));
@@ -203,8 +196,6 @@ public sealed class RanchTests
         Assert.Empty(cave.GetRanches());
         Assert.Null(firstPatch.Ranch);
         Assert.Null(secondPatch.Ranch);
-        Assert.All(firstPatch.SoilTiles, soilTile => Assert.Equal(0d, soilTile.GrowthConstant));
-        Assert.All(secondPatch.SoilTiles, soilTile => Assert.Equal(0d, soilTile.GrowthConstant));
     }
 
     [Fact]
@@ -239,7 +230,6 @@ public sealed class RanchTests
 
         Assert.IsAssignableFrom<IStorage>(garage);
         Assert.Equal(1000, garage.Capacity);
-        Assert.Equal(GrowableResourceType.ALGAE, garage.ChosenResource);
         Assert.Equal(600, garage.Deposit(ResourceName.Algae, 600));
         Assert.Equal(300, garage.Deposit(ResourceName.Sandstone, 300));
         Assert.Equal(100, garage.Deposit(ResourceName.Malachite, 200));
@@ -253,6 +243,21 @@ public sealed class RanchTests
         Assert.Equal(600, session.GetStoredResourceTotal(ResourceName.Algae));
         Assert.Equal(220, session.GetStoredResourceTotal(ResourceName.Sandstone));
         Assert.Equal(100, session.GetStoredResourceTotal(ResourceName.Malachite));
+    }
+
+    [Fact]
+    public void RanchOnlySelectsUnlockedPlantTypes()
+    {
+        var session = new GameSession();
+        var ranch = new Ranch(session);
+
+        Assert.Equal(GrowableResourceType.ALGAE, ranch.ChosenResource);
+        Assert.False(ranch.TrySetChosenResource(GrowableResourceType.GLOOP));
+
+        session.UnlockedPlantTypes.Add(GrowableResourceType.GLOOP);
+
+        Assert.True(ranch.TrySetChosenResource(GrowableResourceType.GLOOP));
+        Assert.Equal(GrowableResourceType.GLOOP, ranch.ChosenResource);
     }
 
     private static SoilArea BuildSoilArea(

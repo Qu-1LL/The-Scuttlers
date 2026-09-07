@@ -22,6 +22,7 @@ public sealed partial class MenuController
     private Point _pointerPoint;
     private GumUiRenderer? _gumUi;
     private bool _renamingSelectedTrilobite;
+    private bool _selectingRanchCrop;
     private string _renameBuffer = string.Empty;
     private string? _buildPreviewScrollKey;
 
@@ -49,11 +50,15 @@ public sealed partial class MenuController
 
     public float SelectedProcessingOutputScroll { get; private set; }
 
+    public float SelectedRanchCropScroll { get; private set; }
+
     public float BuildPreviewDescriptionScroll { get; private set; }
 
     public float SelectedDescriptionScroll { get; private set; }
 
     public bool IsRenamingSelectedTrilobite => _renamingSelectedTrilobite;
+
+    public bool IsSelectingRanchCrop => _selectingRanchCrop;
 
     public float GetOpenPanelWidth(Point viewport)
     {
@@ -65,6 +70,10 @@ public sealed partial class MenuController
         if (tab is TabBuildings or TabAssignments or TabSelected)
         {
             ActiveTab = tab;
+            if (tab != TabSelected)
+            {
+                CancelRanchCropSelection();
+            }
         }
 
         NormalizeActiveTab();
@@ -74,6 +83,7 @@ public sealed partial class MenuController
     public void ClosePanel()
     {
         CancelRenameSelectedTrilobite();
+        CancelRanchCropSelection();
         PanelOpen = false;
     }
 
@@ -91,6 +101,7 @@ public sealed partial class MenuController
     public void ResetState()
     {
         CancelRenameSelectedTrilobite();
+        CancelRanchCropSelection();
         SelectedObject = null;
         ActiveTab = TabBuildings;
         PanelOpen = true;
@@ -103,6 +114,7 @@ public sealed partial class MenuController
         SelectedInventoryScroll = 0f;
         SelectedProcessingInputScroll = 0f;
         SelectedProcessingOutputScroll = 0f;
+        SelectedRanchCropScroll = 0f;
         BuildPreviewDescriptionScroll = 0f;
         SelectedDescriptionScroll = 0f;
         _buildPreviewScrollKey = null;
@@ -113,6 +125,7 @@ public sealed partial class MenuController
         if (!ReferenceEquals(SelectedObject, selectedObject))
         {
             CancelRenameSelectedTrilobite();
+            CancelRanchCropSelection();
             SelectedInventoryScroll = 0f;
             SelectedProcessingInputScroll = 0f;
             SelectedProcessingOutputScroll = 0f;
@@ -149,6 +162,12 @@ public sealed partial class MenuController
     {
         _renamingSelectedTrilobite = false;
         _renameBuffer = string.Empty;
+    }
+
+    private void CancelRanchCropSelection()
+    {
+        _selectingRanchCrop = false;
+        SelectedRanchCropScroll = 0f;
     }
 
     public bool CommitRenameSelectedTrilobite()
@@ -277,6 +296,10 @@ public sealed partial class MenuController
         {
             SelectedProcessingOutputScroll = Clamp(SelectedProcessingOutputScroll + delta, 0f, layout.SelectedProcessingOutputMaxScroll);
         }
+        else if (ActiveTab == TabSelected && layout.SelectedRanchCropSelectionFrameBounds?.Contains(point) == true)
+        {
+            SelectedRanchCropScroll = Clamp(SelectedRanchCropScroll + delta, 0f, layout.SelectedRanchCropSelectionMaxScroll);
+        }
         else if (ActiveTab == TabSelected && layout.SelectedInventoryFrameBounds?.Contains(point) == true)
         {
             SelectedInventoryScroll = Clamp(SelectedInventoryScroll + delta, 0f, layout.SelectedInventoryMaxScroll);
@@ -331,6 +354,7 @@ public sealed partial class MenuController
             if (tab.Key != TabSelected)
             {
                 CancelRenameSelectedTrilobite();
+                CancelRanchCropSelection();
             }
 
             ActiveTab = tab.Key;
@@ -407,6 +431,43 @@ public sealed partial class MenuController
             {
                 BeginRenameSelectedTrilobite();
                 return MenuInteractionResult.ConsumedWithSelectSound;
+            }
+
+            if (SelectedObject is Ranch ranch)
+            {
+                if (layout.SelectedRanchChangeCropBounds?.Contains(point) == true)
+                {
+                    if (_selectingRanchCrop)
+                    {
+                        CancelRanchCropSelection();
+                    }
+                    else
+                    {
+                        _selectingRanchCrop = true;
+                        SelectedRanchCropScroll = 0f;
+                    }
+
+                    return MenuInteractionResult.ConsumedWithSelectSound;
+                }
+
+                if (_selectingRanchCrop)
+                {
+                    foreach (var option in layout.SelectedRanchCropOptions)
+                    {
+                        if (!option.Bounds.Contains(point))
+                        {
+                            continue;
+                        }
+
+                        if (ranch.TrySetChosenResource(option.ResourceType))
+                        {
+                            CancelRanchCropSelection();
+                            return MenuInteractionResult.ConsumedWithSelectSound;
+                        }
+
+                        return MenuInteractionResult.ConsumedSilently;
+                    }
+                }
             }
 
             if (SelectedObject is Scaffolding scaffolding &&

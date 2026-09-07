@@ -9,7 +9,7 @@ namespace TriloGame.Tests.Buildings;
 public sealed class GrindingMillTests
 {
     [Fact]
-    public void Construction_MatchesMiningPostCostAndHealth_AndProvidesSeparateProcessingBuffers()
+    public void Construction_MatchesMiningPostCostAndHealth_AndProvidesSharedClassificationBuffers()
     {
         var session = new GameSession();
         var mill = new GrindingMill(session);
@@ -21,14 +21,16 @@ public sealed class GrindingMillTests
         Assert.Equal(new[] { 0, 0 }, mill.OpenMap[0]);
         Assert.Equal(new[] { 0, 0 }, mill.OpenMap[1]);
         Assert.Equal(new[] { 0, 0 }, mill.OpenMap[2]);
-        Assert.IsAssignableFrom<IProcessingBuilding>(mill);
+        Assert.IsAssignableFrom<IProcessor>(mill);
         Assert.IsNotAssignableFrom<IResourceStorage>(mill);
         Assert.Equal(5, mill.ProcessingIntervalTicks);
         Assert.Collection(
             mill.InputDefinitions,
             input =>
             {
-                Assert.Equal(ResourceName.Algae, input.ResourceType);
+                Assert.Equal("RAW PLANTS", input.Label);
+                Assert.Equal(ResourceClassificationKeys.FoodType, input.ClassificationKey);
+                Assert.Equal(ResourceClassificationValues.Raw, input.ClassificationValue);
                 Assert.Equal(1, input.AmountPerProcess);
                 Assert.Equal(500, input.Capacity);
             });
@@ -36,15 +38,43 @@ public sealed class GrindingMillTests
             mill.OutputDefinitions,
             output =>
             {
-                Assert.Equal(ResourceName.AlgaeMeal, output.ResourceType);
+                Assert.Equal("MEALS", output.Label);
+                Assert.Equal(ResourceClassificationKeys.FoodType, output.ClassificationKey);
+                Assert.Equal(ResourceClassificationValues.Meal, output.ClassificationValue);
                 Assert.Equal(1, output.AmountPerProcess);
                 Assert.Equal(500, output.Capacity);
             });
         Assert.Equal(500, mill.GetInputCapacity(ResourceName.Algae));
         Assert.Equal(500, mill.GetOutputCapacity(ResourceName.AlgaeMeal));
+        Assert.Equal(500, mill.GetInputCapacity(ResourceName.Gloop));
+        Assert.Equal(500, mill.GetOutputCapacity(ResourceName.GloopMeal));
         Assert.Equal(miningPost.Health, mill.Health);
         Assert.Equal(miningPost.MaxHealth, mill.MaxHealth);
         Assert.Equal(miningPost.Recipe, mill.Recipe);
+    }
+
+    [Fact]
+    public void SharedPlantAndMealCapacity_IsEnforcedAcrossPlantTypes()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(10, 0));
+        var mill = new GrindingMill(session);
+        Assert.True(cave.Build(mill, new GridPoint(6, 6)));
+
+        Assert.Equal(300, mill.DepositInput(ResourceName.Algae, 300));
+        Assert.Equal(200, mill.DepositInput(ResourceName.Gloop, 300));
+        Assert.Equal(0, mill.GetInputSpace(ResourceName.Algae));
+        Assert.Equal(0, mill.GetInputSpace(ResourceName.Gloop));
+
+        for (var batch = 1; batch <= 500; batch++)
+        {
+            session.TickCount = batch * mill.ProcessingIntervalTicks;
+            Assert.Equal(1, mill.Tick(cave));
+        }
+
+        Assert.Equal(300, mill.GetOutputAmount(ResourceName.AlgaeMeal));
+        Assert.Equal(200, mill.GetOutputAmount(ResourceName.GloopMeal));
+        Assert.Equal(0, mill.GetOutputSpace(ResourceName.AlgaeMeal));
+        Assert.Equal(0, mill.GetOutputSpace(ResourceName.GloopMeal));
     }
 
     [Fact]
@@ -78,6 +108,22 @@ public sealed class GrindingMillTests
     }
 
     [Fact]
+    public void Tick_ConvertsGloopIntoMatchingGloopMeal()
+    {
+        var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(10, 0));
+        var mill = new GrindingMill(session);
+        Assert.True(cave.Build(mill, new GridPoint(6, 6)));
+        Assert.Equal(2, mill.DepositInput(ResourceName.Gloop, 2));
+
+        session.TickCount = mill.ProcessingIntervalTicks;
+
+        Assert.Equal(1, mill.Tick(cave));
+        Assert.Equal(1, mill.GetInputAmount(ResourceName.Gloop));
+        Assert.Equal(1, mill.GetOutputAmount(ResourceName.GloopMeal));
+        Assert.Equal(0, mill.GetOutputAmount(ResourceName.AlgaeMeal));
+    }
+
+    [Fact]
     public void OutputCollectors_AreAssignedOnlyWhenTheMillCanFillEveryReservedLoad()
     {
         var (session, cave, _) = TestWorldFactory.CreateRectangularSessionWithQueen(20, 12, new GridPoint(10, 0));
@@ -103,13 +149,11 @@ public sealed class GrindingMillTests
             Assert.Equal(1, mill.Tick(cave));
         }
 
-        Assert.True(mill.TryAssignOutputCollector(secondCollector, ResourceName.AlgaeMeal));
-        Assert.Equal(2, mill.GetOutputCollectorCount(ResourceName.AlgaeMeal));
-        Assert.Equal(
-            firstCollector.InventoryCapacity + secondCollector.InventoryCapacity,
-            mill.GetAssignedOutputCarryingCapacity(ResourceName.AlgaeMeal));
+        Assert.False(mill.TryAssignOutputCollector(secondCollector, ResourceName.AlgaeMeal));
 
         Assert.True(mill.ReleaseOutputCollector(firstCollector));
+        Assert.True(mill.TryAssignOutputCollector(secondCollector, ResourceName.AlgaeMeal));
+        Assert.Equal(1, mill.GetOutputCollectorCount(ResourceName.AlgaeMeal));
         Assert.Equal(secondCollector.InventoryCapacity, mill.GetAssignedOutputCarryingCapacity(ResourceName.AlgaeMeal));
     }
 

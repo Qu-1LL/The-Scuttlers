@@ -7,16 +7,24 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOutputAssignmentBuilding
+public sealed class GrindingMill : Building, IProcessor, IProcessingOutputAssignmentBuilding
 {
     private const int ResourceCapacity = 500;
     private static readonly IReadOnlyList<ProcessingResourceDefinition> InputResourceDefinitions =
     [
-        new(ResourceName.Algae, AmountPerProcess: 1, Capacity: ResourceCapacity)
+        ProcessingResourceDefinitions.ForFoodType(
+            "RAW PLANTS",
+            ResourceClassificationValues.Raw,
+            amountPerProcess: 1,
+            capacity: ResourceCapacity)
     ];
     private static readonly IReadOnlyList<ProcessingResourceDefinition> OutputResourceDefinitions =
     [
-        new(ResourceName.AlgaeMeal, AmountPerProcess: 1, Capacity: ResourceCapacity)
+        ProcessingResourceDefinitions.ForFoodType(
+            "MEALS",
+            ResourceClassificationValues.Meal,
+            amountPerProcess: 1,
+            capacity: ResourceCapacity)
     ];
     private readonly Dictionary<ResourceName, int> _inputs = [];
     private readonly Dictionary<ResourceName, int> _outputs = [];
@@ -27,7 +35,7 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
     {
         TextureKey = "GrindingMill";
         Recipe = [ResourceRequirement.ForCategory(ResourceCategory.Rock, 20)];
-        Description = "Processes algae into Algae Meal. Holds 500 algae input and 500 Algae Meal output.";
+        Description = "Grinds any raw plant into its matching meal. Holds 500 raw plants and 500 meals.";
     }
 
     public IReadOnlyList<ProcessingResourceDefinition> InputDefinitions => InputResourceDefinitions;
@@ -50,18 +58,36 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
 
     public int GetOutputAmount(ResourceName resourceType) => _outputs.GetValueOrDefault(resourceType, 0);
 
-    public int GetInputCapacity(ResourceName resourceType) => GetCapacity(InputResourceDefinitions, resourceType);
+    public int GetInputAmount(ProcessingResourceDefinition definition) => GetClassifiedAmount(_inputs, definition);
 
-    public int GetOutputCapacity(ResourceName resourceType) => GetCapacity(OutputResourceDefinitions, resourceType);
+    public int GetOutputAmount(ProcessingResourceDefinition definition) => GetClassifiedAmount(_outputs, definition);
 
-    public int GetInputSpace(ResourceName resourceType)
+    public int GetInputCapacity(ResourceName resourceType) =>
+        TryGetDefinition(InputResourceDefinitions, resourceType, out var definition) ? definition.Capacity : 0;
+
+    public int GetOutputCapacity(ResourceName resourceType) =>
+        TryGetDefinition(OutputResourceDefinitions, resourceType, out var definition) ? definition.Capacity : 0;
+
+    public int GetInputCapacity(ProcessingResourceDefinition definition) =>
+        ContainsDefinition(InputResourceDefinitions, definition) ? definition.Capacity : 0;
+
+    public int GetOutputCapacity(ProcessingResourceDefinition definition) =>
+        ContainsDefinition(OutputResourceDefinitions, definition) ? definition.Capacity : 0;
+
+    public int GetInputSpace(ResourceName resourceType) =>
+        TryGetDefinition(InputResourceDefinitions, resourceType, out var definition) ? GetInputSpace(definition) : 0;
+
+    public int GetOutputSpace(ResourceName resourceType) =>
+        TryGetDefinition(OutputResourceDefinitions, resourceType, out var definition) ? GetOutputSpace(definition) : 0;
+
+    public int GetInputSpace(ProcessingResourceDefinition definition)
     {
-        return System.Math.Max(0, GetInputCapacity(resourceType) - GetInputAmount(resourceType));
+        return System.Math.Max(0, GetInputCapacity(definition) - GetInputAmount(definition));
     }
 
-    public int GetOutputSpace(ResourceName resourceType)
+    public int GetOutputSpace(ProcessingResourceDefinition definition)
     {
-        return System.Math.Max(0, GetOutputCapacity(resourceType) - GetOutputAmount(resourceType));
+        return System.Math.Max(0, GetOutputCapacity(definition) - GetOutputAmount(definition));
     }
 
     public int GetOutputCollectorCount(ResourceName resourceType)
@@ -92,7 +118,7 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
         return capacity;
     }
 
-    // Only reserve a new collector when the current output can fill every collector's full load.
+    // Reserve one collector per output resource as soon as food is available.
     public bool CanAssignOutputCollector(Trilobite collector, ResourceName resourceType)
     {
         if (!HasOutputDefinition(resourceType))
@@ -105,8 +131,7 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
             return assignedResource == resourceType;
         }
 
-        var requiredOutput = GetAssignedOutputCarryingCapacity(resourceType) + collector.InventoryCapacity;
-        return GetOutputAmount(resourceType) >= requiredOutput;
+        return GetOutputAmount(resourceType) > 0 && GetOutputCollectorCount(resourceType) == 0;
     }
 
     public bool TryAssignOutputCollector(Trilobite collector, ResourceName resourceType)
@@ -139,7 +164,12 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
 
     public int DepositInput(ResourceName resourceType, int amount)
     {
-        var accepted = System.Math.Min(GetInputSpace(resourceType), amount);
+        if (!TryGetDefinition(InputResourceDefinitions, resourceType, out var definition))
+        {
+            return 0;
+        }
+
+        var accepted = System.Math.Min(GetInputSpace(definition), amount);
         if (accepted <= 0)
         {
             return 0;
@@ -164,16 +194,17 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
         return taken;
     }
 
-    // Convert one complete input batch only when every output batch has reserved capacity.
+    // Convert one complete plant batch only when its matching meal has room.
     public override int Tick(World.Cave cave)
     {
-        if (Session.TickCount % ProcessingIntervalTicks != 0 || !CanProcessBatch())
+        if (Session.TickCount % ProcessingIntervalTicks != 0 ||
+            !TryGetProcessableBatch(out var inputResource, out var outputResource))
         {
             return 0;
         }
 
-        ConsumeInputBatch();
-        ProduceOutputBatch();
+        ConsumeInputBatch(inputResource);
+        ProduceOutputBatch(outputResource);
         return 1;
     }
 
@@ -199,48 +230,41 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
         }
     }
 
-    private bool CanProcessBatch()
+    private bool TryGetProcessableBatch(out ResourceName inputResource, out ResourceName outputResource)
     {
-        for (var index = 0; index < InputResourceDefinitions.Count; index++)
+        inputResource = default;
+        outputResource = default;
+        var resources = ItemCatalog.GetStockpileOrder();
+        for (var index = 0; index < resources.Count; index++)
         {
-            var input = InputResourceDefinitions[index];
-            if (GetInputAmount(input.ResourceType) < input.AmountPerProcess)
+            var candidate = resources[index].Resource;
+            if (!TryGetDefinition(InputResourceDefinitions, candidate, out var input) ||
+                GetInputAmount(candidate) < input.AmountPerProcess ||
+                !ItemCatalog.TryGetRelatedPlantResource(candidate, ResourceClassificationValues.Meal, out var matchingMeal) ||
+                GetOutputSpace(matchingMeal) < input.AmountPerProcess)
             {
-                return false;
+                continue;
             }
+
+            inputResource = candidate;
+            outputResource = matchingMeal;
+            return true;
         }
 
-        for (var index = 0; index < OutputResourceDefinitions.Count; index++)
-        {
-            var output = OutputResourceDefinitions[index];
-            if (GetOutputSpace(output.ResourceType) < output.AmountPerProcess)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return false;
     }
 
-    private void ConsumeInputBatch()
+    private void ConsumeInputBatch(ResourceName inputResource)
     {
-        for (var index = 0; index < InputResourceDefinitions.Count; index++)
-        {
-            var input = InputResourceDefinitions[index];
-            _inputs[input.ResourceType] -= input.AmountPerProcess;
-            EmitResourceChanged(input.ResourceType, -input.AmountPerProcess);
-        }
+        _inputs[inputResource]--;
+        EmitResourceChanged(inputResource, -1);
     }
 
-    private void ProduceOutputBatch()
+    private void ProduceOutputBatch(ResourceName outputResource)
     {
-        for (var index = 0; index < OutputResourceDefinitions.Count; index++)
-        {
-            var output = OutputResourceDefinitions[index];
-            _outputs.TryAdd(output.ResourceType, 0);
-            _outputs[output.ResourceType] += output.AmountPerProcess;
-            EmitResourceChanged(output.ResourceType, output.AmountPerProcess);
-        }
+        _outputs.TryAdd(outputResource, 0);
+        _outputs[outputResource]++;
+        EmitResourceChanged(outputResource, 1);
     }
 
     private void ClearResources(Dictionary<ResourceName, int> resources)
@@ -256,24 +280,29 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
         resources.Clear();
     }
 
-    private static int GetCapacity(IReadOnlyList<ProcessingResourceDefinition> definitions, ResourceName resourceType)
+    private static int GetClassifiedAmount(
+        IReadOnlyDictionary<ResourceName, int> resources,
+        ProcessingResourceDefinition definition)
     {
-        for (var index = 0; index < definitions.Count; index++)
+        var amount = 0;
+        foreach (var pair in resources)
         {
-            if (definitions[index].ResourceType == resourceType)
+            if (pair.Value > 0 && definition.Matches(pair.Key))
             {
-                return definitions[index].Capacity;
+                amount += pair.Value;
             }
         }
 
-        return 0;
+        return amount;
     }
 
-    private static bool HasOutputDefinition(ResourceName resourceType)
+    private static bool ContainsDefinition(
+        IReadOnlyList<ProcessingResourceDefinition> definitions,
+        ProcessingResourceDefinition definition)
     {
-        for (var index = 0; index < OutputResourceDefinitions.Count; index++)
+        for (var index = 0; index < definitions.Count; index++)
         {
-            if (OutputResourceDefinitions[index].ResourceType == resourceType)
+            if (definitions[index] == definition)
             {
                 return true;
             }
@@ -281,6 +310,27 @@ public sealed class GrindingMill : Building, IProcessingBuilding, IProcessingOut
 
         return false;
     }
+
+    private static bool TryGetDefinition(
+        IReadOnlyList<ProcessingResourceDefinition> definitions,
+        ResourceName resourceType,
+        out ProcessingResourceDefinition definition)
+    {
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            if (definitions[index].Matches(resourceType))
+            {
+                definition = definitions[index];
+                return true;
+            }
+        }
+
+        definition = default;
+        return false;
+    }
+
+    private static bool HasOutputDefinition(ResourceName resourceType) =>
+        TryGetDefinition(OutputResourceDefinitions, resourceType, out _);
 
     private void EmitResourceChanged(ResourceName resourceType, int resourceDelta)
     {

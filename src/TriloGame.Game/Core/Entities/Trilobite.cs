@@ -817,19 +817,22 @@ public sealed partial class Trilobite : Creature, IInventoryCarrier
     // More nutritious food is prioritized so a mixed carry feeds the queen efficiently.
     private ResourceName? GetCarriedFarmerFoodResource()
     {
-        if (Inventory.GetAmount(ResourceName.AlgaePie) > 0)
+        ResourceName? bestResource = null;
+        var bestNutrition = 0;
+        var resources = ItemCatalog.GetStockpileOrder();
+        for (var index = 0; index < resources.Count; index++)
         {
-            return ResourceName.AlgaePie;
+            var resource = resources[index];
+            if (resource.NutritionValue <= bestNutrition || Inventory.GetAmount(resource.Resource) <= 0)
+            {
+                continue;
+            }
+
+            bestResource = resource.Resource;
+            bestNutrition = resource.NutritionValue;
         }
 
-        if (Inventory.GetAmount(ResourceName.AlgaeMeal) > 0)
-        {
-            return ResourceName.AlgaeMeal;
-        }
-
-        return Inventory.GetAmount(ResourceName.Algae) > 0
-            ? ResourceName.Algae
-            : null;
+        return bestResource;
     }
 
     public Building? GetAssignedBuilding() => AssignedBuilding;
