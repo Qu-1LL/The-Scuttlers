@@ -10,7 +10,7 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Entities;
 
-public class Creature
+public class Creature : IHealth
 {
     private const int IdleCandidateAttempts = 8;
     private const int IdleMinimumRestTicks = 10;

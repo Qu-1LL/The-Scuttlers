@@ -53,6 +53,7 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
     private readonly CameraController _camera = new();
     private readonly WorldSpriteEffectSystem _worldSpriteEffects = new();
     private readonly WorldSceneRenderer _worldSceneRenderer = new();
+    private readonly HealthBarRenderer _healthBarRenderer = new();
     private RadianceCascadeRenderer? _lightingRenderer;
     private readonly MainMenuOverlayRenderer _mainMenuOverlayRenderer = new();
     private readonly MenuController _menu = new();
@@ -806,6 +807,8 @@ public sealed partial class GameApp : Microsoft.Xna.Framework.Game, IGamePlayHos
             DrawFloatingPreview();
             DrawContinuousWorldDebug(_session.Cave);
             DrawDebugOverlay(_session.Cave);
+            _healthBarRenderer.Draw(_rendering, _session.Cave, Window.ClientBounds.Size,
+                _showFullMapVisibility, _simulationClock.InterpolationAlpha);
             _spriteBatch.End();
         }
         _gumUiRenderer.BeginFrame(Window.ClientBounds.Size);

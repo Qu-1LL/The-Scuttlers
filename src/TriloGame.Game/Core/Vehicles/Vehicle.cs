@@ -419,6 +419,12 @@ public abstract class Vehicle : IVehicle
         OnMoveSucceeded(previousLocation, currentLocation);
     }
 
+    public int RestoreHealth()
+    {
+        Health = MaxHealth;
+        return Health;
+    }
+
     public int TakeDamage(int amount, object? source = null)
     {
         if (amount <= 0 || Health <= 0)

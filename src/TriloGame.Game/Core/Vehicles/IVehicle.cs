@@ -1,11 +1,12 @@
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Simulation;
 using TriloGame.Game.Core.World;
 using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Vehicles;
 
-public interface IVehicle
+public interface IVehicle : IHealth
 {
     string Name { get; }
 
@@ -24,10 +25,6 @@ public interface IVehicle
     GridPoint Size { get; }
 
     GridPoint? Location { get; }
-
-    int Health { get; }
-
-    int MaxHealth { get; }
 
     int MaxStationedCreatures { get; }
 
@@ -58,6 +55,8 @@ public interface IVehicle
     object? Move();
 
     int TakeDamage(int amount, object? source = null);
+
+    int RestoreHealth();
 
     bool RemoveFromGame(object? source = null);
 }

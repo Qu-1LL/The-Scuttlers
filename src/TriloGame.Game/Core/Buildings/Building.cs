@@ -1,4 +1,5 @@
 using TriloGame.Game.Core.Entities;
+using TriloGame.Game.Core.Combat;
 using TriloGame.Game.Core.Economy;
 using TriloGame.Game.Core.Pathfinding;
 using TriloGame.Game.Core.Simulation;
@@ -8,7 +9,7 @@ using TriloGame.Game.Shared.Math;
 
 namespace TriloGame.Game.Core.Buildings;
 
-public class Building : IBuildPlacementDragTarget
+public class Building : IBuildPlacementDragTarget, IHealth
 {
     private readonly List<World.Tile> _projectedTiles = [];
     private BfsField? _bfsField;

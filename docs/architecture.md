@@ -189,6 +189,12 @@ These form the current “golden path” for adding structure without destabiliz
 - World rendering is layered: parallax cave background first, then floor tiles, then world overlays such as walls, ore, and cave crystals.
 - `Rendering/WorldSceneRenderer.cs` owns the reusable world-scene draw details so `GameApp`
   can stay focused on MonoGame lifecycle and top-level pass orchestration.
+- `Rendering/HealthBarRenderer.cs` draws world-attached health bars after lighting and world
+  overlays, before Gum. `Creature`, `Building`, and `IVehicle` expose their existing health through
+  the read-only `Core/Combat/IHealth` contract. Bars read live health every frame, appear only for
+  living damaged entities, and remain 75% of one tile wide at every zoom. Their placement follows
+  interpolated sprite bounds for moving entities and the rotated footprint for buildings.
+  See [health-bars.md](health-bars.md) for the class diagram and behavior details.
 - Player-facing surfaces should route through `UI/Gum/GumUiRenderer.cs` or Gum-backed controls
   so panels, buttons, toggles, hints, and text all share the same rendering path.
 - New screen UI text should not be added through raw `SpriteBatch.DrawString`; text should flow
